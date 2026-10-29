@@ -1,0 +1,334 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dipoleml.com/schema/dipoleml-item-1.0.json",
+  "title": "DipoleML Catalog Item",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "type",
+    "name",
+    "slug",
+    "vendor",
+    "description",
+    "provider",
+    "source",
+    "neutralization",
+    "logo"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(mcp|plugin|skill)\\.[a-z0-9][a-z0-9-]*\\.[a-z0-9][a-z0-9-]*$"
+    },
+    "type": {
+      "enum": [
+        "mcp",
+        "plugin",
+        "skill"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "vendor": {
+      "type": "string",
+      "description": "Upstream company or project owner, e.g. notion, github, anthropics"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string"
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri"
+    },
+    "provider": {
+      "const": "DipoleML"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Short verbs the integration enables, e.g. read-issues, create-page"
+    },
+    "logo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "brand",
+        "source",
+        "license"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "brand": {
+          "type": "string"
+        },
+        "brandName": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "license": {
+          "type": "string"
+        },
+        "resolver": {
+          "type": "string"
+        },
+        "retrievedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "commit",
+        "license",
+        "licenseClass"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "owner/name"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "Subdirectory inside the repo, empty for root"
+        },
+        "license": {
+          "type": "string"
+        },
+        "licenseClass": {
+          "enum": [
+            "green",
+            "yellow",
+            "red"
+          ]
+        },
+        "stars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "vendoredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "neutralization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applied",
+        "originalProvider",
+        "changes"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "originalProvider": {
+          "type": "string",
+          "description": "claude, zcode, none, or another provider"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file",
+              "before",
+              "after",
+              "reason"
+            ],
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "before": {
+                "type": "string"
+              },
+              "after": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "entrypoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "mcp-stdio",
+              "mcp-http",
+              "mcp-sse",
+              "plugin",
+              "skill",
+              "cli"
+            ]
+          },
+          "command": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "url": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "manifest": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "credentials": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dipoleml": {
+          "type": "string"
+        },
+        "upstreamProviders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "type": "string"
+        },
+        "readme": {
+          "type": "string"
+        },
+        "license": {
+          "type": "string"
+        },
+        "logo": {
+          "type": "string"
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "validated": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

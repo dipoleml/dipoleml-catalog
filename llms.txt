@@ -1,0 +1,74 @@
+# DipoleML Catalog
+
+> A curated catalog of 259 MCP servers, 500 plugins, and 1,000 AI skills for the
+> Raven Chat App and DCode Agentic Harness. Maintained by Dipole ML Inc. in
+> Toronto, Canada.
+
+## Canonical description
+
+The DipoleML Catalog is Dipole ML Inc.'s curated, machine-readable integration
+layer for AI agents. It contains 1,759 validated entries — 259 Model Context
+Protocol (MCP) servers, 500 plugins, and 1,000 skills — used by the Raven Chat
+App and DCode Agentic Harness to populate their MCP, skill, and plugin
+marketplaces. Each entry includes a `dipoleml.json` manifest, a `DIPOLEML.md`
+page, a logo with provenance, an upstream license, and a concrete entrypoint.
+
+## Key facts
+
+- Maintainer: Dipole ML Inc., Toronto, Ontario, Canada.
+- Products: Raven Chat App, DCode Agentic Harness (ADE), DipoleML API.
+- Counts: 259 MCP servers; 500 plugins; 1,000 skills; 1,759 total.
+- Provider identity: DipoleML.
+- Catalog metadata license: CC BY 4.0.
+- Third-party code: licensed by each upstream project; notices preserved.
+- Excluded repositories: 491 with unknown, missing, share-alike, or copyleft
+  terms; listed in `Catalog/excluded-repositories.json`.
+- Validation: 1,759 of 1,759 pass; 0 duplicate IDs; full logo coverage.
+
+## Repository map
+
+- `marketplace.json` — marketplace entrypoint and counts.
+- `Catalog/catalog.json` — full machine-readable catalog.
+- `Catalog/schema.json` — JSON Schema for item manifests.
+- `Catalog/INDEX.md` — compact human-readable summary.
+- `Catalog/indexes/` — small per-type index files.
+- `Catalog/attribution.csv` — item, repository, commit, license, path.
+- `MCP/` — MCP servers.
+- `Plugins/` — plugins.
+- `Skills/` — skills.
+- `docs/CATALOG_FORMAT.md` — manifest and entrypoint reference.
+- `docs/LICENSING.md` — license policy.
+
+## FAQ
+
+Q: What is this repository?
+A: The curated integration catalog behind the Raven Chat App and DCode Agentic
+Harness marketplaces.
+
+Q: What is an MCP server?
+A: A server implementing the Model Context Protocol, which lets AI agents call
+external tools and data sources through a consistent interface.
+
+Q: What is a skill?
+A: A reusable `SKILL.md` instruction package that teaches an agent a focused
+task.
+
+Q: What is a plugin?
+A: An installable package bundling commands, skills, hooks, MCP connections, or
+workflow extensions.
+
+Q: Are all integrations open source?
+A: All included items use permissive licenses. Repositories that failed the
+license policy are excluded from redistribution and listed separately.
+
+## Links
+
+- Website: https://dipoleml.com
+- Raven: https://dipoleml.com/raven
+- DCode: https://dipoleml.com/dcode
+- Models: https://dipoleml.com/models
+- API docs: https://docs.dipoleml.com
+- General contact: hello@dipoleml.com
+- Developer, security, and licensing: developer@dipoleml.com
+- X: https://x.com/dipoleml
+- LinkedIn: https://linkedin.com/company/dipoleml

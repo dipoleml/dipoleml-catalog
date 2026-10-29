@@ -1,0 +1,23 @@
+{
+  "name": "DipoleML Catalog",
+  "provider": "DipoleML",
+  "version": "1.0.0",
+  "updated": "2026-10-29T00:44:43Z",
+  "description": "Curated MCP servers, plugins, and skills for the Raven Chat App and DCode Agentic Harness.",
+  "counts": {
+    "mcp": 259,
+    "plugin": 500,
+    "skill": 1000,
+    "total": 1759
+  },
+  "catalog": "Catalog/catalog.json",
+  "schema": "Catalog/schema.json",
+  "index": "Catalog/INDEX.md",
+  "license": "CC-BY-4.0",
+  "paths": {
+    "mcp": "MCP",
+    "plugin": "Plugins",
+    "skill": "Skills"
+  },
+  "indexes": "Catalog/indexes/"
+}

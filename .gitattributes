@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.wasm binary
+*.zip binary
+*.pdf binary
+*.ico binary
+
+MCP/** linguist-vendored
+Plugins/** linguist-vendored
+Skills/** linguist-vendored
+Catalog/catalog.json linguist-generated
+Catalog/indexes/** linguist-documentation
+Catalog/attribution.csv linguist-generated

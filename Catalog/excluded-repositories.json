@@ -1,0 +1,3934 @@
+{
+  "generatedAt": "2026-10-28T23:39:36Z",
+  "count": 491,
+  "items": [
+    {
+      "repo": "Minidoracat/mcp-feedback-enhanced",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 3755,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "liaokongVFX/MCP-Chinese-Getting-Started-Guide",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 3578,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jgravelle/jcodemunch-mcp",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2815,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jamubc/gemini-mcp-tool",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2292,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "vybenetwork/solana-mcp-vybe",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2209,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "modelcontextprotocol/mcpb",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2157,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "figma/mcp-server-guide",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2126,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "chongdashu/unreal-mcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2107,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "vmoranv/jshookmcp",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 2079,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "MicrosoftDocs/mcp",
+      "type": "mcp",
+      "license": "CC-BY-4.0",
+      "licenseClass": "review",
+      "stars": 1956,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "matlab/matlab-mcp-server",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1734,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "harishsg993010/damn-vulnerable-MCP-server",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1362,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "pipeboard-co/meta-ads-mcp",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1337,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "PortSwigger/mcp-server",
+      "type": "mcp",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 1261,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jerry-ai-dev/MODULAR-RAG-MCP-SERVER",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1191,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "iosifache/annas-mcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1102,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "chatmcp/mcp-server-chatsum",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1026,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "xdevplatform/xmcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 865,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "HelpCode-ai/anythingmcp",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 758,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "youichi-uda/godot-mcp-pro",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 637,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "anthropics/claude-ai-mcp",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 532,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AnkleBreaker-Studio/unity-mcp-server",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 529,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "VikashLoomba/copilot-mcp",
+      "type": "mcp",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 506,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ryaker/outlook-mcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 449,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cbcoutinho/nextcloud-mcp-server",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 394,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "stefanoamorelli/sec-edgar-mcp",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 380,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "GTAI-1/flow-mcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 365,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yeuxuan/Ace-Mcp-Node",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 359,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "elusznik/mcp-server-code-execution-mode",
+      "type": "mcp",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 340,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hemanth/paws-on-mcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 326,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SepineTam/mcp-for-stata",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 271,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ed3dai/ed3d-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 253,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "GBSOSS/-mcp-to-skill-converter",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 160,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "PostHog/ai-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 95,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "thepushkarp/cc-gemini-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 74,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hrconsultnj/claude-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 71,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DennisLiuCk/claude-plugin-marketplace",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 28,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "bejranonda/LLM-Autonomous-Agent-Plugin-for-Claude",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 28,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ayrshare/ayrshare-social-media-api-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 20,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "centminmod/claude-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 18,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "legioncodeinc/app-auditor-plugin-claude",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 18,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tvremix/claude-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 15,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Bizuayeu/Plugins-Weave",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "harish-garg/Claude-Plugin-Marketplace-for-Polymarket",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "prime-radiant-inc/claude-plugin-cxdb-integration",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/artcraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/photocraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "qinpei-dev/permit-mcp",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/designcraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/effectcraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/filmcraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/lightcraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/vectorcraft-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "full-aigc-plugins/video-factory-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "kingsword09/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "partme-ai/full-aigc-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "anthropics/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 184513,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "trailofbits/skills",
+      "type": "skill",
+      "license": "CC-BY-SA-4.0",
+      "licenseClass": "review",
+      "stars": 7867,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "op7418/guizang-social-card-skill",
+      "type": "skill",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 7825,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "rebelytics/one-skill-to-rule-them-all",
+      "type": "skill",
+      "license": "CC-BY-4.0",
+      "licenseClass": "review",
+      "stars": 3615,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Vincentwei1021/anything2explainer",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2813,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cisco-ai-defense/skill-scanner",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2658,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "apify/agent-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2472,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "antonbabenko/terraform-skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2430,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Jesseovo/last30days-skill-cn",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1984,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Vincentwei1021/video-talkcraft",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1910,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "maxrave-dev/kotlin-footguns",
+      "type": "skill",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 1734,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "michaelshimeles/rstack",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1395,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "noobnooc/agent",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1388,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "minsight-ai-info/AI-Search-Hub",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1308,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AI-Builder-Club/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1306,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "dpearson2699/swift-ios-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1248,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DUNHKpcc/Claude-Guardian",
+      "type": "skill",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 1185,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "JourniOne-ai/JourniOne-Planning-Skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1175,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "0xpili/simplified-technical-english",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1016,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "borghei/Claude-Skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1004,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tigerless-labs/seo-ops",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 981,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zhoushoujianwork/easyeda-agent",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 865,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Ar9av/PaperOrchestra",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 693,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LinklyAI/best-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 672,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Illyism/seo-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 654,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "smixs/visual-skills",
+      "type": "skill",
+      "license": "CC-BY-4.0",
+      "licenseClass": "review",
+      "stars": 596,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "24kchengYe/human-skill-tree",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 585,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Masriyan/Claude-Code-CyberSecurity-Skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 527,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "oil-oil/draw-ui",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 519,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "coffeefuelbump/csv-data-summarizer-claude-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 480,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "geekjourneyx/claude-design-card",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 472,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tizzy916/humanities-writing-companion",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 469,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "redfox-data/redfox-community",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 450,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "BrianRWagner/ai-marketing-claude-code-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 449,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "YurunChen/repo-docs-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 427,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Microck/ordinary-claude-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 408,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "NulightJens/humanizer-stack",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 376,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Clipcat-ai/clipcat-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 366,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "appariciojunior/video-editor-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 314,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "edisonmbli/refactoring-ui-skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 309,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "oil-oil/oil-cover",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 282,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "membranedev/application-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 270,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "liuhaisi2026212-maker/taishang-laojun",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 263,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "stevenflanagan1/social-ai-team",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 261,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "geekjourneyx/ai-daily-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 237,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "dean9703111/ai-agent-skill-for-video-workflow",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 219,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "harikrishna8121999/antigravity-workflows",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 191,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zy-zmc/tianming-skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 159,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "atmirrr/persian-motion-director",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 147,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yanliudesign/job-description-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 116,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nexscope-ai/nexscope-ecommerce-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 102,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Ashutos1997/claude-design-auditor-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 90,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jmandel/health-skillz",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 82,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "iamzifei/wechat-article-formatter-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 76,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mgifford/accessibility-skills",
+      "type": "skill",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 57,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SkillsCat/skillscat",
+      "type": "skill",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 44,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "JPeetz/agent-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 14,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "roger52027/ecommerce-website-data",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zhwenchao/jungian-soul-agent-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "itsadrianxv/tradeblazer_skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AntonioCardenas/generate-nanobanana",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nexscope-ai/ecommerce-seo-geo-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ma-nucho-pro/supervisor-skill-claude",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 4,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tianzhenyu516-alt/ai-agent-skills-toolkit",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 4,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "h-dubitans/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 3,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mtcto/haolvshi-legal-skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 3,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ricardodantas/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 3,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Develifture/reel-maker",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Griffing-Technology-LLC/engineering-pe-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Meet-Miyani/agent-skill-validator",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Susie-ss/Daily-skill-hub",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "agenthouse-org/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jackson2w/claude-code-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "kraaxiom/securecode-ai",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "lishiyu7/search_one_skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "vishalvoid/skills.vishalvoid",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DirtyBeastAfterTheToad/EU-AI-Act-Compliance-Codebase-Audit-Skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "UnicornXOS/bl1nk-web-portal",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "abbibo/N8N-Workflow-Builder-Agent-skills-N8N",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "angushushu/shu-academic-writing-skill",
+      "type": "skill",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "avsarshukla/skills-vault",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "d3v-null/wsclean-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "developerslearnit/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jhhuh/experiment-driven-skill-development",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ji-cheng-huang/skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "rcpthongta/zed-agent-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shekerkamma/markdown-viewer-skills-audit",
+      "type": "skill",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "xgate-payment/xgate-payment-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "oraios/serena",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 30817,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "BeehiveInnovations/pal-mcp-server",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 11810,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "modelcontextprotocol/inspector",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 11179,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Sylinko/Everywhere",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 6340,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nanbingxyz/5ire",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 5374,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "CrossPaste/crosspaste-desktop",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 2668,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "0xMassi/webclaw",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 2407,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LetsFG/LetsFG",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2207,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "A9T9/RPA",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2091,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aoci-spec/aoci-code",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1775,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nduckmink/arkon",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1506,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DaxianLee/cocos-mcp-server",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1469,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ridafkih/keeper.sh",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 1427,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "higress-group/himarket",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1319,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LING71671/open-reverselab",
+      "type": "mcp",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 1318,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "wilwaldon/Claude-Code-Frontend-Design-Toolkit",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1237,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Zen4-bit/Proxima",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1201,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "fastcrw/crw",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 1192,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "microsoft/work-iq",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1044,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hanzohanzhe/Grandet",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 936,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "arcadeai-labs/smithery-cli",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 849,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "worryzyy/HowToCook-mcp",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 795,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "KeyID-AI/agent-kit",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 660,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ctoldigital/axuse",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 575,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aa0101181514/tw-legal-rag",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 336,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Open-Dev-Society/kitbash",
+      "type": "mcp",
+      "license": "GPL-2.0",
+      "licenseClass": "review",
+      "stars": 51,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ammawla/encode-toolkit",
+      "type": "mcp",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 22,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aws-samples/sample-aws-devops-agent-claude-plugin",
+      "type": "mcp",
+      "license": "MIT-0",
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "bluealpha-labs/bluealpha-mcp-plugins",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "coinpaprika/claude-marketplace",
+      "type": "mcp",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ruvnet/cognitum-claude-plugin",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aidrivencoder/claude-plugins",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "agenticsorg/claude-plugin",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Echo-Smith/zcode-plugin-notion",
+      "type": "mcp",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cursor/plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 14478,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "internet-court/internet-court-skill",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 7035,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "agentplugins/agent-plugins-spec",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 1413,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "vladikk/modularity",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 570,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "m1heng/claude-plugin-weixin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 568,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Kamalnrf/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 563,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "davegoldblatt/total-recall",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 202,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Blotato-Inc/blotato-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 199,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "op7418/m5-paper-buddy",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 164,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DogInfantry/claude-skill-management-consultant-B1",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 149,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jar-analyzer/jar-analyzer-claude",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 141,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "henkisdabro/wookstar-claude-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 93,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Vvkmnn/claude-emporium",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 81,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DingDuff/dingduff-public",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 62,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "lc2panda/claude-plugin-wechat",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 61,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hiroro-work/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 47,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "foyzulkarim/skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 43,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hemangjoshi37a/claude-code-frontend-dev",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 34,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Taimoorkhan1122/prod-readiness",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 30,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "respawn-llc/firefox-cli",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 29,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jamesckemp/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 27,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "uyu423/yowu-claude-marketplace",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 27,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Litun/DecomposeClaudePlugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 23,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "HiroHyun/grounded-copy",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 22,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "NHagar/claude-plugins-journalism",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 20,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "rhavekost/author-toolkit",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 20,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "docker/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 18,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jfilak/sapcli-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 18,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "kanopi/cms-cultivator",
+      "type": "plugin",
+      "license": "GPL-2.0",
+      "licenseClass": "review",
+      "stars": 17,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "stepdasha/pymol-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 17,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shfc/open-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 16,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "duyet/codex-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 15,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "openonion/connectonion-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 15,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "whinc/my-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 15,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AikidoSec/aikido-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 14,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ankitstage21/3D-website",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 14,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nrwl/polygraph-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 14,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "redhat-community-ai-tools/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 14,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "alchemyleads-seo/alchemyagent-claude-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hospitalityos/hotel-ai-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "peakflames/claude-plugins-peakflames",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Adamaik/dsh-zcode-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LSEG-API-Samples/lseg-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "bug-ops/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "RestDB/codehooks-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "campfirein/brv-claude-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "critesjosh/aztec-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "huangdijia/oh-my-claude-code-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shubhagarwal1/reelkit",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "vaadin/claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 11,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jeffweiss/elixir-production",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 10,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "OpenGradient/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "WolframInstitute/ClaudePluginComputationalResearch",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "imbue-ai/code-guardian",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jawhnycooke/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "abnormal-ai/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cfitzgerald-pd/effort-router",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "davebream/claude-of-alexandria",
+      "type": "plugin",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "devbrother2024/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "duanluan/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hostinger/claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "infiquetra/infiquetra-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mcatoms-xyz/mycapsul",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "plinde/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shibuido/claude-plugin-install",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Archibald0/circle-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "JoshuaOliphant/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "comeonzhj/comeonzhj-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "costiash/eliviz",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "karak/karak-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mem9-ai/mem9-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "muloka/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ripplo/claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shrwnsan/vibekit-claude-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "spjoshis/claude-code-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 7,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "WithEchoOffice/withecho-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "canxin121/canxin-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cbrake/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "fullo/claude-plugins-marketplace",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "himicoswilson/himi-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jaredpalmer/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mareurs/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "swellstores/swell-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "trigrman/ee-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "windmill-labs/windmill-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AndVl1/claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AnswerDotAI/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "BetterStackHQ/claude-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Chimdalu-Ofoegbu/Three.js-Object-Sculptor-Claude-Plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Nelsonochoam/nelsonochoam-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "creatorscripts/zoho-deluge-toolkit",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "darkezar/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "futuregerald/futuregerald-claude-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "horuz-ai/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nk-mjk/claude-plugin-novel-writer",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nocodehackers-studio/nch-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "openaccountants/marketplace",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "openshift-hyperfleet/hyperfleet-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "plusnine/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "prime-radiant-inc/claude-plugin-stats",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "sarojpunde/shopify-dev-toolkit-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tomada1114/tomada-claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ashelylinluo/zcode-plugin-swarm",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 4,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nowledge-co/zcode-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 3,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LonExplorer-coder/mattpocock-skills-zcode",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Shuai1Wen/zcode-gpt-web-scientific-review",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "dx3906999/zcode-plugin-peer-review",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "gothamkismet-cyber/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "wangjin/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "20030325zwx-lgtm/zcode-auto-resume",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Breezesea1/Bzs.ZCodePlugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ChaosXu/zcode-plugins-offical",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DeanWanghewei/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Frankait/zcode-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Geighlord007/zcode-binance-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "JunwenXiao0905/zcode-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Kurihara-sumina/zcode-comfyui-bridge",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Sapontop/Zcode-Plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ShyneZhu/zcode-plugin-icons",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SimonUTD/SoL-Zcode",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "VergilGao/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ZCodium-project/zcodium-community-famous-plugins-and-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ai-gump/zcode-plugins-aiotchip",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "alaxrpg/agentmemory-zcode-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "annacomnena/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "awesome-lab/claude-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "bigboyq/ZCode.assets",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "by-carlos/claude-plugins",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "by-carlos/daikenja",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cswfww123/file-size-guard",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "damian-rafael-lattenero/zcode-diff-ask",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "deployxa/zcode-plugin",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "derrick4reals/zcode-plugin-icons",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "duanhf2012/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "edisonzerolam/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "forrestneo/anti-ai-foolish-zcode",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "goubo/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "having5548/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hello77-ch/zcode_plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hualinfeng2023/zcode-plugin-assets",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "huang-jing-hui/rules-injection",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "huangmeme/my-zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ifrankwang/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "kaipol/Zcode_plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "kalandengit/claude-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ks-c/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "lianginx/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "moerfei/swarm-kit",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "phgors/zcode-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "picodozbotdoz/zcode-plugin-azure-cli-always-free",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ricardopera/en-prompt",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "sanqiuyef/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shdowzh888/lottery-exclusion-v2",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "star-stae10/fufu-local-icons",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "syafaatashan/opendesign-zcode-plugin",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tsunami2576/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "w-PiaoPiao/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "wssistec/zcode-plugin-assets",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "xiangyuio/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "xuxinyu1999/my-zcode-marketplace",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yeyuan98/zodex-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yifiao/mattpocock-zcode",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "youarep1g7/zcode-plugin-assets",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yuanrui01/ZCodePlugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zsctest/zcode-plugins",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Imbad0202/academic-research-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 54338,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "vercel-labs/agent-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 33167,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "op7418/guizang-ppt-skill",
+      "type": "skill",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 28863,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "liyupi/ai-guide",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 21712,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Imbad0202/academic-research-skills-codex",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 13678,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "numman-ali/openskills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 10811,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "eze-is/web-access",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 9293,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tech-leads-club/agent-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 7109,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Fokkyp/SoftwareCopyright-Skill",
+      "type": "skill",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 6123,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ChrisWiles/claude-code-showcase",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6077,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "irinabuht12-oss/marketing-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 6073,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "NousResearch/hermes-agent-self-evolution",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5595,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Zeejay0/gathered-scenes-zine-skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 5560,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "coleam00/excalidraw-diagram-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 5127,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mcncarl/yichen-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 4945,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "rohitg00/pro-workflow",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2933,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aiwithremy/claude-skills-llm-council",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2823,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "alexgreensh/token-optimizer",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2770,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mrgoonie/claudekit-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2230,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "huangserva/skill-prompt-generator",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1517,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "alexgreensh/attention-span",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 1507,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "dgreenheck/webgpu-claude-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1262,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "agentrq/agentrq",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 1170,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "abubakarsiddik31/claude-skills-collection",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1109,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "simonw/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 929,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mrtooher/fable-mode",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 879,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Motionsites-AI/claude-skill",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 873,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "keskinonur/claude-code-ios-dev-guide",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 854,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "coleam00/second-brain-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 837,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "chujianyun/skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 747,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ItsssssJack/power-design",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 746,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AThevon/genjutsu",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 698,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "KimGLee/Cambium",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 642,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "GenielabsOpenSource/spine-animation-ai",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 606,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LeastBit/Claude_skills_zh-CN",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 600,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zarazhangrui/youtube-to-ebook",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 584,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AKCodez/higgsfield-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 457,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "proficientlyjobs/proficiently-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 439,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jaechang-hits/SciAgent-Skills",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 384,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Ibrahim-3d/orchestrator-supaconductor",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 380,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tuzhechen2005/opus-video-skills",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 368,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "NTCoding/claude-skillz",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 358,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "op7418/Video-Wrapper-Skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 343,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aapersh/strategy-skills-for-claude",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 342,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jaredrhod/ai-marketing-skills",
+      "type": "skill",
+      "license": "CC-BY-SA-4.0",
+      "licenseClass": "review",
+      "stars": 298,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "chrisvoncsefalvay/claude-d3js-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 250,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aiwithremy/content-principles",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 248,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "bchao1/paper-finder",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 241,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Fokkyp/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 234,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tigerless-labs/design-harness",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 234,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "spences10/svelte-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 217,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ahmedasmar/devops-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 204,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yeap531/word-format-skill",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 204,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "FrkAk/piyaz",
+      "type": "plugin",
+      "license": "AGPL-3.0",
+      "licenseClass": "review",
+      "stars": 197,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Digidai/product-manager-skills",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 193,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "DrCatHicks/informed-patient",
+      "type": "skill",
+      "license": "CC-BY-4.0",
+      "licenseClass": "review",
+      "stars": 188,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "sarveshtalele/claude-architect-exam-guide",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 182,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SpillwaveSolutions/design-doc-mermaid",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 179,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Polaris-Aeterna/loom-notes",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 173,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aiskilloftheweek/claude-ai-skill-of-the-week",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 165,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "KyrieCheungYep/ky-design-to-html-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 164,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "liangdabiao/market-insight-claude-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 159,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "alexknowshtml/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 155,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "assafkip/research-mode",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 154,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "serpro69/claude-toolbox",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 152,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mar-antaya/my-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 149,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Frankcastleauditor/safe-solana-builder",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 145,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "hyqibot/A-share-Ai",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 132,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "lukasreese/powerbi-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 132,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Mood-Global-Services/How-to-Clone-Website---Claude-Skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 124,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "MIKOTOKAWAII25/local-ai-code-assistant",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 121,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "RTFM-IT-Services-LLC/msp-claude-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 121,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Abhi24384/Anthropic-Mythos-Desktop-Studio",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 115,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "1iry/multi-agent-architecture-advisor",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 114,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aufamubarak/plan-execute-verify-claude-code",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 114,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "pillar-labs/sail-skill",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 112,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "coleam00/custom-agent-with-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 107,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zanecole10/software-tailor-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 107,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Diaugeia/paper-glance-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 106,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "juntoku9/claude-for-crypto-research",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 106,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ALBEDO-TABAI/lets-go-rss",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 103,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "dontbesilent2025/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 103,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "adrianpuiu/claude-skills-marketplace",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 100,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Punktheory/research-idea-and-battle",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 98,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "itshussainsprojects/Claude-Council-Skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 98,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SpillwaveSolutions/project-memory",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 92,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "zzmy1917-svg/cheap-vpn-airport",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 90,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "JoxoAI/joxo",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 89,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "The-AIOS/aios",
+      "type": "plugin",
+      "license": "GPL-2.0",
+      "licenseClass": "review",
+      "stars": 88,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "spences10/claude-skills-cli",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 88,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "inulute/cux",
+      "type": "plugin",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 87,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "yanhaoluo0/technical-proposal-expert-writing-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 87,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "rknall/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 86,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "t3knobox/klik-anim-skill-creation",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 83,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ZepiGit/ZCode-Agent-Kit",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 81,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "BayramAnnakov/notebooklm-youtube-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 77,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "BitterSecurity/Vigilo",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 71,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jiawei248/dear-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 69,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SpillwaveSolutions/confluence-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 68,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "az9713/ai-co-writing-claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 67,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "edu-ai-builders/paper-sense-making",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 67,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jeremy-allen/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 67,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "aparente/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 65,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AI-Unleashed/Claude-Skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 64,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "joshua-heygen/viz-pack",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 64,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "wendylabsinc/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 62,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "obviousworks/Claude-AI-skills-collection-2026",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 60,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SpillwaveSolutions/plantuml",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 59,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ratacat/claude-skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 58,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "FeiFei-AIDev/ai-script-generation-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 56,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "costiash/claude-code-docs",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 55,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "umairalipathan1980/Claude-Skill-for-Full-Stack-Application-Development",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 55,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "mberneti/clab",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 54,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "orangevoinULTRA/r02-alirezarezvani-claude-skills-datascience",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 54,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SheenEmpress/r14-borghei-claude-skills-seo",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 53,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ValhallaHelheim/pc-game-performance-analyzer-resp-skill",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 53,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "southwellmedia/seo-audit",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 53,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tknvstp/antigravity-skills",
+      "type": "skill",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 53,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "OpenCesium/Cesium-Skills",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 52,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "FiendJackdawSilo/r14-borghei-claude-skills-datascience",
+      "type": "skill",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 51,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "stacklok/modelith",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 48,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "cabbage2000-lab/paper-tutor-skills",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 47,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "AutumnsGrove/ClaudeSkills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 37,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "michael-denyer/agent-formal-verify",
+      "type": "plugin",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 33,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "jameskomo/config-drift-checker",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 32,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "speedydivid/TokenForge",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 30,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SavaSoftworks/BitFrost",
+      "type": "plugin",
+      "license": "GPL-3.0",
+      "licenseClass": "review",
+      "stars": 25,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "PRDicta/The-Librarian",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 23,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "shahar84/shahar-polaks-career-studio",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 22,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "leeguooooo/prompt-language-coach",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 16,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "Rjgyana/MarkClean-ClaudeWatermarkRemover",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 15,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "tiffygk/jev-mode",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 15,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "arturgaliev3099-ux/realmanagement",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nemori-ai/cc-master",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "usepapers/niw-skills",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 13,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "SanketSapkal/founder-skills",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "labyrinth-analytics/loreconvo",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 12,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "bikemeardsley/GlideGrail.md",
+      "type": "plugin",
+      "license": "CC-BY-4.0",
+      "licenseClass": "review",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "ghosttown123/etsy-ugc-compliance-harvester",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 8,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "TanKimGwan/linmas",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 2,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "sujal11101/hotel-ai-operations-suite",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 2,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "GlotTale/novelist",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "LeoK77S/zcode-auto-compact",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "gothamkismet-cyber/genshin-continue",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "winterallen/zcode-ext-stats",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 1,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "GreendaMi/ZcodeTouchBar",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "nimabhk/zcode-nvidia-ratelimit-hook",
+      "type": "plugin",
+      "license": "NOASSERTION",
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    },
+    {
+      "repo": "stack-wuh/shadow-dev-workflow",
+      "type": "plugin",
+      "license": null,
+      "licenseClass": "unknown",
+      "stars": 0,
+      "reason": "license requires review before distribution"
+    }
+  ]
+}

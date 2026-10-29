@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: DipoleML Catalog
+message: "If you use this catalog, cite Dipole ML Inc."
+type: dataset
+authors:
+  - name: "Dipole ML Inc."
+    website: "https://dipoleml.com"
+version: 1.0.0
+date-released: 2026-10-29
+url: "https://github.com/dipoleml/dipoleml-catalog"
+license: CC-BY-4.0
+abstract: "A curated catalog of 259 MCP servers, 500 plugins, and 1,000 AI skills for the Raven Chat App and DCode Agentic Harness."
+keywords:
+  - MCP
+  - Model Context Protocol
+  - AI skills
+  - AI plugins
+  - agentic AI
+  - sovereign AI
+  - DipoleML
+  - Raven
+  - DCode
