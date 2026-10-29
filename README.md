@@ -299,4 +299,4 @@ See [`LICENSE`](LICENSE), [`NOTICE.md`](NOTICE.md), and [`docs/LICENSING.md`](do
 
 ---
 
-<p align="center"><strong>Dipole ML Inc.</strong> · Toronto, Ontario, Canada · <em>Built with conviction. Bootstrapped from day one.</em></p>
+<p align="center"><strong>Dipole ML Inc.</strong> · Toronto, Ontario, Canada · <em>Built with conviction.</em></p>
