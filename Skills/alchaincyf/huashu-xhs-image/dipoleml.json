@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.alchaincyf.huashu-xhs-image",
+  "type": "skill",
+  "name": "Huashu Xhs Image",
+  "slug": "huashu-xhs-image",
+  "vendor": "alchaincyf",
+  "description": "花叔全部开源 Agent Skills 总目录：16 旗舰 + 14 人物视角 + 22 内置共 52 个 skill，分层分类 + AI Agent 安装协议 + 机器可读 skills.json + 更新检查机制",
+  "version": "0.0.0",
+  "homepage": "https://github.com/alchaincyf/huashu-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alchaincyf",
+    "brandName": "alchaincyf",
+    "source": "https://github.com/alchaincyf.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alchaincyf/huashu-skills",
+    "url": "https://github.com/alchaincyf/huashu-skills",
+    "commit": "da64db345f36f5171e99f422777ffefbb691a804",
+    "path": "huashu-xhs-image",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2090,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

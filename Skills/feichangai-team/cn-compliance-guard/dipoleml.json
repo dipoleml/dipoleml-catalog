@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.feichangai-team.cn-compliance-guard",
+  "type": "skill",
+  "name": "Cn Compliance Guard",
+  "slug": "cn-compliance-guard",
+  "vendor": "feichangai-team",
+  "description": "4 premium AI agent skills for Chinese content compliance — banned word detection, AI search visibility, data export assessment, AIGC detection",
+  "version": "0.0.0",
+  "homepage": "https://github.com/feichangai-team/china-compliance-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "advertising-law",
+    "ai-agent-skills",
+    "aigc-detection",
+    "china-data-protection",
+    "chinese-compliance",
+    "claude-skills",
+    "clawhub",
+    "geo",
+    "pipl"
+  ],
+  "tags": [
+    "advertising-law",
+    "ai-agent-skills",
+    "aigc-detection",
+    "china-data-protection",
+    "chinese-compliance",
+    "claude-skills",
+    "clawhub",
+    "geo",
+    "pipl",
+    "skill-md"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "feichangai-team",
+    "brandName": "feichangai-team",
+    "source": "https://github.com/feichangai-team.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "feichangai-team/china-compliance-skills",
+    "url": "https://github.com/feichangai-team/china-compliance-skills",
+    "commit": "29de1db06b741f55eb49f9f58316670056aa4055",
+    "path": "skills/cn-compliance-guard",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 0,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

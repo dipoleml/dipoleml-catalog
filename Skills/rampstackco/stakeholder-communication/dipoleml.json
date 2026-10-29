@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.rampstackco.stakeholder-communication",
+  "type": "skill",
+  "name": "Stakeholder Communication",
+  "slug": "stakeholder-communication",
+  "vendor": "rampstackco",
+  "description": "Stack-agnostic DipoleML Skills covering the full website lifecycle: brand, design, content, SEO, dev, ops, growth, and research. Build, ship, audit, optimize.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/rampstackco/claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "anthropic",
+    "claude-ai",
+    "claude-skills",
+    "product-management",
+    "rampstack",
+    "seo",
+    "skills-collection",
+    "web-design"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "anthropic",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-skills",
+    "mcp",
+    "product-management",
+    "rampstack",
+    "seo",
+    "skills-collection",
+    "web-design",
+    "web-development"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "rampstackco",
+    "brandName": "rampstackco",
+    "source": "https://github.com/rampstackco.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:19Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "rampstackco/claude-skills",
+    "url": "https://github.com/rampstackco/claude-skills",
+    "commit": "9b90db257f7395fab76ff9bfcb808456709f6af3",
+    "path": "dist/codex/.agents/skills/stakeholder-communication",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1002,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:37:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Stakeholder Communication | Stack-agnostic Claude Skills covering the full website lifecycle: brand, design, content, SEO, dev, ops, growth, and research. Build, ship, audit, optimize.",
+        "after": "Stakeholder Communication | Stack-agnostic DipoleML Skills covering the full website lifecycle: brand, design, content, SEO, dev, ops, growth, and research. Build, ship, audit, optimize.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

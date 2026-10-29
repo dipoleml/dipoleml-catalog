@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.microsoft.skillopt-sleep",
+  "type": "skill",
+  "name": "Skillopt Sleep",
+  "slug": "skillopt-sleep",
+  "vendor": "microsoft",
+  "description": "SkillOpt is a text-space optimizer that trains reusable natural-language skills for frozen LLM agents through trajectory-driven edits, validation-gated updates, and deployable best_skill.md artifacts.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/microsoft/SkillOpt",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "self-evolving-agents"
+  ],
+  "tags": [
+    "agent-skills",
+    "self-evolving-agents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "microsoft",
+    "brandName": "microsoft",
+    "source": "https://github.com/microsoft.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "microsoft/SkillOpt",
+    "url": "https://github.com/microsoft/SkillOpt",
+    "commit": "e2edfa9721ce41c98e50fa129da87cf1f53c2f7f",
+    "path": "plugins/claude-code/skills/skillopt-sleep",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 18751,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

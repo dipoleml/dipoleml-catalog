@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.rediumvex.04-course-promo",
+  "type": "skill",
+  "name": "04 Course Promo",
+  "slug": "04-course-promo",
+  "vendor": "rediumvex",
+  "description": "10 DipoleML skills that generate studio-quality AI video prompts for Seedance 2.0 on Higgsfield. Viral hooks, SaaS demos, personal brand, faceless content, luxury aesthetic & more.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/rediumvex/ai-video-generator-claude",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-content",
+    "ai-video",
+    "ai-video-generator",
+    "anthropic",
+    "claude-skill",
+    "content-creator",
+    "higgsfield",
+    "instagram-reels",
+    "personal-branding"
+  ],
+  "tags": [
+    "ai-content",
+    "ai-video",
+    "ai-video-generator",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-skill",
+    "content-creator",
+    "higgsfield",
+    "instagram-reels",
+    "personal-branding",
+    "prompt-engineering",
+    "saas-marketing",
+    "seedance",
+    "social-media-video",
+    "tiktok",
+    "video-generation",
+    "video-marketing",
+    "video-prompts",
+    "youtube-shorts"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "rediumvex",
+    "brandName": "rediumvex",
+    "source": "https://github.com/rediumvex.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "rediumvex/ai-video-generator-claude",
+    "url": "https://github.com/rediumvex/ai-video-generator-claude",
+    "commit": "ffdad7d515f6579780749d1a90d9ed0945e3a4ac",
+    "path": "skills/04-course-promo",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 442,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:39:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "04 Course Promo | 10 Claude skills that generate studio-quality AI video prompts for Seedance 2.0 on Higgsfield. Viral hooks, SaaS demos, personal brand, faceless content, luxury aesthetic & more.",
+        "after": "04 Course Promo | 10 DipoleML skills that generate studio-quality AI video prompts for Seedance 2.0 on Higgsfield. Viral hooks, SaaS demos, personal brand, faceless content, luxury aesthetic & more.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.lijigang.ljg-learn",
+  "type": "skill",
+  "name": "Ljg Learn",
+  "slug": "ljg-learn",
+  "vendor": "lijigang",
+  "description": "Deep concept anatomist that deconstructs any concept through 8 exploration dimensions (history, dialectics, phenomenology, linguistics, formalization, existentialism, aesthetics, meta-philosophy) and compresses insights into an epiphany. Use when user asks to explain, dissect, or deeply understand a concept, term, or idea. Triggers on '解剖概念', '概念解剖', 'explain concept', 'learn concept', '/ljg-learn'. Produces markdown output.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/lijigang/ljg-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lijigang",
+    "brandName": "lijigang",
+    "source": "https://github.com/lijigang.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lijigang/ljg-skills",
+    "url": "https://github.com/lijigang/ljg-skills",
+    "commit": "a6b11187771a367436abcfd4262679b8d050b486",
+    "path": "skills/ljg-learn",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7580,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:39Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

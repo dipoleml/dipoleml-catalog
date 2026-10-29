@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.fadewalk.serenity-stock-choke",
+  "type": "skill",
+  "name": "Serenity Stock Choke",
+  "slug": "serenity-stock-choke",
+  "vendor": "fadewalk",
+  "description": "A股/港股/美股 卡脖子选股 Skill，基于 Serenity 供应链瓶颈理论 | DipoleML / Codex 通用智能体可用，零依赖",
+  "version": "3.2.1",
+  "homepage": "https://github.com/fadewalk/serenity-stock-choke",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "a-stock",
+    "agent-skills",
+    "claude-skills",
+    "hk-stock",
+    "serenity",
+    "stock-picking",
+    "supply-chain",
+    "us-stock"
+  ],
+  "tags": [
+    "a-stock",
+    "agent-skills",
+    "claude-skills",
+    "hk-stock",
+    "serenity",
+    "stock-picking",
+    "supply-chain",
+    "us-stock"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "fadewalk",
+    "brandName": "fadewalk",
+    "source": "https://github.com/fadewalk.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "fadewalk/serenity-stock-choke",
+    "url": "https://github.com/fadewalk/serenity-stock-choke",
+    "commit": "d119762568110edd34752af12538b5993f468588",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 505,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:38:55Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Serenity Stock Choke | A股/港股/美股 卡脖子选股 Skill，基于 Serenity 供应链瓶颈理论 | Claude Code / Codex 通用智能体可用，零依赖",
+        "after": "Serenity Stock Choke | A股/港股/美股 卡脖子选股 Skill，基于 Serenity 供应链瓶颈理论 | DipoleML / Codex 通用智能体可用，零依赖",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

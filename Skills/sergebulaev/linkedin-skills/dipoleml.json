@@ -1,0 +1,152 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.sergebulaev.linkedin-skills",
+  "type": "skill",
+  "name": "Linkedin Skills",
+  "slug": "linkedin-skills",
+  "vendor": "sergebulaev",
+  "description": "DipoleML skills for LinkedIn. 12 DipoleML and Codex skills that write human-sounding LinkedIn posts, craft comments that get noticed, analyze your feed, and build a publishing cadence, all from your terminal. Content engineering by Creative Content Crafts. MIT.",
+  "version": "1.1.28",
+  "homepage": "https://github.com/sergebulaev/linkedin-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skill",
+    "agent-skills",
+    "ai-content",
+    "ai-marketing",
+    "anthropic",
+    "awesome-claude",
+    "claude-skills",
+    "content-creation",
+    "content-engineering"
+  ],
+  "tags": [
+    "agent-skill",
+    "agent-skills",
+    "ai-agents",
+    "ai-content",
+    "ai-marketing",
+    "anthropic",
+    "awesome-claude",
+    "claude-code",
+    "claude-skills",
+    "content-creation",
+    "content-engineering",
+    "linkedin",
+    "linkedin-automation",
+    "linkedin-engineering",
+    "llm-tools",
+    "openclaw-skill",
+    "personal-branding",
+    "prompt-engineering",
+    "skill-md",
+    "social-media-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sergebulaev",
+    "brandName": "sergebulaev",
+    "source": "https://github.com/sergebulaev.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:25Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sergebulaev/linkedin-skills",
+    "url": "https://github.com/sergebulaev/linkedin-skills",
+    "commit": "8f8bc4b40a2d5419b2dcf898772b85712cfbdf41",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 5319,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Linkedin Skills | Claude skills for LinkedIn. 12 Claude Code and Codex skills that write human-sounding LinkedIn posts, craft comments that get noticed, analyze your feed, and build a publishing cadence, all from your terminal. Content engineering by Creative Content Crafts. MIT.",
+        "after": "Linkedin Skills | DipoleML skills for LinkedIn. 12 DipoleML and Codex skills that write human-sounding LinkedIn posts, craft comments that get noticed, analyze your feed, and build a publishing cadence, all from your terminal. Content engineering by Creative Content Crafts. MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "12 Claude Code and Codex skills for LinkedIn marketing: post writing, comment drafting, reply handler (single + whole-thread sweep), hook extractor, humanizer (rewrite + audit + emoji + detector + rules sub-tools), profile optimizer, content planner, content repurposer, employee advocacy, thread monitor (author replies), engager analytics (likers + commenters ICP segmentation), interviewer (Story Bank of receipts, turning points and positions).",
+        "after": "12 DipoleML and Codex skills for LinkedIn marketing: post writing, comment drafting, reply handler (single + whole-thread sweep), hook extractor, humanizer (rewrite + audit + emoji + detector + rules sub-tools), profile optimizer, content planner, content repurposer, employee advocacy, thread monitor (author replies), engager analytics (likers + commenters ICP segmentation), interviewer (Story Bank of receipts, turning points and positions).",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [
+      "APIFY_TOKEN",
+      "PUBLORA_API_KEY",
+      "PIXFARO_TOKEN"
+    ],
+    "credentials": [
+      "APIFY_TOKEN",
+      "PUBLORA_API_KEY",
+      "PIXFARO_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.mastepanoski.gdpr-audit",
+  "type": "skill",
+  "name": "Gdpr Audit",
+  "slug": "gdpr-audit",
+  "vendor": "mastepanoski",
+  "description": "UX/UI evaluation, AI governance, and AI security skills for AI coding assistants. Audit interfaces with Nielsen heuristics, WCAG, Don Norman principles. Assess AI risk with NIST AI RMF, ISO 42001, OWASP LLM Top 10, and OWASP AI Testing Guide.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/mastepanoski/claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-assessment",
+    "ai-coding",
+    "ai-governance",
+    "ai-security",
+    "skills",
+    "ux",
+    "ux-ui-design"
+  ],
+  "tags": [
+    "ai-agents",
+    "ai-assessment",
+    "ai-coding",
+    "ai-governance",
+    "ai-security",
+    "skills",
+    "ux",
+    "ux-ui-design"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mastepanoski",
+    "brandName": "mastepanoski",
+    "source": "https://github.com/mastepanoski.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mastepanoski/claude-skills",
+    "url": "https://github.com/mastepanoski/claude-skills",
+    "commit": "72b925cf3aadda7ccd43dfe4f8361bec381ca64e",
+    "path": "skills/gdpr-audit",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 59,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

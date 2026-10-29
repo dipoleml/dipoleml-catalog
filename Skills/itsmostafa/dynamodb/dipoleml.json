@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.itsmostafa.dynamodb",
+  "type": "skill",
+  "name": "Dynamodb",
+  "slug": "dynamodb",
+  "vendor": "itsmostafa",
+  "description": "AWS Skills for Agents",
+  "version": "0.0.0",
+  "homepage": "https://github.com/itsmostafa/aws-agent-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic-ai",
+    "aws",
+    "claude-skills",
+    "codex",
+    "coding-agents"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-ai",
+    "aws",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "coding-agents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "amazonwebservices",
+    "brandName": "amazonwebservices",
+    "source": "https://github.com/itsmostafa.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "itsmostafa/aws-agent-skills",
+    "url": "https://github.com/itsmostafa/aws-agent-skills",
+    "commit": "3ee171adbe5ce02086fec9fde0b437a30958f34f",
+    "path": "skills/dynamodb",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1169,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

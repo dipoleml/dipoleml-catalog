@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.op7418.humanizer-zh",
+  "type": "skill",
+  "name": "Humanizer Zh",
+  "slug": "humanizer-zh",
+  "vendor": "op7418",
+  "description": "Humanizer 的汉化版本，DipoleML Skills，旨在消除文本中 AI 生成的痕迹。",
+  "version": "0.0.0",
+  "homepage": "https://github.com/op7418/Humanizer-zh",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "op7418",
+    "brandName": "op7418",
+    "source": "https://github.com/op7418.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "op7418/Humanizer-zh",
+    "url": "https://github.com/op7418/Humanizer-zh",
+    "commit": "f4518a8eab97b8bfebc66a89d34320a89bef6930",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 21345,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:11Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Humanizer Zh | Humanizer 的汉化版本，Claude Code Skills，旨在消除文本中 AI 生成的痕迹。",
+        "after": "Humanizer Zh | Humanizer 的汉化版本，DipoleML Skills，旨在消除文本中 AI 生成的痕迹。",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

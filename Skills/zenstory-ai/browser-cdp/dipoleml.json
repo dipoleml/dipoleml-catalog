@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.zenstory-ai.browser-cdp",
+  "type": "skill",
+  "name": "Browser Cdp",
+  "slug": "browser-cdp",
+  "vendor": "zenstory-ai",
+  "description": "DipoleML / Codex / OpenCode agent skills for writing Chinese web novels (网文): 扫榜、拆文、写作、去AI味、封面全流程，长篇短篇都支持 | 13 skills for novel writing and long-form fiction with file-based continuity tracking. MIT.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/zenstory-ai/oh-story-claudecode",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-novel-writing",
+    "ai-writing",
+    "antigravity",
+    "chinese-novel",
+    "claude-code-skills",
+    "claude-skills",
+    "codex",
+    "creative-writing"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent",
+    "ai-novel-writing",
+    "ai-writing",
+    "antigravity",
+    "chinese-novel",
+    "claude-code",
+    "claude-code-skills",
+    "claude-skills",
+    "codex",
+    "creative-writing",
+    "fiction-writing",
+    "novel-writing",
+    "openclaw",
+    "opencode",
+    "skill",
+    "web-novel",
+    "webnovel",
+    "writing-assistant",
+    "zenstory"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zenstory-ai",
+    "brandName": "zenstory-ai",
+    "source": "https://github.com/zenstory-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zenstory-ai/oh-story-claudecode",
+    "url": "https://github.com/zenstory-ai/oh-story-claudecode",
+    "commit": "70d1cf426f8cbe3d374e2b06e4c2cbdbd986da06",
+    "path": "skills/browser-cdp",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 8091,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Browser Cdp | Claude Code / Codex / OpenCode agent skills for writing Chinese web novels (网文): 扫榜、拆文、写作、去AI味、封面全流程，长篇短篇都支持 | 13 skills for novel writing and long-form fiction with file-based continuity tracking. MIT.",
+        "after": "Browser Cdp | DipoleML / Codex / OpenCode agent skills for writing Chinese web novels (网文): 扫榜、拆文、写作、去AI味、封面全流程，长篇短篇都支持 | 13 skills for novel writing and long-form fiction with file-based continuity tracking. MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

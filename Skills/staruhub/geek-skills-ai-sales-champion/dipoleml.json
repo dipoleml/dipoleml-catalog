@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.staruhub.geek-skills-ai-sales-champion",
+  "type": "skill",
+  "name": "Geek Skills Ai Sales Champion",
+  "slug": "geek-skills-ai-sales-champion",
+  "vendor": "staruhub",
+  "description": "13 curated Agent Skills for research, product decisions, decks, publishing, audits, and more — portable across skills-compatible agents.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/staruhub/ClaudeSkills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-skills",
+    "deep-research"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "deep-research"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "staruhub",
+    "brandName": "staruhub",
+    "source": "https://github.com/staruhub.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "staruhub/ClaudeSkills",
+    "url": "https://github.com/staruhub/ClaudeSkills",
+    "commit": "66e02d23642f0c63ccb07b46a88104eade402d44",
+    "path": "skills/Geek-skills-ai-sales-champion",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 731,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:37:44Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

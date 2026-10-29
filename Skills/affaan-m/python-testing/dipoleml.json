@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.affaan-m.python-testing",
+  "type": "skill",
+  "name": "Python Testing",
+  "slug": "python-testing",
+  "vendor": "affaan-m",
+  "description": "The agent harness performance optimization system. Skills, instincts, memory, security, and research-first development for DipoleML, Codex, Opencode, Cursor and beyond.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/affaan-m/ECC",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "anthropic",
+    "developer-tools",
+    "productivity"
+  ],
+  "tags": [
+    "ai-agents",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "developer-tools",
+    "llm",
+    "mcp",
+    "productivity"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "affaan-m",
+    "brandName": "affaan-m",
+    "source": "https://github.com/affaan-m.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "affaan-m/ECC",
+    "url": "https://github.com/affaan-m/ECC",
+    "commit": "25278e7d7b6cf6e6a4e7a6c8e10f14ff22f0eb5b",
+    "path": ".kiro/skills/python-testing",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 291741,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:54:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Python Testing | The agent harness performance optimization system. Skills, instincts, memory, security, and research-first development for Claude Code, Codex, Opencode, Cursor and beyond.",
+        "after": "Python Testing | The agent harness performance optimization system. Skills, instincts, memory, security, and research-first development for DipoleML, Codex, Opencode, Cursor and beyond.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

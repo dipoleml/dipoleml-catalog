@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.nanako0129.sepia-review",
+  "type": "skill",
+  "name": "Sepia Review",
+  "slug": "sepia-review",
+  "vendor": "nanako0129",
+  "description": "De-AI writing skill for any Agent Skills-compatible agent (77+ via the Skills CLI), with native plugins for DipoleML, Codex, Grok Build, and Antigravity. Narrative-architecture repair for fiction, venue-matched rules for professional prose. Based on StoryScope (arXiv:2604.03136).",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Nanako0129/sepia",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-writing",
+    "antigravity",
+    "codex",
+    "developer-tools",
+    "fiction",
+    "grok",
+    "humanizer",
+    "prompt-engineering"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-writing",
+    "antigravity",
+    "claude-code",
+    "codex",
+    "developer-tools",
+    "fiction",
+    "grok",
+    "humanizer",
+    "llm",
+    "prompt-engineering",
+    "writing-tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nanako0129",
+    "brandName": "nanako0129",
+    "source": "https://github.com/Nanako0129.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:07Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Nanako0129/sepia",
+    "url": "https://github.com/Nanako0129/sepia",
+    "commit": "fb06be76abeae7dd606960a32f2b10c1d1798e0d",
+    "path": "skills/sepia-review",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3536,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Sepia Review | De-AI writing skill for any Agent Skills-compatible agent (77+ via the Skills CLI), with native plugins for Claude Code, Codex, Grok Build, and Antigravity. Narrative-architecture repair for fiction, venue-matched rules for professional prose. Based on StoryScope (arXiv:2604.03136).",
+        "after": "Sepia Review | De-AI writing skill for any Agent Skills-compatible agent (77+ via the Skills CLI), with native plugins for DipoleML, Codex, Grok Build, and Antigravity. Narrative-architecture repair for fiction, venue-matched rules for professional prose. Based on StoryScope (arXiv:2604.03136).",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

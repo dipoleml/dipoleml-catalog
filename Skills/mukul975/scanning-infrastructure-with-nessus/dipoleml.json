@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.mukul975.scanning-infrastructure-with-nessus",
+  "type": "skill",
+  "name": "Scanning Infrastructure with Nessus",
+  "slug": "scanning-infrastructure-with-nessus",
+  "vendor": "mukul975",
+  "description": "817 structured cybersecurity skills for AI agents · Mapped to 6 frameworks: MITRE ATT&CK, NIST CSF 2.0, MITRE ATLAS, D3FEND, NIST AI RMF & MITRE F3 (Fight Fraud) · agentskills.io standard · Works with DipoleML, GitHub Copilot, Codex CLI, Cursor, Gemini CLI & 20+ platforms · 29 security domains · Apache 2.0",
+  "version": "1.0",
+  "homepage": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "cloud-security",
+    "cybersecurity",
+    "devsecops",
+    "ethical-hacking",
+    "incident-response",
+    "infosec",
+    "malware-analysis",
+    "mitre-attack",
+    "nist-csf"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude-code",
+    "cloud-security",
+    "cybersecurity",
+    "devsecops",
+    "ethical-hacking",
+    "incident-response",
+    "infosec",
+    "llm",
+    "malware-analysis",
+    "mcp",
+    "mitre-attack",
+    "nist-csf",
+    "osint",
+    "penetration-testing",
+    "red-team",
+    "security",
+    "security-automation",
+    "threat-hunting",
+    "threat-intelligence"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:05Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "mukul975/Anthropic-Cybersecurity-Skills",
+    "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+    "commit": "54a798831d2266a3ca61ce68a7acb80b81160d57",
+    "path": "skills/scanning-infrastructure-with-nessus",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 35190,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Scanning Infrastructure with Nessus | 817 structured cybersecurity skills for AI agents · Mapped to 6 frameworks: MITRE ATT&CK, NIST CSF 2.0, MITRE ATLAS, D3FEND, NIST AI RMF & MITRE F3 (Fight Fraud) · agentskills.io standard · Works with Claude Code, GitHub Copilot, Codex CLI, Cursor, Gemini CLI & 20+ platforms · 29 security domains · Apache 2.0",
+        "after": "Scanning Infrastructure with Nessus | 817 structured cybersecurity skills for AI agents · Mapped to 6 frameworks: MITRE ATT&CK, NIST CSF 2.0, MITRE ATLAS, D3FEND, NIST AI RMF & MITRE F3 (Fight Fraud) · agentskills.io standard · Works with DipoleML, GitHub Copilot, Codex CLI, Cursor, Gemini CLI & 20+ platforms · 29 security domains · Apache 2.0",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

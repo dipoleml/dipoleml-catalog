@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.browser-act.facebook-ads-library-search",
+  "type": "skill",
+  "name": "Facebook Ads Library Search",
+  "slug": "facebook-ads-library-search",
+  "vendor": "browser-act",
+  "description": "Browser automation CLI built for AI agents. Break through anti-bot walls, hand off to humans across platforms when stuck. Parallel multi-task execution, independent multi-session operation, isolated multi-account browsing.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/browser-act/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-infrastructure",
+    "automation",
+    "claude-cli",
+    "claude-code-skills",
+    "claude-skills",
+    "codex",
+    "codex-cli",
+    "codex-skill",
+    "cursor"
+  ],
+  "tags": [
+    "agent-infrastructure",
+    "ai-agents",
+    "automation",
+    "claude-cli",
+    "claude-code",
+    "claude-code-skills",
+    "claude-skills",
+    "codex",
+    "codex-cli",
+    "codex-skill",
+    "cursor",
+    "data-extraction",
+    "no-code",
+    "openclaw",
+    "openclaw-cli",
+    "openclaw-skill",
+    "openclaw-skills",
+    "web-data-extraction",
+    "web-scraping",
+    "web-scraping-api"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "browser-act",
+    "brandName": "browser-act",
+    "source": "https://github.com/browser-act.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "browser-act/skills",
+    "url": "https://github.com/browser-act/skills",
+    "commit": "11c057b03f92101642cadc9f840564574120d184",
+    "path": "solutions/social-listening/facebook-ads-library-search",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6293,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

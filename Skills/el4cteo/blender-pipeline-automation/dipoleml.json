@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.el4cteo.blender-pipeline-automation",
+  "type": "skill",
+  "name": "Blender Pipeline Automation",
+  "slug": "blender-pipeline-automation",
+  "vendor": "el4cteo",
+  "description": "Professional Blender 5.2 workflows as Agent Skills for DipoleML, Codex, Gemini CLI, Copilot and Cursor: modeling, UVs, PBR, baking, rigging, animation, export and QA.",
+  "version": "1.1.0",
+  "homepage": "https://github.com/EL4CTEO/blender-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "3d",
+    "agent-skills",
+    "blender",
+    "blender-python",
+    "bpy",
+    "claude-skills",
+    "codex",
+    "game-assets",
+    "gemini-cli"
+  ],
+  "tags": [
+    "3d",
+    "agent-skills",
+    "ai-agents",
+    "blender",
+    "blender-python",
+    "bpy",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "game-assets",
+    "gemini-cli",
+    "godot",
+    "mcp",
+    "pbr",
+    "rigging",
+    "roblox",
+    "unity",
+    "unreal-engine"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "blender",
+    "brandName": "blender",
+    "source": "https://cdn.simpleicons.org/blender",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:14Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "EL4CTEO/blender-skills",
+    "url": "https://github.com/EL4CTEO/blender-skills",
+    "commit": "71d031dab8bc6729504d11a78cbe91945401045f",
+    "path": "skills/blender-pipeline-automation",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 569,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:38:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Blender Pipeline Automation | Professional Blender 5.2 workflows as Agent Skills for Claude Code, Codex, Gemini CLI, Copilot and Cursor: modeling, UVs, PBR, baking, rigging, animation, export and QA.",
+        "after": "Blender Pipeline Automation | Professional Blender 5.2 workflows as Agent Skills for DipoleML, Codex, Gemini CLI, Copilot and Cursor: modeling, UVs, PBR, baking, rigging, animation, export and QA.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

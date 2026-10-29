@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.avdlee.spm-build-analysis",
+  "type": "skill",
+  "name": "Spm Build Analysis",
+  "slug": "spm-build-analysis",
+  "vendor": "avdlee",
+  "description": "An Agent Skill helping you to optimize Xcode incremental and clean builds by running benchmarks and optimizing build settings.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ios",
+    "ios-development",
+    "skills",
+    "xcode"
+  ],
+  "tags": [
+    "agent",
+    "agent-skills",
+    "ios",
+    "ios-development",
+    "skills",
+    "xcode"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "avdlee",
+    "brandName": "avdlee",
+    "source": "https://github.com/AvdLee.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "AvdLee/Xcode-Build-Optimization-Agent-Skill",
+    "url": "https://github.com/AvdLee/Xcode-Build-Optimization-Agent-Skill",
+    "commit": "6bd7b596cd688b1127ded00e812b1b6937ec35d6",
+    "path": "skills/spm-build-analysis",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1265,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

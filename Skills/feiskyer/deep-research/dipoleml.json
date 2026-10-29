@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.feiskyer.deep-research",
+  "type": "skill",
+  "name": "Deep Research",
+  "slug": "deep-research",
+  "vendor": "feiskyer",
+  "description": "Curated skills, sub-agents, and config templates that supercharge DipoleML — research, image gen, GitHub automation & more.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/feiskyer/claude-code-settings",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agentic-ai",
+    "claude-code-agents",
+    "claude-code-plugins",
+    "claude-skills",
+    "codex",
+    "copilot",
+    "litellm",
+    "vibe-coding"
+  ],
+  "tags": [
+    "agentic-ai",
+    "agents",
+    "ai",
+    "claude-code",
+    "claude-code-agents",
+    "claude-code-plugins",
+    "claude-skills",
+    "codex",
+    "copilot",
+    "litellm",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:20Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "feiskyer/claude-code-settings",
+    "url": "https://github.com/feiskyer/claude-code-settings",
+    "commit": "95dab59a62b2031adcb7abf25ae0a60b8a13fdb2",
+    "path": "skills/deep-research",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1666,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Deep Research | Curated skills, sub-agents, and config templates that supercharge Claude Code — research, image gen, GitHub automation & more.",
+        "after": "Deep Research | Curated skills, sub-agents, and config templates that supercharge DipoleML — research, image gen, GitHub automation & more.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

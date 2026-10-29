@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.dongshuyan.assess-interview-candidate",
+  "type": "skill",
+  "name": "Assess Interview Candidate",
+  "slug": "assess-interview-candidate",
+  "vendor": "dongshuyan",
+  "description": "司南：个性化 AI 任务总控 Skills 系统 /COMPASS: Personal Alignment Skills OS for AI Agents",
+  "version": "0.0.0",
+  "homepage": "https://github.com/dongshuyan/compass-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-memory",
+    "agent-skill",
+    "agent-skills",
+    "ai-coding-agent",
+    "ai-skills",
+    "claude-skills",
+    "codex-skills",
+    "developer-tools",
+    "local-first"
+  ],
+  "tags": [
+    "agent-memory",
+    "agent-skill",
+    "agent-skills",
+    "ai-agents",
+    "ai-coding-agent",
+    "ai-skills",
+    "claude-code",
+    "claude-skills",
+    "codex-skills",
+    "developer-tools",
+    "local-first",
+    "openai-codex",
+    "personal-ai",
+    "prompt-engineering",
+    "skill-md",
+    "skill-md-skillsmp",
+    "skills-sh",
+    "skillsmp",
+    "task-management",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "dongshuyan",
+    "brandName": "dongshuyan",
+    "source": "https://github.com/dongshuyan.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:13Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "dongshuyan/compass-skills",
+    "url": "https://github.com/dongshuyan/compass-skills",
+    "commit": "5bf1e5df7de8e6d92e649bab0aefd3041a038c05",
+    "path": "skills/assess-interview-candidate",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 762,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:37:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

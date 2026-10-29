@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.mfwarren.email-campaigns",
+  "type": "skill",
+  "name": "Email Campaigns",
+  "slug": "email-campaigns",
+  "vendor": "mfwarren",
+  "description": "Production-ready entrepreneurship skills for DipoleML — marketing, sales, operations, finance, and leadership. 24 skills built by a founder, for founders.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/mfwarren/entrepreneur-claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-skills",
+    "claude-skills",
+    "cursor",
+    "entrepreneurship",
+    "founder",
+    "markdown",
+    "marketing",
+    "sales",
+    "skills"
+  ],
+  "tags": [
+    "ai",
+    "ai-agent",
+    "ai-skills",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "cursor",
+    "entrepreneurship",
+    "founder",
+    "markdown",
+    "marketing",
+    "sales",
+    "skills",
+    "startup",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mfwarren",
+    "brandName": "mfwarren",
+    "source": "https://github.com/mfwarren.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:00Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mfwarren/entrepreneur-claude-skills",
+    "url": "https://github.com/mfwarren/entrepreneur-claude-skills",
+    "commit": "e5e8f4107f62913d7a1dd7a61237605112ca2d7c",
+    "path": "skills/marketing-growth/email-campaigns",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 83,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:43:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Email Campaigns | Production-ready entrepreneurship skills for Claude Code — marketing, sales, operations, finance, and leadership. 24 skills built by a founder, for founders.",
+        "after": "Email Campaigns | Production-ready entrepreneurship skills for DipoleML — marketing, sales, operations, finance, and leadership. 24 skills built by a founder, for founders.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

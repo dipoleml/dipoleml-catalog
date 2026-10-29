@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.s1dashu.ip-as-logo-skill",
+  "type": "skill",
+  "name": "Ip As Logo Skill",
+  "slug": "ip-as-logo-skill",
+  "vendor": "s1dashu",
+  "description": "A compact Agent Skill for highly simplified, rounded, subtly neo-skeuomorphic IP mascot logos.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/s1dashu/ip-as-logo-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "codex",
+    "codex-skill",
+    "image-generation",
+    "logo-design",
+    "mascot-design"
+  ],
+  "tags": [
+    "codex",
+    "codex-skill",
+    "image-generation",
+    "logo-design",
+    "mascot-design"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "s1dashu",
+    "brandName": "s1dashu",
+    "source": "https://github.com/s1dashu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:22Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "s1dashu/ip-as-logo-skill",
+    "url": "https://github.com/s1dashu/ip-as-logo-skill",
+    "commit": "acb834c717bcd0a487c49732d08397ba280d690b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6250,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

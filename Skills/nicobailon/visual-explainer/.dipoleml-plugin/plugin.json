@@ -1,0 +1,16 @@
+{
+  "name": "visual-explainer",
+  "displayName": "Visual Explainer",
+  "version": "0.14.0",
+  "description": "Generate beautiful HTML pages for diagrams, diff reviews, plan reviews, slides, and data tables",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nicobailon"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/nicobailon/visual-explainer",
+  "repository": "https://github.com/nicobailon/visual-explainer",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

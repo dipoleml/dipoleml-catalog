@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.chengyi-ai.native-subtitle-quote-image",
+  "type": "skill",
+  "name": "Native Subtitle Quote Image",
+  "slug": "native-subtitle-quote-image",
+  "vendor": "chengyi-ai",
+  "description": "保留视频内嵌字幕，精确取帧并生成 3:4 社交长图的 Agent Skill",
+  "version": "0.0.0",
+  "homepage": "https://github.com/chengyi-ai/native-subtitle-quote-image",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "codex",
+    "social-media",
+    "subtitles",
+    "video-processing"
+  ],
+  "tags": [
+    "agent-skills",
+    "codex",
+    "social-media",
+    "subtitles",
+    "video-processing"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "chengyi-ai",
+    "brandName": "chengyi-ai",
+    "source": "https://github.com/chengyi-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:03Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "chengyi-ai/native-subtitle-quote-image",
+    "url": "https://github.com/chengyi-ai/native-subtitle-quote-image",
+    "commit": "e2f410dc6e86743148d40eccc30cf86673aa72f0",
+    "path": "skills/native-subtitle-quote-image",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2750,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

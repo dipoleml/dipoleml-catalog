@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.huytieu.meeting-transcript",
+  "type": "skill",
+  "name": "Meeting Transcript",
+  "slug": "meeting-transcript",
+  "vendor": "huytieu",
+  "description": "Self-evolving second brain with 35 AI skills, 10 agents, and people CRM. Closed-loop harness: a V-model verification lifecycle where the worker never grades its own homework. Plus paired anti-slop design skills for marketing and product UI. Works with DipoleML, Cursor, Kiro, Gemini CLI, Codex.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/huytieu/COG-second-brain",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-loop",
+    "agent-plugins",
+    "agent-skills",
+    "agentic",
+    "closed-loop",
+    "cursor",
+    "garry-tan",
+    "gbrain",
+    "gstack"
+  ],
+  "tags": [
+    "agent-loop",
+    "agent-plugins",
+    "agent-skills",
+    "agentic",
+    "ai-agents",
+    "claude-code",
+    "closed-loop",
+    "cursor",
+    "garry-tan",
+    "gbrain",
+    "gstack",
+    "knowledge-management",
+    "loop-engineering",
+    "obsidian",
+    "people-crm",
+    "productivity",
+    "second-brain",
+    "self-evolving",
+    "verification-harness",
+    "worker-agents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "huytieu",
+    "brandName": "huytieu",
+    "source": "https://github.com/huytieu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "huytieu/COG-second-brain",
+    "url": "https://github.com/huytieu/COG-second-brain",
+    "commit": "144c7a3a959cc99538b7dfee9c22c4b065a0e156",
+    "path": ".agents/skills/meeting-transcript",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1326,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Meeting Transcript | Self-evolving second brain with 35 AI skills, 10 agents, and people CRM. Closed-loop harness: a V-model verification lifecycle where the worker never grades its own homework. Plus paired anti-slop design skills for marketing and product UI. Works with Claude Code, Cursor, Kiro, Gemini CLI, Codex.",
+        "after": "Meeting Transcript | Self-evolving second brain with 35 AI skills, 10 agents, and people CRM. Closed-loop harness: a V-model verification lifecycle where the worker never grades its own homework. Plus paired anti-slop design skills for marketing and product UI. Works with DipoleML, Cursor, Kiro, Gemini CLI, Codex.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

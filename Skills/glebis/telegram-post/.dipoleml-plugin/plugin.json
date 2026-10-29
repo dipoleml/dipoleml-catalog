@@ -1,0 +1,16 @@
+{
+  "name": "telegram-post",
+  "displayName": "Telegram Post",
+  "version": "0.0.0",
+  "description": "telegram-post",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Glebis"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/glebis/claude-skills",
+  "repository": "https://github.com/glebis/claude-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

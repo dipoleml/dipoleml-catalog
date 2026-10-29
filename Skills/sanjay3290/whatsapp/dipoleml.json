@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.sanjay3290.whatsapp",
+  "type": "skill",
+  "name": "WhatsApp",
+  "slug": "whatsapp",
+  "vendor": "sanjay3290",
+  "description": "24 cross-platform agent skills for DipoleML, Cursor, Codex & Gemini CLI — databases, messaging, research, TTS, DevOps, and Google Workspace",
+  "version": "0.0.0",
+  "homepage": "https://github.com/sanjay3290/ai-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-skills",
+    "atlassian",
+    "azure-devops",
+    "claude-skills",
+    "codex",
+    "cursor",
+    "deep-research",
+    "elevenlabs"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-skills",
+    "atlassian",
+    "azure-devops",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "cursor",
+    "deep-research",
+    "elevenlabs",
+    "gemini-cli",
+    "google-workspace",
+    "imagen",
+    "mcp",
+    "mysql",
+    "notebooklm",
+    "postgresql",
+    "telegram",
+    "text-to-speech",
+    "whatsapp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:23Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "sanjay3290/ai-skills",
+    "url": "https://github.com/sanjay3290/ai-skills",
+    "commit": "281d88df199357e3091a3be5c743a0fca9a9ae1b",
+    "path": "skills/whatsapp",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 447,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:39:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "WhatsApp | 24 cross-platform agent skills for Claude Code, Cursor, Codex & Gemini CLI — databases, messaging, research, TTS, DevOps, and Google Workspace",
+        "after": "WhatsApp | 24 cross-platform agent skills for DipoleML, Cursor, Codex & Gemini CLI — databases, messaging, research, TTS, DevOps, and Google Workspace",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

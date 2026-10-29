@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.shawhint.ai-tutor-skill",
+  "type": "skill",
+  "name": "Ai Tutor Skill",
+  "slug": "ai-tutor-skill",
+  "vendor": "shawhint",
+  "description": "Example DipoleML skill for explaining technical AI concepts.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ShawhinT/ai-tutor-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "shawhint",
+    "brandName": "shawhint",
+    "source": "https://github.com/ShawhinT.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ShawhinT/ai-tutor-skill",
+    "url": "https://github.com/ShawhinT/ai-tutor-skill",
+    "commit": "7770eff2a11c02405a424de89076af6ff3f2a0a3",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 82,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Ai Tutor Skill | Example Claude skill for explaining technical AI concepts.",
+        "after": "Ai Tutor Skill | Example DipoleML skill for explaining technical AI concepts.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "ai-tutor"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

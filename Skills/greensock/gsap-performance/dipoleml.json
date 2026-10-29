@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.greensock.gsap-performance",
+  "type": "skill",
+  "name": "Gsap Performance",
+  "slug": "gsap-performance",
+  "vendor": "greensock",
+  "description": "Official AI skills for GSAP. These skills teach AI coding agents how to correctly use GSAP (GreenSock Animation Platform), including best practices, common animation patterns, and plugin usage.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/greensock/gsap-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "greensock",
+    "brandName": "greensock",
+    "source": "https://cdn.simpleicons.org/greensock",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:27Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "greensock/gsap-skills",
+    "url": "https://github.com/greensock/gsap-skills",
+    "commit": "aed9cfd3277740755f6bfc1155c7aa645403b760",
+    "path": "skills/gsap-performance",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 17407,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

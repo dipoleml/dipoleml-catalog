@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.wheresryan22.anatomy",
+  "type": "skill",
+  "name": "Anatomy",
+  "slug": "anatomy",
+  "vendor": "wheresryan22",
+  "description": "An agent skill for creating detailed, interactive isometric illustrations of real-world machines and complex systems. Generates polished SVGs with optional WebGL shaders and 3D effects.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/wheresryan22/anatomy",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skill",
+    "open-source",
+    "svg",
+    "vizualization"
+  ],
+  "tags": [
+    "agent-skill",
+    "open-source",
+    "svg",
+    "vizualization"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "wheresryan22",
+    "brandName": "wheresryan22",
+    "source": "https://github.com/wheresryan22.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-28T23:04:27Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "wheresryan22/anatomy",
+    "url": "https://github.com/wheresryan22/anatomy",
+    "commit": "1482e8469b0a9e0d8cc18ea2740a01423d29ae80",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 22070,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

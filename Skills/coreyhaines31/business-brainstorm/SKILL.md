@@ -1,0 +1,161 @@
+---
+name: business-brainstorm
+description: "When you want to pressure-test a potential new business, product, or side project against the serial-founder filter. Not \"marketing ideas for a product\" (that's marketing-skills:marketing-ideas) — this is \"should this business exist + can you win it.\" Runs the idea through a structured framework (problem, audience, wedge, monetization, moat, portfolio fit, distribution, energy fit, opportunity cost), checks domain availability via /domain, optionally triggers /deep-research for market validation, and outputs a viability brief: build / sleep on it / pass. Archives every idea to ~/.config/makerskills/business-brainstorm/archive/ so past work is searchable. Triggers on \"/business-brainstorm,\" \"/brainstorm,\" \"new business idea,\" \"should I build X,\" \"pressure test this idea,\" \"validate this idea,\" \"is X a good business,\" \"what about a [type] for [audience].\""
+metadata:
+  version: 0.4.0
+---
+
+# /business-brainstorm — Pressure-test a business idea
+
+Takes a vague idea, runs it through the user's filter, and outputs a structured viability brief. Composes with `deep-research` (for market) and `/domain` (for naming).
+
+## Step 1 — Capture the idea
+
+Get from the user:
+- The idea in 1–2 sentences (the *what*)
+- The reason it's on their mind (the *why now*)
+- Any starting context (a chat where this came up, a tweet that inspired it, a problem they've hit)
+
+**Resume first.** Look in the archive dir (Step 7) for files whose first line starts with `<!-- in-progress`. If one matches this idea, offer to pick it up: read it, keep every settled score, and continue from the next unscored dimension.
+
+If they point at a past chat / doc, load it first. Memory has `project_*.md` files for in-flight projects — check there before assuming the idea is brand-new.
+
+If the idea is too vague to score, ask 1–2 clarifying questions and stop. Don't pad the brief with assumptions.
+
+Two more cases where scoring would be theater:
+- **Validation-seeking** ("just tell me it's good," "hype me up") — name it kindly: *"I'll run it, but a brief that can't say Pass is worthless. Still in?"* Proceed only on those terms.
+- **Already committed** (built, launched, money spent) — this isn't "should it exist" anymore. Offer `decide` for the next call (keep going / pivot / stop) instead.
+
+## Step 2 — Load the framework + personal overlay
+
+Read `references/framework.md` — the user's filter. Apply each dimension in order.
+
+Also try to load `${MAKERSKILLS_CONFIG:-$HOME/.config/makerskills}/business-brainstorm/portfolio.local.md` if it exists — this is where the user lists their real in-flight businesses, properties, audiences, and partners. When present, use it for the "portfolio fit," "distribution," and "opportunity cost" dimensions instead of asking the user to name each one.
+
+## Step 3 — Score each dimension
+
+For each of the 9 dimensions in `framework.md`, give a 1-line take + a verdict (✅ strong / 🟡 OK / ❌ weak / ❓ unknown — needs research).
+
+Don't BS the unknowns. Mark them ❓ and route to deep-research in Step 4.
+
+**Write the working file before the first score.** Run Step 7's migration check, then create the brief file (path in Step 7, template in Step 6) with the idea, why-now, and an empty Score table, and this as its first line:
+
+```markdown
+<!-- in-progress · scored: 0/9 · next: <dimension> · owed: <claims still to push on, and where> -->
+```
+
+Leave the later brief sections out until Step 7, so an unfinished file never looks finished. As each dimension settles, fill its row and update the marker. If the session dies, the next one resumes from the file. Don't touch `INDEX.md` until Step 7.
+
+Where a dimension depends on something only the user knows (their audience access, energy, what this displaces), ask — one dimension at a time — rather than guessing. Then **hold the bar** on what they say:
+
+- **Hopes don't score.** "People want it," "we'll figure out distribution," "should be easy to build" — stay on it, offer 1–2 sharper candidate answers or ask for one piece of evidence (a waitlist, a request, a competitor's revenue). Still mush after two pushes → ❓, or ❌ where `framework.md` names that exact cop-out as weak ("we'll do SEO," "we'll figure out monetization later"). Never 🟡. Quote the mush in the Take. A half-sharp answer (real price, hoped-for retention) scores on its weaker half.
+- **Opposite Test for differentiation claims** — wherever they show up (usually the Wedge offer or Moat). Flip the claim. If the opposite is nonsense ("worse UX," "not AI-powered," "bad support"), the claim is fluff — demand the real choice underneath (e.g., "opinionated single workflow vs. flexible everything") before it can score ✅.
+- **Threats are present tense.** "A big player *could* enter" is filler. "X launched this feature in March" is a threat. Only present-tense or clearly-likely threats count against Moat.
+
+Warm framing, unmoved bar — attack the claim, never the person.
+
+## Step 4 — Trigger research where needed (optional)
+
+If 2+ dimensions are ❓ unknown, offer the user: *"Want me to run `/deep-research` on [topic] before scoring?"* At 3+ ❓ the framework says research first; if the user declines, write the brief with the ❓s visible — the verdict can't be Build.
+
+Useful research targets:
+- Market size / who pays signal → `last30days` skill (if installed) + web search
+- Competitive landscape → search for "alternatives to X", "X vs Y" pages
+- ICP signal → forums / Reddit / X where the audience hangs out
+- Pricing benchmarks → look at competitor pricing pages
+
+If the user says yes, run the `deep-research` skill on the topic and incorporate the brief.
+
+## Step 5 — Check the .com
+
+Always run `/domain` on the working name(s). A perfect idea with a $50k domain is a worse idea than a B+ idea with a free .com.
+
+If naming is wide open, brainstorm 5–10 candidate names through `/domain` and report which are available.
+
+## Step 6 — Output the brief
+
+Use this template:
+
+```markdown
+# Business brainstorm: <name or idea slug>
+
+**Date:** <YYYY-MM-DD>
+**Idea:** <1–2 sentences>
+**Why now:** <1 sentence>
+
+## Verdict
+**Build** / **Sleep on it** / **Pass** / **Steal an angle for [existing property]**
+
+<2–3 sentence rationale>
+
+## Score
+
+| Dimension | Take | Verdict |
+|---|---|---|
+| 1. Problem | … | ✅ |
+| 2. Audience | … | 🟡 |
+| 3. Wedge | … | ❓ |
+| 4. Monetization | … | ✅ |
+| 5. Moat | … | ❌ |
+| 6. Portfolio fit | … | ✅ |
+| 7. Distribution | … | ✅ |
+| 8. Energy fit | … | 🟡 |
+| 9. Opportunity cost | … | ❌ |
+
+## Domain
+- <name>.com — available / taken / aftermarket $<price>
+- (other candidates if relevant)
+
+## Research applied
+- <link to deep-research brief in ~/.config/makerskills/deep-research/archive/, if run>
+
+## Open questions
+- <what would change the verdict>
+
+## If you build it (sketch)
+- **First 100 customers:** <how>
+- **Wedge offer:** <what>
+- **Price:** <range>
+- **MVP scope:** <1–3 features>
+
+## If you don't build it
+- **Angle to steal for existing properties:**
+  - Property A: …
+  - Property B: …
+  - Property C: …
+  - (etc., only where relevant)
+```
+
+## Step 7 — Archive
+
+Archives live in `${MAKERSKILLS_CONFIG:-$HOME/.config/makerskills}/business-brainstorm/archive/` (create the directory if missing). Never write archives inside the skill's own folder — skill installs and upgrades re-sync from source and wipe anything saved there. **Migration:** if this skill's folder contains an old `references/ideas-archive/` with user entries, move those files into the archive directory first.
+
+Finalize the working file at `<archive dir>/<YYYY-MM-DD>-<slug>.md` (created in Step 3): fill every remaining section and **delete the `<!-- in-progress … -->` line**. Then append to `<archive dir>/INDEX.md` (create if missing):
+
+```markdown
+- 2026-06-16 — [<idea>](./<filename>.md) — **<verdict>** — <one-line rationale>
+```
+
+## Step 8 — Surface
+
+Show the brief in chat. Tell the user the archive path. Offer:
+- *"Want to push to Notion as a positioning canvas?"*
+- *"Want me to scaffold a project repo / landing page?"* (if verdict = Build)
+- *"Want me to revisit in 30 days?"* (if verdict = Sleep on it)
+
+## Composes with
+
+- `deep-research` — for market validation when dimensions are ❓
+- `/domain` — for .com availability and naming brainstorm
+- `/last30days` — for audience/market recency signal (via deep-research)
+- Memory (`project_*.md`) — for portfolio context (don't pitch an idea that already exists)
+
+## Notes on quality
+
+- **Nine dimensions, not one hero metric.** Ideas fail because one dimension quietly rots even when the rest score high. Force each dimension to be scored — no "we'll figure that out later" cop-outs. A cop-out the user won't sharpen scores ❓, quoted, not 🟡.
+- **A brainstorm that always says Build is lying.** The skill must be willing to land on Pass. If you're about to write Build on a table full of 🟡 and ❓, go back to Step 3.
+- **Verdict discipline: Build / Sleep on it / Pass.** Not "maybe." Ambiguity in the verdict compounds into ambiguity in the commit; the brief exists to prevent that.
+- **Portfolio-context check is non-negotiable.** Before writing, grep memory + wiki for existing property overlap. If the new idea is 80% one of your existing properties, propose extending the existing property instead of forking a new one — 4x cheaper to compound.
+- **Archive every brief, even Passes.** Passed ideas resurface — the brief with rationale prevents re-litigating. The archive dir + INDEX.md makes revisit trivial.
+- **"Angle to steal" section forces value from Passes.** Even ideas you won't build often have an angle that improves an existing property. Don't skip this section — it's the highest-leverage output of a Pass verdict.
+- **30-day revisit for "Sleep on it."** Set the calendar reminder. Sleep-on-it ideas that never get revisited become dead weight in the archive; ideas that get revisited resurface with better context.

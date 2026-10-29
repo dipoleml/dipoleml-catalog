@@ -1,0 +1,25 @@
+# Scholarly Writing Refiner
+
+**DipoleML integration** for Zebbern. Type: `skill`. Version: `0.0.0`.
+
+DipoleML Guide - Setup, Commands, workflows, agents, skills & tips-n-tricks from beginner to power user!
+
+## Upstream
+
+- Repository: https://github.com/zebbern/claude-code-guide
+- Commit: `b50a31ad52510d148709b1eb61406952a02c3d19`
+- License: MIT (green)
+- Provider manifests archived under `_upstream/provider-manifests/`
+
+This package is vendored from the upstream project. Executable code is
+unmodified; only provider metadata and manifests were normalized for DipoleML.
+See `dipoleml.json` for the authoritative metadata and `LICENSE` for the
+upstream license.
+
+## Entrypoints
+
+- skill · SKILL.md
+
+## Requirements
+
+- none detected

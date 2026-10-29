@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.yuan1z0825.nature-proposal-writer",
+  "type": "skill",
+  "name": "Nature Proposal Writer",
+  "slug": "nature-proposal-writer",
+  "vendor": "yuan1z0825",
+  "description": "符合nature论文学术表达和科研绘图的Skill",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Yuan1z0825/nature-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "codex-skills",
+    "nature",
+    "nature-skills"
+  ],
+  "tags": [
+    "codex-skills",
+    "nature",
+    "nature-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "yuan1z0825",
+    "brandName": "yuan1z0825",
+    "source": "https://github.com/Yuan1z0825.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Yuan1z0825/nature-skills",
+    "url": "https://github.com/Yuan1z0825/nature-skills",
+    "commit": "4a04b953c13c57adc51e202ce296597f00d29d67",
+    "path": "skills/nature-proposal-writer",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 51196,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:55:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

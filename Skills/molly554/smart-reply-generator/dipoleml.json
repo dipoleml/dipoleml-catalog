@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.molly554.smart-reply-generator",
+  "type": "skill",
+  "name": "Smart Reply Generator",
+  "slug": "smart-reply-generator",
+  "vendor": "molly554",
+  "description": "AI-powered DipoleML Skills for YouTube comment analysis — brand relevance scoring, smart replies, KOL ROI reports, threat detection, and keyword extraction. Built by ReplyCue AI.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/molly554/replycueai_public",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-comment-moderation-for-brands",
+    "automate-youtube-comment-replies-for-brands",
+    "brand-safety-youtube-comments",
+    "how-to-measure-influencer-marketing-roi",
+    "kol-marketing-roi-tracker",
+    "monitor-comments-on-influencer-videos",
+    "youtube",
+    "youtube-brand-comment-monitoring-tool",
+    "youtube-comment-analytics-tool"
+  ],
+  "tags": [
+    "ai-comment-moderation-for-brands",
+    "automate-youtube-comment-replies-for-brands",
+    "brand-safety-youtube-comments",
+    "how-to-measure-influencer-marketing-roi",
+    "kol-marketing-roi-tracker",
+    "monitor-comments-on-influencer-videos",
+    "youtube",
+    "youtube-brand-comment-monitoring-tool",
+    "youtube-comment-analytics-tool",
+    "youtube-comment-management-software",
+    "youtube-commet"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:03Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "molly554/replycueai_public",
+    "url": "https://github.com/molly554/replycueai_public",
+    "commit": "2555b49bb77e36091ee27e070c0fd112056e3eb2",
+    "path": "skills/smart-reply-generator",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 209,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Smart Reply Generator | AI-powered Claude Skills for YouTube comment analysis — brand relevance scoring, smart replies, KOL ROI reports, threat detection, and keyword extraction. Built by ReplyCue AI.",
+        "after": "Smart Reply Generator | AI-powered DipoleML Skills for YouTube comment analysis — brand relevance scoring, smart replies, KOL ROI reports, threat detection, and keyword extraction. Built by ReplyCue AI.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

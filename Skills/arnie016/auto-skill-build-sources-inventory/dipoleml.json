@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.arnie016.auto-skill-build-sources-inventory",
+  "type": "skill",
+  "name": "Auto Skill Build Sources Inventory",
+  "slug": "auto-skill-build-sources-inventory",
+  "vendor": "arnie016",
+  "description": "Color-coded Codex prompt templates and Agent Skills for plugin-orchestrated AI coding workflows, MCP safety, repo intelligence, and automation.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Arnie016/codex-prompt-templates",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-prompts",
+    "agent-skills",
+    "agentic-skills",
+    "agentic-workflow",
+    "ai-agent-prompts",
+    "ai-agent-skills",
+    "ai-workflows",
+    "codex-prompt-templates",
+    "codex-prompts"
+  ],
+  "tags": [
+    "agent-prompts",
+    "agent-skills",
+    "agentic-skills",
+    "agentic-workflow",
+    "ai-agent-prompts",
+    "ai-agent-skills",
+    "ai-agents",
+    "ai-workflows",
+    "codex-prompt-templates",
+    "codex-prompts",
+    "codex-skills",
+    "coding-agents",
+    "context-engineering",
+    "mcp",
+    "mcp-prompts",
+    "openai-codex",
+    "prompt-engineering",
+    "prompt-templates",
+    "skill-md",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "arnie016",
+    "brandName": "arnie016",
+    "source": "https://github.com/Arnie016.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Arnie016/codex-prompt-templates",
+    "url": "https://github.com/Arnie016/codex-prompt-templates",
+    "commit": "d3f1986878a3f242e510f2464b9bf34a6ee08623",
+    "path": "skills/auto-skill-build-sources-inventory",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:44:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

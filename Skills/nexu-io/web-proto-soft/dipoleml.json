@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.nexu-io.web-proto-soft",
+  "type": "skill",
+  "name": "Web Proto Soft",
+  "slug": "web-proto-soft",
+  "vendor": "nexu-io",
+  "description": "✨ The agentic HTML editor — your local AI agent writes the HTML, you ship it. 🚀 75 Skills × 9 Surfaces (magazine · deck · poster · XHS / tweet · prototype · data report · Hyperframes) 🛡️ Sandboxed preview · 📤 1-click to WeChat / X / Zhihu / HTML / PNG 🔑 Zero API key — DipoleML / Cursor / Codex / Gemini / Copilot / OpenCode / Qwen / Aider.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/nexu-io/html-anything",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic",
+    "ai-design",
+    "ai-editor",
+    "byok",
+    "claude-skills",
+    "coding-agents",
+    "generative-ai",
+    "html"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic",
+    "ai-agents",
+    "ai-design",
+    "ai-editor",
+    "byok",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "coding-agents",
+    "generative-ai",
+    "html",
+    "html-editor",
+    "hyperframes",
+    "local-first",
+    "markdown",
+    "nextjs",
+    "vibe-coding",
+    "wechat",
+    "xiaohongshu"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nexu-io",
+    "brandName": "nexu-io",
+    "source": "https://github.com/nexu-io.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nexu-io/html-anything",
+    "url": "https://github.com/nexu-io/html-anything",
+    "commit": "975fb3bcb98f1777781fb4c738902d36e32c8c46",
+    "path": "next/src/lib/templates/skills/web-proto-soft",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 9283,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Web Proto Soft | ✨ The agentic HTML editor — your local AI agent writes the HTML, you ship it. 🚀 75 Skills × 9 Surfaces (magazine · deck · poster · XHS / tweet · prototype · data report · Hyperframes) 🛡️ Sandboxed preview · 📤 1-click to WeChat / X / Zhihu / HTML / PNG 🔑 Zero API key — Claude Code / Cursor / Codex / Gemini / Copilot / OpenCode / Qwen / Aider.",
+        "after": "Web Proto Soft | ✨ The agentic HTML editor — your local AI agent writes the HTML, you ship it. 🚀 75 Skills × 9 Surfaces (magazine · deck · poster · XHS / tweet · prototype · data report · Hyperframes) 🛡️ Sandboxed preview · 📤 1-click to WeChat / X / Zhihu / HTML / PNG 🔑 Zero API key — DipoleML / Cursor / Codex / Gemini / Copilot / OpenCode / Qwen / Aider.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

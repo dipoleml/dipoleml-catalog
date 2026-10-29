@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.simoneavogadro.android-reverse-engineering",
+  "type": "skill",
+  "name": "Android Reverse Engineering",
+  "slug": "android-reverse-engineering",
+  "vendor": "simoneavogadro",
+  "description": "DipoleML skill to support Android app's reverse engineering",
+  "version": "0.0.0",
+  "homepage": "https://github.com/SimoneAvogadro/android-reverse-engineering-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "simoneavogadro",
+    "brandName": "simoneavogadro",
+    "source": "https://github.com/SimoneAvogadro.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:28Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "SimoneAvogadro/android-reverse-engineering-skill",
+    "url": "https://github.com/SimoneAvogadro/android-reverse-engineering-skill",
+    "commit": "0c7cf89830993df7dfc178498f69952262808bea",
+    "path": "plugins/android-reverse-engineering/skills/android-reverse-engineering",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 8347,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:36Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Android Reverse Engineering | Claude Code skill to support Android app's reverse engineering",
+        "after": "Android Reverse Engineering | DipoleML skill to support Android app's reverse engineering",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

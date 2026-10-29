@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.inhouseseo.expert-interview",
+  "type": "skill",
+  "name": "Expert Interview",
+  "slug": "expert-interview",
+  "vendor": "inhouseseo",
+  "description": "11 DipoleML skills for SEO: page audits, linkbuilding, article writing, E-E-A-T audits, semantic gap analysis, link building. Methodology from Koray   Tuğberk, Kyle Roof, and Lily Ray, plus a generation-time anti-AI-slop ruleset. Production-tested at InhouseSEO",
+  "version": "0.0.0",
+  "homepage": "https://github.com/inhouseseo/superseo-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-seo",
+    "claude-ai",
+    "claude-skills",
+    "content-marketing",
+    "google-search-console",
+    "link-building",
+    "prompt-engineering",
+    "search-engine-optimization",
+    "semantic-seo"
+  ],
+  "tags": [
+    "ai-agents",
+    "ai-seo",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-skills",
+    "content-marketing",
+    "google-search-console",
+    "link-building",
+    "llm",
+    "mcp",
+    "prompt-engineering",
+    "search-engine-optimization",
+    "semantic-seo",
+    "seo",
+    "seo-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "inhouseseo",
+    "brandName": "inhouseseo",
+    "source": "https://github.com/inhouseseo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "inhouseseo/superseo-skills",
+    "url": "https://github.com/inhouseseo/superseo-skills",
+    "commit": "9cf22cc065a294bf0077ea6af6b4ea0eb7f89cdc",
+    "path": "skills/expert-interview",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 373,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:40:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Expert Interview | 11 Claude skills for SEO: page audits, linkbuilding, article writing, E-E-A-T audits, semantic gap analysis, link building. Methodology from Koray   Tuğberk, Kyle Roof, and Lily Ray, plus a generation-time anti-AI-slop ruleset. Production-tested at InhouseSEO",
+        "after": "Expert Interview | 11 DipoleML skills for SEO: page audits, linkbuilding, article writing, E-E-A-T audits, semantic gap analysis, link building. Methodology from Koray   Tuğberk, Kyle Roof, and Lily Ray, plus a generation-time anti-AI-slop ruleset. Production-tested at InhouseSEO",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.apiotrowski-afk.commercial-legal-pl",
+  "type": "skill",
+  "name": "Commercial Legal Pl",
+  "slug": "commercial-legal-pl",
+  "vendor": "apiotrowski-afk",
+  "description": "Polish Commercial Legal — DipoleML skill do redakcji i analizy umów według prawa polskiego. B2B IT, ugody, prawo cywilne. Apache 2.0.",
+  "version": "0.8.0",
+  "homepage": "https://github.com/apiotrowski-afk/commercial-legal-pl",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "b2b-contracts",
+    "claude-skill",
+    "claude-skills",
+    "contract-drafting",
+    "gdpr-rodo",
+    "it-contracts",
+    "legal-tech",
+    "open-source"
+  ],
+  "tags": [
+    "agent-skills",
+    "b2b-contracts",
+    "claude-code",
+    "claude-skill",
+    "claude-skills",
+    "contract-drafting",
+    "gdpr-rodo",
+    "it-contracts",
+    "legal-tech",
+    "open-source",
+    "polish-law",
+    "prawo-polskie"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "apiotrowski-afk",
+    "brandName": "apiotrowski-afk",
+    "source": "https://github.com/apiotrowski-afk.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "apiotrowski-afk/commercial-legal-pl",
+    "url": "https://github.com/apiotrowski-afk/commercial-legal-pl",
+    "commit": "393b11354f2f6362948942c34f9f0409fc8e6818",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 182,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:42:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Commercial Legal Pl | Polish Commercial Legal — Claude skill do redakcji i analizy umów według prawa polskiego. B2B IT, ugody, prawo cywilne. Apache 2.0.",
+        "after": "Commercial Legal Pl | Polish Commercial Legal — DipoleML skill do redakcji i analizy umów według prawa polskiego. B2B IT, ugody, prawo cywilne. Apache 2.0.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Polish Commercial Legal — Claude skill for drafting and reviewing contracts under Polish civil law. Focused on B2B, IP and IT contracts (body leasing, NDAs, IT implementation, SaaS, IP assignment, settlements). Built from the practice of Zurawska Piotrowski Law Firm (ktzr.pl). Use when the user asks to analyze a Polish contract, audit contract risks, generate a new agreement, edit a clause, or check contract consistency.",
+        "after": "Polish Commercial Legal — DipoleML skill for drafting and reviewing contracts under Polish civil law. Focused on B2B, IP and IT contracts (body leasing, NDAs, IT implementation, SaaS, IP assignment, settlements). Built from the practice of Zurawska Piotrowski Law Firm (ktzr.pl). Use when the user asks to analyze a Polish contract, audit contract risks, generate a new agreement, edit a clause, or check contract consistency.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

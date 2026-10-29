@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.jimliu.baoyu-design",
+  "type": "skill",
+  "name": "Baoyu Design",
+  "slug": "baoyu-design",
+  "vendor": "jimliu",
+  "description": "Run DipoleML Design locally as an Agent Skill — Cursor, DipoleML & more. Produce polished UI mockups, prototypes, decks & wireframes as self-contained HTML, without DipoleML.ai/design. Best with Opus or DipoleML.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/JimLiu/baoyu-design",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-design",
+    "cursor",
+    "design",
+    "prototyping",
+    "ui-design"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude",
+    "claude-code",
+    "claude-design",
+    "cursor",
+    "design",
+    "prototyping",
+    "ui-design"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jimliu",
+    "brandName": "jimliu",
+    "source": "https://github.com/JimLiu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:41Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "JimLiu/baoyu-design",
+    "url": "https://github.com/JimLiu/baoyu-design",
+    "commit": "6530033592bf7fa58bc1a5a2a2ad278da45213a9",
+    "path": "skills/baoyu-design",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4526,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Baoyu Design | Run Claude Design locally as an Agent Skill — Cursor, Claude Code & more. Produce polished UI mockups, prototypes, decks & wireframes as self-contained HTML, without claude.ai/design. Best with Opus or Claude.",
+        "after": "Baoyu Design | Run DipoleML Design locally as an Agent Skill — Cursor, DipoleML & more. Produce polished UI mockups, prototypes, decks & wireframes as self-contained HTML, without DipoleML.ai/design. Best with Opus or DipoleML.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,98 @@
+# Simple Install
+
+The public install path starts from a published release zip. Download the asset ending in `-public.zip` from the [latest stable release](https://github.com/foryourhealth111-pixel/Vibe-Skills/releases/latest), extract it outside the managed Skills directory, and run the wrappers from the extracted folder.
+
+Verify the downloaded ZIP against the SHA-256 digest shown for the asset on the GitHub Release page.
+
+## One Installation Model
+
+VibeSkills uses the same package and directory layout in every AI application:
+
+1. Choose a `SkillsDir` that the application scans.
+2. Run `install` against that directory.
+3. Invoke `vibe` through the application's Skills entry.
+
+The installer always writes the same runtime to `<SkillsDir>/vibe`. The
+application changes only the `SkillsDir` path and the invocation syntax; it
+does not select a different VibeSkills package or runtime.
+
+The default directory is `~/.agents/skills`. If a host or your own workflow needs a different skills directory, pass it explicitly, for example `~/.codex/skills` or `~/.claude/skills`.
+
+## Install
+
+```powershell
+pwsh -NoProfile -File .\install.ps1 -SkillsDir "$HOME\.agents\skills"
+pwsh -NoProfile -File .\check.ps1 -SkillsDir "$HOME\.agents\skills"
+```
+
+```bash
+bash ./install.sh --skills-dir "$HOME/.agents/skills"
+bash ./check.sh --skills-dir "$HOME/.agents/skills"
+```
+
+To use another Skills directory, replace only the `SkillsDir` value. The
+installed files and runtime remain identical.
+
+After installation, the managed directory is `<SkillsDir>/vibe`. The install receipt lives at `<SkillsDir>/vibe/.vibeskills/install-receipt.json`.
+
+The package must contain the root `SKILL.md`, and its packaging manifest must select that entrypoint.
+Install and update reject packages missing the entrypoint before creating the install directory or
+preparing file changes. Existing installed files and user files are preserved; retry with a corrected
+source package. The receipt must also own `SKILL.md`; check, install, update, and uninstall reject
+receipts missing that entry.
+
+Re-running `install` is allowed when the receipt-owned files are unchanged.
+Both `install` and `update` refuse to replace an existing package when a recorded
+file is modified or missing. Inspect and preserve local changes before retrying.
+The installer rechecks receipt hashes during preparation and immediately before
+replacing or removing each file. Stop other writers to the managed directory
+before installation; a concurrent write can still occur between the final hash
+check and replacement. A destination conflict during application marks the
+transaction `conflicted`, preserves local edits and deletions, and retains the
+recovery journal and backups. Install, update, and uninstall refuse automatic
+recovery until the conflict is resolved. Earlier files in that transaction may
+already have been replaced; inspect the retained journal before using or
+repairing the installation.
+
+For a `conflicted` transaction, preserve `<SkillsDir>/vibe` and its backups
+alongside the journal at `<SkillsDir>/.vibeskills/vibe-install-state.json`.
+If you need a working installation while inspecting the conflict, install to a
+different `SkillsDir`. Keep the journal in place with the recovery evidence.
+
+`check` verifies the files recorded in the receipt.
+`check` proves `installed locally`. It does not prove `runtime coherent` or `delivery accepted`.
+
+## Update An Existing Install
+
+Download the newer published release ZIP first, extract it, and run these commands from that newer release copy against the same `SkillsDir`:
+
+```powershell
+pwsh -NoProfile -File .\update.ps1 -SkillsDir "$HOME\.agents\skills"
+pwsh -NoProfile -File .\check.ps1 -SkillsDir "$HOME\.agents\skills"
+```
+
+```bash
+bash ./update.sh --skills-dir "$HOME/.agents/skills"
+bash ./check.sh --skills-dir "$HOME/.agents/skills"
+```
+
+Do not extract the new release inside the managed `<SkillsDir>/vibe` directory. `update` refuses to overwrite receipt-owned files when drift is detected.
+
+## Remove
+
+When no `conflicted` transaction exists, remove VibeSkills by deleting
+`<SkillsDir>/vibe` from the installation location.
+
+## Replace An Older Version
+
+When no `conflicted` transaction exists, delete the old `<SkillsDir>/vibe`
+folder, then install the current release with the commands above.
+
+v4 does not automatically install or recommend the `chrome`, `chrome-devtools`, `playwright`, `context7`, or `claude-flow` MCPs. The installer also does not modify their host configuration.
+
+The installer does not edit Codex, Claude, or Agents settings. It also does not write system prompts or command wrappers. Extra skill scan directories are managed by runtime config:
+
+- User level: `~/.vibeskills/skill-roots.json`
+- Workspace level: `<workspace>/.vibeskills/skill-roots.json`
+
+Repository checkout installation is for development only.

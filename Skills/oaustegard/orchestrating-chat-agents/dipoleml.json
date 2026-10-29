@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.oaustegard.orchestrating-chat-agents",
+  "type": "skill",
+  "name": "Orchestrating Chat Agents",
+  "slug": "orchestrating-chat-agents",
+  "vendor": "oaustegard",
+  "description": "My collection of DipoleML skills",
+  "version": "1.0.0",
+  "homepage": "https://github.com/oaustegard/claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "claude-skill",
+    "claude-skills"
+  ],
+  "tags": [
+    "claude",
+    "claude-skill",
+    "claude-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "oaustegard",
+    "brandName": "oaustegard",
+    "source": "https://github.com/oaustegard.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:10Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "oaustegard/claude-skills",
+    "url": "https://github.com/oaustegard/claude-skills",
+    "commit": "2c9224e4bacd27e6f1094b3f4656e6ea4024dc06",
+    "path": "orchestrating-chat-agents",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 157,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:42:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Orchestrating Chat Agents | My collection of Claude skills",
+        "after": "Orchestrating Chat Agents | My collection of DipoleML skills",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.elayadesign.landing-page-design",
+  "type": "skill",
+  "name": "Landing Page Design",
+  "slug": "landing-page-design",
+  "vendor": "elayadesign",
+  "description": "Complete system for building high converting landing pages: intake questions, page structure, layout selection, conversion copywriting, SEO, plus strict visual rules for typography, spacing, corner radius, backgrounds, hero layout, icons, and motion. Use this skill whenever building, editing, styling, reviewing, or writing copy for ANY landing page, marketing site, web UI, page section, component, or prototype, even when the user does not mention design, conversion, tokens, or a design system. A",
+  "version": "0.0.0",
+  "homepage": "https://github.com/elayadesign/ai-design-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "elayadesign",
+    "brandName": "elayadesign",
+    "source": "https://github.com/elayadesign.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:15Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "elayadesign/ai-design-skills",
+    "url": "https://github.com/elayadesign/ai-design-skills",
+    "commit": "ded7efc9d5c02761c41a03caf3b78f9259ab8828",
+    "path": "skills/landing-page-design",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 11083,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

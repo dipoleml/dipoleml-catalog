@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.jimliu.baoyu-danger-x-to-markdown",
+  "type": "skill",
+  "name": "Baoyu Danger X to Markdown",
+  "slug": "baoyu-danger-x-to-markdown",
+  "vendor": "jimliu",
+  "description": "Converts X (Twitter) tweets and articles to markdown with YAML front matter. Uses reverse-engineered API requiring user consent. Use when user mentions \"X to markdown\", \"tweet to markdown\", \"save tweet\", or provides x.com/twitter.com URLs for conversion.",
+  "version": "1.117.3",
+  "homepage": "https://github.com/JimLiu/baoyu-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-skills",
+    "codex-skills",
+    "openclaw-skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-skills",
+    "codex-skills",
+    "openclaw-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jimliu",
+    "brandName": "jimliu",
+    "source": "https://github.com/JimLiu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:41Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "JimLiu/baoyu-skills",
+    "url": "https://github.com/JimLiu/baoyu-skills",
+    "commit": "1567581c26ec29f4216c6e6835415bf30343b0e3",
+    "path": "skills/baoyu-danger-x-to-markdown",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 27033,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

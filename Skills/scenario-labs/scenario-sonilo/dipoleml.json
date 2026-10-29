@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.scenario-labs.scenario-sonilo",
+  "type": "skill",
+  "name": "Scenario Sonilo",
+  "slug": "scenario-sonilo",
+  "vendor": "scenario-labs",
+  "description": "Get production-ready images, video, audio, and 3D from any AI agent: skills that pick the right model, price before spending, and keep characters and brands consistent through the Scenario MCP, plus expert teams that drive Blender, Maya, ZBrush, Unreal, and Unity.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/scenario-labs/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "3d-models",
+    "agent-skills",
+    "ai-art",
+    "blender",
+    "claude-skills",
+    "codex",
+    "game-assets",
+    "game-development",
+    "generative-ai"
+  ],
+  "tags": [
+    "3d-models",
+    "agent-skills",
+    "ai-agents",
+    "ai-art",
+    "blender",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "game-assets",
+    "game-development",
+    "generative-ai",
+    "image-generation",
+    "maya",
+    "mcp",
+    "model-context-protocol",
+    "skills-sh",
+    "unity",
+    "unreal-engine",
+    "video-generation",
+    "zbrush"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "blender",
+    "brandName": "blender",
+    "source": "https://cdn.simpleicons.org/blender",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:24Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "scenario-labs/skills",
+    "url": "https://github.com/scenario-labs/skills",
+    "commit": "d44410f058991f677ccf733a8e86ce95110857eb",
+    "path": "skills/scenario-sonilo",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1187,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

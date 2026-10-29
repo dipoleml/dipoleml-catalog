@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.himself65.yfinance-data",
+  "type": "skill",
+  "name": "Yfinance Data",
+  "slug": "yfinance-data",
+  "vendor": "himself65",
+  "description": "A collection of skills for AI financial analysis.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/himself65/finance-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "skills",
+    "trading"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-code",
+    "skills",
+    "trading"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "himself65",
+    "brandName": "himself65",
+    "source": "https://github.com/himself65.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "himself65/finance-skills",
+    "url": "https://github.com/himself65/finance-skills",
+    "commit": "a0850786e72aa23b92862f9f1635b0de506fe206",
+    "path": "plugins/market-analysis/skills/yfinance-data",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3468,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

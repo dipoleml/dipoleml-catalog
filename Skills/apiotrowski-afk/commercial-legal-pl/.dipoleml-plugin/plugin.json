@@ -1,0 +1,16 @@
+{
+  "name": "commercial-legal-pl",
+  "displayName": "Commercial Legal Pl",
+  "version": "0.8.0",
+  "description": "Polish Commercial Legal — DipoleML skill for drafting and reviewing contracts under Polish civil law. Focused on B2B, IP and IT contracts (body leasing, NDAs, IT implementation, SaaS, IP assignment, settlements). Built from the practice of Zurawska Piotrowski Law Firm (ktzr.pl). Use when the user asks to analyze a Polish contract, audit contract risks, generate a new agreement, edit a clause, or check contract consistency.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Apiotrowski Afk"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/apiotrowski-afk/commercial-legal-pl",
+  "repository": "https://github.com/apiotrowski-afk/commercial-legal-pl",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

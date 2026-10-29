@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.gotalab.kiro-spec-design-6",
+  "type": "skill",
+  "name": "Kiro Spec Design",
+  "slug": "kiro-spec-design-6",
+  "vendor": "gotalab",
+  "description": "Turn approved specs into long-running autonomous implementation. A minimal, adaptable SDD harness with Agent Skills for DipoleML, Codex, Cursor, Copilot, Windsurf, OpenCode, Gemini CLI, and Antigravity.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/gotalab/cc-sdd",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "github-copilot",
+    "kiro",
+    "opencode",
+    "sdd",
+    "spec-driven-development"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "cursor",
+    "gemini-cli",
+    "github-copilot",
+    "kiro",
+    "opencode",
+    "sdd",
+    "spec-driven-development",
+    "steering",
+    "subagents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "gotalab",
+    "brandName": "gotalab",
+    "source": "https://github.com/gotalab.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "gotalab/cc-sdd",
+    "url": "https://github.com/gotalab/cc-sdd",
+    "commit": "e2a0c671aef37a482404905b409ab5c27092b25b",
+    "path": "tools/cc-sdd/templates/agents/gemini-cli-skills/skills/kiro-spec-design",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3745,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:53Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Kiro Spec Design | Turn approved specs into long-running autonomous implementation. A minimal, adaptable SDD harness with Agent Skills for Claude Code, Codex, Cursor, Copilot, Windsurf, OpenCode, Gemini CLI, and Antigravity.",
+        "after": "Kiro Spec Design | Turn approved specs into long-running autonomous implementation. A minimal, adaptable SDD harness with Agent Skills for DipoleML, Codex, Cursor, Copilot, Windsurf, OpenCode, Gemini CLI, and Antigravity.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "kiro-spec-design",
+        "after": "kiro-spec-design-6",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

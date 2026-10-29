@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.nidhinjs.prompt-master",
+  "type": "skill",
+  "name": "Prompt Master",
+  "slug": "prompt-master",
+  "vendor": "nidhinjs",
+  "description": "A DipoleML skill that writes the accurate prompts for any AI tool. Zero tokens or credits wasted. Full context and memory retention",
+  "version": "1.8.2",
+  "homepage": "https://github.com/nidhinjs/prompt-master",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "claude-ai",
+    "claude-skills",
+    "prompt-engineering"
+  ],
+  "tags": [
+    "claude-ai",
+    "claude-skills",
+    "llm",
+    "prompt-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nidhinjs",
+    "brandName": "nidhinjs",
+    "source": "https://github.com/nidhinjs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-28T23:04:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nidhinjs/prompt-master",
+    "url": "https://github.com/nidhinjs/prompt-master",
+    "commit": "49b3a72469b1e7287d66387004ccfcca90e5968a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 15205,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:23Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Prompt Master | A Claude skill that writes the accurate prompts for any AI tool. Zero tokens or credits wasted. Full context and memory retention",
+        "after": "Prompt Master | A DipoleML skill that writes the accurate prompts for any AI tool. Zero tokens or credits wasted. Full context and memory retention",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

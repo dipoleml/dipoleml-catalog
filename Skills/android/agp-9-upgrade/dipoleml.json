@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.android.agp-9-upgrade",
+  "type": "skill",
+  "name": "Agp 9 Upgrade",
+  "slug": "agp-9-upgrade",
+  "vendor": "android",
+  "description": "Upgrades, or migrates, an Android project to use Android Gradle Plugin",
+  "version": "0.0.0",
+  "homepage": "https://github.com/android/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "skills"
+  ],
+  "tags": [
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "android",
+    "brandName": "android",
+    "source": "https://cdn.simpleicons.org/android",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:48Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "android/skills",
+    "url": "https://github.com/android/skills",
+    "commit": "45fd1739a4dbca5452c3e936570797f7f6261cd7",
+    "path": "build-system/agp/agp-9-upgrade",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 9985,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.txt",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

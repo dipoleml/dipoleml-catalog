@@ -1,0 +1,16 @@
+{
+  "name": "telegram-telethon",
+  "displayName": "Telegram Telethon",
+  "version": "0.0.0",
+  "description": "This skill should be used for comprehensive Telegram automation via Telethon API. Use for sending/receiving messages, mo",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Glebis"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/glebis/claude-skills",
+  "repository": "https://github.com/glebis/claude-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

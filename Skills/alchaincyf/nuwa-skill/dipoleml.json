@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.alchaincyf.nuwa-skill",
+  "type": "skill",
+  "name": "Nuwa Skill",
+  "slug": "nuwa-skill",
+  "vendor": "alchaincyf",
+  "description": "你想蒸馏的下一个员工，何必是同事。蒸馏任何人的思维方式——心智模型、决策启发式、表达DNA。Distill how anyone thinks.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/alchaincyf/nuwa-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alchaincyf",
+    "brandName": "alchaincyf",
+    "source": "https://github.com/alchaincyf.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alchaincyf/nuwa-skill",
+    "url": "https://github.com/alchaincyf/nuwa-skill",
+    "commit": "7c7edfeb9d90a28b1f79e7847e1ba27a698cdc24",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 36592,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:56:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

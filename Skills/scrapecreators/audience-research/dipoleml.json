@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.scrapecreators.audience-research",
+  "type": "skill",
+  "name": "Audience Research",
+  "slug": "audience-research",
+  "vendor": "scrapecreators",
+  "description": "AI agent skills for social media research. Outlier posts, comment mining, competitor teardowns, ad libraries & trends across TikTok, Instagram, YouTube, Reddit, X, LinkedIn & more. Powered by ScrapeCreators. Works with DipoleML, Cursor, Codex, Gemini CLI.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/ScrapeCreators/social-media-research-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-skills",
+    "competitor-analysis",
+    "content-marketing",
+    "cursor",
+    "influencer-marketing",
+    "market-research",
+    "social-media",
+    "social-media-research"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude-code",
+    "claude-skills",
+    "competitor-analysis",
+    "content-marketing",
+    "cursor",
+    "influencer-marketing",
+    "market-research",
+    "social-media",
+    "social-media-research",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:24Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "ScrapeCreators/social-media-research-skills",
+    "url": "https://github.com/ScrapeCreators/social-media-research-skills",
+    "commit": "64ba7b4dea71e130d2712ffb6c1c1024b3b7c4b2",
+    "path": "skills/audience-research",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 5005,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Audience Research | AI agent skills for social media research. Outlier posts, comment mining, competitor teardowns, ad libraries & trends across TikTok, Instagram, YouTube, Reddit, X, LinkedIn & more. Powered by ScrapeCreators. Works with Claude Code, Cursor, Codex, Gemini CLI.",
+        "after": "Audience Research | AI agent skills for social media research. Outlier posts, comment mining, competitor teardowns, ad libraries & trends across TikTok, Instagram, YouTube, Reddit, X, LinkedIn & more. Powered by ScrapeCreators. Works with DipoleML, Cursor, Codex, Gemini CLI.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

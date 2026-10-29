@@ -1,0 +1,16 @@
+{
+  "name": "linkedin-skills",
+  "displayName": "Linkedin Skills",
+  "version": "1.1.28",
+  "description": "12 DipoleML and Codex skills for LinkedIn marketing: post writing, comment drafting, reply handler (single + whole-thread sweep), hook extractor, humanizer (rewrite + audit + emoji + detector + rules sub-tools), profile optimizer, content planner, content repurposer, employee advocacy, thread monitor (author replies), engager analytics (likers + commenters ICP segmentation), interviewer (Story Bank of receipts, turning points and positions).",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sergebulaev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sergebulaev/linkedin-skills",
+  "repository": "https://github.com/sergebulaev/linkedin-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

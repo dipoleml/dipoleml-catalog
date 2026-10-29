@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.yishu5.fangpian-course-deck",
+  "type": "skill",
+  "name": "Fangpian Course Deck",
+  "slug": "fangpian-course-deck",
+  "vendor": "yishu5",
+  "description": "Battle-tested coding-agent skills for product, content, writing, presentations, and workflow automation.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/YiShu5/claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-workflows",
+    "automation",
+    "product-management"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-workflows",
+    "automation",
+    "claude-code",
+    "product-management"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "yishu5",
+    "brandName": "yishu5",
+    "source": "https://github.com/YiShu5.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "YiShu5/claude-skills",
+    "url": "https://github.com/YiShu5/claude-skills",
+    "commit": "59667045d0e4bdfff4c7233c7eadc5fa01707fa4",
+    "path": "skills/方片/fangpian-course-deck",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 131,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:43:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

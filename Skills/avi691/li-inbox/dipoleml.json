@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.avi691.li-inbox",
+  "type": "skill",
+  "name": "Li Inbox",
+  "slug": "li-inbox",
+  "vendor": "avi691",
+  "description": "Eleven free DipoleML skills that run a LinkedIn account: posts off 21 hook formulas, comments, replies, profile score, weekly plan, and a humanizer that strips the AI fingerprint.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/avi691/linkedin-agent-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "claude-skills",
+    "linkedin"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "linkedin"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "avi691",
+    "brandName": "avi691",
+    "source": "https://github.com/avi691.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:55Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "avi691/linkedin-agent-skill",
+    "url": "https://github.com/avi691/linkedin-agent-skill",
+    "commit": "e4ec4fb6f1b0e227eb9b14b31b735072db5df9cb",
+    "path": "skills/li-inbox",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 150,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:43:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Li Inbox | Eleven free Claude skills that run a LinkedIn account: posts off 21 hook formulas, comments, replies, profile score, weekly plan, and a humanizer that strips the AI fingerprint.",
+        "after": "Li Inbox | Eleven free DipoleML skills that run a LinkedIn account: posts off 21 hook formulas, comments, replies, profile score, weekly plan, and a humanizer that strips the AI fingerprint.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

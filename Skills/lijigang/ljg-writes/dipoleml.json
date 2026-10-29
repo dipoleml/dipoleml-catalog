@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.lijigang.ljg-writes",
+  "type": "skill",
+  "name": "Ljg Writes",
+  "slug": "ljg-writes",
+  "vendor": "lijigang",
+  "description": "写作引擎。把一个观点写成可理解、可迁移、经得住反例的 1000-1500 字中文文章。USE WHEN 写文章 OR 优化思想内容 OR 展开观点 OR 改写成逻辑递进的中文。NOT FOR 普通摘要、事实查询或结构风洞（用 ljg-structure）。",
+  "version": "8.0.1",
+  "homepage": "https://github.com/lijigang/ljg-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lijigang",
+    "brandName": "lijigang",
+    "source": "https://github.com/lijigang.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lijigang/ljg-skills",
+    "url": "https://github.com/lijigang/ljg-skills",
+    "commit": "a6b11187771a367436abcfd4262679b8d050b486",
+    "path": "skills/ljg-writes",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7580,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.ognjengt.lead-magnet-generator",
+  "type": "skill",
+  "name": "Lead Magnet Generator",
+  "slug": "lead-magnet-generator",
+  "vendor": "ognjengt",
+  "description": "DipoleML skills for founders",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ognjengt/founder-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ognjengt",
+    "brandName": "ognjengt",
+    "source": "https://github.com/ognjengt.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ognjengt/founder-skills",
+    "url": "https://github.com/ognjengt/founder-skills",
+    "commit": "a45931cad934dc6243a68f905485467935a4ad9a",
+    "path": "skills/lead-magnet-generator",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 649,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Lead Magnet Generator | Claude skills for founders",
+        "after": "Lead Magnet Generator | DipoleML skills for founders",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

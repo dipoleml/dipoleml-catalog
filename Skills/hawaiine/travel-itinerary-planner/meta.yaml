@@ -1,0 +1,11 @@
+name: travel-itinerary-planner
+short_name: "行迹旅行路书"
+title: "🧭 travel-itinerary-planner"
+summary_zh: "把旅行意愿变成可核验、可对账的行程与交互式 HTML 路书"
+summary_en: "Turn travel wishes into verified, reconcilable itineraries and interactive HTML roadbooks"
+status: active
+version: "1.0.0"
+tags: [travel, itinerary, roadbook, budget, self-drive, openstreetmap]
+upstream_repo: ""
+source_note: "Oasisic-Skills 原生技能；采用开放地图、可追溯事实台账与预算对账流程"
+last_updated: "2026-09"

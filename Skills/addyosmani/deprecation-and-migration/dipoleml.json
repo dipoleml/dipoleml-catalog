@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.addyosmani.deprecation-and-migration",
+  "type": "skill",
+  "name": "Deprecation and Migration",
+  "slug": "deprecation-and-migration",
+  "vendor": "addyosmani",
+  "description": "Production-grade engineering skills for AI coding agents.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/addyosmani/agent-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "antigravity",
+    "codex",
+    "cursor",
+    "skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "antigravity",
+    "claude-code",
+    "codex",
+    "cursor",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "addyosmani",
+    "brandName": "addyosmani",
+    "source": "https://github.com/addyosmani.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "addyosmani/agent-skills",
+    "url": "https://github.com/addyosmani/agent-skills",
+    "commit": "aeac41d4d005999432bb7312f7ff06383a91d59d",
+    "path": "skills/deprecation-and-migration",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 111454,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:30:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.jeffallan.architecture-designer",
+  "type": "skill",
+  "name": "Architecture Designer",
+  "slug": "architecture-designer",
+  "vendor": "jeffallan",
+  "description": "67 Specialized Skills for Full-Stack Developers. Transform DipoleML into your expert pair programmer.",
+  "version": "1.1.1",
+  "homepage": "https://github.com/Jeffallan/claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "claude-marketplace",
+    "claude-skills"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-marketplace",
+    "claude-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jeffallan",
+    "brandName": "jeffallan",
+    "source": "https://github.com/Jeffallan.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Jeffallan/claude-skills",
+    "url": "https://github.com/Jeffallan/claude-skills",
+    "commit": "9428b02e5165b73e0d21a4fbb9bc209432b11200",
+    "path": "skills/architecture-designer",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 12115,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Architecture Designer | 67 Specialized Skills for Full-Stack Developers. Transform Claude Code into your expert pair programmer.",
+        "after": "Architecture Designer | 67 Specialized Skills for Full-Stack Developers. Transform DipoleML into your expert pair programmer.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.arjun988.texture-workflow-2",
+  "type": "skill",
+  "name": "Texture Workflow",
+  "slug": "texture-workflow-2",
+  "vendor": "arjun988",
+  "description": "94 specialist Blender skills for Cursor, DipoleML, Kiro & Codex -> MCP-powered production pipeline from blockout to engine export.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/arjun988/blender-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "3d-models",
+    "agent-skills",
+    "blender",
+    "blender-addon",
+    "blender-mcp",
+    "claude-skills",
+    "cursor-ai",
+    "game-development"
+  ],
+  "tags": [
+    "3d-models",
+    "agent",
+    "agent-skills",
+    "blender",
+    "blender-addon",
+    "blender-mcp",
+    "claude-code",
+    "claude-skills",
+    "cursor-ai",
+    "game-development",
+    "mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "blender",
+    "brandName": "blender",
+    "source": "https://cdn.simpleicons.org/blender",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:51Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "arjun988/blender-skills",
+    "url": "https://github.com/arjun988/blender-skills",
+    "commit": "8f778d2405a214b508d4c7d80742be8e43acdd52",
+    "path": ".cursor/skills/texture-workflow",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1291,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Texture Workflow | 94 specialist Blender skills for Cursor, Claude Code, Kiro & Codex -> MCP-powered production pipeline from blockout to engine export.",
+        "after": "Texture Workflow | 94 specialist Blender skills for Cursor, DipoleML, Kiro & Codex -> MCP-powered production pipeline from blockout to engine export.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "texture-workflow",
+        "after": "texture-workflow-2",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

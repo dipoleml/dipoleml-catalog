@@ -1,0 +1,20 @@
+{
+  "name": "twitter",
+  "displayName": "Twitter",
+  "version": "1.0.0",
+  "description": "Search and retrieve content from Twitter/X. Get user info, tweets, replies, followers, communities, spaces, and trends via twitterapi.io.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Resciencelab"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ReScienceLab/opc-skills/tree/main/skills/twitter",
+  "repository": "https://github.com/ReScienceLab/opc-skills",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "commands": [
+    "./scripts/"
+  ],
+  "agents": []
+}

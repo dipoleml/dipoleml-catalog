@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.lijigang.ljg-constraint",
+  "type": "skill",
+  "name": "Ljg Constraint",
+  "slug": "ljg-constraint",
+  "vendor": "lijigang",
+  "description": "给一个领域、专业、角色、产品或争论找出真正框住它的几条约束，判明它们属于世界/规则/解释（硬/软/自设），看这组约束如何定义身份、补全问题、框出解空间并解释实际行为；尤其用于区分目标相同但约束不同导致的方案分歧，识别被误当硬事实的旧解释。USE WHEN 用户说 '约束', '找约束', '这个领域的约束是什么', '本质约束', '什么框住了它', '硬约束还是自设约束', '边界在哪', '这行为什么这么做', 'constraint', '/ljg-constraint', or gives any domain/profession/role/product/debate and wants its defining constraints and solution space mapped. NOT FOR 往下挖生成器（用 ljg-rank，找的是生成力不是边界）、纵向深钻一个观点到底（用 ljg-think）、拆一本书（用 ljg-book）、一个概念解剖（用 ljg-learn）。",
+  "version": "0.0.0",
+  "homepage": "https://github.com/lijigang/ljg-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lijigang",
+    "brandName": "lijigang",
+    "source": "https://github.com/lijigang.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lijigang/ljg-skills",
+    "url": "https://github.com/lijigang/ljg-skills",
+    "commit": "a6b11187771a367436abcfd4262679b8d050b486",
+    "path": "skills/ljg-constraint",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7580,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:39Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

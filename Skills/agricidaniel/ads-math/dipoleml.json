@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.agricidaniel.ads-math",
+  "type": "skill",
+  "name": "Ads Math",
+  "slug": "ads-math",
+  "vendor": "agricidaniel",
+  "description": "DipoleML-first paid-media operations skill for DipoleML across 12 ad platforms (Google, Meta, YouTube, LinkedIn, TikTok, Microsoft, Apple, Amazon, Reddit, Pinterest, Snapchat, X): source-grounded audits, deterministic findings and evidence coverage, versioned JSON reports, and capability-gated account changes.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/AgriciDaniel/claude-ads",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-marketing",
+    "claude-code-skill",
+    "google-ads",
+    "marketing-automation",
+    "meta-ads",
+    "open-source",
+    "paid-advertising",
+    "ppc"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai",
+    "ai-marketing",
+    "claude-code",
+    "claude-code-skill",
+    "google-ads",
+    "marketing-automation",
+    "meta-ads",
+    "open-source",
+    "paid-advertising",
+    "ppc"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:41Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "AgriciDaniel/claude-ads",
+    "url": "https://github.com/AgriciDaniel/claude-ads",
+    "commit": "fc3908e786c318776df89a3a098333da377364be",
+    "path": "skills/ads-math",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 10539,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Ads Math | Claude-first paid-media operations skill for Claude Code across 12 ad platforms (Google, Meta, YouTube, LinkedIn, TikTok, Microsoft, Apple, Amazon, Reddit, Pinterest, Snapchat, X): source-grounded audits, deterministic findings and evidence coverage, versioned JSON reports, and capability-gated account changes.",
+        "after": "Ads Math | DipoleML-first paid-media operations skill for DipoleML across 12 ad platforms (Google, Meta, YouTube, LinkedIn, TikTok, Microsoft, Apple, Amazon, Reddit, Pinterest, Snapchat, X): source-grounded audits, deterministic findings and evidence coverage, versioned JSON reports, and capability-gated account changes.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

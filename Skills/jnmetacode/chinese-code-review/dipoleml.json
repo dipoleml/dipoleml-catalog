@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.jnmetacode.chinese-code-review",
+  "type": "skill",
+  "name": "Chinese Code Review",
+  "slug": "chinese-code-review",
+  "vendor": "jnmetacode",
+  "description": "🦸 AI 编程超能力 · 中文增强版 — superpowers（250k+ ⭐）完整汉化 + 4 个中国原创 skills，让 DipoleML / Copilot CLI / Hermes Agent / Cursor / Windsurf / Kiro / Gemini CLI / Qoder 等 26 款 AI 编程工具真正会干活",
+  "version": "1.0.0",
+  "homepage": "https://github.com/jnMetaCode/superpowers-zh",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic-coding",
+    "ai-coding",
+    "chinese",
+    "code-review",
+    "cursor",
+    "gemini-cli",
+    "kiro",
+    "npm-package"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-coding",
+    "ai-coding",
+    "chinese",
+    "claude-code",
+    "code-review",
+    "cursor",
+    "gemini-cli",
+    "kiro",
+    "mcp",
+    "npm-package",
+    "prompt-engineering",
+    "skills",
+    "superpowers",
+    "tdd",
+    "trae"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jnmetacode",
+    "brandName": "jnmetacode",
+    "source": "https://github.com/jnMetaCode.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:42Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jnMetaCode/superpowers-zh",
+    "url": "https://github.com/jnMetaCode/superpowers-zh",
+    "commit": "020339d1410e51a9eca16d26f4eac4cfee166d8a",
+    "path": "skills/chinese-code-review",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 8413,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Chinese Code Review | 🦸 AI 编程超能力 · 中文增强版 — superpowers（250k+ ⭐）完整汉化 + 4 个中国原创 skills，让 Claude Code / Copilot CLI / Hermes Agent / Cursor / Windsurf / Kiro / Gemini CLI / Qoder 等 26 款 AI 编程工具真正会干活",
+        "after": "Chinese Code Review | 🦸 AI 编程超能力 · 中文增强版 — superpowers（250k+ ⭐）完整汉化 + 4 个中国原创 skills，让 DipoleML / Copilot CLI / Hermes Agent / Cursor / Windsurf / Kiro / Gemini CLI / Qoder 等 26 款 AI 编程工具真正会干活",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

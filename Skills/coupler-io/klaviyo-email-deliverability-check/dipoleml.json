@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.coupler-io.klaviyo-email-deliverability-check",
+  "type": "skill",
+  "name": "Klaviyo Email Deliverability Check",
+  "slug": "klaviyo-email-deliverability-check",
+  "vendor": "coupler-io",
+  "description": "AI agent skills for marketing, sales, finance, ecommerce, PPC, and reporting analysis with live Coupler.io data.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/coupler-io/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-agent-skills",
+    "ai-skills",
+    "business-analytics",
+    "business-intelligence",
+    "claude-skills",
+    "coupler-io",
+    "data-analysis",
+    "ecommerce-analytics"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent-skills",
+    "ai-skills",
+    "business-analytics",
+    "business-intelligence",
+    "claude-code",
+    "claude-skills",
+    "coupler-io",
+    "data-analysis",
+    "ecommerce-analytics",
+    "financial-analytics",
+    "marketing-analytics",
+    "mcp",
+    "model-context-protocol",
+    "ppc",
+    "sales-analytics"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "coupler-io",
+    "brandName": "coupler-io",
+    "source": "https://github.com/coupler-io.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "coupler-io/skills",
+    "url": "https://github.com/coupler-io/skills",
+    "commit": "908576ad8cbd439e2f98636c10909e2a80c0b19d",
+    "path": "ecommerce/klaviyo/klaviyo-email-deliverability-check",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 39,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:44:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.sawyerhood.dev-browser",
+  "type": "skill",
+  "name": "Dev Browser",
+  "slug": "dev-browser",
+  "vendor": "sawyerhood",
+  "description": "A DipoleML Skill to give your agent the ability to use a web browser",
+  "version": "0.0.0",
+  "homepage": "https://github.com/SawyerHood/dev-browser",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "playwright",
+    "skills"
+  ],
+  "tags": [
+    "claude-code",
+    "playwright",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sawyerhood",
+    "brandName": "sawyerhood",
+    "source": "https://github.com/SawyerHood.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:24Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "SawyerHood/dev-browser",
+    "url": "https://github.com/SawyerHood/dev-browser",
+    "commit": "e5d746f1fc17a3301d6e7f865f89c034f15f69fb",
+    "path": "skills/dev-browser",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6704,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Dev Browser | A Claude Skill to give your agent the ability to use a web browser",
+        "after": "Dev Browser | A DipoleML Skill to give your agent the ability to use a web browser",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

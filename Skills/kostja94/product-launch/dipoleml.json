@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.kostja94.product-launch",
+  "type": "skill",
+  "name": "Product Launch",
+  "slug": "product-launch",
+  "vendor": "kostja94",
+  "description": "Agent Skills for Marketing — SEO, Social, Influencer & More. 160+ open-source skills for SEO, content, 40+ page types, paid ads, channels, and strategies. Add project context; get tailored, production-ready output. Cursor, DipoleML, OpenClaw — no lock-in.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/kostja94/marketing-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "cursor",
+    "growth-marketing",
+    "marketing",
+    "seo",
+    "skills-sh",
+    "vibe-coding"
+  ],
+  "tags": [
+    "agent-skills",
+    "cursor",
+    "growth-marketing",
+    "marketing",
+    "seo",
+    "skills-sh",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kostja94",
+    "brandName": "kostja94",
+    "source": "https://github.com/kostja94.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kostja94/marketing-skills",
+    "url": "https://github.com/kostja94/marketing-skills",
+    "commit": "45143a7d6d8f92fc9048aa4f3074a26272bd0d2a",
+    "path": "skills/strategies/launch/product-launch",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1066,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:36:20Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Product Launch | Agent Skills for Marketing — SEO, Social, Influencer & More. 160+ open-source skills for SEO, content, 40+ page types, paid ads, channels, and strategies. Add project context; get tailored, production-ready output. Cursor, Claude Code, OpenClaw — no lock-in.",
+        "after": "Product Launch | Agent Skills for Marketing — SEO, Social, Influencer & More. 160+ open-source skills for SEO, content, 40+ page types, paid ads, channels, and strategies. Add project context; get tailored, production-ready output. Cursor, DipoleML, OpenClaw — no lock-in.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

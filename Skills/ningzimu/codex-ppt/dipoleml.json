@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.ningzimu.codex-ppt",
+  "type": "skill",
+  "name": "Codex Ppt",
+  "slug": "codex-ppt",
+  "vendor": "ningzimu",
+  "description": "GPT-Image-2 PPT Generator Skill for Creating Image-Based PowerPoint Presentations in Codex and Other Skill-Compatible Agents",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ningzimu/codex-ppt-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-ppt",
+    "codex",
+    "gpt-image-2",
+    "powerpoint",
+    "ppt",
+    "ppt-skill",
+    "pptx",
+    "presentation"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-ppt",
+    "claude-code",
+    "codex",
+    "gpt-image-2",
+    "powerpoint",
+    "ppt",
+    "ppt-skill",
+    "pptx",
+    "presentation",
+    "skill"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ningzimu",
+    "brandName": "ningzimu",
+    "source": "https://github.com/ningzimu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ningzimu/codex-ppt-skill",
+    "url": "https://github.com/ningzimu/codex-ppt-skill",
+    "commit": "941dcafe2f23ea4ae61de99e9b22fb0ef3d9e06c",
+    "path": "skills/codex-ppt",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7413,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

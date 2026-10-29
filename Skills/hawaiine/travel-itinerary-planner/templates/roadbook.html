@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<!--
+  行迹 roadbook template (open stack).
+  Fill <script id="roadbook-data"> with trip JSON (schema: templates/roadbook-data.example.json).
+  Self-host reading/mono fonts in assets/fonts/ (LXGW WenKai Screen, Sarasa Mono SC).
+  Licensed photos in assets/photos/. Map: Leaflet + OpenStreetMap, with an offline
+  static-SVG fallback. No proprietary map service is used.
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>路书</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root{
+    --bg:#F5F6F8; --card:#fff; --ink:#20262e; --muted:#69727e; --line:#e6e9ee;
+    --pine:#1f4d3f; --pine-2:#2f6f4f; --terra:#c2703d; --slate:#334;
+    --read:"LXGW WenKai Screen","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --mono:"Sarasa Mono SC",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --r:16px; --shadow:0 2px 4px rgba(20,30,45,.04),0 12px 28px rgba(20,30,45,.06);
+  }
+  @font-face{font-family:"LXGW WenKai Screen";font-display:swap;font-weight:400;src:url("assets/fonts/LXGWWenKaiScreen-Regular.woff2") format("woff2");}
+  @font-face{font-family:"Sarasa Mono SC";font-display:swap;font-weight:400;src:url("assets/fonts/SarasaMonoSC-Regular.woff2") format("woff2");}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--read);line-height:1.72;-webkit-text-size-adjust:100%}
+  .wrap{max-width:920px;margin:0 auto;padding:0 18px 80px}
+  h1,h2,h3{letter-spacing:.02em;line-height:1.25;margin:0}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums lining-nums}
+
+  /* hero */
+  .hero{position:relative;margin:0 -18px;min-height:340px;display:flex;align-items:flex-end;
+    background:#12261f center/cover no-repeat;color:#fff;overflow:hidden}
+  .hero::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(8,20,16,.86) 4%,rgba(8,20,16,.28) 52%,rgba(8,20,16,.15))}
+  .hero .inner{position:relative;z-index:2;padding:26px 22px 24px;max-width:920px;margin:0 auto;width:100%}
+  .hero .kick{font-size:.8rem;letter-spacing:.22em;color:#d8e4dd;text-transform:uppercase}
+  .hero h1{font-size:clamp(1.6rem,4.6vw,2.5rem);margin:6px 0 10px;text-shadow:0 2px 14px rgba(0,0,0,.4)}
+  .ribbon{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;font-size:.9rem;color:#eaf1ec}
+  .ribbon b{font-weight:400;opacity:.55}
+  .hero .km{margin-top:12px;display:flex;flex-wrap:wrap;gap:16px}
+  .hero .km span{font-size:.8rem;color:#c9d6ce}
+  .hero .km .num{font-size:1.05rem;color:#fff;margin-right:4px}
+
+  .card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:18px 20px;margin:18px 0}
+  .kpis{display:flex;flex-wrap:wrap;gap:14px 26px}
+  .kpi b{display:block;font-size:1.25rem}
+  .kpi small{color:var(--muted);font-size:.76rem;font-family:var(--read)}
+
+  nav.days{position:sticky;top:0;z-index:5;display:flex;gap:8px;overflow-x:auto;padding:10px 0;
+    margin:16px 0 4px;background:linear-gradient(var(--bg) 65%,transparent)}
+  nav.days button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;
+    padding:7px 15px;cursor:pointer;font-family:var(--read);font-size:.88rem;white-space:nowrap;transition:.15s}
+  nav.days button[aria-pressed="true"]{background:var(--pine);border-color:var(--pine);color:#fff}
+
+  #map{height:360px;border-radius:var(--r);overflow:hidden;background:#e9eef0;box-shadow:var(--shadow)}
+  #map svg{display:block;width:100%;height:100%}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--muted);margin:8px 2px 0}
+  .legend i{display:inline-block;width:12px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}
+
+  /* day */
+  .day{margin:26px 0}
+  .day .head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+  .day .head .d{font-family:var(--mono);font-size:1.9rem;color:var(--pine);line-height:1}
+  .day .head h2{font-size:1.25rem}
+  .day .head .meta{color:var(--muted);font-size:.86rem}
+  .chap{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:14px;margin:12px 0 6px;background:#e9eef0;box-shadow:var(--shadow)}
+  .credit{font-size:.72rem;color:var(--muted);margin:0 0 12px}
+  .credit a{color:var(--muted)}
+
+  .tl{list-style:none;margin:12px 0;padding:0 0 0 22px;border-left:2px solid var(--line)}
+  .tl li{position:relative;padding:5px 0 5px 4px}
+  .tl li::before{content:"";position:absolute;left:-28px;top:14px;width:9px;height:9px;border-radius:50%;background:var(--pine-2);border:2px solid #fff;box-shadow:0 0 0 2px var(--line)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+  .chip{font-family:var(--mono);font-size:.8rem;background:#f2f5f4;border:1px solid var(--line);border-radius:8px;padding:4px 10px}
+  .chip b{color:var(--pine);font-weight:600}
+  .facts{list-style:none;margin:10px 0 0;padding:0}
+  .facts li{padding:6px 0;border-top:1px dashed var(--line)}
+  .facts a{color:inherit}
+  .tag{display:inline-block;font-size:.7rem;padding:1px 8px;border-radius:6px;margin-left:8px;white-space:nowrap}
+  .tag.ok{color:#1c7a4a;background:#e9f8f0}
+  .tag.est{color:#8a6a12;background:#fdf5df}
+  .tag.tbd{color:#9a4444;background:#fdeded}
+
+  /* budget */
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums lining-nums}
+  th,td{text-align:left;padding:9px 6px;border-bottom:1px solid var(--line);font-size:.9rem}
+  th{color:var(--muted);font-weight:400;font-size:.8rem}
+  td.r,th.r{text-align:right;font-family:var(--mono)}
+  td.r .cur{color:var(--muted);margin-right:1px}
+  tfoot td{border-top:2px solid var(--line);border-bottom:none;padding-top:12px}
+  tfoot tr.big td{font-size:1.05rem;color:var(--pine)}
+  .filters{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.86rem}
+  .filters label{display:flex;gap:6px;align-items:center}
+
+  /* checklist */
+  .bar{height:8px;background:#eef1f1;border-radius:99px;overflow:hidden;margin:8px 0 4px}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--pine-2),var(--terra));width:0;transition:width .3s}
+  .chk{list-style:none;margin:8px 0 0;padding:0;columns:2;column-gap:32px}
+  @media(max-width:600px){.chk{columns:1}}
+  .chk li{display:flex;gap:9px;align-items:flex-start;break-inside:avoid;padding:6px 0;border-bottom:1px dashed var(--line)}
+  .chk input{width:17px;height:17px;margin-top:4px;flex:none}
+  button.ghost{border:1px solid var(--line);background:transparent;border-radius:8px;padding:5px 11px;cursor:pointer;font-family:var(--read)}
+  .row-between{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+
+  /* avoid + sources */
+  .avoid{list-style:none;margin:0;padding:0}
+  .avoid li{padding:10px 0;border-bottom:1px dashed var(--line)}
+  .avoid .w{color:var(--terra);font-weight:600}
+  .src{font-size:.82rem;color:var(--muted)} .src li{padding:3px 0}
+  footer{color:var(--muted);font-size:.78rem;margin-top:30px;text-align:center}
+
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto}}
+  @media print{body{background:#fff}nav.days{display:none}.card,#map{box-shadow:none;border:1px solid var(--line)}.hero{min-height:200px;color:#000}.hero img.herobg,.hero::after{display:none}}
+
+  /* --- polish pass --- */
+  input[type=checkbox]{accent-color:var(--pine-2);width:17px;height:17px;cursor:pointer}
+  #map .leaflet-tile{filter:grayscale(.15) saturate(.9) contrast(1.03)}
+  #map .leaflet-control-zoom a{border-radius:8px;box-shadow:var(--shadow);color:var(--pine)}
+  .card h2{position:relative;padding-left:13px}
+  .card h2::before{content:"";position:absolute;left:0;top:.16em;bottom:.16em;width:4px;border-radius:3px;background:linear-gradient(var(--pine-2),var(--terra))}
+  table tbody tr:nth-child(even){background:#fbfcfc}
+  table tbody tr:hover{background:#f5f8f6}
+  .hero img.herobg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;filter:brightness(1.06) saturate(1.1) contrast(1.02)}
+  .hero .bbar{position:absolute;left:0;right:0;bottom:0;height:4px;z-index:3;background:linear-gradient(90deg,var(--pine-2),var(--terra))}
+  .hero .kick{color:#e8f0ea;letter-spacing:.28em}
+  .hero h1{font-size:clamp(1.75rem,5vw,2.75rem);letter-spacing:.03em}
+  .day .head .d{display:inline-flex;align-items:center;justify-content:center;min-width:46px;height:46px;border-radius:12px;background:var(--pine);color:#fff;font-size:1rem;padding:0 9px;flex:none}
+  .chip{transition:.15s}.chip:hover{border-color:var(--pine-2);background:#eef5f1}
+  .facts li:first-child{border-top:none}
+  footer{border-top:1px solid var(--line);padding-top:16px;margin-top:34px}
+</style>
+</head>
+<body>
+<header class="hero" id="hero"><img class="herobg" id="heroImg" alt=""><div class="inner">
+  <div class="kick" id="heroKick">行迹 · 路书</div>
+  <h1 id="heroTitle">路书</h1>
+  <div class="ribbon" id="heroRibbon"></div>
+  <div class="km" id="heroKm"></div>
+</div><div class="bbar"></div></header>
+
+<div class="wrap">
+  <section class="card"><div class="kpis" id="kpis"></div></section>
+  <nav class="days" id="daynav" aria-label="按天切换"></nav>
+  <div id="map" aria-label="路线地图"></div>
+  <div class="legend" id="legend"></div>
+  <main id="days"></main>
+
+  <section class="card">
+    <div class="row-between"><h2>预算明细</h2>
+      <div class="filters"><label><input type="checkbox" id="pace" checked> 含可选体验（充实版）</label></div></div>
+    <table>
+      <thead><tr><th>项目说明</th><th class="r">单价 × 数量</th><th class="r">金额</th></tr></thead>
+      <tbody id="budget"></tbody>
+      <tfoot id="budgetFoot"></tfoot>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>行前注意与避雷</h2>
+    <ul class="avoid" id="avoid"></ul>
+  </section>
+
+  <section class="card">
+    <div class="row-between">
+      <h2>必备清单</h2>
+      <span><button class="ghost" id="showLeft">只看未完成</button>
+      <button class="ghost" id="clearChk">清空</button></span></div>
+    <div class="bar"><i id="chkbar"></i></div>
+    <p class="src" id="chkSummary"></p>
+    <ul class="chk" id="checklist"></ul>
+  </section>
+
+  <section class="card"><h2>重要来源</h2><ul class="src" id="sources"></ul></section>
+  <footer id="foot"></footer>
+</div>
+
+<script id="roadbook-data" type="application/json">
+{
+  "trip": {"title":"川西小环线 5 日自驾（示例）","subtitle":"成都 · 四姑娘山 · 丹巴 · 塔公 · 新都桥 · 康定",
+    "origin":"成都","destination":"川西小环线","start":"2026-10-01","end":"2026-10-05",
+    "days":2,"nights":2,"party":2,"currency":"CNY","budget_total":5000,
+    "budget_includes_longhaul":false,"contingency_pct":12,"mode":"anchored",
+    "route":["成都","四姑娘山","丹巴","塔公","新都桥","康定"],
+    "hero":{"src":"assets/photos/hero.jpg","alt":"四姑娘山雪峰","author":"示例","license":"CC BY-SA 3.0","source":"https://commons.wikimedia.org"}},
+  "days": [
+    {"n":1,"date":"2026-10-01","title":"成都 -> 四姑娘山镇","lodging_city":"四姑娘山镇",
+      "drive_km":198,"drive_min":270,"visit_min":120,"meal_min":60,"rest_min":30,"awake_min":780,
+      "checkpoints":["08:00 成都出发·成灌高速","11:00 映秀/卧龙午餐","14:00 巴朗山观景","17:30 四姑娘山镇收车"],
+      "cost":{"交通":250,"住宿":360,"餐饮":200},
+      "waypoints":[{"name":"成都","lat":30.6599,"lon":104.0633},{"name":"四姑娘山镇","lat":30.9956,"lon":102.8309}],
+      "photo":{"src":"assets/photos/hero.jpg","alt":"四姑娘山","author":"Johannes Böckh","license":"CC BY-SA 3.0","source":"https://commons.wikimedia.org/wiki/File:Mount_Siguniang_2.jpg"},
+      "facts":[{"text":"成都—四姑娘山约 198 km，OSRM 路网里程","tag":"已核实","src":"https://www.openstreetmap.org"},
+        {"text":"巴朗山段可能因天气或施工临时管制","tag":"待确认","src":"https://example.org"}]},
+    {"n":2,"date":"2026-10-02","title":"丹巴 · 甲居藏寨","lodging_city":"丹巴",
+      "drive_km":130,"drive_min":180,"visit_min":240,"meal_min":60,"rest_min":30,"awake_min":780,
+      "checkpoints":["07:30 出发","10:00 小金午餐","14:00 甲居藏寨","17:00 丹巴入住"],
+      "cost":{"交通":170,"住宿":320,"餐饮":200,"门票":100},
+      "waypoints":[{"name":"四姑娘山镇","lat":30.9956,"lon":102.8309},{"name":"丹巴","lat":30.9879,"lon":101.7957}],
+      "facts":[{"text":"甲居藏寨门票需提前在官方公众号预约","tag":"待确认","src":"https://example.org"}]}
+  ],
+  "budget": [
+    {"item":"油费+过路","unit":1200,"qty":1,"amount":1200,"category":"交通"},
+    {"item":"住宿(2人×4晚)","unit":330,"qty":4,"amount":1320,"category":"住宿"},
+    {"item":"餐饮","unit":200,"qty":5,"amount":1000,"category":"餐饮"},
+    {"item":"门票体验","unit":400,"qty":1,"amount":400,"category":"门票"},
+    {"item":"保险/物资","unit":150,"qty":2,"amount":300,"category":"其他"},
+    {"item":"可选·温泉体验","unit":120,"qty":2,"amount":240,"category":"门票","optional":true}
+  ],
+  "checklist":["身份证 / 驾驶证 / 行驶证","车辆检查（胎压/防冻液/备胎）","红景天 + 葡萄糖 + 布洛芬","羽绒服 / 防晒霜 / 雨衣","充电宝 + 车载充电 + 离线地图"],
+  "avoid":[{"where":"首晚海拔","wrong":"直接住高海拔新都桥","right":"先在丹巴(约1900m)过渡一晚"},
+    {"where":"加油","wrong":"四姑娘山—丹巴段找大加油站","right":"出发前在康定/丹巴/新都桥加满"}],
+  "sources":[{"text":"距离：OpenStreetMap / OSRM 路网","url":"https://www.openstreetmap.org","date":"2026-09-30"}]
+}
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function(){
+  const D=JSON.parse(document.getElementById('roadbook-data').textContent);
+  const T=D.trip||{}, days=D.days||[], budget=D.budget||[];
+  const money=n=>(T.currency==='CNY'?'¥':'')+Number(n||0).toLocaleString();
+  const moneySplit=n=>'<span class="cur">'+(T.currency==='CNY'?'¥':'')+'</span>'+Number(n||0).toLocaleString();
+  const tagClass=t=>t==='已核实'?'ok':t==='估算'?'est':'tbd';
+  const modeName={detailed:'详尽',anchored:'锚点',general:'通用'}[T.mode]||T.mode||'通用';
+
+  document.title='路书 · '+(T.title||'');
+  if(T.hero&&T.hero.src){var hi=document.getElementById('heroImg');hi.src=T.hero.src;hi.alt=T.hero.alt||'';}
+  document.getElementById('heroTitle').textContent=T.title||'路书';
+  document.getElementById('heroKick').textContent='行迹 · 路书 · '+modeName+'模式';
+  document.getElementById('heroRibbon').innerHTML=(T.route||[]).map((c,i,a)=>i<a.length-1?c+' <b>→</b> ':c).join('');
+  const totalKm=days.reduce((s,d)=>s+Number(d.drive_km||0),0);
+  document.getElementById('heroKm').innerHTML=
+    kmv(totalKm,'总里程 km')+kmv(T.days,'天')+kmv(T.nights,'晚')+kmv(T.party,'人')+
+    kmv(money(T.budget_total),'预算上限');
+  function kmv(v,l){return '<span><span class="num">'+(v==null?'—':v)+'</span>'+l+'</span>';}
+
+  document.getElementById('kpis').innerHTML=
+    kpi(T.start+' → '+(T.end||''),'日期')+kpi(T.origin,'出发地')+kpi(T.destination,'路线')+
+    kpi((T.budget_includes_longhaul?'含':'不含')+'大交通','预算口径')+kpi(T.contingency_pct+'%','机动金');
+  function kpi(v,l){return '<div class="kpi"><b>'+v+'</b><small>'+l+'</small></div>';}
+
+  // day cards
+  const cards={};
+  days.forEach(d=>{
+    const el=document.createElement('section'); el.className='card day'; el.hidden=true; el.id='day-'+d.n;
+    const cost=Object.entries(d.cost||{}).filter(([k,v])=>v).map(([k,v])=>'<span class="chip">'+k+' <b>'+money(v)+'</b></span>').join('');
+    const time=[d.date, d.lodging_city&&('宿 '+d.lodging_city), d.drive_km!=null&&(d.drive_km+' km'), d.drive_min!=null&&(d.drive_min+' min')].filter(Boolean).join(' · ');
+    el.innerHTML=
+      '<div class="head"><span class="d num">D'+d.n+'</span><div><h2>'+(d.title||'')+'</h2><div class="meta">'+time+'</div></div></div>'+
+      (d.photo&&d.photo.src?'<img class="chap" loading="lazy" src="'+d.photo.src+'" alt="'+(d.photo.alt||'')+'">'+
+        '<p class="credit">图：<a href="'+(d.photo.source||'#')+'" rel="noopener">'+(d.photo.author||'未知')+'</a> · '+(d.photo.license||'')+'</p>':'')+
+      (d.checkpoints&&d.checkpoints.length?'<h3>逐段 / 锚点</h3><ul class="tl">'+d.checkpoints.map(c=>'<li>'+c+'</li>').join('')+'</ul>':'')+
+      (cost?'<h3>当日分项</h3><div class="chips">'+cost+'</div>':'')+
+      (d.facts&&d.facts.length?'<h3>事实台账</h3><ul class="facts">'+d.facts.map(f=>
+        '<li>'+(f.src?'<a href="'+f.src+'" rel="noopener">'+f.text+'</a>':f.text)+'<span class="tag '+tagClass(f.tag)+'">'+f.tag+'</span></li>').join('')+'</ul>':'');
+    document.getElementById('days').appendChild(el); cards[d.n]=el;
+  });
+
+  const nav=document.getElementById('daynav');
+  const colors=['#1f4d3f','#2f6f4f','#4a8a63','#c2703d','#9a4a4a','#5a6b8a'];
+  function select(n){
+    Object.values(cards).forEach(c=>c.hidden=true); if(cards[n])cards[n].hidden=false;
+    [...nav.children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.n==String(n)));
+    highlight(n);
+  }
+  days.forEach((d,i)=>{const b=document.createElement('button');b.textContent='D'+d.n;b.dataset.n=d.n;b.addEventListener('click',()=>select(d.n));nav.appendChild(b);});
+
+  let map,base;
+  function initMap(){
+    if(!window.L) return false;
+    map=L.map('map',{scrollWheelZoom:false});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenStreetMap'}).addTo(map);
+    base=L.layerGroup().addTo(map);
+    const all=[];
+    days.forEach((d,i)=>{const wps=d.waypoints||[];if(wps.length<2)return;
+      const pts=wps.map(w=>[w.lat,w.lon]);all.push(...pts);
+      L.polyline(pts,{color:colors[i%colors.length],weight:4,opacity:.85}).addTo(base);
+      wps.forEach((w,j)=>L.circleMarker([w.lat,w.lon],{radius:5,color:'#fff',weight:2,fillColor:colors[i%colors.length],fillOpacity:1})
+        .bindPopup('D'+d.n+' · '+w.name).addTo(base));
+    });
+    if(all.length)map.fitBounds(L.latLngBounds(all).pad(0.15));
+    document.getElementById('legend').innerHTML=days.map((d,i)=>'<span><i style="background:'+colors[i%colors.length]+'"></i>D'+d.n+' '+(d.lodging_city||'')+'</span>').join('');
+    return true;
+  }
+  function highlight(n){
+    if(map)return; const d=days.find(x=>x.n===n); const wps=(d&&d.waypoints)||[];
+    const box=document.getElementById('map');
+    if(!wps.length){box.innerHTML='<p style="padding:18px;color:#69727e">无坐标。</p>';return;}
+    box.innerHTML=svg(wps);
+  }
+  function svg(wps){
+    const xs=wps.map(w=>w.lon),ys=wps.map(w=>w.lat);
+    const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+    const W=900,H=360,P=50,sx=v=>P+(x1===x0?.5:(v-x0)/(x1-x0))*(W-2*P),sy=v=>H-P-(y1===y0?.5:(v-y0)/(y1-y0))*(H-2*P);
+    return '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="路线示意">'+ wps.slice(0,-1).map((w,i)=>
+      '<line x1="'+sx(w.lon)+'" y1="'+sy(w.lat)+'" x2="'+sx(wps[i+1].lon)+'" y2="'+sy(wps[i+1].lat)+'" stroke="#2f6f4f" stroke-width="4"/>').join('')+
+      wps.map(w=>'<circle cx="'+sx(w.lon)+'" cy="'+sy(w.lat)+'" r="6" fill="#2f6f4f"/><text x="'+(sx(w.lon)+9)+'" y="'+(sy(w.lat)+4)+'" font-size="13">'+w.name+'</text>').join('')+'</svg>';
+  }
+  if(!initMap()){ select(days[0]?days[0].n:1); } else { select(days[0]?days[0].n:1); }
+
+  // budget
+  const tbody=document.getElementById('budget'),foot=document.getElementById('budgetFoot'),pace=document.getElementById('pace');
+  function renderBudget(){
+    const show=pace.checked; tbody.innerHTML=''; let sub=0;
+    budget.forEach(it=>{ if(it.optional&&!show)return; sub+=Number(it.amount||0);
+      tbody.insertAdjacentHTML('beforeend','<tr><td>'+it.item+'</td><td class="r">'+moneySplit(it.unit)+' × '+it.qty+'</td><td class="r">'+moneySplit(it.amount)+'</td></tr>'); });
+    const pct=Number(T.contingency_pct||0),cont=Math.round(sub*pct)/100,grand=sub+cont,party=T.party||1;
+    foot.innerHTML='<tr><td colspan="2">小计</td><td class="r">'+money(sub)+'</td></tr>'+
+      '<tr><td colspan="2">机动金 '+pct+'%</td><td class="r">'+money(cont)+'</td></tr>'+
+      '<tr class="big"><td colspan="2">合计'+(T.budget_total?(' / 上限 '+money(T.budget_total)):'')+'</td><td class="r num">'+money(grand)+'</td></tr>'+
+      '<tr><td colspan="2">人均（'+party+' 人）</td><td class="r">'+money(Math.round(grand/party))+'</td></tr>';
+  }
+  pace.addEventListener('change',renderBudget); renderBudget();
+
+  // avoid
+  document.getElementById('avoid').innerHTML=(D.avoid||[]).map(a=>
+    '<li><b>'+a.where+'</b> ·  <span class="w">'+a.wrong+'</span> → '+a.right+'</li>').join('')||'<li class="src">无。</li>';
+  document.getElementById('sources').innerHTML=(D.sources||[]).map(s=>
+    '<li>'+(s.url?'<a href="'+s.url+'" rel="noopener">'+s.text+'</a>':s.text)+(s.date?(' · '+s.date):'')+'</li>').join('')||'<li>—</li>';
+
+  // checklist
+  const KEY='roadbook-chk:'+(T.title||'trip'),cl=D.checklist||[]; let state={};
+  try{state=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){}
+  const listEl=document.getElementById('checklist'),sumEl=document.getElementById('chkSummary'),barEl=document.getElementById('chkbar');
+  let onlyLeft=false;
+  function renderChk(){ listEl.innerHTML=''; let done=0;
+    cl.forEach((t,i)=>{const on=!!state[i];if(on)done++;if(onlyLeft&&on)return;
+      const li=document.createElement('li');
+      li.innerHTML='<input type="checkbox" id="c'+i+'" '+(on?'checked':'')+'><label for="c'+i+'">'+t+'</label>';
+      li.querySelector('input').addEventListener('change',e=>{state[i]=e.target.checked;persist();renderChk();});
+      listEl.appendChild(li);});
+    sumEl.textContent='已完成 '+done+' / '+cl.length;
+    barEl.style.width=(cl.length?(done/cl.length*100):0)+'%';
+  }
+  function persist(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){sumEl.textContent+='（本地存储不可用，勾选仍有效）';}}
+  document.getElementById('showLeft').addEventListener('click',()=>{onlyLeft=!onlyLeft;renderChk();});
+  document.getElementById('clearChk').addEventListener('click',()=>{state={};persist();renderChk();});
+  renderChk();
+
+  document.getElementById('foot').textContent=(T.hero?'首图 '+T.hero.author+' ('+T.hero.license+') · ':'')+'地图数据 © OpenStreetMap 贡献者 · 本页由「行迹」生成';
+})();
+</script>
+</body>
+</html>

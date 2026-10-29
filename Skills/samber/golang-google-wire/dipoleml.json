@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.samber.golang-google-wire",
+  "type": "skill",
+  "name": "Golang Google Wire",
+  "slug": "golang-google-wire",
+  "vendor": "samber",
+  "description": "🧑‍🎨 A collection of Golang agentic skills that works",
+  "version": "1.1.2",
+  "homepage": "https://github.com/samber/cc-skills-golang",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "antigravity",
+    "code",
+    "codex",
+    "coding",
+    "copilot",
+    "cursor",
+    "gemini",
+    "gemini-cli-extension"
+  ],
+  "tags": [
+    "agent",
+    "agent-skills",
+    "ai",
+    "antigravity",
+    "claude",
+    "claude-code",
+    "code",
+    "codex",
+    "coding",
+    "copilot",
+    "cursor",
+    "gemini",
+    "gemini-cli-extension",
+    "openclaw",
+    "opencode",
+    "plugin",
+    "skills",
+    "skillsmp",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "samber",
+    "brandName": "samber",
+    "source": "https://github.com/samber.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:23Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "samber/cc-skills-golang",
+    "url": "https://github.com/samber/cc-skills-golang",
+    "commit": "246b6c4c1ab3077dee114beb9ade3bb0527dfebc",
+    "path": "skills/golang-google-wire",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3712,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

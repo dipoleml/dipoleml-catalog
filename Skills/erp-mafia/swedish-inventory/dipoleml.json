@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.erp-mafia.swedish-inventory",
+  "type": "skill",
+  "name": "Swedish Inventory",
+  "slug": "swedish-inventory",
+  "vendor": "erp-mafia",
+  "description": "DipoleML Skills for Swedish Accounting Compliance",
+  "version": "0.0.0",
+  "homepage": "https://github.com/erp-mafia/accounted-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "erp-mafia",
+    "brandName": "erp-mafia",
+    "source": "https://github.com/erp-mafia.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "erp-mafia/accounted-skills",
+    "url": "https://github.com/erp-mafia/accounted-skills",
+    "commit": "c01d81a86709c5e3b7ab7ba81fd55f7ee2c37ba0",
+    "path": ".claude/skills/swedish-inventory",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 100,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Swedish Inventory | Claude Skills for Swedish Accounting Compliance",
+        "after": "Swedish Inventory | DipoleML Skills for Swedish Accounting Compliance",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

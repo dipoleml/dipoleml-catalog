@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.jakeschincariol.yt-retention",
+  "type": "skill",
+  "name": "Yt Retention",
+  "slug": "yt-retention",
+  "vendor": "jakeschincariol",
+  "description": "Eleven DipoleML skills that run a YouTube channel: scripts off 21 hook formulas with a scored hook, title and thumbnail linted as one pairing, an edit decision list from your transcript, a retention reader that finds where viewers actually leave, a Shorts cutter, and a virality engine. Free, MIT.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Jakeschincariol/youtube-agent-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:39Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "Jakeschincariol/youtube-agent-skill",
+    "url": "https://github.com/Jakeschincariol/youtube-agent-skill",
+    "commit": "a2feb2104981a375ffd4f87ee04f4f5344ac43c6",
+    "path": "skills/yt-retention",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3526,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:58:32Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Yt Retention | Eleven Claude skills that run a YouTube channel: scripts off 21 hook formulas with a scored hook, title and thumbnail linted as one pairing, an edit decision list from your transcript, a retention reader that finds where viewers actually leave, a Shorts cutter, and a virality engine. Free, MIT.",
+        "after": "Yt Retention | Eleven DipoleML skills that run a YouTube channel: scripts off 21 hook formulas with a scored hook, title and thumbnail linted as one pairing, an edit decision list from your transcript, a retention reader that finds where viewers actually leave, a Shorts cutter, and a virality engine. Free, MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.zeropointrepo.transcript-2",
+  "type": "skill",
+  "name": "Transcript",
+  "slug": "transcript-2",
+  "vendor": "zeropointrepo",
+  "description": "YouTube Transcript API skills for AI agents. Get transcripts, search videos, browse channels. Works with OpenClaw, Hermes Agent, and other agent runtimes.",
+  "version": "1.5.1",
+  "homepage": "https://github.com/ZeroPointRepo/youtube-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "clawdbot",
+    "hermes-agent",
+    "openclaw",
+    "youtube-search",
+    "youtube-transcript"
+  ],
+  "tags": [
+    "agent-skills",
+    "clawdbot",
+    "hermes-agent",
+    "openclaw",
+    "youtube-search",
+    "youtube-transcript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:50Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "ZeroPointRepo/youtube-skills",
+    "url": "https://github.com/ZeroPointRepo/youtube-skills",
+    "commit": "4f7994b94e7d5e250c3b51102d609992e04d5d0d",
+    "path": "skills/transcript",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1131,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "transcript",
+        "after": "transcript-2",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

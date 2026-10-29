@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.charlie947.milestone-reveal",
+  "type": "skill",
+  "name": "Milestone Reveal",
+  "slug": "milestone-reveal",
+  "vendor": "charlie947",
+  "description": "13 DipoleML skills for launch-grade motion graphics. Every frame is code. No After Effects, no video generator.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/charlie947/motion-graphics-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-marketing",
+    "animation",
+    "claude-skills",
+    "codex",
+    "hyperframes",
+    "motion-graphics",
+    "video"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-marketing",
+    "animation",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "hyperframes",
+    "motion-graphics",
+    "video"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "charlie947",
+    "brandName": "charlie947",
+    "source": "https://github.com/charlie947.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:02Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "charlie947/motion-graphics-skills",
+    "url": "https://github.com/charlie947/motion-graphics-skills",
+    "commit": "229022ebca76972e119e36ada23a1648d51665ab",
+    "path": "skills/milestone-reveal",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 457,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:39:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Milestone Reveal | 13 Claude Code skills for launch-grade motion graphics. Every frame is code. No After Effects, no video generator.",
+        "after": "Milestone Reveal | 13 DipoleML skills for launch-grade motion graphics. Every frame is code. No After Effects, no video generator.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

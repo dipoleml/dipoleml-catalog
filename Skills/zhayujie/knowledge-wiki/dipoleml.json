@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.zhayujie.knowledge-wiki",
+  "type": "skill",
+  "name": "Knowledge Wiki",
+  "slug": "knowledge-wiki",
+  "vendor": "zhayujie",
+  "description": "Open-source personal AI assistant & Agent Harness. Plans tasks, runs tools and skills, self-evolves with memory and knowledge. Multi-agent, multi-model, multi-channel. Lightweight, extensible, one-line install.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/zhayujie/CowAgent",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "chatgpt-on-wechat",
+    "codex",
+    "cowagent",
+    "deepseek",
+    "harness",
+    "multi-agent",
+    "openai",
+    "openclaw",
+    "personal-agent"
+  ],
+  "tags": [
+    "ai",
+    "ai-agent",
+    "ai-agents",
+    "chatgpt-on-wechat",
+    "claude",
+    "claude-code",
+    "codex",
+    "cowagent",
+    "deepseek",
+    "harness",
+    "llm",
+    "mcp",
+    "multi-agent",
+    "openai",
+    "openclaw",
+    "personal-agent",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zhayujie",
+    "brandName": "zhayujie",
+    "source": "https://github.com/zhayujie.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:51Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zhayujie/CowAgent",
+    "url": "https://github.com/zhayujie/CowAgent",
+    "commit": "d209638186db3e4c2daf3b1f51b4b15ecb1e7cd0",
+    "path": "skills/knowledge-wiki",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 47658,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:56:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

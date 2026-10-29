@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.alivirgo.sliding-window-chat-truncation",
+  "type": "skill",
+  "name": "Sliding Window Chat Truncation",
+  "slug": "sliding-window-chat-truncation",
+  "vendor": "alivirgo",
+  "description": "Installable agentic skills (SKILL.md) for DipoleML, Cursor, Codex, Gemini & Antigravity — 292+ product, efficiency, and common-sense skills. npx major-ai-skills",
+  "version": "0.0.0",
+  "homepage": "https://github.com/alivirgo/Major-AI-Skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic-skills",
+    "ai-agent-skills",
+    "ai-coding",
+    "antigravity",
+    "antigravity-skills",
+    "claude-code-skills",
+    "codex-cli",
+    "cursor"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-skills",
+    "ai-agent-skills",
+    "ai-agents",
+    "ai-coding",
+    "antigravity",
+    "antigravity-skills",
+    "claude-code",
+    "claude-code-skills",
+    "codex-cli",
+    "cursor",
+    "cursor-skills",
+    "developer-tools",
+    "gemini-cli",
+    "gemini-cli-extension",
+    "gemini-skills",
+    "prompt-engineering",
+    "skill-library",
+    "skill-md",
+    "token-efficiency"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alivirgo",
+    "brandName": "alivirgo",
+    "source": "https://github.com/alivirgo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alivirgo/Major-AI-Skills",
+    "url": "https://github.com/alivirgo/Major-AI-Skills",
+    "commit": "b52501ac7ea111520be0cd12720f88a3e21d680f",
+    "path": "skills/sliding-window-chat-truncation",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:45:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Sliding Window Chat Truncation | Installable agentic skills (SKILL.md) for Claude Code, Cursor, Codex, Gemini & Antigravity — 292+ product, efficiency, and common-sense skills. npx major-ai-skills",
+        "after": "Sliding Window Chat Truncation | Installable agentic skills (SKILL.md) for DipoleML, Cursor, Codex, Gemini & Antigravity — 292+ product, efficiency, and common-sense skills. npx major-ai-skills",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

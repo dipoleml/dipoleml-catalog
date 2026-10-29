@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.elliotjlt.learn-from-this",
+  "type": "skill",
+  "name": "Learn From This",
+  "slug": "learn-from-this",
+  "vendor": "elliotjlt",
+  "description": "A collection of DipoleML skills I have concocted to optimise my Ops/Product workflows.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ElliotJLT/Claude-Skill-Potions",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "anthropic",
+    "developer-tools",
+    "productivity",
+    "skills"
+  ],
+  "tags": [
+    "ai",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "developer-tools",
+    "llm",
+    "productivity",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "elliotjlt",
+    "brandName": "elliotjlt",
+    "source": "https://github.com/ElliotJLT.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ElliotJLT/Claude-Skill-Potions",
+    "url": "https://github.com/ElliotJLT/Claude-Skill-Potions",
+    "commit": "8858a8fe86618ee6ecb98f791d153788faf89b22",
+    "path": "skills/learn-from-this",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 62,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Learn From This | A collection of Claude skills I have concocted to optimise my Ops/Product workflows.",
+        "after": "Learn From This | A collection of DipoleML skills I have concocted to optimise my Ops/Product workflows.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

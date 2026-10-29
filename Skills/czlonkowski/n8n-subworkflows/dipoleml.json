@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.czlonkowski.n8n-subworkflows",
+  "type": "skill",
+  "name": "N8n Subworkflows",
+  "slug": "n8n-subworkflows",
+  "vendor": "czlonkowski",
+  "description": "n8n skillset for DipoleML to build flawless n8n workflows",
+  "version": "0.0.0",
+  "homepage": "https://github.com/czlonkowski/n8n-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "n8n",
+    "workflow-automation"
+  ],
+  "tags": [
+    "ai-agents",
+    "n8n",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "n8n",
+    "brandName": "n8n",
+    "source": "https://cdn.simpleicons.org/n8n",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:09Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "czlonkowski/n8n-skills",
+    "url": "https://github.com/czlonkowski/n8n-skills",
+    "commit": "e037563e101749e630e6688d121d04529fe6ee7b",
+    "path": "skills/n8n-subworkflows",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6545,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:51Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "N8n Subworkflows | n8n skillset for Claude Code to build flawless n8n workflows",
+        "after": "N8n Subworkflows | n8n skillset for DipoleML to build flawless n8n workflows",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.ferdinandobons.startup-competitors",
+  "type": "skill",
+  "name": "Startup Competitors",
+  "slug": "startup-competitors",
+  "vendor": "ferdinandobons",
+  "description": "AI agent skills for startup validation, competitive intelligence, and planning",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ferdinandobons/startup-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "battle-cards",
+    "claude-skills",
+    "competitive-analysis",
+    "competitive-intelligence",
+    "market-research",
+    "pricing-analysis",
+    "startup",
+    "startup-validation"
+  ],
+  "tags": [
+    "ai-agents",
+    "battle-cards",
+    "claude-code",
+    "claude-skills",
+    "competitive-analysis",
+    "competitive-intelligence",
+    "market-research",
+    "pricing-analysis",
+    "startup",
+    "startup-validation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ferdinandobons",
+    "brandName": "ferdinandobons",
+    "source": "https://github.com/ferdinandobons.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ferdinandobons/startup-skill",
+    "url": "https://github.com/ferdinandobons/startup-skill",
+    "commit": "a5f97c317b93caedbb49d28f20e9ec283b2ec087",
+    "path": "startup-competitors",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1233,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

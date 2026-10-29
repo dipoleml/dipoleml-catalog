@@ -1,0 +1,20 @@
+{
+  "name": "banner-creator",
+  "displayName": "Banner Creator",
+  "version": "1.0.0",
+  "description": "Create banners using AI image generation. Discuss format/style, generate variations, iterate with user feedback, crop to target ratio for GitHub, Twitter, LinkedIn, etc.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Resciencelab"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ReScienceLab/opc-skills/tree/main/skills/banner-creator",
+  "repository": "https://github.com/ReScienceLab/opc-skills",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "commands": [
+    "./scripts/"
+  ],
+  "agents": []
+}

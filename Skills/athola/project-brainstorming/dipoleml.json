@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.athola.project-brainstorming",
+  "type": "skill",
+  "name": "Project Brainstorming",
+  "slug": "project-brainstorming",
+  "vendor": "athola",
+  "description": "23 DipoleML plugins: TDD enforcement hooks, git/PR workflows, spec-driven development, code review, project lifecycle, fix-from-error, maintenance automation, context optimization, research, and multi-LLM delegation. 186 skills, 128 commands, 54 agents.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/athola/claude-night-market",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "architecture-patterns",
+    "awesome-claude-code",
+    "awesome-claude-skills",
+    "claude-agents",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-commands",
+    "claude-hooks",
+    "claude-skills"
+  ],
+  "tags": [
+    "ai-agents",
+    "architecture-patterns",
+    "awesome-claude-code",
+    "awesome-claude-skills",
+    "claude-agents",
+    "claude-code",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-commands",
+    "claude-hooks",
+    "claude-skills",
+    "code-review",
+    "gemini",
+    "git-workflow",
+    "memory-palace",
+    "python",
+    "qwen",
+    "resource-optimization",
+    "spec-driven-development",
+    "test-driven-development"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "athola",
+    "brandName": "athola",
+    "source": "https://github.com/athola.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "athola/claude-night-market",
+    "url": "https://github.com/athola/claude-night-market",
+    "commit": "5847f5386397c1db7dbc2dd29899832f7ee430b6",
+    "path": "plugins/attune/skills/project-brainstorming",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 343,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:40:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Project Brainstorming | 23 Claude Code plugins: TDD enforcement hooks, git/PR workflows, spec-driven development, code review, project lifecycle, fix-from-error, maintenance automation, context optimization, research, and multi-LLM delegation. 186 skills, 128 commands, 54 agents.",
+        "after": "Project Brainstorming | 23 DipoleML plugins: TDD enforcement hooks, git/PR workflows, spec-driven development, code review, project lifecycle, fix-from-error, maintenance automation, context optimization, research, and multi-LLM delegation. 186 skills, 128 commands, 54 agents.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

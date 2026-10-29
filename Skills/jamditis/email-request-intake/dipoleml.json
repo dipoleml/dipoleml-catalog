@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.jamditis.email-request-intake",
+  "type": "skill",
+  "name": "Email Request Intake",
+  "slug": "email-request-intake",
+  "vendor": "jamditis",
+  "description": "DipoleML skills for journalism, media, and academia - verification, FOIA, data journalism, academic writing, and more",
+  "version": "0.0.0",
+  "homepage": "https://github.com/jamditis/claude-skills-journalism",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "academic-writing",
+    "claude-skills",
+    "data-journalism",
+    "fact-checking",
+    "foia",
+    "journalism",
+    "media",
+    "newsroom",
+    "osint"
+  ],
+  "tags": [
+    "academic-writing",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "data-journalism",
+    "fact-checking",
+    "foia",
+    "journalism",
+    "media",
+    "newsroom",
+    "osint",
+    "skills",
+    "verification"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jamditis",
+    "brandName": "jamditis",
+    "source": "https://github.com/jamditis.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jamditis/claude-skills-journalism",
+    "url": "https://github.com/jamditis/claude-skills-journalism",
+    "commit": "80a535ca3efb4c0bd210b0ece52cbc2e4f55e0af",
+    "path": "newsroom-agent-ops/skills/email-request-intake",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 438,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:39:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Email Request Intake | Claude Code skills for journalism, media, and academia - verification, FOIA, data journalism, academic writing, and more",
+        "after": "Email Request Intake | DipoleML skills for journalism, media, and academia - verification, FOIA, data journalism, academic writing, and more",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

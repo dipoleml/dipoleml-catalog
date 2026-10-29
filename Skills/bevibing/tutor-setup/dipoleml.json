@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.bevibing.tutor-setup",
+  "type": "skill",
+  "name": "Tutor Setup",
+  "slug": "tutor-setup",
+  "vendor": "bevibing",
+  "description": "A DipoleML skill that turns PDFs, docs, and codebases into Obsidian study vaults",
+  "version": "0.0.0",
+  "homepage": "https://github.com/bevibing/tutor-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-skills",
+    "skills",
+    "skillsmp"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "skill",
+    "skills",
+    "skillsmp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "bevibing",
+    "brandName": "bevibing",
+    "source": "https://github.com/bevibing.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "bevibing/tutor-skills",
+    "url": "https://github.com/bevibing/tutor-skills",
+    "commit": "397110c9fefbc6bd5444277686600aec28063c05",
+    "path": "skills/tutor-setup",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1372,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Tutor Setup | A Claude Code skill that turns PDFs, docs, and codebases into Obsidian study vaults",
+        "after": "Tutor Setup | A DipoleML skill that turns PDFs, docs, and codebases into Obsidian study vaults",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

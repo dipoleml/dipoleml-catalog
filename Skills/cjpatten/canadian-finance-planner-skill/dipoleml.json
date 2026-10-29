@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.cjpatten.canadian-finance-planner-skill",
+  "type": "skill",
+  "name": "Canadian Finance Planner Skill",
+  "slug": "canadian-finance-planner-skill",
+  "vendor": "cjpatten",
+  "description": "A DipoleML skill that turns DipoleML into your personal financial planner — built specifically for Canadians. Interviews, budgets, action plans, interactive dashboards, and ongoing coaching.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/cjpatten/canadian-finance-planner-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "budgeting",
+    "canada",
+    "claude-ai",
+    "claude-code-skill",
+    "claude-skill",
+    "claude-skills",
+    "financial-planning",
+    "personal-finance",
+    "skill-md"
+  ],
+  "tags": [
+    "budgeting",
+    "canada",
+    "claude-ai",
+    "claude-code",
+    "claude-code-skill",
+    "claude-skill",
+    "claude-skills",
+    "financial-planning",
+    "personal-finance",
+    "skill-md"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cjpatten",
+    "brandName": "cjpatten",
+    "source": "https://github.com/cjpatten.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:04Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cjpatten/canadian-finance-planner-skill",
+    "url": "https://github.com/cjpatten/canadian-finance-planner-skill",
+    "commit": "08b86cef279db6f121bbb33becd315c1259fe5d4",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 64,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:43:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Canadian Finance Planner Skill | A Claude skill that turns Claude into your personal financial planner — built specifically for Canadians. Interviews, budgets, action plans, interactive dashboards, and ongoing coaching.",
+        "after": "Canadian Finance Planner Skill | A DipoleML skill that turns DipoleML into your personal financial planner — built specifically for Canadians. Interviews, budgets, action plans, interactive dashboards, and ongoing coaching.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

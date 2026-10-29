@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.foryourhealth111-pixel.vibe-skills",
+  "type": "skill",
+  "name": "Vibe Skills",
+  "slug": "vibe-skills",
+  "vendor": "foryourhealth111-pixel",
+  "description": "Intelligent Skill routing and workflow orchestration for AI agents — +21.12 pp reward, −29.6% tokens on SkillsBench with DeepSeekV4Flash-VE.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/foryourhealth111-pixel/Vibe-Skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-framework",
+    "agent-skills",
+    "agentic-coding",
+    "ai-scientist",
+    "ai-skills",
+    "ai-workflow",
+    "automation",
+    "codex",
+    "context-engineering"
+  ],
+  "tags": [
+    "agent-framework",
+    "agent-skills",
+    "agentic-coding",
+    "ai-agents",
+    "ai-scientist",
+    "ai-skills",
+    "ai-workflow",
+    "automation",
+    "claude-code",
+    "codex",
+    "context-engineering",
+    "developer-tools",
+    "dsh-plugin",
+    "llm",
+    "multi-agent",
+    "prompt-engineering",
+    "skills",
+    "vibe-coding",
+    "vibecoding",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "foryourhealth111-pixel",
+    "brandName": "foryourhealth111-pixel",
+    "source": "https://github.com/foryourhealth111-pixel.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:21Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "foryourhealth111-pixel/Vibe-Skills",
+    "url": "https://github.com/foryourhealth111-pixel/Vibe-Skills",
+    "commit": "5200420c1992508a2d69952b9f02babf232a21ac",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3776,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:44Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "vibe-skills-workspace"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

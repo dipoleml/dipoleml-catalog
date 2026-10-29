@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.aidevgtm.13-founder-led-sales",
+  "type": "skill",
+  "name": "13 Founder Led Sales",
+  "slug": "13-founder-led-sales",
+  "vendor": "aidevgtm",
+  "description": "#1 Product of The Day @ Product Hunt. The GTM co-founder you don't have. Open-source GTM Agent Skills for developer tools and AI products, for founders, GTM hires, and founding AEs: positioning, first users, launch, pricing. Sharpened by Frankl & Czakon. MIT.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/AIDevGTM/gtm-cofounder",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-founders",
+    "claude-skills",
+    "dev-tools",
+    "developer-marketing",
+    "developer-tools",
+    "devtools",
+    "founder-tools",
+    "founders"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai",
+    "ai-founders",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "dev-tools",
+    "developer-marketing",
+    "developer-tools",
+    "devtools",
+    "founder-tools",
+    "founders",
+    "go-to-market",
+    "gtm",
+    "open-source",
+    "positioning",
+    "startup",
+    "startups",
+    "technical-founders"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "aidevgtm",
+    "brandName": "aidevgtm",
+    "source": "https://github.com/AIDevGTM.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "AIDevGTM/gtm-cofounder",
+    "url": "https://github.com/AIDevGTM/gtm-cofounder",
+    "commit": "91dc34966bc1bd8c9a6e7c1f823f9939f3b7c0ef",
+    "path": "skills/13-founder-led-sales",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 329,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:40:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

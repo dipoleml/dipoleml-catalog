@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.nvidia.dicom-series-to-volume",
+  "type": "skill",
+  "name": "Dicom Series to Volume",
+  "slug": "dicom-series-to-volume",
+  "vendor": "nvidia",
+  "description": "Agent Skills for NVIDIA products — install into DipoleML, Codex, and other coding agents to run Physical AI, robotics, simulation, CUDA, and RAG workflows end to end.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/NVIDIA/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic-ai",
+    "codex",
+    "coding-agents",
+    "cuda",
+    "developer-tools",
+    "omniverse",
+    "physical-ai",
+    "rag"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-ai",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "coding-agents",
+    "cuda",
+    "developer-tools",
+    "llm",
+    "omniverse",
+    "physical-ai",
+    "rag",
+    "robotics",
+    "simulation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "nvidia",
+    "brandName": "nvidia",
+    "source": "https://cdn.simpleicons.org/nvidia",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:10Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "NVIDIA/skills",
+    "url": "https://github.com/NVIDIA/skills",
+    "commit": "ca116d60beafe1b4459f0ab790b7b450912c56b0",
+    "path": "skills/dicom-series-to-volume",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3778,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Dicom Series to Volume | Agent Skills for NVIDIA products — install into Claude Code, Codex, and other coding agents to run Physical AI, robotics, simulation, CUDA, and RAG workflows end to end.",
+        "after": "Dicom Series to Volume | Agent Skills for NVIDIA products — install into DipoleML, Codex, and other coding agents to run Physical AI, robotics, simulation, CUDA, and RAG workflows end to end.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE-APACHE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated",
+      "license-file-restored"
+    ]
+  }
+}

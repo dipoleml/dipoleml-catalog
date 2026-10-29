@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.alirezarezvani.pw-review",
+  "type": "skill",
+  "name": "Pw Review",
+  "slug": "pw-review",
+  "vendor": "alirezarezvani",
+  "description": "380 DipoleML skills & agent skills & plugins (30+ Agents, 70+ custom commands, 380+ skills, customizable references, scripts)for DipoleML, Codex, Gemini CLI, Cursor, and 8 more coding agents — engineering, marketing, product, compliance, C-level advisory, research, business operations, commercial & finance, and your daily productivity skills.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/alirezarezvani/claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-plugins",
+    "agent-skills",
+    "agentic-ai",
+    "ai-coding-agent",
+    "anthropic-claude",
+    "claude-ai",
+    "claude-code-plugins",
+    "claude-code-skills",
+    "claude-skills"
+  ],
+  "tags": [
+    "agent-plugins",
+    "agent-skills",
+    "agentic-ai",
+    "ai-coding-agent",
+    "anthropic-claude",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugins",
+    "claude-code-skills",
+    "claude-skills",
+    "codex-skills",
+    "coding-agent-plugins",
+    "cursor-skills",
+    "developer-tools",
+    "gemini-cli-skills",
+    "openai-codex",
+    "openclaw",
+    "openclaw-plugins",
+    "openclaw-skills",
+    "prompt-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alirezarezvani",
+    "brandName": "alirezarezvani",
+    "source": "https://github.com/alirezarezvani.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alirezarezvani/claude-skills",
+    "url": "https://github.com/alirezarezvani/claude-skills",
+    "commit": "5434623a788ec3105d238328cfe554e1e2242ff7",
+    "path": "engineering-team/playwright-pro/skills/pw-review",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 28912,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:30:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Pw Review | 380 Claude Code skills & agent skills & plugins (30+ Agents, 70+ custom commands, 380+ skills, customizable references, scripts)for Claude Code, Codex, Gemini CLI, Cursor, and 8 more coding agents — engineering, marketing, product, compliance, C-level advisory, research, business operations, commercial & finance, and your daily productivity skills.",
+        "after": "Pw Review | 380 DipoleML skills & agent skills & plugins (30+ Agents, 70+ custom commands, 380+ skills, customizable references, scripts)for DipoleML, Codex, Gemini CLI, Cursor, and 8 more coding agents — engineering, marketing, product, compliance, C-level advisory, research, business operations, commercial & finance, and your daily productivity skills.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.oil-oil.oil-motion",
+  "type": "skill",
+  "name": "Oil Motion",
+  "slug": "oil-motion",
+  "vendor": "oil-oil",
+  "description": "Web animation skill for DipoleML & Codex. 帮你做跟着滚动和鼠标动的网页动画。",
+  "version": "0.0.0",
+  "homepage": "https://github.com/oil-oil/oil-motion",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skill",
+    "agent-skills",
+    "ai-video",
+    "animation",
+    "claude-skills",
+    "codex",
+    "codex-skill",
+    "cursor",
+    "drag"
+  ],
+  "tags": [
+    "agent-skill",
+    "agent-skills",
+    "ai-video",
+    "animation",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "codex-skill",
+    "cursor",
+    "drag",
+    "frontend",
+    "interactive",
+    "motion",
+    "motion-design",
+    "scroll",
+    "scroll-animation",
+    "skill",
+    "skills",
+    "web-animation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "oil-oil",
+    "brandName": "oil-oil",
+    "source": "https://github.com/oil-oil.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:12Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "oil-oil/oil-motion",
+    "url": "https://github.com/oil-oil/oil-motion",
+    "commit": "07e31f2265f80caa8f2c1df825d85ac24a46307c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2707,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:36Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Oil Motion | Web animation skill for Claude Code & Codex. 帮你做跟着滚动和鼠标动的网页动画。",
+        "after": "Oil Motion | Web animation skill for DipoleML & Codex. 帮你做跟着滚动和鼠标动的网页动画。",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

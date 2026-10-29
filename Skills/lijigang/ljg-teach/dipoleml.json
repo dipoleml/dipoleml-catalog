@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.lijigang.ljg-teach",
+  "type": "skill",
+  "name": "Ljg Teach",
+  "slug": "ljg-teach",
+  "vendor": "lijigang",
+  "description": "用体验而不是定义来教授概念、原理或检验观点：先给与学习者认知水平相称的局面，让其选择，再用公平的意外显化认知缺口，结构化后才命名，并以迁移局面循环复测。USE WHEN 用户调用 '/ljg-teach'、说 '用情境教我'、'别先讲答案'、'通过案例让我学会'，或希望通过选择与反馈理解一个概念或观点。NOT FOR 直接定义查询（用 ljg-is/ljg-word）、八维概念解剖（用 ljg-learn）、伴读文本（用 ljg-read）。",
+  "version": "1.0.0",
+  "homepage": "https://github.com/lijigang/ljg-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lijigang",
+    "brandName": "lijigang",
+    "source": "https://github.com/lijigang.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lijigang/ljg-skills",
+    "url": "https://github.com/lijigang/ljg-skills",
+    "commit": "a6b11187771a367436abcfd4262679b8d050b486",
+    "path": "skills/ljg-teach",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7580,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.coldteadotai.eli5",
+  "type": "skill",
+  "name": "Eli5",
+  "slug": "eli5",
+  "vendor": "coldteadotai",
+  "description": "Review code 100X faster. Lens draws every PR as animated architecture and data-flow walkthroughs, inside the pull request itself. Use it as a GitHub App, GitHub Action, CLI, or a Skill for your coding agent",
+  "version": "0.0.0",
+  "homepage": "https://github.com/coldteadotai/pr-lens",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "architecture-as-code",
+    "architecture-diagrams",
+    "claude-skills",
+    "code-visualisation",
+    "codex",
+    "coding-agents",
+    "data-flow-diagram",
+    "diagrams-as-code"
+  ],
+  "tags": [
+    "agent-skills",
+    "architecture-as-code",
+    "architecture-diagrams",
+    "claude-skills",
+    "code-visualisation",
+    "codex",
+    "coding-agents",
+    "data-flow-diagram",
+    "diagrams-as-code",
+    "mermaid-alternative",
+    "opencode",
+    "sequence-diagrams",
+    "software-architecture-and-design",
+    "system-design",
+    "text-to-diagram"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:07Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "coldteadotai/pr-lens",
+    "url": "https://github.com/coldteadotai/pr-lens",
+    "commit": "457987102b40b7d64a221924d420a0632f0395f7",
+    "path": "skills/eli5",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2280,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

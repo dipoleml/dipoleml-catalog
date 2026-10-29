@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.octagonai.stock-price-change",
+  "type": "skill",
+  "name": "Stock Price Change",
+  "slug": "stock-price-change",
+  "vendor": "octagonai",
+  "description": "A collection of DipoleML skills for agentic financial research by Octagon",
+  "version": "0.0.0",
+  "homepage": "https://github.com/OctagonAI/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "octagonai",
+    "brandName": "octagonai",
+    "source": "https://github.com/OctagonAI.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "OctagonAI/skills",
+    "url": "https://github.com/OctagonAI/skills",
+    "commit": "51e938c4d086f658de8bdcf734e864d34637167e",
+    "path": "skills/stock-price-change",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 130,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Stock Price Change | A collection of Claude skills for agentic financial research by Octagon",
+        "after": "Stock Price Change | A collection of DipoleML skills for agentic financial research by Octagon",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "OCTAGON_API_KEY",
+      "YOUR_API_KEY_HERE"
+    ],
+    "credentials": [
+      "OCTAGON_API_KEY",
+      "YOUR_API_KEY_HERE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

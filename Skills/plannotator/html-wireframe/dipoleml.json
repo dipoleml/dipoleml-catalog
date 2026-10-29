@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.plannotator.html-wireframe",
+  "type": "skill",
+  "name": "Html Wireframe",
+  "slug": "html-wireframe",
+  "vendor": "plannotator",
+  "description": "Agent skills for useful HTML artifacts, wireframes, interactive prototypes, plans, and diagrams.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/plannotator/effective-html",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "codex",
+    "html-artifacts",
+    "html-prototype",
+    "html-wireframe",
+    "prototyping",
+    "skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "html-artifacts",
+    "html-prototype",
+    "html-wireframe",
+    "prototyping",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "plannotator",
+    "brandName": "plannotator",
+    "source": "https://github.com/plannotator.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "plannotator/effective-html",
+    "url": "https://github.com/plannotator/effective-html",
+    "commit": "975b047f6da6874e176db54f048c0c31c30e9f65",
+    "path": "skills/html-wireframe",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3788,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

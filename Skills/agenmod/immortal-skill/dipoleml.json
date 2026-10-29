@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.agenmod.immortal-skill",
+  "type": "skill",
+  "name": "Immortal Skill",
+  "slug": "immortal-skill",
+  "vendor": "agenmod",
+  "description": "♾️ 开源数字永生框架 — 从聊天记录蒸馏任何人的七维数字分身。支持微信/飞书/iMessage/Telegram等12+平台，7种角色模板，对齐 OpenClaw Soul Spec 标准。一行指令让你的AI学会蒸馏。",
+  "version": "0.0.0",
+  "homepage": "https://github.com/agenmod/immortal-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "chatbot",
+    "cursor",
+    "digital-immortality",
+    "digital-twin",
+    "distillation",
+    "feishu",
+    "openclaw",
+    "persona"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent",
+    "chatbot",
+    "cursor",
+    "digital-immortality",
+    "digital-twin",
+    "distillation",
+    "feishu",
+    "llm",
+    "openclaw",
+    "persona",
+    "soul-spec",
+    "wechat"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "telegram",
+    "brandName": "telegram",
+    "source": "https://cdn.simpleicons.org/telegram",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:40Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "agenmod/immortal-skill",
+    "url": "https://github.com/agenmod/immortal-skill",
+    "commit": "cdab91b37982d0d3ca78eb2da6727a8f75d8bca8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1128,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

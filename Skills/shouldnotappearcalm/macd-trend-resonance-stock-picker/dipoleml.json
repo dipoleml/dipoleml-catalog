@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.shouldnotappearcalm.macd-trend-resonance-stock-picker",
+  "type": "skill",
+  "name": "Macd Trend Resonance Stock Picker",
+  "slug": "macd-trend-resonance-stock-picker",
+  "vendor": "shouldnotappearcalm",
+  "description": "A股数据分析、量化选股与模拟交易 Skill 集合，支持实时行情、历史K线、技术指标、自定义交易策略与模拟买入、卖出交易账户",
+  "version": "0.0.0",
+  "homepage": "https://github.com/shouldnotappearcalm/a-share-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "a-share",
+    "agent-skills",
+    "akshare",
+    "claude-skills",
+    "paper-trading",
+    "quant",
+    "stock"
+  ],
+  "tags": [
+    "a-share",
+    "agent-skills",
+    "akshare",
+    "claude-code",
+    "claude-skills",
+    "mcp",
+    "paper-trading",
+    "quant",
+    "stock"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "shouldnotappearcalm",
+    "brandName": "shouldnotappearcalm",
+    "source": "https://github.com/shouldnotappearcalm.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "shouldnotappearcalm/a-share-skill",
+    "url": "https://github.com/shouldnotappearcalm/a-share-skill",
+    "commit": "8874bd1c46813ddb188aa293e6f9ae34f016ba4d",
+    "path": "macd-trend-resonance-stock-picker",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 255,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:41:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

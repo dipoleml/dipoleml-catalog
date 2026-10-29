@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.huggingface.hf-cloud-aws-context-discovery",
+  "type": "skill",
+  "name": "Hf Cloud Aws Context Discovery",
+  "slug": "hf-cloud-aws-context-discovery",
+  "vendor": "huggingface",
+  "description": "Give your agents the power of the Hugging Face ecosystem",
+  "version": "0.0.0",
+  "homepage": "https://github.com/huggingface/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "huggingface",
+    "brandName": "huggingface",
+    "source": "https://cdn.simpleicons.org/huggingface",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:33Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "huggingface/skills",
+    "url": "https://github.com/huggingface/skills",
+    "commit": "fabc634a893f62ad5c2039830397efa35fa62715",
+    "path": "skills/hf-cloud-aws-context-discovery",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 11231,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

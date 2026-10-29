@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.teng-lin.notebooklm-py",
+  "type": "skill",
+  "name": "NotebookLM Py",
+  "slug": "notebooklm-py",
+  "vendor": "teng-lin",
+  "description": "Unofficial Python API and agentic skill for Google Gemini Notebook. Full programmatic access to Gemini Notebook's features—including capabilities the web UI doesn't expose—via Python, CLI, and AI agents like DipoleML, Codex, and OpenClaw.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/teng-lin/notebooklm-py",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agentic-skill",
+    "claude-skills",
+    "gemini-notebook",
+    "gemini-notebook-api",
+    "gemini-notebook-skill",
+    "google-notebooklm",
+    "notebooklm",
+    "notebooklm-api",
+    "notebooklm-skill"
+  ],
+  "tags": [
+    "agentic-skill",
+    "claude-skills",
+    "gemini-notebook",
+    "gemini-notebook-api",
+    "gemini-notebook-skill",
+    "google-notebooklm",
+    "notebooklm",
+    "notebooklm-api",
+    "notebooklm-skill",
+    "openclaw-skills",
+    "python",
+    "python-api",
+    "sdk",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-28T23:04:26Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "teng-lin/notebooklm-py",
+    "url": "https://github.com/teng-lin/notebooklm-py",
+    "commit": "1ef146c5f4434a51f66ab27c45f0791592f4a01c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 19961,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:22Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "NotebookLM Py | Unofficial Python API and agentic skill for Google Gemini Notebook. Full programmatic access to Gemini Notebook's features—including capabilities the web UI doesn't expose—via Python, CLI, and AI agents like Claude Code, Codex, and OpenClaw.",
+        "after": "NotebookLM Py | Unofficial Python API and agentic skill for Google Gemini Notebook. Full programmatic access to Gemini Notebook's features—including capabilities the web UI doesn't expose—via Python, CLI, and AI agents like DipoleML, Codex, and OpenClaw.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "notebooklm-py"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

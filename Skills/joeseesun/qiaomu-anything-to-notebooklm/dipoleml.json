@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.joeseesun.qiaomu-anything-to-notebooklm",
+  "type": "skill",
+  "name": "Qiaomu Anything to NotebookLM",
+  "slug": "qiaomu-anything-to-notebooklm",
+  "vendor": "joeseesun",
+  "description": "DipoleML Skill: Multi-source content processor for NotebookLM. Supports WeChat articles, web pages, YouTube, PDF, Markdown, search queries → Podcast/PPT/MindMap/Quiz etc.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/joeseesun/qiaomu-anything-to-notebooklm",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "automation",
+    "notebooklm"
+  ],
+  "tags": [
+    "automation",
+    "claude",
+    "mcp",
+    "notebooklm",
+    "skill"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:42Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "joeseesun/qiaomu-anything-to-notebooklm",
+    "url": "https://github.com/joeseesun/qiaomu-anything-to-notebooklm",
+    "commit": "cea6ceee8cdcd01a573af5ae75c2d3cffc20650b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6427,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:52Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Qiaomu Anything to NotebookLM | Claude Skill: Multi-source content processor for NotebookLM. Supports WeChat articles, web pages, YouTube, PDF, Markdown, search queries → Podcast/PPT/MindMap/Quiz etc.",
+        "after": "Qiaomu Anything to NotebookLM | DipoleML Skill: Multi-source content processor for NotebookLM. Supports WeChat articles, web pages, YouTube, PDF, Markdown, search queries → Podcast/PPT/MindMap/Quiz etc.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [
+      "GETNOTE_API_KEY"
+    ],
+    "credentials": [
+      "GETNOTE_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

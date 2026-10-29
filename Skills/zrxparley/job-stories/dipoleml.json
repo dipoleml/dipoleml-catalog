@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.zrxparley.job-stories",
+  "type": "skill",
+  "name": "Job Stories",
+  "slug": "job-stories",
+  "vendor": "zrxparley",
+  "description": "133 WorkBuddy PM skills — product discovery, strategy, execution, market research, analytics, GTM, marketing, SaaS metrics, career, workshops & more",
+  "version": "0.0.0",
+  "homepage": "https://github.com/zrxparley/pm-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-agent-skills",
+    "pm-skills",
+    "product-discovery",
+    "product-management",
+    "product-manager",
+    "skillset",
+    "workbuddy"
+  ],
+  "tags": [
+    "ai-agent-skills",
+    "claude-code",
+    "pm-skills",
+    "product-discovery",
+    "product-management",
+    "product-manager",
+    "skillset",
+    "workbuddy"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zrxparley",
+    "brandName": "zrxparley",
+    "source": "https://github.com/zrxparley.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:53Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zrxparley/pm-skills",
+    "url": "https://github.com/zrxparley/pm-skills",
+    "commit": "69840dfa54506571d1a53f48b9fbfb24c06cbeac",
+    "path": "skills/job-stories",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 0,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

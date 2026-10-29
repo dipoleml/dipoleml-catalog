@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.yusufkaraaslan.rss-empty",
+  "type": "skill",
+  "name": "Rss Empty",
+  "slug": "rss-empty",
+  "vendor": "yusufkaraaslan",
+  "description": "Convert documentation websites, GitHub repositories, and PDFs into DipoleML AI skills with automatic conflict detection",
+  "version": "0.0.0",
+  "homepage": "https://github.com/yusufkaraaslan/Skill_Seekers",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ast-parser",
+    "automation",
+    "claude-ai",
+    "claude-skills",
+    "code-analysis",
+    "conflict-detection",
+    "documentation",
+    "documentation-generator",
+    "github"
+  ],
+  "tags": [
+    "ai-tools",
+    "ast-parser",
+    "automation",
+    "claude-ai",
+    "claude-skills",
+    "code-analysis",
+    "conflict-detection",
+    "documentation",
+    "documentation-generator",
+    "github",
+    "github-scraper",
+    "mcp",
+    "mcp-server",
+    "multi-source",
+    "ocr",
+    "pdf",
+    "python",
+    "web-scraping"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:49Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "yusufkaraaslan/Skill_Seekers",
+    "url": "https://github.com/yusufkaraaslan/Skill_Seekers",
+    "commit": "5b5d8dfca263fa76e6daae9f292890b311ef36aa",
+    "path": "tests/golden/phase2/rss_empty",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 15247,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Rss Empty | Convert documentation websites, GitHub repositories, and PDFs into Claude AI skills with automatic conflict detection",
+        "after": "Rss Empty | Convert documentation websites, GitHub repositories, and PDFs into DipoleML AI skills with automatic conflict detection",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

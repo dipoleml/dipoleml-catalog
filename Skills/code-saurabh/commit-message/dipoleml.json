@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.code-saurabh.commit-message",
+  "type": "skill",
+  "name": "Commit Message",
+  "slug": "commit-message",
+  "vendor": "code-saurabh",
+  "description": "49 production-grade AI agent skills (SKILL.md) for DipoleML, Codex & Antigravity — system design, DevOps, security, QA, and more. MIT licensed, open source.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/CODE-SAURABH/OpenSkills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-agent-skill",
+    "ai-agent-skills",
+    "claude-code-skill",
+    "claude-code-skills",
+    "codex",
+    "codex-skill",
+    "codex-skills",
+    "markdown"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent-skill",
+    "ai-agent-skills",
+    "ai-agents",
+    "claude-code",
+    "claude-code-skill",
+    "claude-code-skills",
+    "codex",
+    "codex-skill",
+    "codex-skills",
+    "markdown",
+    "mcp",
+    "mcp-skill",
+    "open-source"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "code-saurabh",
+    "brandName": "code-saurabh",
+    "source": "https://github.com/CODE-SAURABH.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:06Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "CODE-SAURABH/OpenSkills",
+    "url": "https://github.com/CODE-SAURABH/OpenSkills",
+    "commit": "71d3c6d75f504b3693a93e3dada42207b1a6d221",
+    "path": "commit-message",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:44:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Commit Message | 49 production-grade AI agent skills (SKILL.md) for Claude Code, Codex & Antigravity — system design, DevOps, security, QA, and more. MIT licensed, open source.",
+        "after": "Commit Message | 49 production-grade AI agent skills (SKILL.md) for DipoleML, Codex & Antigravity — system design, DevOps, security, QA, and more. MIT licensed, open source.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

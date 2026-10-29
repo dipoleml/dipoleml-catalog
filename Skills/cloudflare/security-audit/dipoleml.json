@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.cloudflare.security-audit",
+  "type": "skill",
+  "name": "Security Audit",
+  "slug": "security-audit",
+  "vendor": "cloudflare",
+  "description": "A coding-agent skill for multi-phase security audits with independently verified, machine-readable findings",
+  "version": "0.0.0",
+  "homepage": "https://github.com/cloudflare/security-audit-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "cloudflare",
+    "brandName": "cloudflare",
+    "source": "https://cdn.simpleicons.org/cloudflare",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:05Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "cloudflare/security-audit-skill",
+    "url": "https://github.com/cloudflare/security-audit-skill",
+    "commit": "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+    "path": "skills/security-audit",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 51640,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:55:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

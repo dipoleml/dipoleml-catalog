@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.ailabs-393.travel-planner-2",
+  "type": "skill",
+  "name": "Travel Planner",
+  "slug": "travel-planner-2",
+  "vendor": "ailabs-393",
+  "description": "This package is use to remove the hustle of finding DipoleMLskills and shift them into any of the user project. This project become a bridge between user's usage and DipoleML skills ",
+  "version": "1.0.0",
+  "homepage": "https://github.com/ailabs-393/ai-labs-claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ailabs-393",
+    "brandName": "ailabs-393",
+    "source": "https://github.com/ailabs-393.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ailabs-393/ai-labs-claude-skills",
+    "url": "https://github.com/ailabs-393/ai-labs-claude-skills",
+    "commit": "1a12bc7aadcc7b211f77a7455db454b77a71f827",
+    "path": "packages/skills/travel-planner",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 460,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:00:24Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Travel Planner | This package is use to remove the hustle of finding claudeskills and shift them into any of the user project. This project become a bridge between user's usage and claude skills ",
+        "after": "Travel Planner | This package is use to remove the hustle of finding DipoleMLskills and shift them into any of the user project. This project become a bridge between user's usage and DipoleML skills ",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "travel-planner",
+        "after": "travel-planner-2",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@ai-labs-claude-skills/travel-planner"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

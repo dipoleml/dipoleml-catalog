@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.titanwings.distilly",
+  "type": "skill",
+  "name": "Distilly",
+  "slug": "distilly",
+  "vendor": "titanwings",
+  "description": "Distilly — Distill how they think into reusable Skills for any Agent or Bot. Formerly Colleague Skill（原同事 Skill）.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/titanwings/distilly",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic-ai",
+    "ai-assistants",
+    "ai-persona",
+    "claude-skills",
+    "codex",
+    "codex-skills",
+    "deepseek-harness",
+    "digital-human"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-ai",
+    "ai-agent",
+    "ai-agents",
+    "ai-assistants",
+    "ai-persona",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "codex-skills",
+    "deepseek-harness",
+    "digital-human",
+    "dsh-plugin",
+    "hermes-agent",
+    "knowledge-distillation",
+    "llm-agent",
+    "meta-skill",
+    "openclaw",
+    "personal-agent"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "titanwings",
+    "brandName": "titanwings",
+    "source": "https://github.com/titanwings.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-28T23:04:27Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "titanwings/distilly",
+    "url": "https://github.com/titanwings/distilly",
+    "commit": "0afc45c29c360ba7bc8260f1bb0bf34e9155f4fa",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 26144,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:16Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18",
+      "python3"
+    ],
+    "packages": [
+      "@titanwings/distilly"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

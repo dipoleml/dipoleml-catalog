@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.moonlight-lupin.hermes-onboarding",
+  "type": "skill",
+  "name": "Hermes Onboarding",
+  "slug": "hermes-onboarding",
+  "vendor": "moonlight-lupin",
+  "description": "A collection of AI agent skills and plugins for Hermes Agent — research, creative, productivity, devops, and more. Each skill is self-contained and tested.",
+  "version": "1.3.0",
+  "homepage": "https://github.com/moonlight-lupin/agent-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-ops",
+    "agent-skills",
+    "ai-agent-skills",
+    "automation",
+    "hermes",
+    "research"
+  ],
+  "tags": [
+    "agent-ops",
+    "agent-skills",
+    "ai-agent",
+    "ai-agent-skills",
+    "automation",
+    "claude-code",
+    "hermes",
+    "llm",
+    "research"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "moonlight-lupin",
+    "brandName": "moonlight-lupin",
+    "source": "https://github.com/moonlight-lupin.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:03Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "moonlight-lupin/agent-skills",
+    "url": "https://github.com/moonlight-lupin/agent-skills",
+    "commit": "151b4781c913e1aa7f79b998ba110345c74317cd",
+    "path": "agent-ops/hermes-onboarding",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 113,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:43:23Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

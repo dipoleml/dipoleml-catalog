@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.vercel-labs.pr-labeling",
+  "type": "skill",
+  "name": "Pr Labeling",
+  "slug": "pr-labeling",
+  "vendor": "vercel-labs",
+  "description": "The open agent skills tool - npx skills",
+  "version": "0.0.0",
+  "homepage": "https://github.com/vercel-labs/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "vercel-labs",
+    "brandName": "vercel-labs",
+    "source": "https://github.com/vercel-labs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "vercel-labs/skills",
+    "url": "https://github.com/vercel-labs/skills",
+    "commit": "bd0b9e97ea295e0b49727e071777fa31f067b995",
+    "path": ".automations/pr-labeling/skills/pr-labeling",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 37030,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:56:11Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

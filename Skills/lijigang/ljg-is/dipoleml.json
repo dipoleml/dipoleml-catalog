@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.lijigang.ljg-is",
+  "type": "skill",
+  "name": "Ljg Is",
+  "slug": "ljg-is",
+  "vendor": "lijigang",
+  "description": "把一个名词或概念写成可使用的理解：先用普通话讲清它是什么、与相邻概念差在哪里，再说明它怎样运作、会改写什么判断，最后给出面对它时的行动抓手。USE WHEN 用户问 X 是什么、怎么理解、意味着什么、为什么重要、以后怎样判断或使用；尤其适合技术概念、制度、产品、角色、方法、规范与实践。NOT FOR 单纯查事实、公式证明、逐步操作教程、纵向因果深挖（用 ljg-think）或母题结构（用 ljg-structure）。",
+  "version": "5.0.0",
+  "homepage": "https://github.com/lijigang/ljg-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lijigang",
+    "brandName": "lijigang",
+    "source": "https://github.com/lijigang.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lijigang/ljg-skills",
+    "url": "https://github.com/lijigang/ljg-skills",
+    "commit": "a6b11187771a367436abcfd4262679b8d050b486",
+    "path": "skills/ljg-is",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7580,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:39Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

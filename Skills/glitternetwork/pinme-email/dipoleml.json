@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.glitternetwork.pinme-email",
+  "type": "skill",
+  "name": "Pinme Email",
+  "slug": "pinme-email",
+  "vendor": "glitternetwork",
+  "description": "Deploy Your Frontend in a Single Command. DipoleML Skills supported.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/glitternetwork/pinme",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "claude-code-skill",
+    "claude-skills",
+    "deployment",
+    "deployment-tools",
+    "frontend",
+    "frontend-deployment",
+    "hosting",
+    "serverless",
+    "skills"
+  ],
+  "tags": [
+    "ai-tools",
+    "claude-code-skill",
+    "claude-skills",
+    "deployment",
+    "deployment-tools",
+    "frontend",
+    "frontend-deployment",
+    "hosting",
+    "serverless",
+    "skills",
+    "static-site",
+    "static-site-deploy",
+    "static-site-hosting",
+    "web-hosting",
+    "zero-configuration"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "glitternetwork",
+    "brandName": "glitternetwork",
+    "source": "https://github.com/glitternetwork.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "glitternetwork/pinme",
+    "url": "https://github.com/glitternetwork/pinme",
+    "commit": "7822b0501607786958ecb458f3bd02a061933efa",
+    "path": "skills/pinme-email",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3757,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:32:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Pinme Email | Deploy Your Frontend in a Single Command. Claude Code Skills supported.",
+        "after": "Pinme Email | Deploy Your Frontend in a Single Command. DipoleML Skills supported.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

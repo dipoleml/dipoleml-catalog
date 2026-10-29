@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.lottiefiles.motion-design",
+  "type": "skill",
+  "name": "Motion Design",
+  "slug": "motion-design",
+  "vendor": "lottiefiles",
+  "description": "Universal motion design principles for AI agents — timing, easing, choreography, and Disney animation principles adapted for UI",
+  "version": "1.0.0",
+  "homepage": "https://github.com/LottieFiles/motion-design-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "animation",
+    "lottie",
+    "motion-design",
+    "ui"
+  ],
+  "tags": [
+    "agent-skills",
+    "animation",
+    "lottie",
+    "motion-design",
+    "ui"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "lottiefiles",
+    "brandName": "lottiefiles",
+    "source": "https://cdn.simpleicons.org/lottiefiles",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:55Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "LottieFiles/motion-design-skill",
+    "url": "https://github.com/LottieFiles/motion-design-skill",
+    "commit": "f9a8a041b85185ee4881b3471d3415e939aac772",
+    "path": "skills/motion-design",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2589,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:50Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

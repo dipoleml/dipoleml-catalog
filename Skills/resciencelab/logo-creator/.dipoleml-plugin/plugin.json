@@ -1,0 +1,20 @@
+{
+  "name": "logo-creator",
+  "displayName": "Logo Creator",
+  "version": "1.0.0",
+  "description": "Create logos using AI image generation. Discuss style/ratio, generate variations, iterate with user feedback, crop, remove background, and export as SVG.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Resciencelab"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ReScienceLab/opc-skills/tree/main/skills/logo-creator",
+  "repository": "https://github.com/ReScienceLab/opc-skills",
+  "skills": [
+    "./SKILL.md"
+  ],
+  "commands": [
+    "./scripts/"
+  ],
+  "agents": []
+}

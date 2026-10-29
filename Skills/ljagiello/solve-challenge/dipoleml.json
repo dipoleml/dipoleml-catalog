@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.ljagiello.solve-challenge",
+  "type": "skill",
+  "name": "Solve Challenge",
+  "slug": "solve-challenge",
+  "vendor": "ljagiello",
+  "description": "Agent skills for solving CTF challenges - web exploitation, binary pwn, crypto, reverse engineering, forensics, OSINT, and more",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ljagiello/ctf-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-code-skills",
+    "codex",
+    "codex-cli",
+    "ctf",
+    "ctf-challenges",
+    "ctf-tools",
+    "gemini",
+    "gemini-cli"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-code",
+    "claude-code-skills",
+    "codex",
+    "codex-cli",
+    "ctf",
+    "ctf-challenges",
+    "ctf-tools",
+    "gemini",
+    "gemini-cli",
+    "opencode",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ljagiello",
+    "brandName": "ljagiello",
+    "source": "https://github.com/ljagiello.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ljagiello/ctf-skills",
+    "url": "https://github.com/ljagiello/ctf-skills",
+    "commit": "2388a3bcd5f081836c9a038c54e26bc658d5b7d1",
+    "path": "solve-challenge",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3555,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.undefined-ui.second-brain-chat-import",
+  "type": "skill",
+  "name": "Second Brain Chat Import",
+  "slug": "second-brain-chat-import",
+  "vendor": "undefined-ui",
+  "description": "An AI second brain that maintains itself. Full guide, starter vault, agent skills and scripts for a self-organizing knowledge base in DipoleML and Obsidian.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/undefined-ui/second-brain-os",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-skills",
+    "knowledge-graph",
+    "knowledge-management",
+    "obsidian",
+    "personal-knowledge-base",
+    "pkm",
+    "second-brain"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "knowledge-graph",
+    "knowledge-management",
+    "llm",
+    "mcp",
+    "obsidian",
+    "personal-knowledge-base",
+    "pkm",
+    "second-brain"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "undefined-ui",
+    "brandName": "undefined-ui",
+    "source": "https://github.com/undefined-ui.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "undefined-ui/second-brain-os",
+    "url": "https://github.com/undefined-ui/second-brain-os",
+    "commit": "9173e03d4c40cf1a9ccd3314d0cd4194bcd7afe3",
+    "path": "skills/second-brain-chat-import",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1158,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:51Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Second Brain Chat Import | An AI second brain that maintains itself. Full guide, starter vault, agent skills and scripts for a self-organizing knowledge base in Claude Code and Obsidian.",
+        "after": "Second Brain Chat Import | An AI second brain that maintains itself. Full guide, starter vault, agent skills and scripts for a self-organizing knowledge base in DipoleML and Obsidian.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

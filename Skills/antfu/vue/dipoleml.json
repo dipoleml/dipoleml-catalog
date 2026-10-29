@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.antfu.vue",
+  "type": "skill",
+  "name": "Vue",
+  "slug": "vue",
+  "vendor": "antfu",
+  "description": "Anthony Fu's curated collection of agent skills.",
+  "version": "2026.9.25",
+  "homepage": "https://github.com/antfu/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "antfu",
+    "brandName": "antfu",
+    "source": "https://github.com/antfu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "antfu/skills",
+    "url": "https://github.com/antfu/skills",
+    "commit": "8886fe2d385d3644cbb47e46ae9cb1cf09307d3b",
+    "path": "skills/vue",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6019,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:53Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.bagelhole.openclaw-security-hardening",
+  "type": "skill",
+  "name": "Openclaw Security Hardening",
+  "slug": "openclaw-security-hardening",
+  "vendor": "bagelhole",
+  "description": "Agent-ready DevOps, security, infrastructure, and compliance knowledge base with 80+ skills across Kubernetes, Terraform, AWS/Azure/GCP, AI platform operations, container hardening, SOC2/ISO27001, and incident response—plus ready-to-run scripts, templates, and playbooks for SRE, platform, and security teams.",
+  "version": "1.0",
+  "homepage": "https://github.com/BagelHole/DevOps-Security-Agent-Skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "agentic-ai",
+    "aws",
+    "cheatsheets",
+    "compliance",
+    "devops",
+    "docker",
+    "infrastructure-as-code",
+    "kubernetes"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-ai",
+    "ai-agents",
+    "aws",
+    "cheatsheets",
+    "compliance",
+    "devops",
+    "docker",
+    "infrastructure-as-code",
+    "kubernetes",
+    "security",
+    "sre",
+    "terraform"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "amazonwebservices",
+    "brandName": "amazonwebservices",
+    "source": "https://github.com/BagelHole.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:57Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "BagelHole/DevOps-Security-Agent-Skills",
+    "url": "https://github.com/BagelHole/DevOps-Security-Agent-Skills",
+    "commit": "0365f57a079b1332f95cf26e31dd2d5332a8399f",
+    "path": "infrastructure/local-ai/openclaw-security-hardening",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1180,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:35:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

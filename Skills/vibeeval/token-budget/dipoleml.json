@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.vibeeval.token-budget",
+  "type": "skill",
+  "name": "Token Budget",
+  "slug": "token-budget",
+  "vendor": "vibeeval",
+  "description": "AI software team for DipoleML - 138 agents, 295 skills, 73 hooks. Self-learning, multi-agent swarm, autonomous skill evolution.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/vibeeval/vibecosystem",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-software-team",
+    "anthropic",
+    "automation",
+    "claude-skills",
+    "developer-tools",
+    "devtools",
+    "hooks",
+    "multi-agent",
+    "open-source"
+  ],
+  "tags": [
+    "ai-agents",
+    "ai-software-team",
+    "anthropic",
+    "automation",
+    "claude",
+    "claude-code",
+    "claude-skills",
+    "developer-tools",
+    "devtools",
+    "hooks",
+    "multi-agent",
+    "open-source",
+    "self-learning",
+    "vibe-coding",
+    "vibecoding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "vibeeval",
+    "brandName": "vibeeval",
+    "source": "https://github.com/vibeeval.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "vibeeval/vibecosystem",
+    "url": "https://github.com/vibeeval/vibecosystem",
+    "commit": "3b763b1fb288f57bfa3cce76ef18184b96461a78",
+    "path": "skills/token-budget",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 540,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:38:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Token Budget | AI software team for Claude Code - 138 agents, 295 skills, 73 hooks. Self-learning, multi-agent swarm, autonomous skill evolution.",
+        "after": "Token Budget | AI software team for DipoleML - 138 agents, 295 skills, 73 hooks. Self-learning, multi-agent swarm, autonomous skill evolution.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

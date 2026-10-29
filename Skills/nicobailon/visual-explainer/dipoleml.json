@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.nicobailon.visual-explainer",
+  "type": "skill",
+  "name": "Visual Explainer",
+  "slug": "visual-explainer",
+  "vendor": "nicobailon",
+  "description": "Agent skill that generates rich HTML pages or slide decks for diagrams, diff reviews, plan audits, data tables, and project recaps",
+  "version": "0.14.0",
+  "homepage": "https://github.com/nicobailon/visual-explainer",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nicobailon",
+    "brandName": "nicobailon",
+    "source": "https://github.com/nicobailon.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nicobailon/visual-explainer",
+    "url": "https://github.com/nicobailon/visual-explainer",
+    "commit": "5f378868e0ea745a6284b51e710c390f0c76f72c",
+    "path": "plugins/visual-explainer",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 10673,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:22Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

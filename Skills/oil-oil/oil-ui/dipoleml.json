@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.oil-oil.oil-ui",
+  "type": "skill",
+  "name": "Oil UI",
+  "slug": "oil-ui",
+  "vendor": "oil-oil",
+  "description": "UI design skill for DipoleML, Codex and other AI agents: explore distinct directions, compare them side by side, refine against real screenshots. 给 AI Agent 用的 UI 设计 Skill。",
+  "version": "0.27.1",
+  "homepage": "https://github.com/oil-oil/oil-ui",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-design",
+    "claude-skills",
+    "codex",
+    "frontend",
+    "ui-design",
+    "ux-design"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-design",
+    "claude-code",
+    "claude-skills",
+    "codex",
+    "frontend",
+    "ui-design",
+    "ux-design"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "oil-oil",
+    "brandName": "oil-oil",
+    "source": "https://github.com/oil-oil.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:12Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "oil-oil/oil-ui",
+    "url": "https://github.com/oil-oil/oil-ui",
+    "commit": "e3334bd5f6e700d21ac275b169ceee6495db9391",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2456,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Oil UI | UI design skill for Claude Code, Codex and other AI agents: explore distinct directions, compare them side by side, refine against real screenshots. 给 AI Agent 用的 UI 设计 Skill。",
+        "after": "Oil UI | UI design skill for DipoleML, Codex and other AI agents: explore distinct directions, compare them side by side, refine against real screenshots. 给 AI Agent 用的 UI 设计 Skill。",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.tw93.write",
+  "type": "skill",
+  "name": "Write",
+  "slug": "write",
+  "vendor": "tw93",
+  "description": "🥷 Engineering habits you already know, turned into skills AI assistants like DipoleML, Codex and Cursor can run.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/tw93/Waza",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "codex",
+    "cursor",
+    "design",
+    "engineer",
+    "skills",
+    "superpowers"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "codex",
+    "cursor",
+    "design",
+    "engineer",
+    "skills",
+    "superpowers"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tw93",
+    "brandName": "tw93",
+    "source": "https://github.com/tw93.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "tw93/Waza",
+    "url": "https://github.com/tw93/Waza",
+    "commit": "80bddea011fe165507a6e70edffd5650aa4b0c07",
+    "path": "plugins/waza/skills/write",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7382,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:31:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Write | 🥷 Engineering habits you already know, turned into skills AI assistants like Claude Code, Codex and Cursor can run.",
+        "after": "Write | 🥷 Engineering habits you already know, turned into skills AI assistants like DipoleML, Codex and Cursor can run.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

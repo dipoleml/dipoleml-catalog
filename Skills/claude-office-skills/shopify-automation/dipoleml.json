@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.claude-office-skills.shopify-automation",
+  "type": "skill",
+  "name": "Shopify Automation",
+  "slug": "shopify-automation",
+  "vendor": "claude-office-skills",
+  "description": "A curated collection of practical DipoleML Skills for real-world office tasks",
+  "version": "1.0.0",
+  "homepage": "https://github.com/claude-office-skills/skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "claude-office-skills",
+    "brandName": "claude-office-skills",
+    "source": "https://github.com/claude-office-skills.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:05Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "claude-office-skills/skills",
+    "url": "https://github.com/claude-office-skills/skills",
+    "commit": "9c4c7d5cd2813a8936bf2c9fdb174ea883b85a11",
+    "path": "shopify-automation",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 545,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:00:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Shopify Automation | A curated collection of practical Claude Skills for real-world office tasks",
+        "after": "Shopify Automation | A curated collection of practical DipoleML Skills for real-world office tasks",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.haowjy.project-setup-2",
+  "type": "skill",
+  "name": "Project Setup",
+  "slug": "project-setup-2",
+  "vendor": "haowjy",
+  "description": "DipoleML skills focused on creative writing",
+  "version": "0.0.0",
+  "homepage": "https://github.com/haowjy/creative-writing-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "haowjy",
+    "brandName": "haowjy",
+    "source": "https://github.com/haowjy.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:28Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "haowjy/creative-writing-skills",
+    "url": "https://github.com/haowjy/creative-writing-skills",
+    "commit": "1cb520f9c61e79ce2b1c56dba18601b2d6873433",
+    "path": "plugin/cursor/skills/project-setup",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 549,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Project Setup | claude skills focused on creative writing",
+        "after": "Project Setup | DipoleML skills focused on creative writing",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "project-setup",
+        "after": "project-setup-2",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

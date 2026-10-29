@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.master-cai.research-paper-writing",
+  "type": "skill",
+  "name": "Research Paper Writing",
+  "slug": "research-paper-writing",
+  "vendor": "master-cai",
+  "description": "Skill package for ML/CV/NLP paper writing, curated and adapted from Prof. Peng Sida's open notes for Codex, DipoleML, and Gemini.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Master-cai/Research-Paper-Writing-Skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "master-cai",
+    "brandName": "master-cai",
+    "source": "https://github.com/Master-cai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:16:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Master-cai/Research-Paper-Writing-Skills",
+    "url": "https://github.com/Master-cai/Research-Paper-Writing-Skills",
+    "commit": "77e7c2c1ba06f7d71844873147665437a03aac1b",
+    "path": "research-paper-writing",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7898,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Research Paper Writing | Skill package for ML/CV/NLP paper writing, curated and adapted from Prof. Peng Sida's open notes for Codex, Claude Code, and Gemini.",
+        "after": "Research Paper Writing | Skill package for ML/CV/NLP paper writing, curated and adapted from Prof. Peng Sida's open notes for Codex, DipoleML, and Gemini.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

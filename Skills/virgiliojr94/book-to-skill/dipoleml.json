@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.virgiliojr94.book-to-skill",
+  "type": "skill",
+  "name": "Book to Skill",
+  "slug": "book-to-skill",
+  "vendor": "virgiliojr94",
+  "description": "Turn any technical book PDF into a DipoleML skill — ready to study, reference, and use while you work.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/virgiliojr94/book-to-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "book-to-skill",
+    "context-engineering",
+    "document-processing",
+    "edtech",
+    "knowledge-base",
+    "knowledge-management",
+    "pdf-to-markdown",
+    "rag"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "book-to-skill",
+    "context-engineering",
+    "document-processing",
+    "edtech",
+    "knowledge-base",
+    "knowledge-management",
+    "llm",
+    "pdf-to-markdown",
+    "rag",
+    "self-study",
+    "study-tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "virgiliojr94",
+    "brandName": "virgiliojr94",
+    "source": "https://github.com/virgiliojr94.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-28T23:04:27Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "virgiliojr94/book-to-skill",
+    "url": "https://github.com/virgiliojr94/book-to-skill",
+    "commit": "7540eefbe74933f5fc84c86becac52486b347778",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 36423,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Book to Skill | Turn any technical book PDF into a Claude Code skill — ready to study, reference, and use while you work.",
+        "after": "Book to Skill | Turn any technical book PDF into a DipoleML skill — ready to study, reference, and use while you work.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "book-to-skill"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

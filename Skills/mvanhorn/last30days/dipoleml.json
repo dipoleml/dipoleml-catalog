@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.mvanhorn.last30days",
+  "type": "skill",
+  "name": "Last30days",
+  "slug": "last30days",
+  "vendor": "mvanhorn",
+  "description": "AI agent skill that researches any topic across Reddit, X, YouTube, HN, Polymarket, and the web - then synthesizes a grounded summary",
+  "version": "3.31.0",
+  "homepage": "https://github.com/mvanhorn/last30days-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "ai-prompts",
+    "ai-skill",
+    "bluesky",
+    "clawhub",
+    "deep-research",
+    "hackernews",
+    "instagram",
+    "openclaw",
+    "polymarket"
+  ],
+  "tags": [
+    "ai-prompts",
+    "ai-skill",
+    "bluesky",
+    "claude",
+    "claude-code",
+    "clawhub",
+    "deep-research",
+    "hackernews",
+    "instagram",
+    "openclaw",
+    "polymarket",
+    "recency",
+    "reddit",
+    "research",
+    "social-media",
+    "tiktok",
+    "trends",
+    "twitter",
+    "web-search",
+    "youtube"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:06Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "mvanhorn/last30days-skill",
+    "url": "https://github.com/mvanhorn/last30days-skill",
+    "commit": "7efc0ef764765ed9ceff5ce1204462b35b89d680",
+    "path": "skills/last30days",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 65790,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:55:52Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

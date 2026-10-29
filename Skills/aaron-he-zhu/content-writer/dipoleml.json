@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.aaron-he-zhu.content-writer",
+  "type": "skill",
+  "name": "Content Writer",
+  "slug": "content-writer",
+  "vendor": "aaron-he-zhu",
+  "description": "120 marketing skills as an AI marketing staff — plugin, portable skills, or an 8-bot team across 7 disciplines (narrative, SEO/GEO, social, email, paid, influencer, launch) on one contract, with 8 auditor gates: TALE · CORE-EEAT · CITE · ECHO · SEND · ROAS · STAR · RAMP.",
+  "version": "20.1.0",
+  "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "aaron-marketing",
+    "agent-skills",
+    "ai-staff",
+    "brand-messaging",
+    "brand-narrative",
+    "content-optimization",
+    "email-marketing",
+    "generative-engine-optimization",
+    "geo"
+  ],
+  "tags": [
+    "aaron-marketing",
+    "agent-skills",
+    "ai-staff",
+    "brand-messaging",
+    "brand-narrative",
+    "content-optimization",
+    "email-marketing",
+    "generative-engine-optimization",
+    "geo",
+    "grok",
+    "hermes",
+    "influencer-marketing",
+    "marketing",
+    "marketing-automation",
+    "organic-social",
+    "paid-advertising",
+    "product-launch",
+    "roas",
+    "seo",
+    "social-media-marketing"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "aaron-he-zhu",
+    "brandName": "aaron-he-zhu",
+    "source": "https://github.com/aaron-he-zhu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "aaron-he-zhu/aaron-marketing-skills",
+    "url": "https://github.com/aaron-he-zhu/aaron-marketing-skills",
+    "commit": "a2d432fb53a7cac668986d2435ee1ed2107c9a89",
+    "path": "seo-geo/implement/content-writer",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3030,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:33:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

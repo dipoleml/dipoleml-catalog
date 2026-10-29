@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.sahir619.fable-loop",
+  "type": "skill",
+  "name": "Fable Loop",
+  "slug": "fable-loop",
+  "vendor": "sahir619",
+  "description": "The Fable Workflow: how DipoleML Fable 5 worked, distilled into skills any model can run, with the eval that keeps it honest. Think / act / prove.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Sahir619/fable-method",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "claude-md",
+    "coding-agent",
+    "evaluation",
+    "fable"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-md",
+    "coding-agent",
+    "evaluation",
+    "fable",
+    "llm"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sahir619",
+    "brandName": "sahir619",
+    "source": "https://github.com/Sahir619.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:22Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Sahir619/fable-method",
+    "url": "https://github.com/Sahir619/fable-method",
+    "commit": "9924067e82bd48cf3b0426378db93238bfb33e9b",
+    "path": "skills/fable-loop",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2308,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Fable Loop | The Fable Workflow: how Claude Fable 5 worked, distilled into skills any model can run, with the eval that keeps it honest. Think / act / prove.",
+        "after": "Fable Loop | The Fable Workflow: how DipoleML Fable 5 worked, distilled into skills any model can run, with the eval that keeps it honest. Think / act / prove.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

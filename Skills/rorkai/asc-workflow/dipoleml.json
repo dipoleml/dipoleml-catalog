@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.rorkai.asc-workflow",
+  "type": "skill",
+  "name": "Asc Workflow",
+  "slug": "asc-workflow",
+  "vendor": "rorkai",
+  "description": "Skills to automate app store deployed and everything related to it using the asc cli",
+  "version": "0.0.0",
+  "homepage": "https://github.com/rorkai/app-store-connect-cli-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "ai-skills",
+    "app-store-connect",
+    "apple",
+    "asc",
+    "automation",
+    "cicd",
+    "cli",
+    "devops"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-skills",
+    "app-store-connect",
+    "apple",
+    "asc",
+    "automation",
+    "cicd",
+    "cli",
+    "devops",
+    "ios",
+    "macos",
+    "testflight",
+    "xcode"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "rorkai",
+    "brandName": "rorkai",
+    "source": "https://github.com/rorkai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:21Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "rorkai/app-store-connect-cli-skills",
+    "url": "https://github.com/rorkai/app-store-connect-cli-skills",
+    "commit": "7de1ef7cc831f62d205dfa589063f3831f66391b",
+    "path": "skills/asc-workflow",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1111,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:36:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

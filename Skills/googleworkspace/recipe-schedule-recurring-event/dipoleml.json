@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.googleworkspace.recipe-schedule-recurring-event",
+  "type": "skill",
+  "name": "Recipe Schedule Recurring Event",
+  "slug": "recipe-schedule-recurring-event",
+  "vendor": "googleworkspace",
+  "description": "Google Workspace CLI — one command-line tool for Drive, Gmail, Calendar, Sheets, Docs, Chat, Admin, and more. Dynamically built from Google Discovery Service. Includes AI agent skills.",
+  "version": "0.22.5",
+  "homepage": "https://github.com/googleworkspace/cli",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "automation",
+    "cli",
+    "discovery-api",
+    "gemini-cli-extension",
+    "google-admin",
+    "google-api",
+    "google-calendar",
+    "google-chat"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent",
+    "automation",
+    "cli",
+    "discovery-api",
+    "gemini-cli-extension",
+    "google-admin",
+    "google-api",
+    "google-calendar",
+    "google-chat",
+    "google-docs",
+    "google-drive",
+    "google-sheets",
+    "google-workspace",
+    "oauth2",
+    "rust"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "gmail",
+    "brandName": "gmail",
+    "source": "https://cdn.simpleicons.org/gmail",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:16:26Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "googleworkspace/cli",
+    "url": "https://github.com/googleworkspace/cli",
+    "commit": "a3768d0e82ad83cca2da97724e46bea4ff0e6dbd",
+    "path": "skills/recipe-schedule-recurring-event",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 31970,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:30:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

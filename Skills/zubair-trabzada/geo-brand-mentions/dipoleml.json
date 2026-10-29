@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.zubair-trabzada.geo-brand-mentions",
+  "type": "skill",
+  "name": "Geo Brand Mentions",
+  "slug": "geo-brand-mentions",
+  "vendor": "zubair-trabzada",
+  "description": "GEO-first SEO skill for DipoleML. Comprehensive AI search optimization for any website — citability scoring, AI crawler analysis, brand authority, schema markup, platform-specific optimization, and PDF reports.  If you want learn how to sell this to real businesses, check out the skool community",
+  "version": "0.0.0",
+  "homepage": "https://github.com/zubair-trabzada/geo-seo-claude",
+  "provider": "DipoleML",
+  "categories": [
+    "skill"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "unity",
+    "brandName": "unity",
+    "source": "https://cdn.simpleicons.org/unity",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:17:53Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "zubair-trabzada/geo-seo-claude",
+    "url": "https://github.com/zubair-trabzada/geo-seo-claude",
+    "commit": "989cae01e8ebbc42a9ec798eb9e7cb423f5ec89c",
+    "path": "skills/geo-brand-mentions",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 11328,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:57:16Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Geo Brand Mentions | GEO-first SEO skill for Claude Code. Comprehensive AI search optimization for any website — citability scoring, AI crawler analysis, brand authority, schema markup, platform-specific optimization, and PDF reports.  If you want learn how to sell this to real businesses, check out the skool community",
+        "after": "Geo Brand Mentions | GEO-first SEO skill for DipoleML. Comprehensive AI search optimization for any website — citability scoring, AI crawler analysis, brand authority, schema markup, platform-specific optimization, and PDF reports.  If you want learn how to sell this to real businesses, check out the skool community",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

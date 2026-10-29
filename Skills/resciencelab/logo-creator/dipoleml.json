@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "skill.resciencelab.logo-creator",
+  "type": "skill",
+  "name": "Logo Creator",
+  "slug": "logo-creator",
+  "vendor": "resciencelab",
+  "description": "Agent Skills for Solopreneurs",
+  "version": "1.0.0",
+  "homepage": "https://github.com/ReScienceLab/opc-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "skill",
+    "agent-skills",
+    "geo",
+    "llm-tools",
+    "opc",
+    "seo"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-tools",
+    "claude-code",
+    "geo",
+    "llm-tools",
+    "opc",
+    "seo"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "resciencelab",
+    "brandName": "resciencelab",
+    "source": "https://github.com/ReScienceLab.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:17:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ReScienceLab/opc-skills",
+    "url": "https://github.com/ReScienceLab/opc-skills",
+    "commit": "484fa3204e5f3ba400d084ed4f75ca1d722b5a6c",
+    "path": "skills/logo-creator",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1882,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:34:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "skill",
+      "manifest": "SKILL.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

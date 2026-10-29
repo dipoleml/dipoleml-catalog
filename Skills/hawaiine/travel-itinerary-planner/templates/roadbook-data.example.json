@@ -1,0 +1,78 @@
+{
+  "trip": {
+    "title": "川西小环线 2 日自驾（示例）",
+    "subtitle": "成都 · 四姑娘山",
+    "origin": "成都",
+    "destination": "四姑娘山",
+    "start": "2026-10-01",
+    "end": "2026-10-02",
+    "days": 2,
+    "nights": 2,
+    "party": 2,
+    "currency": "CNY",
+    "budget_total": 3000,
+    "budget_includes_longhaul": true,
+    "contingency_pct": 12,
+    "mode": "anchored",
+    "route": ["成都", "四姑娘山", "成都"],
+    "hero": {"src": "assets/photos/hero.jpg", "alt": "四姑娘山", "author": "示例作者", "license": "CC BY-SA 3.0", "source": "https://commons.wikimedia.org"}
+  },
+  "days": [
+    {
+      "n": 1,
+      "date": "2026-10-01",
+      "title": "成都 -> 四姑娘山",
+      "lodging_city": "四姑娘山镇",
+      "drive_km": 220,
+      "drive_min": 300,
+      "visit_min": 60,
+      "meal_min": 60,
+      "rest_min": 30,
+      "awake_min": 780,
+      "checkpoints": ["08:00 成都出发·成灌高速", "12:30 映秀午餐", "17:30 四姑娘山镇收车"],
+      "cost": {"交通": 200, "住宿": 400, "餐饮": 180},
+      "waypoints": [
+        {"name": "成都", "lat": 30.657, "lon": 104.066},
+        {"name": "映秀", "lat": 31.057, "lon": 103.492},
+        {"name": "四姑娘山镇", "lat": 31.089, "lon": 102.905}
+      ],
+      "photo": {"src": "assets/photos/d1.jpg", "alt": "沿途", "author": "示例", "license": "CC BY 4.0", "source": "https://commons.wikimedia.org"},
+      "facts": [{"text": "巴朗山垭口可能因天气临时管制", "tag": "待确认", "src": "https://example.org/road-status"}]
+    },
+    {
+      "n": 2,
+      "date": "2026-10-02",
+      "title": "四姑娘山·双桥沟 -> 成都",
+      "lodging_city": "四姑娘山镇",
+      "drive_km": 240,
+      "drive_min": 320,
+      "visit_min": 60,
+      "meal_min": 60,
+      "rest_min": 30,
+      "awake_min": 780,
+      "checkpoints": ["07:30 进沟", "12:00 沟内简餐", "17:30 返回成都"],
+      "cost": {"交通": 30, "住宿": 400, "餐饮": 200, "门票": 160},
+      "waypoints": [
+        {"name": "双桥沟口", "lat": 31.058, "lon": 102.836},
+        {"name": "四姑娘山镇", "lat": 31.089, "lon": 102.905},
+        {"name": "成都", "lat": 30.657, "lon": 104.066}
+      ]
+    }
+  ],
+  "budget": [
+    {"item": "往返大交通(成都往返)", "unit": 300, "qty": 2, "amount": 600, "category": "longhaul"},
+    {"item": "油费+过路", "unit": 230, "qty": 1, "amount": 230, "category": "交通"},
+    {"item": "住宿(2间×2晚)", "unit": 400, "qty": 2, "amount": 800, "category": "住宿"},
+    {"item": "餐饮", "unit": 190, "qty": 2, "amount": 380, "category": "餐饮"},
+    {"item": "门票体验", "unit": 160, "qty": 1, "amount": 160, "category": "门票"},
+    {"item": "保险/通信", "unit": 200, "qty": 2, "amount": 400, "category": "其他"},
+    {"item": "可选·温泉体验", "unit": 120, "qty": 2, "amount": 240, "category": "门票", "optional": true}
+  ],
+  "checklist": ["身份证 / 驾驶证 / 行驶证", "车辆检查（胎压/防冻液/备胎）", "充电宝 + 车载充电", "高原药品与保暖衣物"],
+  "avoid": [
+    {"where": "首晚海拔", "wrong": "直接住高海拔新都桥", "right": "先在丹巴(约1900m)过渡一晚"}
+  ],
+  "sources": [
+    {"text": "距离：OpenStreetMap / OSRM", "url": "https://www.openstreetmap.org", "date": "2026-09-30"}
+  ]
+}
