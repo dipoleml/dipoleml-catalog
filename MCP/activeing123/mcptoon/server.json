@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.activeing123/mcptoon",
+  "title": "mcptoon",
+  "description": "MCP tools + agent skills in one zero-dependency CLI: 71,929 -> 581 tokens (-99.2%, measured).",
+  "version": "0.8.32",
+  "websiteUrl": "https://mcptoon.github.io/",
+  "repository": {
+    "url": "https://github.com/activeing123/mcptoon",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcptoon",
+      "version": "0.8.32",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

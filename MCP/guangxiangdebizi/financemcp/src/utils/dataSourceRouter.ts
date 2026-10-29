@@ -1,0 +1,214 @@
+import {
+  DataSourceId,
+  getSourcePriority,
+  QVERIS_CONFIG,
+  TUSHARE_CONFIG,
+  TWINGLY_CONFIG,
+} from '../config.js';
+import {
+  getQverisToolPlan,
+  QverisUnsupportedError,
+  runQverisForExistingTool,
+} from './qverisAdapter.js';
+import { QverisClientError } from './qverisClient.js';
+import { runTwinglyForExistingTool, TwinglyClientError } from './twinglyClient.js';
+
+type RoutedSource = DataSourceId | 'web' | 'local';
+type AttemptOutcome = 'success' | 'unsupported' | 'failed';
+
+type SourceAttempt = {
+  source: RoutedSource;
+  outcome: AttemptOutcome;
+  reason?: string;
+};
+
+type ToolContent = { type?: string; text?: string; [key: string]: unknown };
+type ToolResult = { content?: ToolContent[]; [key: string]: unknown };
+
+const SOURCE_LABELS: Record<RoutedSource, string> = {
+  tushare: 'Tushare',
+  twingly: 'Twingly',
+  qveris: 'Qveris',
+  binance: 'Binance',
+  web: '公开新闻源',
+  local: 'FinanceMCP 本地计算',
+};
+
+function nativeSourceForTool(name: string, args: Record<string, unknown>): RoutedSource {
+  if (name === 'current_timestamp') return 'local';
+  if (name === 'finance_news') return 'web';
+  if (
+    (name === 'stock_data' || name === 'stock_data_minutes')
+    && String(args.market_type ?? '').trim().toLowerCase() === 'crypto'
+  ) {
+    return 'binance';
+  }
+  return 'tushare';
+}
+
+function orderedSources(
+  nativeSource: RoutedSource,
+  supportsQveris: boolean,
+  supportsTwingly: boolean,
+): RoutedSource[] {
+  const supported = new Set<RoutedSource>([nativeSource]);
+  if (supportsQveris) supported.add('qveris');
+  if (supportsTwingly) supported.add('twingly');
+
+  const requested = getSourcePriority().filter(source => supported.has(source));
+  return [...new Set<RoutedSource>([...requested, nativeSource])];
+}
+
+function hasCredential(source: RoutedSource): boolean {
+  if (source === 'tushare') return Boolean(TUSHARE_CONFIG.API_TOKEN);
+  if (source === 'qveris') return Boolean(QVERIS_CONFIG.API_KEY);
+  if (source === 'twingly') return Boolean(TWINGLY_CONFIG.API_KEY);
+  return true;
+}
+
+function resultText(result: ToolResult): string {
+  return (result.content ?? [])
+    .map(item => typeof item.text === 'string' ? item.text : '')
+    .join('\n')
+    .trim();
+}
+
+function isFailureResult(result: ToolResult): boolean {
+  const text = resultText(result);
+  if (!text) return false;
+  if (/暂无数据|未找到相关数据|未获取到任何/.test(text)) return false;
+  return /(^|\n)\s*❌(?!\s*未找到)|获取[^\n]{0,30}失败|查询[^\n]{0,30}(?:失败|发生错误)|搜索失败|错误信息\s*[:：]/m.test(text);
+}
+
+function attemptLabel(attempt: SourceAttempt): string {
+  const source = SOURCE_LABELS[attempt.source];
+  if (attempt.outcome === 'success') return `${source}（成功）`;
+  return `${source}（${attempt.reason ?? (attempt.outcome === 'unsupported' ? '不支持' : '失败')}）`;
+}
+
+function annotateResult(result: ToolResult, source: RoutedSource, attempts: SourceAttempt[]): ToolResult {
+  const route = attempts.length > 1 || attempts.some(attempt => attempt.outcome !== 'success')
+    ? `\n数据源路由: ${attempts.map(attemptLabel).join(' → ')}`
+    : '';
+  const header = `数据来源: ${SOURCE_LABELS[source]}${route}\n\n`;
+  const content = [...(result.content ?? [])];
+  const firstTextIndex = content.findIndex(item => typeof item.text === 'string');
+  if (firstTextIndex >= 0) {
+    content[firstTextIndex] = {
+      ...content[firstTextIndex],
+      text: `${header}${content[firstTextIndex].text}`,
+    };
+  } else {
+    content.unshift({ type: 'text', text: `${header}${JSON.stringify(result)}` });
+  }
+  return { ...result, content };
+}
+
+function qverisFailureReason(error: unknown): { outcome: AttemptOutcome; reason: string } {
+  if (error instanceof QverisUnsupportedError) {
+    return { outcome: 'unsupported', reason: '接口未覆盖' };
+  }
+  if (error instanceof QverisClientError) {
+    const reasons: Record<QverisClientError['kind'], string> = {
+      not_configured: '未配置凭证',
+      auth: '凭证不可用',
+      quota: 'credits 不足',
+      rate_limit: '限流',
+      timeout: '超时',
+      unavailable: '服务不可用',
+      invalid_response: '响应无效',
+      request: '候选接口不可用',
+    };
+    return { outcome: error.kind === 'request' ? 'unsupported' : 'failed', reason: reasons[error.kind] };
+  }
+  return { outcome: 'failed', reason: '调用失败' };
+}
+
+function twinglyFailureReason(error: unknown): { outcome: AttemptOutcome; reason: string } {
+  if (!(error instanceof TwinglyClientError)) {
+    return { outcome: 'failed', reason: '调用失败' };
+  }
+  const reasons: Record<TwinglyClientError['kind'], string> = {
+    not_configured: '未配置凭证',
+    auth: '凭证不可用',
+    rate_limit: '限流',
+    timeout: '超时',
+    unavailable: '服务不可用',
+    invalid_response: '响应无效',
+    invalid_input: '请求参数无效',
+    request: '请求不可用',
+    empty: '无匹配数据',
+  };
+  const outcome: AttemptOutcome = error.kind === 'empty' || error.kind === 'request'
+    ? 'unsupported'
+    : 'failed';
+  return { outcome, reason: reasons[error.kind] };
+}
+
+export async function routeToolCall(
+  name: string,
+  args: Record<string, unknown>,
+  runNative: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+  const nativeSource = nativeSourceForTool(name, args);
+  const supportsQveris = Boolean(getQverisToolPlan(name, args));
+  const supportsTwingly = name === 'finance_news' || name === 'hot_news_7x24';
+  const sources = orderedSources(
+    nativeSource,
+    supportsQveris || Boolean(QVERIS_CONFIG.API_KEY),
+    supportsTwingly,
+  );
+  const attempts: SourceAttempt[] = [];
+
+  for (const source of sources) {
+    if (!hasCredential(source)) continue;
+
+    if (source === 'qveris') {
+      try {
+        const result = await runQverisForExistingTool(name, args);
+        attempts.push({ source, outcome: 'success' });
+        return annotateResult(result, source, attempts);
+      } catch (error) {
+        attempts.push({ source, ...qverisFailureReason(error) });
+        continue;
+      }
+    }
+
+    if (source === 'twingly') {
+      try {
+        const result = await runTwinglyForExistingTool(name, args);
+        attempts.push({ source, outcome: 'success' });
+        return annotateResult(result, source, attempts);
+      } catch (error) {
+        if (error instanceof TwinglyClientError && error.kind === 'invalid_input') {
+          throw error;
+        }
+        attempts.push({ source, ...twinglyFailureReason(error) });
+        continue;
+      }
+    }
+
+    if (source !== nativeSource) continue;
+    try {
+      const result = await runNative();
+      if (isFailureResult(result)) {
+        attempts.push({ source, outcome: 'failed', reason: '调用失败' });
+        continue;
+      }
+      attempts.push({ source, outcome: 'success' });
+      return annotateResult(result, source, attempts);
+    } catch {
+      attempts.push({ source, outcome: 'failed', reason: '调用失败' });
+    }
+  }
+
+  const route = attempts.length
+    ? attempts.map(attemptLabel).join(' → ')
+    : '没有已配置且支持该请求的数据源';
+  return {
+    content: [{
+      type: 'text',
+      text: `数据来源: 无\n数据源路由: ${route}\n\n# 数据查询失败\n\n没有可用的数据源完成本次请求。`,
+    }],
+  };
+}

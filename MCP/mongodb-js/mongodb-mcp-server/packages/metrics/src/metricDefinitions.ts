@@ -1,0 +1,47 @@
+import { Counter, Gauge, Histogram } from "prom-client";
+import { TOOL_EXECUTION_DURATION_LABEL_NAMES, type DefaultMetricDefinitions } from "@mongodb-js/mcp-types";
+import type { PrometheusMetricDefinitions } from "./types.js";
+
+/**
+ * Label names the default definitions set per observation. An instance label
+ * must not use one: the observation-level value always wins.
+ */
+export const RESERVED_METRIC_LABEL_NAMES = [...TOOL_EXECUTION_DURATION_LABEL_NAMES, "reason"] as const;
+
+/**
+ * Creates a new set of default metrics for an MCP server.
+ *
+ * NOTE: `registers: []` prevents prom-client from auto-registering these into
+ * the global registry; `PrometheusMetrics` registers them into its own
+ * isolated `Registry` instead.
+ */
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+export function createDefaultMetrics() {
+    return {
+        toolExecutionDuration: new Histogram({
+            name: "mcp_tool_execution_duration_seconds",
+            help: "Duration of tool executions in seconds",
+            labelNames: TOOL_EXECUTION_DURATION_LABEL_NAMES,
+            buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2.5, 5, 10],
+            registers: [],
+        }),
+        sessionCreated: new Counter({
+            name: "mcp_session_created",
+            help: "Number of created sessions in a pod's lifetime",
+            registers: [],
+        }),
+        sessionClosed: new Counter({
+            name: "mcp_session_closed",
+            help: "Number of closed sessions in a pod's lifetime",
+            labelNames: ["reason"] as const,
+            registers: [],
+        }),
+        sessionsActive: new Gauge({
+            name: "mcp_active_sessions",
+            help: "Sessions currently held in the pod's session store.",
+            registers: [],
+        }),
+    } as const satisfies DefaultMetricDefinitions & PrometheusMetricDefinitions;
+}
+
+export type DefaultPrometheusMetricDefinitions = ReturnType<typeof createDefaultMetrics>;

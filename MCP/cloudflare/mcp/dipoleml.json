@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cloudflare.mcp",
+  "type": "mcp",
+  "name": "MCP",
+  "slug": "mcp",
+  "vendor": "cloudflare",
+  "description": "MCP server for the Cloudflare API",
+  "version": "0.1.0",
+  "homepage": "https://github.com/cloudflare/mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cloudflare",
+    "cloudflare-workers"
+  ],
+  "tags": [
+    "cloudflare",
+    "cloudflare-workers",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "cloudflare",
+    "brandName": "cloudflare",
+    "source": "https://cdn.simpleicons.org/cloudflare",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "cloudflare/mcp",
+    "url": "https://github.com/cloudflare/mcp",
+    "commit": "6df9c93e535ab96bc2a4d4ef4c2bbbaaf2c86688",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1022,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "cloudflare-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

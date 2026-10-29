@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "@tanstack/ai": "latest",
+    "@tanstack/ai-anthropic": "latest",
+    "@tanstack/ai-client": "latest",
+    "@tanstack/ai-gemini": "latest",
+    "@tanstack/ai-ollama": "latest",
+    "@tanstack/ai-openai": "latest",
+    "@tanstack/ai-react": "latest",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^0.577.0",
+    "streamdown": "^2.3.0",
+    "zod": "^4.3.6"
+  }
+}

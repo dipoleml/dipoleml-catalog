@@ -1,0 +1,16 @@
+{
+  "name": "mykeys",
+  "displayName": "Mykeys",
+  "version": "0.2.0",
+  "description": "MyKeys — local-first credential vault for DipoleML: manage passwords/keys for various systems, verify logins and issue temporary tokens for AI use, with per-purpose usage statistics.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Winfactorai"
+  },
+  "license": "MIT",
+  "homepage": "https://www.aiputing.com/",
+  "repository": "https://github.com/WinFactorAI/MyKeys",
+  "skills": "skills",
+  "commands": "commands",
+  "agents": []
+}

@@ -1,0 +1,1617 @@
+# Changelog
+
+All notable changes to AI Team OS will be documented in this file.
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+
+## [1.16.0] - 2026-10-27
+
+A **minor** release. AI Team OS stops assuming that Claude Code lives in `~/.claude` and Codex in `~/.codex`: its data moves to a directory of its own, `~/.aiteam`, and every path follows `CLAUDE_CONFIG_DIR` and `CODEX_HOME`. An update you start moves existing data only after seven safety checks pass, and otherwise leaves it where it is, with a notice. Codex pricing adds the Ultrafast tier, `codex exec` launches from Claude Code are recorded with the tier they requested, and the project page lists every recorded session with the running tasks that can be traced to it. Minor rather than patch because these are new features: the data directory with its guarded migration, `aiteam paths`, five data-directory notices (E25-E29) and Ultrafast pricing. **Some behavior changed (see Behavior changes). Close other Claude Code and Codex sessions before updating, because the update may move the data directory. Codex hook trust is unchanged; after updating, restart the API and every open Claude Code and Codex session** (see Upgrade notes).
+
+### Added
+
+- **OS data gets its own directory**: the database, API port file, logs and install records live in `~/.aiteam`, or in `AITEAM_DATA_DIR` when set, instead of inside the Claude Code config folder. Data at the old location keeps working there until an update moves it (see Upgrade notes). The three kinds of directory are described in [Where Data and Configuration Live](README.md#where-data-and-configuration-live).
+- **Guarded data migration**: `python3 install.py --update`, `python3 scripts/update.py` and `python3 scripts/codex_adapter.py update` (which `upgrade` runs) move data out of the old location before they refresh the install surface. Seven checks run in order, and any failure leaves the data in place: (1) the old directory is the one in use and its database can be read; (2) a `MIGRATING` lock is taken; (3) the API that will be restarted runs this checkout's code, and the running API, identified by its command line, has stopped; (4) no process has the database open; (5) the write-ahead log is checkpointed down to zero bytes; (6) the directory is renamed on the same disk, or copied with a sha256 check across disks, with another look for database holders after the copy; (7) the API restarts on the new directory and must report the same task count and `user_version`, or the move is rolled back. The old location is then a symbolic link to the new directory, so older code still running elsewhere reaches the same database. While a move runs, sessions stay off the service, and MCP autostart, `os_restart_api` and `aiteam up` do not start the API. `python3 -m aiteam.data_dir_migration` (or `python3 scripts/migrate_data_dir.py` in a checkout) runs the same checks by hand: it previews by default, `--apply` moves and `--rollback` moves back.
+- **`aiteam paths`** (also `python3 -m aiteam.paths`) prints, as JSON, what the current shell resolves: the data directory and its mode, the Claude Code config folder with its settings and global config files, who installed the hook chain, the install records and the Codex home. `--api` also asks the running API which data directory it uses; `--locate` also looks for databases left elsewhere, such as inside a moved config folder. `/os-doctor` now calls it. `GET /api/health` reports `data_dir`, `data_dir_mode` and `cc_config_dir`, and `?task_count=1` adds the task count.
+- **Five data-directory notices (E25-E29)**: `data_dir_missing` (no data directory, so the service does not start; the notice says where it looked, and no empty database is created), `data_dir_conflict` (two databases, or `AITEAM_DATA_DIR` naming a folder without one), `data_dir_split` (this session and the running API resolve different data directories), `data_dir_legacy` (data still at the old location, with why it was not moved and how to move it) and `data_dir_migrating` (a move is in progress). `data_dir_conflict` and `data_dir_split` appear in Claude Code only.
+- **Install into a chosen Claude Code config folder**: `install.py` installs into the config folder of the shell that runs it (`CLAUDE_CONFIG_DIR` when set), and `--config-dir PATH` chooses another; a folder that does not exist is refused, never created. With several config folders, run it once per folder. MCP is registered in the global config file that the folder's sessions actually read. Each install writes an owner record, `.chain-owner.json`, next to its hook copies, and an entry in `installs.json` in the data directory.
+- **One API for several config folders**: a session tells the API its config folder (MCP sends `X-CC-Config-Dir`, hooks report it, and every hook event's `transcript_path` implies it), and the API reads that session's transcripts, registrations and plugin state in the session's own folder. Paths containing `..` are refused.
+- **Codex Ultrafast pricing**: the price table moves to `openai-2026-10-22` (21 models, 92 records). It adds Ultrafast short- and long-context rates for `gpt-6-astra` and `gpt-6.1-sol`, and those two models' Standard, Fast, Flex and Batch rates were checked again against the official table. It also records the official plan multipliers for Fast (2.5 on included usage, 2 on purchased credits) and Ultrafast (8 and 6); they describe plan rules only and take no part in quotes or quota predictions. The usage page and the external execution page show the new tier.
+- **The first turn's tier from Codex's own settings**: when Codex records a thread's first-turn tier only in the settings initialization written right after that turn starts, the usage reader now binds it to that turn. Later settings, other threads, explicit nulls and unknown models are never bound.
+- **Codex launch records**: when a Claude Code session runs `codex exec` through Bash, the OS stores the launch mode and the requested tier, model and reasoning effort, never the command, prompt or credentials, in a new table, `codex_exec_launches`. A record is bound to its native Codex thread only on exact evidence: the JSON event stream, or the startup header in an absolute output file written with input from `/dev/null`. Background, redirected, dynamic and multi-launch commands, and a completion or failure seen without its pre-launch record, stay unbound with the reason shown. `aiteam codex-exec` now also records the requested tier, model and effort from the arguments it wraps. For the first turn of a bound new `exec` whose Codex log carries no tier, plan pricing uses the requested tier; such samples are marked `launch_requested` and count as incomplete, because a requested tier is not proof of the tier served. The usage page lists the records (`GET /api/external-execs/launch-observations`).
+- **Sessions on the project page**: "Currently Working" lists sessions with fresh evidence of work, and "Other Session Records" keeps idle, offline and unknown ones, each with its first recorded time, latest activity and what its state rests on (host runtime state, registered state, activity record, Codex session events, or session identity only). A busy state without fresh activity reads "Unconfirmed state". A session's linked running tasks count only tasks traced to it through the assigned agent's exact id or the owning session of the task's team, also when no current task is recorded for the session; the rest are counted as "Running tasks without a session". The summary keeps every live session plus the 20 most recently active others, with `session_count` (all recorded sessions) and `sessions_truncated`.
+- **Short task IDs over HTTP**: the task routes (status, update, complete, subtasks, memo, execution trace, replay, what-if, diagnose, compare, watchdog verify) accept a UUID prefix of at least 8 characters, resolved only inside the request's registered project; an ambiguous prefix returns HTTP 409 with up to 20 candidates. Full UUIDs behave as before.
+- **Price verification on the plan usage panel**: under "Price version and coverage gaps", each model in the latest local sample shows whether the rates actually applied were verified within 30 days, are older, have no usable verification date, or are missing, and "Review prices" marks any that need attention. It covers the latest local sample only and changes no amount.
+- **Audit of the unread hooks**: both hosts' unread-message hooks log whitelisted metadata of every invocation (event, reason code, output size) to `~/.local/state/ai-team-os/<cc|codex>/unread-invocations.jsonl` (under `$XDG_STATE_HOME` when set), so a failed invocation can be told apart from an empty unread check. The log rotates inline at 5 MB and keeps one earlier generation; `scripts/uninstall.py --purge-data` deletes it.
+- **`os_health_check` reports the MCP tool surface**: a new `mcp_tool_surface` section compares this server's tool catalog with what its toolset and read-only settings should register, and lists missing and unexpected names. It cannot see what the host itself exposes.
+- **Inventory**: 118 MCP tools, 242 REST endpoints (the new one is `GET /api/external-execs/launch-observations`) and 30 repository invariants. I28 compares the installed Codex hook copies with the repository (a warning only; `scripts/check_codex_installed_hooks.py` is the strict form, which `/os-doctor` also runs in a checkout), I29 keeps em dashes out of the English Dashboard text, and I30 keeps host and data-directory paths spelled only in `hook_core.py`.
+
+### Behavior changes
+
+- **The data directory is never created at run time**: hooks, MCP and the API only look for it. When there is none, the API refuses to start and the session start shows `data_dir_missing` with the places it looked, instead of the service starting on a new, empty database. Only `install.py`, `scripts/update.py`, `codex_adapter.py install` and the plugin's first run create it, and only when no data exists anywhere; an explicit `AITEAM_DATA_DIR` or `AITEAM_DB_PATH` may still be created. An old database that cannot be read is reported as unreadable, never hidden behind a new directory.
+- **No more copying `aiteam.db` from the working directory**: the API used to copy an `aiteam.db` it found in the directory it was started from into the data directory when the latter held little or no data. That copy is gone.
+- **A hook chain without an owner record is no longer taken for a plugin install**: the leftover-chain notice (E06), the leftover-chain remover, install detection and the installed-copy check read `.chain-owner.json`. For a chain installed before these records existed, the older markers in the data directory still decide for this release (`install_path.txt` means a source install, else `main-chain.json`); when nothing says, the owner is unknown and E06 stays silent.
+- **`scripts/uninstall.py --purge-data` shows, asks and can refuse**: it prints the data directory's path, mode, total size and `user_version`, and deletes only after you type `delete`. It refuses when the target holds no readable OS database, and when two databases are found.
+- **Unknown Codex tiers are unpriced**: a tier the price table does not know, in a quote request or in a Codex log, is kept as written and returned unpriced; it is no longer rejected or dropped as an invalid request, and no other tier's price is used. `POST /api/pricing/quote` accepts any tier text up to 256 characters.
+- **Waiting on you means a structured wait**: the banner, sidebar badge and overview count unfinished tasks whose `waiting_on` kind is `user` (children included) and no longer count the `requires-user-decision` tag.
+- **REST writes need a project context** (see Security): `POST /api/memories` with `scope=project` and `POST /api/ecosystem/profiles`.
+- **Agent ranking is paged**: `GET /api/analytics/agent-productivity` returns 20 rows by default (`limit` up to 100, and `offset`) plus `total` and `total_activities` for the whole scope; it used to return every agent.
+- **Project summary**: MCP `project_summary` no longer includes the session history list. In `GET /api/projects/{id}/summary`, `session_count` counts recorded sessions rather than transcript files, and a session's `in_flight_tasks` counts only tasks traced to it (it used to count every running task of the session's teams).
+
+### Changed
+
+- **Paths follow `CLAUDE_CONFIG_DIR` and `CODEX_HOME` throughout**: hooks, the API, the installers, the uninstaller, the Codex adapter and the slash commands resolve the Claude Code config folder, the Codex home and the data directory through one resolver. On macOS and Linux, hook commands are written as `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/ai-team-os/...`, so a config folder that is moved and pointed at again keeps running its own copies; Windows keeps absolute paths. The hooks decide whether to yield to the plugin by the session's own config folder. `/os-watcher` no longer writes its switch into the old directory, and the pre-compaction log moves into the data directory.
+- **Host version mismatch (E15) covers source installs**: the Claude Code side used to be judged for plugin installs only; a source install now reports the version of its recorded checkout (its project and package versions must agree), and the notice gives that install's update steps.
+- **The plan capacity panel shows the amount only**: under the amount, one line says "API-equivalent estimate, not a cash balance", and the line is omitted when there is no amount. The counts of requests priced on assumed or logged tiers are no longer shown; the API still returns them.
+- **Pending page**: the read-only "Recent blocks" group is removed; on-the-spot protection and the event record are unchanged.
+- **Codex usage backfill**: it can now conclude `codex_parser_rejected:<code>` (the parser refused the rollout) or `codex_rollout_not_found` (no original under sessions or archives by thread id, and no recorded path). The unattributed drawer shows both under "Needs investigation" with what to check; neither means zero usage. A `no_usage_lines` conclusion also records the rollout path actually read, archives included. Plans move to format 4.
+- **Local dates in reports**: ecosystem weekly and health reports are named by the local date and print times with the zone abbreviation and offset, and the tool-loading rotation counts local calendar days.
+- **Installer**: package checks import each module in a fresh interpreter, the closing steps no longer ask you to start the API by hand (MCP starts it), and they name the Dashboard dev server's actual address, `http://localhost:5174`, which the API now also allows for CORS.
+- **Packaging**: the sdist leaves out local environments, caches and build output, and the build backend is pinned to `hatchling>=1.32,<2`.
+- **`codex_adapter.py status`** reports present files and files whose hash matches separately.
+
+### Fixed
+
+- **Custom Claude Code config folders**: with `CLAUDE_CONFIG_DIR` set, hooks created an empty data directory and the API started on an empty database, the installer registered MCP in a global config file those sessions never read, and a source install was reported as a removed plugin (E06). Codex paths that ignored `CODEX_HOME` now respect it.
+- **A Codex Leader's last round is measured** (1.15.1 known limitation): Stop events of Codex Leaders and sub-agents no longer wait out the 30-second capture throttle. Each Stop stores a snapshot, waits one second and reads again once if the rollout changed in the meantime.
+- **`gpt-6.1-sol` had no price**: its requests counted as 0 in plan capacity estimates. The table now carries its Standard, Fast, Flex and Batch rates; Ultrafast came later in this release (see Added).
+- **`aiteam codex-exec` with `--ephemeral`** now warns on stderr that Codex keeps no session log for that run, so its usage stays in the receipt and does not reach the usage page or `/usage`. The examples drop `--ephemeral` and use `< /dev/null` for background runs, which only need stdin closed.
+- **Workflow agents**: a final progress report without a token value no longer wipes the live context reading (an explicit 0 still counts), and agents in `error` or `failed` state show as failed, and in `start` or `progress` as working, instead of falling back to completed or offline.
+- **Compaction recovery note**: the context share of in-flight agents was shown 100 times too large (14.7% read as 1470%). It now shows the stored percentage, and nothing when the context window is unknown.
+- **Notice banner**: "N more" no longer counts the items the top line already stands for, such as the several briefings behind one pending-decisions line.
+- **Removed or disabled plugin while the API still runs**: the session start shows E06 before any API call, with no Leader briefing and no guidance for tools that are gone, and a briefing owed from before the removal is not replayed. A disabled `ai-team-os@*` key left by another marketplace no longer outvotes an installed, enabled copy, and the leftover-chain remover no longer flags `hook_delivery.py` as an unknown file.
+- **`/clear` or compaction with a slow API**: when the API process is verifiably still listening, the session start shows "service starting" with the same bounded grace as a new session, instead of "service not running".
+- **`/loop` guidance** in the Leader briefing names a maintenance prompt that exists in the current install, instead of always pointing at `~/.claude/loop.md`.
+- **HTTP MCP in an unregistered folder**: `project_create` and `dismiss_project_registration` work there now; every tool used to require a registered project.
+
+### Security
+
+- **Debug log**: access-log lines keep the method, path and status but drop the query string, since search text and parameters can be private; a line in an unexpected format is replaced by a placeholder.
+- **Project memory writes are bound to the request**: `POST /api/memories` with `scope=project` writes only to the bucket resolved from the request's project or folder context. An explicit `scope_id` of another project returns HTTP 403, for new entries and `supersedes` alike, and a request with neither context returns 422; `confirm_shared_scope` grants no cross-project write. MCP `memory_add` never exposed `scope_id`. `POST /api/ecosystem/profiles` now requires `X-Project-Id` (HTTP 400 without it).
+- **HTTP MCP working directory**: resolved by its real path and required to exist; project roots must be absolute and are compared by real path, so a symbolic link or a lexical parent cannot claim an unrelated folder.
+- **API launch environment**: `CODEX_SESSION_ID` joins the launching-session variables removed from the API's environment.
+
+### Upgrade notes
+
+- **In-product notice**: 1.15.2 sessions show a release notice with the command for your installation, provided the API can reach the GitHub API.
+- **Close other sessions before updating**: the update may move the data directory, which stops the API and needs the database closed. Close other Claude Code and Codex sessions first.
+- **Where your data goes**: data at `~/.claude/data/ai-team-os` moves to `~/.aiteam` only when you run `python3 install.py --update`, `python3 scripts/update.py` or `python3 scripts/codex_adapter.py update` (or `upgrade`, which runs it), and only after the seven checks in Added pass. With `AITEAM_DATA_DIR` set, that folder is used and nothing moves. If any check fails, nothing moves: the data keeps working where it is, and the next session start shows `data_dir_legacy` with the reason code and the command to move it by hand; the next update tries again. After a move, the old location is a symbolic link to the new directory. `--no-migrate-data` keeps the data where it is this time.
+- **Do not add `--offline`** unless this checkout's package is already installed: the move verifies that the API it restarts runs this checkout's code, and stops with `code_mismatch` otherwise.
+- **Plugin installs are never moved automatically**: a session start must not stop a service other sessions may be using. The data keeps working at the old location, and `data_dir_legacy` offers two ways to move it: tell Claude "migrate OS data" (it previews the checks and asks before applying), or close other sessions and run `python3 -m aiteam.data_dir_migration --apply` in a terminal.
+- **Custom config folders**: `install.py --update` rewrites existing absolute-path hook entries into the `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/...` form (macOS and Linux) and writes the owner record. To install into another folder, pass `--config-dir PATH`; with several folders, run it once per folder. `aiteam paths` shows what a shell resolves.
+- **Claude Code source install**: in the install checkout, on `master`, run `git pull --ff-only`, then `python3 install.py --update`. Pull first, so that this release's updater runs: the 1.15.2 updater does not move data.
+- **Claude Code plugin**: run `claude plugin marketplace update ai-team-os`, then `claude plugin update ai-team-os@ai-team-os`, and restart Claude Code twice: the first start upgrades the Python package and says "Upgraded to v1.16.0 (was v1.15.2). Restart Claude Code to apply", the second replaces the old API.
+- **Codex adapter**: in the install checkout, on `master`, run `python3 scripts/codex_adapter.py upgrade` (it pulls, reinstalls the package and runs `update`), then follow what `status` reports about the API, as described in [Option C](README.md#option-c-codex-adapter-lifecycle). With both hosts, update Claude Code first; the Codex update then finds the data already moved.
+- **Codex hook trust is unchanged**: `hooks.json` and `hook-trust.lock` match 1.15.2 (I17b: 9 kept trusted, 0 newly pending, no reused slot), so nothing needs approving again. Only the script contents changed; reopen Codex sessions to load them.
+- **Restart the API and every open session**: MCP autostart replaces the old API when a restarted Claude Code session connects, or you can ask Claude to run `os_restart_api`. Reopen every Claude Code and Codex session: an MCP server started before the update keeps the old code and paths.
+- **The API's first start** creates one table, `codex_exec_launches`; existing rows are not rewritten. Stored plan summaries are rebuilt once from the saved samples on first read, and the plan usage page may say it is rebuilding meanwhile.
+- **The default startup model belongs to the API's config folder**: Settings and `model_config_set` read and write `settings.json` in the API's own Claude Code config folder, and agent template edits land in its `agents/`. With several config folders, every session sees the default model of the folder the API was started from.
+- **Historical usage is not repriced**: requests already priced on an assumed tier keep their stored amounts; Ultrafast rates, first-turn settings and launch evidence apply to new samples only.
+- **Codex backfill plans**: regenerate saved plans; format 3 plans are refused.
+
+### Known limitations
+
+- **Windows**: hook commands keep absolute paths. The move cannot verify a running API's command line there, so it does not proceed while the API runs, and where no symbolic link can be made the old location becomes a folder holding a `MOVED-TO` note.
+- **Launch evidence** prices only the first turn of a new `exec` that is bound exactly. A requested tier is never proof of the tier served, so those samples stay incomplete, and unbound records take no part in pricing.
+- **Codex Stop**: the second read one second after a Stop covers common late writes, not arbitrarily delayed ones; a final Stop cancelled at shutdown is not guaranteed to be measured.
+- **Session state**: transcript freshness is evidence of activity, not proof that a host is working or has ended, so idle, offline and unknown sessions all stay under "Other Session Records".
+
+## [1.15.2] - 2026-10-10
+
+A **patch** release. The task wall becomes something you can manage: tasks get real parent and child links, dependencies that unlock downstream work, explicit waits, clearable fields, revision checks and atomic batch creation. The opt-in `aiteam codex-exec` keeps minimum usage receipts for external `codex exec` runs, including `--ephemeral` runs that leave no rollout. Both known limitations of 1.15.1 are fixed: new databases carry the UTC clock marker so the Codex usage backfill runs on them, and `aiteam attribution repair` corrects rows stored before the upgrade on every install. Patch rather than minor by decision: the task work extends the existing task tools and endpoints, the external execution ledger is an opt-in command that changes nothing until used, and the rest closes the 1.15.1 limitations. **Some task-tool behavior changed (see Behavior changes). Hooks and Codex hook trust are unchanged; after updating, restart the API and every open Claude Code and Codex session** (see Upgrade notes).
+
+### Added
+
+- **Task relationships and states on the everyday entries**: `task_create`, `task_run` and `task_update` (and their HTTP routes) accept a same-project `parent_id` (one level of children), `depends_on`, an explicit `waiting_on` (a user or an agent, with a reason), a `status_note`, and `expected_revision`. Self-references, cycles, cross-project links, grandchildren and new children under a completed parent are refused with HTTP 400 and nothing is written. Blocked tasks record why: `dependency`, `manual` or `waiting`; completing the last dependency releases only a dependency block, and a task is moved to pending, never started. Every effective update advances a revision; a stale `expected_revision` returns HTTP 409 with `current_revision` and `current_task`. Write tools accept `fields="compact"`, a short receipt that keeps the real status, relationships, revision, warnings and errors. Management fields live in their own config key, so the frozen legacy `config.memo` is kept as it was.
+- **The wall and the briefing show the structure**: parent cards show direct-child progress (completed / total), the latest progress memo, the status note, and children that are waiting on the user; the briefing lists those children with their parent. When every executor of a running task has stopped, the card shows an `executor_stopped` hint and the task keeps its status. Project-wall statistics count top-level tasks and team-wall statistics count all of the team's tasks; the two are labelled separately, and a status filter applies to parent cards only, so children are no longer filtered out.
+- **Dashboard task editing**: a task editor for horizon, assignee, status note, dependencies and waits, the parent and child completion flow (completing a parent with open children is refused and lists them), and conflict handling: on a 409 the dialog shows the other session's values, keeps your input and overwrites only the fields you changed. Write warnings stay on the page after the dialog closes.
+- **Atomic batch creation**: MCP `task_create_batch` and `POST /api/projects/{id}/tasks/batch` create 1 to 100 tasks in one transaction. Tasks reference each other with local `@key` values; repeating the same idempotency key with the same payload replays the original result, and a different payload returns 409. A new table, `task_create_batches`, keeps these receipts.
+- **Receipts for external Codex runs** (opt-in): `aiteam codex-exec run -- <codex exec arguments>` records the run in a private local ledger (default `$CODEX_HOME/data/ai-team-os/external-exec.db`, directory 700, file 600) before starting Codex, forces native `--json`, passes the JSONL stream through on stdout and keeps the real exit code. It stores identifiers, explicit project and task, times, status and a whitelist of token counts; it never stores prompts, code, tool output, raw error text or full stdout, and account, provider, model and tier stay unknown unless observed. If the API is down the run continues and `aiteam codex-exec replay` uploads later, idempotently. A wrong project or task is refused before Codex starts (exit 64); a run that already happened but whose association fails is kept in quarantine with the requested ids; a finished run seals its receipt set. Interrupting the command freezes and force-stops the identified execution processes while protecting the shared OS API and processes of uncertain ownership; every forced interruption is marked `process_cleanup_unverified`, and a missing native result stays unknown (CLI status 75). A new table, `external_exec_invocations`, and eight routes under `/api/external-execs` hold the server side; the usage page lists runs and pages their receipts. Existing direct `codex exec` calls are not intercepted. See `src/aiteam/data/USAGE.external-exec.md`.
+- **Read-only usage reconciliation**: MCP `usage_reconciliation` and `GET /api/external-execs/reconciliation` compare saved journals, agent registrations and external receipts and report each source's denominator, sample scope, truncation and gaps (MCP: at most 500 items per source, 3 examples per bucket, 16 KB; HTTP buckets page 50 at a time). Codex sub-agents are matched by their own thread identity. External receipts are never added to subscription estimates or to same-thread rollout usage. It runs no model.
+- **`aiteam attribution repair`** (also `python3 -m aiteam attribution repair`): corrects usage rows stored before the upgrade on every install, plugin and source alike. It fills an empty `harness`, marks resume shells and duplicate Leader rows as excluded, and marks ended rows without a single billable call as unmeasurable, using the same rules as the attribution page; it only fills empty cells in four columns and never deletes a row. It previews by default; `--apply` checks the clock marker, backs up the whole database next to it (under `attribution-repair/`), writes a journal and applies everything in one transaction that rolls back if any row it read has changed; `--undo <journal>` reverses it. On a database without the clock marker it judges each row under both UTC and local readings and writes only conclusions both agree on.
+- **Inventory**: 118 MCP tools across 18 modules (`task_create_batch`, `usage_reconciliation`), 241 REST endpoints, 27 repository invariants. The new invariant I27 keeps the internal title of the repository owner out of `src/` and `plugin/`.
+
+### Behavior changes
+
+- **Empty values now clear task fields**: `task_update` treats an omitted argument as unchanged and an empty string as clear for description, result, assignee and status note; `tags=[]` and `depends_on=[]` clear the lists, `parent_id=""` detaches and `waiting_on={}` ends a wait. Empty titles, statuses, priorities and horizons are refused (the HTTP route used to store an empty title). Clients that sent empty strings to mean "leave unchanged" must omit those arguments instead; a Claude Code or Codex session started before the update keeps the old tool description until it is reopened.
+- **Completion can be refused**: completing a task through `task_update`, `PUT /api/tasks/{id}` or `PUT /api/tasks/{id}/complete` returns HTTP 409 while it has open children (a failed child counts as open), incomplete dependencies or an unresolved explicit wait; the response lists them (`open_subtasks`, `blocked_by`, `waiting_on`). A parent is never completed automatically when its children finish.
+- **`PUT /api/tasks/{id}` with status completed now emits `task.completed`** and unlocks downstream tasks in the same transaction, like the complete route. Repeating a completion keeps the first completion time instead of overwriting it.
+- **An explicit `running` can be refused**: creating or updating a task with status running returns HTTP 409 while dependencies or an explicit wait remain unresolved. `auto_start` without an explicit status no longer forces running: `task_create` with `auto_start` returns the derived blocked state when dependencies are incomplete (it used to set running unconditionally).
+- **Team tasks need a project for relationships**: `task_run` (`POST /api/teams/{id}/tasks/run`) with `parent_id` or `depends_on` returns HTTP 400 when the team is not bound to a project (dependencies used to be accepted there).
+- **An explicit `blocked` now means a manual block**, which completing a dependency no longer clears.
+- **MCP task-write errors are structured**: `detail` is a parsed object and conflict fields such as `current_revision`, `current_task` and `open_subtasks` appear at the top level, instead of a JSON string to parse.
+
+### Changed
+
+- **New databases carry the UTC clock marker**: a database that `init_db` builds from nothing gets `PRAGMA user_version = 20260728` in the same transaction as its tables, so concurrent first starts write it once and a crash halfway leaves an empty file. Existing databases are never marked, whatever their `user_version`. On a UTC host, or on a database without any timestamps, `scripts/migrate_timestamps_utc.py --apply` now writes the marker instead of stopping at "nothing to shift"; it states the premise (values were written by this machine's clock) and its blind spot. A dry run on a database that already carries the marker proposes no shift.
+- **Codex usage backfill**: `scripts/backfill_codex_usage.py` accepts databases with `user_version` 0 or 20260728 and refuses any other value; plans record the actual value and why it was accepted, and the plan format moves to 3, so older plans are refused. A refused plan prints one line and exits 3 instead of a traceback.
+
+### Fixed
+
+- **Task completion is one transaction**: child and dependency checks, downstream unlocking and audit events commit together on every completion path. An ordinary MCP `completed` update now unlocks downstream tasks, and repeating `PUT /api/tasks/{id}/complete` repairs downstream unlocking instead of returning early. A historical completed task whose completion time is unknown keeps it unknown.
+- **Running tasks keep their state**: an unrelated edit no longer demotes a running task to blocked, and a request whose start failed no longer reports running. Adding a conflicting dependency to a running task is refused explicitly.
+- **Horizon is editable**, and a task waiting on the user is visible in the briefing even when it is a child.
+- **The Codex usage backfill runs on freshly installed databases** (1.15.1 known limitation): it used to refuse every database without the UTC clock marker, which included every new install.
+- **Rows stored before the upgrade can be corrected** (1.15.1 known limitation): `aiteam attribution repair` replaces the private maintenance scripts that were the only way to mark them.
+
+### Upgrade notes
+
+- **In-product notice**: 1.15.1 sessions show a release notice with the command for your installation, provided the API can reach the GitHub API.
+- **Claude Code source install**: in the install checkout, on `master`, run `git pull --ff-only`, then `python3 install.py --update`, then restart every open Claude Code session. MCP autostart replaces the old API; you can also ask Claude to run `os_restart_api` from a restarted session.
+- **Claude Code plugin**: run `claude plugin marketplace update ai-team-os`, then `claude plugin update ai-team-os@ai-team-os`, and restart Claude Code twice: the first start upgrades the Python package and says "Upgraded to v1.15.2 (was v1.15.1). Restart Claude Code to apply", the second replaces the old API.
+- **Codex adapter**: in the install checkout, on `master`, run `git pull --ff-only`, then `python3 scripts/codex_runtime.py stop --api-url http://127.0.0.1:<port> --runtime-dir "$HOME/.codex/ai-team-os/runtime"`, then `python3 scripts/codex_runtime.py ensure` with the same two options to start the new API, then `python3 scripts/codex_adapter.py upgrade`, and reopen Codex. Every step returns 0 in this order. Running `upgrade` while no API is running still completes the update but exits non-zero, because its final check cannot reach the API. If the API is shared with Claude Code, restart it through Claude Code instead.
+- **Reopen every Claude Code and Codex session**: the new task arguments, `task_create_batch` and `usage_reconciliation` appear in new MCP sessions only, and only a reopened session sees that an empty string now clears a field.
+- **Hooks are unchanged**: `install.py --update` writes identical hook files, and the Codex hook copies, `hooks.json` and `hook-trust.lock` match 1.15.1 (0 newly pending, no reused slot). No hook needs approving again.
+- **The API must restart to load the new code**. Its first start creates two tables, `task_create_batches` and `external_exec_invocations`; existing rows are not rewritten and existing databases keep their `user_version`. Only a database built from nothing gets the UTC clock marker.
+- **Opt-in tools**: `aiteam codex-exec` records only the runs you start through it; switch a caller to it to keep receipts, and note that it writes native JSONL to stdout, so a caller that read plain text must read the message events instead. `aiteam attribution repair` does nothing until you run it: preview first, then add `--apply`; every apply leaves a full database backup next to the database for you to delete when no longer needed.
+- **Codex backfill plans**: regenerate any saved plan; format 2 plans are refused.
+
+### Known limitations
+
+- Not in this release: critical-path calculation, creating child tasks automatically on dispatch, automatic review on hand-in, typed references, migrating old `parent:` and `blocked-by:` tags, MCP pagination of completed tasks, and batch updates. Children are one level deep, a parent is completed explicitly, and nothing polls in the background.
+- **External runs**: process supervision is verified on macOS only, not on Linux or Windows. If the supervisor itself is killed, or the adapter dies after the supervisor exits but before it records the final state, the run can stay `running` with its submitted receipts kept; there is no persisted final acknowledgement yet. Codex 0.162.1 does not report a turn id, so every real run carries a `missing_turn_id` diagnostic. The server accepts the usage evidence a client declares. Ephemeral runs from before this release left no evidence and cannot be recovered.
+- The usage backfill scripts still need a source install (plugin installs do not include `scripts/`); `aiteam attribution repair` is available on every install.
+- Databases created between 1.11.1 and 1.15.1 store UTC but keep `user_version` 0, which code cannot tell apart from older local-clock databases, so they are not marked; the restore script still converts 0 as local wall clock.
+- Still open from 1.15.1: the session-variable list follows Claude Code 2.1.285; a Codex Leader's last round is not force-measured if the session ends within 30 seconds; with the sidebar open, the coverage matrix scrolls horizontally on narrow windows.
+
+### Validation boundaries
+
+- Release-tree checks on macOS, in the machine's own timezone: the full test run passed **7,961 tests / 8 skipped** (unit and integration) with 1 failure, a timing race in a hook-ingest test (its counter is read before the event it waits for is recorded) that passes on its own on this tree and on 1.15.1; a separate serial integration run passed **576 / 3 skipped**; **148 frontend tests passed**. 26 of the 27 repository invariants passed; I10, which compares the ORM with the local database, stays red until the local API restarts on this release and creates the two new tables (I16 remains a placeholder warning). Both Dashboard bundles match a fresh build byte for byte, and the wheel and sdist build.
+- **Requirement acceptance** of the task wall and external execution, repeated independently through the real MCP tools, HTTP and a headless browser against an isolated API: 28 of 29 items passed and 1 passed in part (the `task_list_project` description above), with three real Codex requests. A direct `codex exec --ephemeral` left no rollout and no trace in the OS; the same request through `aiteam codex-exec` was recorded, reconciled and, after an API outage, replayed exactly once.
+- **Lifecycle acceptance** in isolated homes: new install and upgrade from 1.15.1 for the Claude Code source install and the plugin (its Python package installed from Git by the plugin's own startup hook), and upgrade from 1.15.1 for the Codex adapter. New databases carry `user_version` 20260728; upgraded databases keep 0, gain the two tables and keep every existing row; a database built from a production schema went from 54 to 56 tables with its marker unchanged. In every form MCP listed 118 tools, the new task semantics held across requests, `aiteam attribution repair` ran (and on an upgraded database filled, then undid, one empty harness), `aiteam codex-exec run --help` worked, and a stubbed `codex exec` recorded while the API was down was confirmed once on replay and not again. Hooks, `hooks.json` and the Codex trust lock stayed byte-identical.
+- **Not covered**: Windows and Linux; the `claude plugin` commands themselves (install and update were reproduced by placing the plugin in Claude Code's cache and running its startup hook); MCP autostart replacing a running API, which this release does not change and 1.15.1 verified; real Codex during the lifecycle runs (covered by requirement acceptance).
+
+## [1.15.1] - 2026-10-09
+
+A **patch** release of governance, observability and defect fixes. The usage attribution page reports corrected numbers and measures Codex usage from Codex's own session files, `claude` followed by `/resume` stops leaving an empty Leader row behind, and the API no longer inherits the credentials and identity of the session that started it. Patch rather than minor because nothing here is a new subsystem a user would point to: Codex measurement fills columns the attribution page already had, the second measurement rides the existing reaper cycle, and the environment scrub hardens existing launch paths. **Hooks and Codex hook trust are unchanged; after updating, restart the API and every open Claude Code session** (see Upgrade notes).
+
+### Added
+
+- **Codex usage measured from Codex's own session files**: Codex Leader and sub-agent rows now get the same four usage layers as Claude Code rows, read call by call from the rollout files under `$CODEX_HOME/sessions` and `archived_sessions` (default `~/.codex`). Each request counts once, reasoning tokens are kept as a subset of output and never added to it, and a field Codex does not record is stored empty rather than as 0. Parsing runs in a child process when a Codex agent starts or stops (a Leader's stops at most once per 30 seconds), within size, file-count and time limits, and a stale result never overwrites a newer measurement or a row that was rebound in the meantime.
+- **Codex usage backfill**: `scripts/backfill_codex_usage.py` plans usage for unmeasured Codex rows without writing anything; `--apply` writes only a reviewed plan, with a fresh backup and journal, in one transaction that rolls back if any row changed after the plan. See Known limitations: for now it runs only on databases that carry the UTC clock marker.
+- **A second measurement for Claude Code sub-agents**: the existing reaper cycle re-measures offline sub-agents from the last 30 days whose stop event never arrived (a killed workflow, an interrupted session) or whose measurement raced the host's last write, once they have been quiet for 30 minutes. Parsing runs in a child process in bounded batches, so the API stays responsive. No timer or daemon is added.
+
+### Changed
+
+- **The usage attribution page shows corrected numbers**:
+  - Rows marked as not being a real dispatch or session (an empty resume shell, a duplicate Leader row for the same transcript) are left out of every count on the page and in `os_health_check`, and a line under the matrix says how many. Rows are never deleted. This release ships no tool that writes these marks (see Known limitations), so on most installs the line does not appear.
+  - Unattributed rows are split by reason: still running (busy, or active in the last 30 minutes; never frozen as measured), transcript archived (recoverable), API errors only, ended before its first reply, and no usage parser for this harness yet (now only hosts other than Claude Code and Codex). Only "not yet measured" means a backfill would fill the row in now.
+  - Locally generated `<synthetic>` lines (rate limits, server errors) no longer count as calls; a transcript holding only those is "not measured", never "measured 0".
+  - The agent -> workflow hop counts only workflow dispatches, and every hop is computed per harness, so Codex rows no longer sit in Claude Code denominators.
+  - Matrix notes are translated in both languages and no longer carry internal reference numbers, and the method label tells Claude Code transcripts, Codex rollouts and a mix of both apart.
+  - Measuring a single Codex row uses the rollout parser and reports "no usage events", "not found" and "refused" separately; a cache-write value Codex does not record shows as a dash, not 0.
+- **Rows created by Claude Code hooks are labelled `harness=claude-code`**, so the coverage matrix splits into Claude Code, Codex and unlabelled. Claude Code rows stored before the upgrade keep an empty harness.
+- **`ai-team-os-serve` (the PyPI entry) starts the API as a child process**, the same way `python -m aiteam.mcp.server` does, instead of running it inside the MCP process.
+- **README screenshots** were retaken on the demo database, 11 per language, including the task board, unified search, the Pending page and Codex plan usage.
+
+### Security
+
+- **The API no longer inherits the launching session's inbox credentials and identity**: an API started by MCP autostart, `os_restart_api`, the Codex runtime helper, `codex_adapter.py start`, `aiteam up` or the PyPI entry used to carry the starting Claude Code session's messaging socket and token, its session id and session markers, its project directory and, from Codex, the thread id. A process holding that token could post into that session's inbox as one of its own children. Every launch path now passes an environment with these names removed, and the API also clears them from its own environment on import; configuration such as `PATH`, `HOME`, `AITEAM_*`, `CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_ROOT` is kept. Claude Code processes started by wakes and `fleet_dispatch` no longer carry the launcher's session markers and always get the target project directory. As a consequence, API diagnostics no longer record the launcher's session id, and agent-template checks made without a project directory no longer read the launcher's project `.claude/agents`. A new repository invariant (I26) keeps every launch path on the scrubbed environment.
+
+### Fixed
+
+- **`claude` followed by `/resume` no longer leaves an empty Leader row and container team**: a session opened on an empty conversation (`startup` or `/clear`) now gets its Leader row at its first activity instead of at SessionStart. Resume, fork and compaction still create it at once, and a session interrupted before any tool hook gets its row at SessionEnd if it has a transcript.
+- **MCP calls follow the resumed conversation**: after `claude --resume`, MCP kept sending the one-off startup session id, so Leader memos and task links landed on an empty row, sub-agent links were never created, and `context_resolve` could pick the empty container team. MCP now reads Claude Code's own process record for the current session id and falls back to the environment only when that record is unusable.
+- **Session container cleanup keeps member rows that have outgoing links**: a container team is no longer purged while any member row starts an agent link such as `worked_on`, so agent -> task attribution is not left dangling. Teams whose members carry an exclusion mark are kept as well.
+- **Sub-agent usage capture**: the transcript path is recorded even when no usage line can be read yet; the context-watermark tail window grows backwards in blocks up to 4 MB instead of stopping at 64 KB; and SubagentStop parses again until the file has been quiet for a second, so a final write that lands just after parsing is no longer missed.
+- **Unattributed drawer**: clicking "N unattributed" on a matrix row shows that path and harness; it showed the Codex bucket for every row. `/api/usage/unattributed` takes a `harness` filter.
+- **Coverage matrix notes no longer overflow the number columns.**
+- **Dashboard dropdowns show the selected label** instead of `__all__` or a project id, and workflow agent states read Failed, Starting and In progress instead of the raw `error`, `start` and `progress`.
+- **A Codex Leader whose container team was closed comes back on its own row and team**: a Codex Leader marked offline by the heartbeat, or set to waiting by an API restart, lost its right to recover once the reaper closed its idle container team, so later activity on the native thread left it offline, the team completed and the Leader missing from the Dashboard. The reaper now closes such a team with a recovery marker tied to the Leader, and the thread's next activity revives the same row and team. A team closed by hand stays closed and its Leader goes offline; a Leader set to busy by hand gets its team reopened by the reaper. Leaders that were already stuck before the upgrade are not repaired automatically; setting one to busy with `agent_update_status` lets the reaper reopen its team.
+
+### Upgrade notes
+
+- **In-product notice**: 1.15.0 sessions show a release notice with the command for your installation, provided the API can reach the GitHub API.
+- **Claude Code source install**: in the install checkout, on `master`, run `git pull --ff-only`, then `python3 install.py --update`, then restart every open Claude Code session. MCP autostart replaces the old API (about 2 seconds measured); you can also ask Claude to run `os_restart_api` from a restarted session.
+- **Restart every open Claude Code session, not just one**: an MCP server started before the update keeps the old launch code, and an API it starts or restarts still inherits that session's credentials in its initial environment.
+- **Claude Code plugin**: run `claude plugin marketplace update ai-team-os`, then `claude plugin update ai-team-os@ai-team-os`, and restart Claude Code twice: the first start upgrades the Python package and says "Upgraded to v1.15.1 (was v1.15.0). Restart Claude Code to apply", the second replaces the old API.
+- **Codex adapter**: in the install checkout, on `master`, run `git pull --ff-only`, then `python3 scripts/codex_runtime.py stop --api-url http://127.0.0.1:<port> --runtime-dir "$HOME/.codex/ai-team-os/runtime"`, then `python3 scripts/codex_adapter.py upgrade`, and reopen Codex; the helper starts the new API on demand. Running `upgrade` first, as the release notice suggests, also updates everything, but while the old API is still running it ends by reporting that the running API's source changed and exits non-zero; stop the runtime as above and reopen Codex. If the API is shared with Claude Code, restart it through Claude Code instead.
+- **Hooks are unchanged**: `install.py --update` writes identical hook files, and the Codex hook copies, `hooks.json` and `hook-trust.lock` match 1.15.0 (0 newly pending, no reused slot). No hook needs approving again.
+- **The API must restart to load the new code**. Its first start adds three columns to `agents` (`attribution_exclusion`, `attribution_exclusion_of`, `usage_unmeasurable`); there are no new tables or indexes, and existing rows are not rewritten.
+- **Rows from before the upgrade are not rewritten** (see Known limitations for the ones this release cannot correct). Claude Code sub-agents missing usage are re-measured automatically once quiet for 30 minutes, and source installs can backfill Claude Code rows with `python3 scripts/backfill_token_usage.py` (dry-run by default). Codex threads still running at upgrade time are measured at their next start or stop.
+
+### Known limitations
+
+- **`scripts/backfill_codex_usage.py` runs only on databases with the UTC clock marker**: it currently requires `PRAGMA user_version = 20260728`, which only databases converted by the 1.11.1 timestamp migration script carry. Any other database, including every database created by a fresh install, is refused with an unknown-clock error and no plan is written; the next patch release fixes this. Live measurement of Codex rows is not affected. The backfill scripts need a source install: plugin and PyPI installs do not include `scripts/`.
+- **No public way to correct rows from before the upgrade**: this release provides no public path to mark or relabel rows stored before the upgrade. Empty Leader rows left by earlier resumes, duplicate Leader rows for one transcript and Claude Code rows with an empty harness stay as they are and fall into categories such as the unlabelled-harness bucket and "No transcript path ever recorded"; empty rows holding links are now kept by the cleanup.
+- **The session-variable list follows Claude Code 2.1.285**: session variables that a later Claude Code adds are not removed until the list is updated.
+- **Codex usage**: a Codex Leader's last round is not force-measured if the session ends within the 30-second window, about 1% of old-format Codex threads are refused whole, and a row the parser refuses still shows as "not yet measured".
+- With the sidebar open, the coverage matrix still scrolls horizontally below about 840 px (Chinese) or 950 px (English), without overlapping.
+
+### Validation boundaries
+
+- Release-tree checks on macOS, in the machine's own timezone: **6,957 unit tests passed / 5 skipped** and **475 integration tests passed / 3 skipped** (the skips cover optional paths and an explicit native Codex binary), **143 frontend tests passed**, and all 26 repository invariants passed (I16 remains a placeholder warning). Both Dashboard bundles match a fresh build byte for byte, and the wheel and sdist build.
+- **Lifecycle acceptance** in isolated homes: new install and upgrade from 1.15.0 for Claude Code source, the Claude Code plugin and the Codex adapter. Every table kept its rows, the three `agents` columns were added automatically, and an API launched through MCP autostart, the plugin, the Codex helper or `codex_adapter.py start` carried none of 13 planted session variables (1.15.0 carried all 13). This time MCP autostart replacing an old API was exercised, on a sandbox port.
+- **Not covered**: Windows and Linux; signed-in interactive sessions and the Codex hook review dialog; the 7-day container cleanup, which ran with a shortened retention on a copy.
+
+## [1.15.0] - 2026-09-30
+
+A **minor** release built around a new subsystem: a unified user-notice channel that records everything OS needs you to know or do in one bilingual ledger and tells each host only about its own installation. The 35 commits since 1.14.0 also make hook delivery observable, check text where it is written, confine memory reconciliation, stop three computations from freezing the API, and give the task wall one shared digest. **1.14.0 has no update check, so these notes are the only announcement of this release, and Codex users must update the adapter once by hand** (see Upgrade notes).
+
+### Added
+
+- **Unified user notices**: 24 bilingual notices (service down or starting, install progress, new release, stale installed copies, pending decisions, channel mentions, blocks and more) live in a ledger behind `/api/notices`. Hooks show them at session start, on the next message and at turn end, prefixed `[AI Team OS]`, at most two items plus an "N more" line at a time and five per session; the Dashboard and `notice_list` list them all. Lines are not repeated, and on Claude Code a line the host may have hidden (resume, `/clear`, compaction) is resent once.
+- **Each host hears only about its own side**: installation problems show only in that host's sessions, update notices give each host its own command, only the older side is told when versions differ, and untrusted Codex hooks are listed on demand rather than pushed (Codex asks for a review itself).
+- **Cold starts no longer report a dead service**: a session that starts before the API is up is told it is starting and gets its briefing with the first message that reaches the API; "service not running" appears only after 60 seconds.
+- **Conversation-approved configuration writes**: `os_config_change` previews exact file changes and applies them only with a confirmation token and the user's own words, after a backup, recording a decision event; it resyncs stale installed copies and updates the Codex adapter. `uninstall_main_chain.py` removes hook copies left after uninstalling the plugin, the same way.
+- **New MCP tools** `notice_list`, `notice_dismiss` and `os_config_change`. Three team tools were removed (see Removed), so the total stays at 116.
+- **Dashboard "Pending" page, banner and badge**: `/briefings` becomes "Pending", with a Notices tab and a Decisions tab that hides automatic permission-denial records by default; a global banner shows the most urgent open action. `/os-doctor` was rewritten around `os_health_check` and the notice list.
+- **Language setting**: Chinese, English, or follow each host, from the Dashboard or `GET/PUT /api/settings/language`.
+- **Release notice at session start** with the update command for your installation (plugin installs see `Tell Claude "update OS"` and Claude gives the commands). The API reads public GitHub release metadata on demand (cached 6 hours, at most 1 second of network time) and never updates anything itself; Codex installs get a one-step `python3 scripts/codex_adapter.py upgrade`.
+- **Task wall digest**: one server-side digest (open counts, 7-day activity, stalled tasks, the 5 latest changes, the top 5 pending, what is stuck) feeds the briefing, the compaction checkpoint, `task_list_project`, `/loop` and the Dashboard task page, which now loads completed tasks on demand. New endpoint `GET /api/projects/{id}/task-wall/digest`.
+- **Hook delivery accounting and replay**: failed hook deliveries are recorded locally by cause and failed tool events are resent by later hooks; `os_health_check` reports `hook_delivery`, `hook_ingest` and `json_integrity`.
+- **Codex core tool index**: Codex sessions and sub-agents receive a short bilingual list of up to 32 core tools at start. It is a hint, not a permission boundary.
+- **Workflow sub-agent usage backfill**: `scripts/backfill_token_usage.py` can recover token usage for workflow sub-agents; it stays dry-run by default.
+
+### Changed
+
+- **Write-side text safety (behavior change for API and MCP callers)**: text that other agents and people read is checked when it is written.
+  - **Long text with an invisible character is refused** instead of stored: control characters other than TAB, LF and CR (colour codes included), zero-width space, bidi controls (including U+061C), soft hyphen, word joiner and the invisible operators, Mongolian vowel separator, BOM, interlinear annotation controls and tag characters (the England, Scotland and Wales flags excepted); U+200C, U+200D and U+2028/2029 are allowed. The answer is the one `task_memo_add` already gave (HTTP 200, `success: false`, a `safety` block) and now covers task, issue, report, message, briefing, project, phase, agent-prompt and scheduled-task text. `task_memo_add` and `memory_add` also refuse control characters, and `memory_reconcile_apply` reports a refused `merge` or `promote` as that operation's error.
+  - **Single-line fields are stored cleaned** (control and format characters become spaces, whitespace is collapsed): titles, names, roles, tags, topics, participants and meeting speaker names, senders, mentions, authors, and the tool input and output summaries in the activity feed (multi-line summaries become one line). These writes still succeed, but what is read back can differ from what was sent.
+  - **Host-given names are cleaned once at the hook entry** (SubagentStart, TeammateIdle and Codex observations); lookups compare the cleaned form, so the raw name still finds its row.
+- **The ecosystem archive follows the same rules**: text fetched from GitHub is cleaned before it is stored, and ecosystem write tools refuse invisible characters like the rest of the API, except failure text a worker reports, which is cleaned so the failure is recorded and the claim released.
+- **Memory reconciliation is confined to the calling project and to one session at a time**: apply touches only the current project's memos, and `memory_reconcile_candidates` takes a 30-minute per-project lease (`peek=true` looks without taking it) that apply requires. REST callers send `lease_id` in the `X-Aiteam-Reconcile-Lease` header; a `lease_id` in the URL returns 400. Changing a global or user memory, whether through `memory_invalidate` or through `memory_add` with `supersedes`, needs `confirm_shared_scope=true`; without it nothing changes and the entry is returned for review. Invalidating by id no longer reaches other projects.
+- **Blocks and the stop guard read as one line**: a PreToolUse block shows one plain reason without the hook's file path, and the stop guard no longer appears as a hook error.
+- **Retired reminders and blocks**: reminders tied to the old team model or firing too often are gone (cross-project `team_name` blocks, the consecutive-call counter, template recommendations, task-wall timers, the per-turn "watcher not armed" line). Blocking `rm -r` of the root or home directory is left to Claude Code's own protection (OS still warns), and the secret-file check on `git add` looks only at path arguments and allows `.example`, `.sample`, `.template`, `.dist` and public keys.
+- **Hook registrations**: `cc_task_bridge`, `meeting_ecosystem_writeback` and the PostToolUse entry of `workflow_reminder` are removed; `PostToolUseFailure` and a resume/fork `resume-tick` entry are added. The Claude Code adapter now runs 11 hook scripts on 16 events (was 13 on 15).
+- **The hook event API only flags guardrail hits** instead of rejecting the event.
+- **Permission denials no longer create pending decisions**; pending briefings expire after 14 days (the rows are kept), and `briefing_add` says when the user was just active so the agent can ask directly.
+- **Wakes and `fleet_dispatch` use the session's own permissions**: OS no longer passes an `--allowedTools` list, so the `allowed_tools` and `allowed_tools_level` wake settings no longer apply, and `bare_mode` is opt-in.
+- **Task wall paging**: `limit` applies only to pending tasks; in-progress, blocked and failed tasks are always returned, with `not_shown` and `has_more`, and among equal scores the task that went on the wall first comes first.
+- **The session briefing and the compaction checkpoint show the digest** instead of the Top 5 and total counts; the checkpoint no longer calls the 10 newest in-progress tasks "unfinished tasks".
+- **Account usage API and monitoring**: `GET /api/account-usage/{account_key}` returns a summary (4.5 KB instead of 5.7 MB) and the full history moved to `/snapshots` with paging; monitoring skips rounds with no new Codex activity but samples at least every 2 hours, and the account list refreshes every 60 seconds.
+- **Agent templates** were trimmed and their descriptions rewritten; tool limits rely on the `disallowedTools` frontmatter, which Claude Code 2.1.281 was measured to enforce.
+- **About 55 tool descriptions corrected** to match what the tools actually do.
+- **`scripts/uninstall.py` keeps your data (behavior change)**: without arguments it now keeps `~/.claude/data/ai-team-os`, including `aiteam.db`; `--purge-data` deletes it, and `--keep-data` still works. It uninstalls the right package (`ai-team-os`) and checks that it is gone, and it stops only a verified OS API on the configured port, SIGTERM first and SIGKILL only after a grace period, instead of `kill -9` on every process holding port 8000.
+
+### Removed
+
+- MCP tools `team_briefing`, `team_close` and `team_delete` (their REST routes remain).
+- The automatic team-creation and resident-member settings, `/api/config/team-defaults`, suggested rule B2, the "Use this template" button and `plugin/config/team-defaults.json`.
+- The default-model auto-fallback and its `AITEAM_MODEL_AUTOFALLBACK` variable: OS no longer rewrites the default model in Claude Code settings.
+- The `intent.agent_working` event stream.
+
+### Fixed
+
+- **Three computations no longer freeze the API**: hook-time transcript parsing runs in background jobs (a Stop on a 503 MB session: 1.5 s timeout to under 0.4 s), `memory_reconcile_candidates` scoring runs in a child process (30 s of CPU to 2.7 s), and Codex account monitoring keeps incremental summaries (2.6 s to 8 ms per round, same estimates).
+- **Hook events are no longer lost while queued or stored twice when retried**, and Claude Code tool activity pairs start and completion by `tool_use_id`, so out-of-order and post-restart completions match.
+- **Lone surrogates no longer poison reads or drop hook requests**: a row that broke every list including it can no longer be stored, and notice and consent requests carrying one are no longer dropped silently.
+- **Meeting participants are no longer lost under concurrency** (48 concurrent joins had lost 41).
+- **API shutdown and restart are bounded and safer**: a locked database no longer stalls exit, and a reused PID or an API another session already replaced is never stopped by mistake.
+- **The Dashboard no longer treats a refused write as done**: the dialogs show the reason and keep the input, and the default-model setting no longer reports "saved" after a failure.
+- **The Dashboard no longer serves an older build after `install.py --update`.**
+- **Memory reconciliation `merge` runs the same invisible-character check as `task_memo_add`.**
+- **Task wall truncation**: in-progress and blocked tasks were cut from every paged view once pending tasks filled a page.
+- **The startup briefing's pending-decision section shows again.**
+- **Defects found in a prompt audit**: `briefing_list` returned one item by default; `project_delete` also deleted agent rows, which hold audit history and token attribution; wakes failed for subscription logins; sub-agents dispatched with a `task_id` never received that task's memos; failure analysis wrote memories past the quota; the orchestrator hard-coded an old model.
+- **Codex pricing evidence**: requests without a recorded service tier were silently priced as Standard; the assumption is now kept and shown.
+- **The release check no longer breaks behind a SOCKS proxy**: with a SOCKS proxy in the API's environment and no `socksio` installed, `/api/releases/latest` returned 500 and retried on every start. Any fetch failure now fails open and is retried after 15 minutes.
+
+### Upgrade notes
+
+- **1.14.0 has no update check**: existing users learn about 1.15.0 only from these notes. From 1.15.0 on, sessions show a release notice with the command for their installation.
+- **Claude Code plugin**: run `claude plugin marketplace update ai-team-os`, then `claude plugin update ai-team-os@ai-team-os`; the update alone reports "already at the latest version (1.14.0)". Restart Claude Code twice: the first start upgrades the Python package and asks for another restart.
+- **Claude Code source install**: in the install checkout, on `master`, run `git pull --ff-only`, then `python3 install.py --update`, and restart Claude Code. The update also removes the retired hooks and their registrations.
+- **Codex adapter, update once by hand**: adapters from 1.14.0 or earlier never fetch notices. In the install checkout, on `master` with a clean working tree, run `git pull --ff-only` first (the 1.14.0 script has no `upgrade` and answers "invalid choice"), then `python3 scripts/codex_adapter.py upgrade`. If `status` reports that the running API's source changed and the Codex runtime started that API, run `python3 scripts/codex_runtime.py stop --api-url http://127.0.0.1:<port> --runtime-dir "$HOME/.codex/ai-team-os/runtime"` and reopen Codex; restart an API shared with Claude Code through Claude Code instead. No hook needs approving again.
+- **The API must restart to load the new code**: restarting Claude Code replaces an API still on the old version; otherwise ask Claude to run `os_restart_api` (other sessions disconnect briefly). The first start creates 5 new tables and their indexes, and the first read of each Codex account rebuilds its usage summary in a child process (under 2 seconds on production data).
+- **Codex hook trust is unchanged**: `hooks.json` and `hook-trust.lock` match 1.14.0 (0 newly pending, no reused slot), and the changed handlers `session_bootstrap_codex.py`, `inject_subagent_context_codex.py` and `channel_unread_codex.py` are observe-only: they never deny, rewrite input or block.
+- **API and MCP callers**: review Changed and Removed above. Rows stored before the upgrade are not rewritten.
+- **Uninstalling no longer deletes the database by default**: `python scripts/uninstall.py` keeps `aiteam.db`; add `--purge-data` to delete it.
+
+### Known limitations
+
+- **Source installs never get the "versions differ" notice**: the Claude Code side of a source install has no recorded version to compare. Codex adapters from 1.14.0 or earlier also lack one until they are updated.
+- Codex shows one notice per session start; a second active notice only counts in "N more" until the first clears.
+- On Claude Code, blocks still carry the host's own "hook error" prefix, and in the fullscreen renderer a blocked Bash command is folded into "Ran 1 shell command" until expanded.
+- With idle gating, allowance used on other devices can show up to about 2 hours late.
+- The digest counts every memo as activity, so one round of check-ins across many tasks resets their stall timers.
+- The Codex core tool index does not restrict which tools a sub-agent can call.
+
+### Validation boundaries
+
+- Release-tree checks on macOS: the full test suite **7,384 passed / 8 skipped** (the skips cover optional paths and an explicit native Codex binary), **135 frontend tests passed**, and all repository invariants passed (I16 remains a placeholder warning). Both Dashboard bundles match a fresh build byte for byte, and the wheel and sdist build.
+- **Lifecycle acceptance** in isolated homes: new install, upgrade from 1.14.0 and uninstall ran for Claude Code source, the Claude Code plugin and the Codex adapter. 12 tables kept every row, the new tables and indexes were created automatically, and account estimates matched the full-history algorithm field for field.
+- **Not covered**: Windows and Linux; real signed-in interactive sessions and the Codex hook review dialog; the path where MCP autostart replaces an old API, which was stopped and started by hand instead to keep the production API untouched.
+
+## [1.14.0] - 2026-09-20
+
+A **minor** release adding Codex account and plan-usage monitoring, API-equivalent workload estimates, and a complete independent adapter installation and update path. Account history survives login changes; MCP startup can recover without keeping a terminal open. HTTP/2 is not included.
+
+### Added
+
+- **Codex plan usage Dashboard** at `/usage/accounts`: native allowance percentages, separate five-hour and weekly windows, local-sample estimates, account labels, and persistent monitoring settings. Users can select a 30-second to 30-minute sampling interval or pause monitoring; closing the page does not stop an enabled server-side monitor.
+- **Versioned API price catalog and local usage recording**: per-request estimates retain model, cache, context-band and service-tier provenance. Recorded Fast/priority requests use the catalog Fast rate, twice Standard for the supported rates. Estimates are API-equivalent local workload samples, not subscription charges, cash balances, complete cross-device ledgers or official plan capacities. Missing prices remain unknown in source records.
+- **Complete Codex adapter lifecycle**: `scripts/codex_adapter.py install/update/status/uninstall` manages its own Hook copies, MCP fields and header helper with backups, failed-write rollback and protection for user edits and unrelated integrations. Source archives without Git metadata can recognize byte-identical v1.13.1 Hook files from shipped release hashes. Existing stdio users can update Hooks with `--hooks-only` without changing their MCP configuration.
+- **On-demand HTTP MCP runtime**: an installed helper starts an unavailable local API when a connection needs it. The API runs independently of the invoking terminal; concurrent cold connections share one owned instance. Process identity checks prevent stopping an unrelated port occupant or reused PID. This adds no login service, scheduled restart or model polling.
+- **Release migration checks**: full preflight and CI now include isolated installation, published-version upgrade, database preservation, uninstall and runtime-recovery regressions. Native Codex checks use an explicit binary and make no model turn.
+
+### Fixed
+
+- **Login changes resume the correct account**: reuse an existing verified account and its history, label and interval, or create a record for a newly observed account. The previous account pauses, and an explicitly disabled monitor stays disabled. Failed login discovery retries instead of remaining permanently stuck.
+- **Quota cycles no longer restart on timestamp jitter or login changes**: only an observed decrease in the account's used percentage confirms a new allowance cycle. API restarts preserve saved anchors and estimates. The explicit reset button changes the selected statistics anchor without deleting history or capturing another sample.
+- **Dashboard connection recovery preserves useful data**: cached amounts remain visible through connection failures, including a connection closing during the JSON response body. Reads recover without automatically replaying writes. Capturing the current account no longer pins an old account when the login later changes; an explicit historical selection remains selected.
+- **MCP concurrency no longer creates circular waits**: HTTP MCP transport requests do not consume the database-admission slots required by their internal REST calls, and synchronous MCP tools use a separate thread limiter. Existing REST limits and Hook capacity reservations remain in place. The regression includes 48 concurrent calls with idle SSE streams and applies to HTTP/1.1.
+- **Installed and running versions are checked separately**: runtime status compares the startup source fingerprint with the current source. Changed code requires an explicit owned-process restart; legacy records without a fingerprint remain unknown. An early bootstrap readiness warning no longer claims the final MCP connection has failed.
+
+### Upgrade notes
+
+- Use system Python and keep the source checkout available. For a new HTTP installation, run `python3 scripts/codex_adapter.py install --api-url http://127.0.0.1:8000`, replacing the port with the intended local API port. The installer does not silently change an existing URL or convert stdio to HTTP.
+- After updating the checkout and dependencies, run `python3 scripts/codex_adapter.py update` and `status`. Updating files does not replace code already loaded by a running API. Coordinate use of a shared backend, stop only the runtime-owned API when a restart is required, then reconnect Codex; externally managed APIs remain their owner's responsibility.
+- New installations still require normal Codex Hook approval in the CLI/TUI or Desktop Hook settings. The Hook registration and trust-lock declarations are unchanged from v1.13.1, so this release's script-body updates do not themselves require new trust. Claude settings and global memory are not modified by the Codex installer.
+- Uninstall removes only owned integration files and restores unchanged managed MCP fields; account data, credentials, unrelated integrations and user edits are preserved. HTTP/2 is excluded and existing Dashboard ports are unchanged.
+
+### Validation boundaries
+
+- Final local candidate checks: **4,110 unit tests passed / 4 skipped**, **28 installation/runtime/database/concurrency integration tests passed**, **114 frontend tests passed**, and all repository invariants passed. Skips cover the optional LangGraph path and uncaptured Claude raw-hook recordings. Existing lint and dependency warnings remain documented.
+- **13 browser scenarios** exercised the built Dashboard with schema-validated mocked APIs and WebSockets, plus a real response-body socket interruption. These do not claim a real account switch. Both distributed Dashboard bundles match.
+- Empty-home native Codex sessions discovered **116 tools**, called health and project-list tools against persistent isolated data, reconnected after update, and no longer loaded the integration after uninstall. A real v1.13.1 database retained its projects, tasks, memos and timestamps across upgrade and repeated startup. A source archive without `.git` was independently installed, updated and uninstalled.
+- Validation ran on macOS. The complete on-demand installer requires POSIX and rejects unsupported platforms before writing; Windows was not validated. First-time host Hook approval and the complete automatically triggered Hook-to-API-to-Dashboard observation chain are not claimed as covered. This release does not add complete Codex token attribution or idle-session wakeup.
+
+## [1.13.1] - 2026-09-18
+
+A **patch** release: the standby guard becomes a switch the user controls, one concurrency defect that silently dropped observation records is fixed, and two things that made failures invisible are removed. Patch rather than minor because nothing here is a new user-identifiable subsystem - the Codex hook entries that look new were registered in 1.13.0 but had no files behind them, so shipping them is a repair; the new baseline reconciliation is a governance check, and governance work rides the patch sequence.
+
+### Fixed
+
+- **Codex counter no longer drops invocation records under contention** - `send_event_codex.py` opened its SQLite counter with a 250 ms lock wait and then took the write lock with `BEGIN IMMEDIATE`. On a machine competing for CPU, processes gave up and the failure was swallowed into a `counter_write_failed` line on stderr, losing that call's record permanently. Measured at 64-way concurrency: 98 of 256 invocations lost at 250 ms, 0 at 5 s. The wait is now a named constant at 5 s - the transaction itself stays short, so an uncontended call never waits. This is what turned the public repository's CI red on the 1.13.0 release commit while the same commit passed on the private one.
+- **StateReaper no longer stalls the API** - the watermark backfill ran every 60 s over 2,351 candidate rows; 443 could never resolve and each cost two full-tree globs over 1,970 project directories, about 40 s of blocking work per cycle on the event loop. Transcript lookup now uses one shared index built per cycle, the scanning half moved off the loop, and each cycle step is individually timed and bounded. Measured on production-scale data: 172 ms replaces about 40,000 ms; unresolvable rows 443 to 96.
+- **Codex hook entries that pointed at nothing** - 1.13.0 shipped a manifest registering 11 handlers, 5 of which named files that did not exist. Two are now supplied (`session_bootstrap_codex.py`, `inject_subagent_context_codex.py`) and three registrations that never had files are withdrawn.
+- **A test parameter was truncating every CI log** - one `parametrize` case passed a 64 KB byte string, which pytest renders into the test ID, producing a single 65,627-character log line that broke the Actions log stream. Every run - passing or failing - was cut off at 54%, so any failure past that point was invisible to `gh run view --log`. The case now carries a short explicit id.
+
+### Added
+
+- **`/os-watcher`** - one switch for the standby guard: it silences the per-turn "watcher not armed" reminder and releases the stop-time block that fires when work is in flight without a watcher. Releases are reported on a distinct `hint_muted` branch rather than blending into an ordinary allow, because a user's choice to mute and a system judgement of "no risk" must stay distinguishable. The switch does not start or stop a watcher; it governs the reminder.
+- **Cross-version trust reconciliation for Codex hooks (I17b)** - the host keys hook trust to position (`event:group:handler`) plus the rendered command, not to the command it approved, so removing or inserting an entry mid-list slides later entries into their predecessors' slots and silently transfers or drops trust. A baseline lock of the last released surface is now reconciled against the current one, classifying every slot as kept / newly pending / withdrawn / **reused**, and failing only on reuse.
+
+### Changed
+
+- **Internal shorthand removed from the distributed surface** - the compact checkpoint injected into every session rendered a heading using this project's internal term for its owner; it now reads "pending user decision". Source comments and skill texts carrying the same shorthand were normalised alongside. The `meeting-facilitate` skill description also still stated a superseded meeting rule, which every session was loading.
+- **Meeting rule restored to its original meaning** - a meeting is how a decision gets recorded, not a gate before work starts. Subtractive proposals (reverting a deliberate design decision, removing a tool or table, weakening or deleting an automated check) must leave a recorded conclusion; additive work (new checks, stricter criteria, new tools) needs no gate.
+- **Leader delegation reminder threshold** 8 to 30 consecutive tool calls, and its repeat interval 10 to 30 - a coordinator working a long stretch alone is normal, and the old threshold fired on nearly every turn.
+
+## [1.13.0] - 2026-09-14
+
+A **minor** release about what every session carries and how the MCP server gets registered. The instruction set shipped to Claude Code was audited line by line and cut to what a model would otherwise get wrong; the plugin no longer force-loads all 116 tool schemas into every session; the source installer stops registering a second `ai-team-os` server next to an enabled plugin; and a read-only script reports drift in Codex-side installed hook copies. Minor rather than patch because a REST endpoint and an installer flag were added, a slash command was removed and the plugin's tool-loading behavior changed. Tests **3,008 -> 3,124**; REST endpoints **211 -> 212**.
+
+### Changed
+
+- **Instruction set audited and cut** - `CLAUDE.md`, the 25 role templates, 5 skills, 7 slash commands and `loop.md` were reviewed against one question: without this line, would the model actually get it wrong? Generic tutorials, restated defaults, stale facts and fixed output blocks were removed; preferences, repository facts, environment traps and safety boundaries stayed. Template bodies went from 167 KB to 17 KB. Measured resident instruction text on the reference install dropped from about 21,900 to 17,600 characters.
+- **`CLAUDE.md` split into a shared section and a host-specific section** - `AGENTS.md` is generated from the shared section only (`scripts/gen_agents_md.py`, checked by I18), so Codex no longer receives Claude-only dispatch rules.
+- **Template deny lists reduced to the three destructive tools** - `project_delete`, `team_delete` and `os_restart_api` (the technical writer also loses `task_run`). The former 27-entry lists were found not to be enforced for subagents on Claude Code 2.1.268 (reported upstream as anthropics/claude-code#94202); the READMEs now describe them as declaration-level rather than structural denial.
+- **`/os-init` removed** - it wrote `aiteam.yaml`, which nothing in the API, MCP server or hooks reads. Install, update and uninstall now remove a leftover copy from `~/.claude/commands/` (`RETIRED_COMMAND_FILES`, mirrored in `scripts/uninstall.py` and asserted by tests).
+- **Plugin no longer sets server-level `alwaysLoad`** - `plugin/.mcp.json` had eagerly loaded all 116 tool schemas (about 150 KB) into every session since April, bypassing the per-tool rotation from v1.9.0. Plugin installs now defer tools like source installs, and the usage-based `_meta` pinning applies to them too.
+- **Source installer checks for an enabled plugin** - `install.py` detects the marketplace plugin (enabled / present / absent) and skips global MCP registration when it is enabled, so one machine does not run two `ai-team-os` servers. `--force-mcp` registers anyway; `verify_installation` shows which path owns the registration.
+- **Always-load rotation is cached and reported** - `GET /api/tools/always-load` caches its result lazily for 600 s and returns `cached` and `computed_at`; the MCP client timeout rises from 2.0 s to 3.5 s (`AITEAM_ALWAYSLOAD_TIMEOUT` overrides) and reports what it actually pinned to the new `POST /api/tools/always-load/applied` (event `tool.alwaysload.applied`). Before this, a cold endpoint measured at 3.1 s exceeded the client timeout, so sessions silently started with nothing pinned while the ledger still recorded a rotation.
+- **I3 hint corrected** - the invariant check told you to copy `dashboard/dist` over `plugin/dashboard-dist`; when the local build is the older one that would have replaced a good bundle with a stale one. The hint and the release checklist now say rebuild first, then sync.
+
+### Added
+
+- **`scripts/check_codex_installed_hooks.py`** - read-only three-way comparison of Codex-side installed hook copies against the repository source and the Codex adapter. It defaults to the two OS install directories (`--installed` is repeatable), classifies each file as identical, drifted, installed-only or source-only, and never modifies anything. It is not wired into `check_invariants.sh`; run it by hand.
+
+### Validation Boundary
+
+- Full preflight on the release tree: Ruff, Dashboard lint and tests, all 21 invariant checks, and **3,124 unit tests passed / 4 skipped**. Four tests that still asserted removed template boilerplate and the removed command were rewritten in the same batch.
+- The always-load fix was verified against the running API: recomputation 1,657 ms, cached read 1.3 ms, and one cold apply at 3,115 ms that the previous 2 s timeout would have dropped. The hook reconciliation script has 69 unit tests over fixtures, not a run against a real Codex home.
+- Template deny lists were probed four times on one machine (Claude Code 2.1.268, auto permission mode); other versions and permission modes were not tested.
+
+### Installation Notes
+
+- Plugin users get the deferred tool loading on their next session after updating. Source-install users who also have the plugin enabled will see `install.py` skip global MCP registration; pass `--force-mcp` to keep both.
+- Restart the shared API after updating; the rotation cache and the `applied` endpoint live in the API process.
+- Codex: only the `AGENTS.md` header template changed. `hooks.json` and `hook-trust.lock` are unchanged, so no re-approval of hooks is needed.
+
+### Not Included
+
+- Enforcement of template `disallowedTools` is upstream; the lists are declarations until Claude Code applies them.
+- An install or update path for Codex-side hook copies. The new script only reports drift.
+
+## [1.12.4] - 2026-09-11
+
+A patch release for clearer shared Claude Code and Codex operations: root-session ownership, native member identity, project-scoped Dashboard totals and durable tool-completion records.
+
+### Added and Fixed
+
+- **Root sessions and native members** - registered sessions supplement Claude file observations without duplicate Leaders. Observed roots are labeled `Claude Leader` or `Codex Leader`; Codex members retain native nicknames and verified parent-team links, with roles and tasks shown separately. Child lifecycle events do not create or close the parent Leader.
+- **Current work and liveness** - only fresh `busy` evidence enters current views; waiting, closed and stale records remain in history. Automatic recovery requires eligible native activity and does not undo explicit closure or manual deactivation.
+- **Legacy session-team collisions** - a fresh, exactly attributed native event can repair an active Leader left in another session's old eight-character container. A compare-and-swap transaction moves the Leader and already-confirmed native members to the full-ID team, preserves member states, and binds the root's native ID for later automatic recovery. Other sessions/projects, the foreign team's completed state and historical events are left intact. Manually stopped or unexplained offline records require explicit resumption.
+- **Repeated-start diagnostics** - when native metadata is missing, a repeated start for an exactly matched, manually stopped member retains the existing diagnostic field and leaves that member offline. Missing metadata is not permission to resume it.
+- **Project-scoped events and Analytics** - events use persisted task/session ownership, with literal type-prefix filtering alongside the existing exact-type filter. Analytics intersects project, team and request-header scopes; summary cards and charts use the same selection.
+- **Dashboard accuracy** - project cards aggregate multiple teams instead of keeping only one team's totals. Load failures are visible instead of appearing as empty results; Settings reads the running API version, labels infrastructure examples as demonstrations and distinguishes Claude-only model settings from Codex.
+- **Tool-completion pairing** - stable native call IDs bind starts and completions through persistence, including duplicate or out-of-order delivery and API restarts. Late starts cannot reopen completed records; calls without reliable IDs are not matched by tool name.
+- **Bounded completion delivery** - later Codex hooks can retry queued completion metadata within attempt, capacity and time limits, without a timer or resident retry process. Replay keeps the original completion-observation time; unconfirmed records stay unconfirmed and unsupported durations stay unknown.
+- **Complete adapter file inventory** - two imported Codex support modules are declared separately from hook entries. I1 and I20 check their presence and cross-host isolation; unknown files and copies in either Claude hook directory remain errors. The seven entries, thirteen handlers and registration/trust files are unchanged.
+- **Runtime diagnostics and process isolation** - queued, redacted HTTP and API lifecycle records capture request correlation and observed process events. On POSIX, API auto-start and restart launch the shared service in a separate session/process group from the MCP launcher.
+- **Shared-OS documentation** - both READMEs now describe Claude Code and Codex throughout the product overview, architecture, collaboration, installation and FAQ. Shared records are distinguished from native execution; Codex has a separate manual setup path, and Claude-only automation, model settings and templates are labeled accordingly.
+
+### Validation Boundary
+
+- Recorded checks cover targeted API/persistence, identity/liveness/completion, project isolation and frontend behavior, plus a native subagent observed through a controlled collector and browser. These are bounded results, not full-suite acceptance.
+- Final full preflight passed with **3,008 unit tests / 4 skipped** and **38 frontend tests**. The **70-check identity/liveness/completion suite** and **30 registration checks** also passed; these sets overlap and must not be added together. TypeScript, production build and Ruff passed; ESLint has no errors and two dependency warnings. These checks establish the tested code, not deployment of this version.
+- Final acceptance of automatically triggered, installed Codex hooks through the API, database and Dashboard is pending. Copying scripts, registering hooks or approving trust alone does not prove that complete chain.
+- The support-module inventory repair passes I1/I20 and 30 focused registration checks, including a mirrored-copy collision that cannot be caught merely as a missing twin. Independent read-only review found three state/identity regressions; each was reproduced, repaired and re-reviewed as closed. Review covered the changed inventory and recovery paths, not every historical change in the tree.
+
+### Installation Notes
+
+- Keep Codex and Claude Code scripts, registration and trust separate; their OS API, database and Dashboard remain shared. Copy Codex entry scripts together with matching `codex_observation.py`, `codex_completion_delivery.py` and `hook_core.py` helpers from the same version. Do not replace only the entries or overwrite Claude settings.
+- Apply compatible API code, Dashboard assets and installed Codex scripts together; reloading MCP alone does not replace these layers. Review and re-approve changed hook registrations in the Codex host before checking automatic collection.
+- Align the source version used by every MCP launcher before switching the shared API. An older launcher's version reconciliation can otherwise replace a newer API when another session starts. Schedule the MCP/API refresh together; do not independently restart mixed-version launchers against one shared service.
+- Existing offline records without a verified automatic-offline reason are not silently reactivated. Explicitly resume only the intended Leader/member through the normal OS controls, then verify its subsequent native events and team attribution; do not repair status with direct database edits.
+
+### Not Included
+
+- This version does not deliver mail-triggered wakeups for idle Codex sessions or full Codex token/cost attribution.
+- Missing identity, model or trustworthy timing evidence remains unknown. Historical `running` records without reliable call IDs are not forced to `completed`.
+
+## [1.12.3] - 2026-09-09
+
+A **patch** release. Codex now actually sees the unread line at the top of its turn, the runtime work that had lived only in five uncommitted desktop worktrees is on master, and the README says out loud that the OS runs on Codex. Tests **3,285 -> 3,391**; `psutil` becomes a declared dependency.
+
+### Fixed
+
+- **Codex could not see the unread line** (`c6c4cdb`, merged in `14bfeba`) - the hook ran, its audit recorded 376 characters written, and the model answered that it had no unread context. Codex's host does not inject a hook's plain stdout; it takes the standard `hookSpecificOutput.additionalContext` JSON. The entry script now emits that form for non-empty output; the no-unread path stays silent and the diagnostic path stays on stderr, so nothing changes for the cases that already worked, and the audit records the wire length. Written by the peer, reviewed here, and measured after merge on both the Codex CLI (a blind marker with a random first line appeared in the model's context before any tool call, and the model returned it verbatim after its tool call was denied) and the desktop app (the user typed one word). What is measured is prompt-time delivery; an idle Codex session is still not woken by mail.
+- **`psutil` was load-bearing but undeclared** (`5d528fec`) - the runtime reconciliation merged in this release imported `psutil` inside a try/except and then relied on it. With the module absent, a stale startup lock could never be reclaimed (the previous code reclaimed by age), the API never auto-started after a 20 s wait, the PID ledger always read empty, and the recovery branch for a stuck API was dead code, so a second uvicorn could start on a random port against the same SQLite file. Every test passed on the development machine because `psutil` arrived transitively through an unrelated package. Found by the review of the consolidated branch (one reviewer per dimension, one refuter per finding; two dimensions hit this independently). `psutil` is now declared in `pyproject.toml`, `plugin/requirements.txt` and the installer's fallback list, and absence degrades instead of paralysing: liveness falls back to `kill(0)` plus `ps`, a stale lock is reclaimed only once its owner is confirmed dead and the file has not changed underneath, and without `psutil` the code never authorises a kill and never starts a second instance on an occupied port.
+- **The health check read the port from a constant** (`5d528fec`) - `os_health_check` derived the port from the import-time `API_URL` constant (always 8000) while the API records its real port in a file, so on the documented fallback path where 8000 is taken and the API lands on a random port, PID reconciliation always reported `not_managed` and the reported URL was wrong. The two new tests patched the constant and hid it. It now uses the dynamic URL.
+- **One hung request froze a Dashboard refresh prefix for good** (`5d528fec`) - the coalesced refresh keeps a key in flight until its request settles, and `apiFetch` has no timeout, so one request that never returned stopped every later refresh of that prefix; the previous behaviour (`cancelRefetch: true`) had self-healed by cancelling and re-issuing. A 30 s deadline now settles the key and cancels only the request captured at that moment; a newer request on the same key is left alone.
+- **Legacy WebSocket close swallowed cancellation** (`ad11886`) - on the `legacy` websockets backend, `close()` catches `CancelledError` and shields the TCP teardown, so a timed-out send could still hold the HTTP acknowledgement hostage: 0.704 s measured against a 0.10 s budget on a real loopback handshake. Close now runs as a tracked task that is cancelled on deadline without being awaited, and late results are consumed by a done callback. 0.704 s -> 0.103 s.
+
+### Added
+
+- **Runtime consolidation from five desktop worktrees** (`ad11886`, `5d528fec`, merged in `a85b7f7`) - WebSocket broadcast isolates slow clients with bounded concurrent sends instead of awaiting them in series (that serial await is what pushed hook posts past their 1.5 s budget); the HTTP admission middleware keeps one of the five SQLite slots for hook events, so ordinary API traffic cannot starve them; the PID ledger reconciles on demand, adopting only a listener on the managed port whose process identity is verified, and `os_restart_api(source_root=..., dry_run=true)` checks imports without stopping the service; the Dashboard coalesces query refreshes over 200 ms without cancelling requests in flight. 1,178 lines of new tests, and the realtime hook tests now have a runner (`npm test`) wired into `preflight.sh` and CI, which also installs from `pyproject.toml` instead of a hand-kept list. The consolidation itself was done by the peer harness over the OS channel: it merged the five trees into one branch, this side reviewed (five dimensions, nine confirmed findings, one blocking), it fixed, this side re-verified and merged. The twelve desktop worktrees are gone; the six that held uncommitted work were first archived as local commits so the pre-consolidation state can be rebuilt.
+- **`channel_wait` reports how the message arrived** (`c360c9e`, merged in `8ab3dd8`) - successful responses carry `delivery_source`: `replay` for the initial inbox read, `event` for a read triggered by a WebSocket event, `timeout_read` for the final read after the wait expires. Until now a message returned by a wait could not be told apart from one the final read would have found anyway, which left the push path unverifiable. Error responses claim no source.
+- **The README says the OS runs on Codex** - a standing note under the tagline, separate from the per-release line, states what a Codex session gets (the same task wall, memory, reports, Dashboard and MCP tools, fed by its own native hooks; cross-harness messaging with a prompt-time unread line), what is still Claude Code only (one-command install, the session-start briefing, direction-layer memory for new subagents, waking an idle session), and that Codex setup is manual today. The `os-channel` skill's per-harness capability table was rewritten to match what is now measured.
+
+### Changed
+
+- **Worktrees live inside the repository** (`1b68077`) - `.worktrees/` is ignored and the multi-session discipline in `CLAUDE.md` now requires it. Twelve sibling directories had accumulated on the Desktop, and sibling paths also fall outside the OS's subdirectory-based project attribution.
+- **Release checklist step 11 restarts the local API first** (`c55b696`) - `/api/health` reports the version constant held by the running process, so a long-lived API keeps answering with the previous version after the files change. The same root cause tripped both the peer harness and the Dashboard on the same day.
+
+### Upgrade notes
+
+- `psutil` is installed by `python install.py --update`, which import-checks every declared dependency. Without it, on POSIX, an existing API is still recognised and a dead lock owner still reclaimed; uncertain identities never authorise a kill or a duplicate service.
+- Codex users: the unread hook changed script content only. `hooks.json` and the trust lock are unchanged, so no re-trust is needed; the installed script takes effect on the next prompt.
+- Deferred, on the task wall: a recorded PID reused by an unrelated live process blocks auto-start with a warning until cleared, because the identity check does not yet distinguish "not our API" from "cannot tell"; and the guardrail middleware still rejects hook payloads that happen to contain path-traversal or code-injection lookalikes, a pre-existing loss path now recorded against the silent-drop task.
+
+## [1.12.2] - 2026-09-08
+
+A **patch** release. The unread badge injects text somebody else wrote into the model's context, and it was not sanitising the characters that exist to make a line lie. Alongside it, the peer harness's hook entry scripts finally enter the repository, and an armed watcher can now say which signals it is waiting for. Tests **3,172 -> 3,285**; Codex hook surface **12 -> 13** handlers, **6 -> 7** entry scripts.
+
+### Fixed
+
+- **The unread line did not strip the characters that make it lie** (`a3eb968`) - sanitising collapsed whitespace and nothing else, which leaves exactly the class of character whose only purpose is to make what you see differ from what is there. Measured on the real function: U+202E (reverses a line's visual order), U+200B (hides content between two visible characters) and ASCII control bytes all survived. Worse, only the excerpt was sanitised at all: `latest_sender` is free text chosen by whoever sent the message, so a newline in it could open the notification block and forge an extra line that looks like part of the OS's own output. Both now pass through a filter that replaces every character in Unicode category C, and both are length-capped so one very long name cannot push the acknowledgement guidance out of view. The injected header now states that the excerpt and sender name are quoted data, not instructions - the OS already treats observed content as data rather than commands, and saying so in the line costs one clause. Found by reviewing the other harness's copy of the same hook, which had it right.
+
+### Added
+
+- **The peer harness's hook entry scripts are in the repository** (`3cd0bf0`, `0312685`) - the unread notification entry and the lifecycle event collector had only ever existed as untracked files in local working trees. While that was true, nothing observed about their behaviour was evidence about anything in this repository. Both were committed by the peer and merged here after independent review; the files registered in its host configuration were verified byte-identical to the merged blobs. The unread entry bounds its whole HTTP budget with a worker thread rather than socket timeouts alone, because socket timeouts reset on every read and a slow drip can outlast the budget; it refuses to report "no unread" when the scan was truncated, since a possibly-false zero is indistinguishable from a real one; and it validates the summary timestamp without rendering it, which is the same discipline the acknowledgement guidance enforces. The collector records `started` before reading stdin, which separates "the hook never ran" from "it ran and failed" - two states that look identical from the output alone.
+- **An armed watcher can declare which signals it waits for** (`50abf69`) - `/api/wake/actionable` takes a `signals` parameter (from agents/runs/memos/mentions, default all), and `os-watch.sh` forwards `OS_WATCH_SIGNALS`. With two harnesses sharing one project, every progress note written by the peer's subagents woke this side, and since a watcher exit clears the armed heartbeat, each spurious wake also took the watcher off duty: the busier the peer, the likelier this side was deaf at the moment it was actually called. Counts are always reported regardless of filtering, and the effective set is returned so a typo cannot silently look like a working filter. Unparseable input falls back to the full set rather than the empty one, because waking too rarely loses a message while waking too often is only noise.
+
+### Upgrade notes
+
+- The hook fix ships in the repository but a machine keeps running its installed copy under `~/.claude/hooks` until the installer runs again. Re-run `python install.py --update` to pick it up.
+
+## [1.12.1] - 2026-09-08
+
+A **patch** release that mostly closes silent failures in the wake system v1.12.0 shipped. The pattern repeats: a component reports success, keeps running, and simply stops doing its job. The watcher could be evicted by the waking session's own writing; an update could leave a user without a newly declared dependency and print advice that only the user could not act on; the guard built to catch a missed arming had never been registered to run. Surfaces: MCP tools **115 -> 116**, REST endpoints **210 -> 211**. Tests **3,066 -> 3,172**.
+
+### Added
+
+- **`channel_wait`** (`5a28256`, merged in `63a1496`) - written and committed by the Codex side, merged here after independent review. It subscribes before replaying a project/reader/sender-scoped inbox, then waits on a WebSocket event for the peer's next message; read-only, never acknowledges. A timeout still does one final database read, so a dropped frame cannot hide a committed message. Paging is by insertion order rather than `created_at`: write transactions serialize, so rowid order equals commit order, while timestamp ordering can skip a row that commits during a page turn. The cursor is bound to its scope and a vanished anchor row returns 409 instead of silently jumping ahead. New `GET /api/channels/{channel}/inbox`. A client that times out locally does not release the server-side wait - only explicit MCP cancellation does, which is recorded in the tool docstring rather than only in a report.
+
+### Fixed
+
+- **The watcher was evicted by its own owner's memo** (`8977a74`) - `new_memos_since` is documented as "a subagent reported progress" but counted every memo in the project, including ones the waking session had just written. Reproduced on the real machine: with the watcher armed, one Leader memo made the next poll return actionable with `new_mentions_since=0` and a reason line naming a subagent that did not exist. The wasted wake is the smaller half, because a watcher exit clears the armed heartbeat - writing one memo took the watcher off duty, silently, which is what at least one of that day's two "forgot to arm" incidents really was. Authors matching the caller's own identity are now excluded, and only when the caller passes `reader`: an unidentified caller does not get to have "itself" guessed for it.
+- **An update could leave a user without a new dependency** (`f168121`) - PEP 668 interpreters (Homebrew, Debian/Ubuntu system python) refuse `pip install -e .` outright. The updater tolerates that on purpose, since aborting would skip the hook, skill, command and settings refresh it exists to perform, but the consequence was that newly declared dependencies were never installed. It could not warn either, because it does not know whether a given release added one; all it could print was "reinstall if dependencies changed", handing the question to the one party unable to answer it. The failure surfaced later as a tool that is listed and raises on first call. Installs now import-check every dependency declared in `pyproject.toml` rather than trusting pip's exit code, install what is missing, retry under `--break-system-packages` when the refusal is PEP 668, and recheck afterwards. Anything still missing is named with a copy-safe command, with specifiers quoted so a shell does not read `>=` as a redirect.
+- **The watcher treated a busy service as a dead one** (`645ff04`) - `curl --max-time 3` collapsed timeout and connection-refused into one outcome, so a full test run or a release upload was enough for the watcher to declare the API unreachable and leave, exactly when watching matters most. Measured three times. Timeouts (rc 28) are now tolerated 40 times, connection refusal (rc 7) exits after 3, and the per-request budget matches the poll interval. Orphan detection by reparented PPID replaces the hour cap as the primary liveness check, so a session-scoped watcher no longer needs re-arming every hour.
+- **The standby guard had never run** (`b1fd1e4`) - `turn_end_guard` had its code, 24 passing tests and an installed runtime copy, but zero registration surface, while the README described the capability as active. The guard meant to catch a missed watcher arming had itself never executed once. Both modes are now registered, and `UserPromptSubmit` carries a reminder when nothing is armed, because a `Stop` allow branch has no channel into the model's context.
+
+### Changed
+
+- **`httpx` and `websockets` are now declared dependencies** across all three install entry points. Both were already required indirectly, and code that imports a package directly should declare it, or an upstream extras change breaks the install.
+
+### Upgrade notes
+
+- No action required for the new dependencies. The installer and updater now install them and verify they import. On a PEP 668 interpreter the retry happens automatically; if a package still cannot be installed, the exact command is printed.
+- `channel_wait` holds one MCP call open for the duration of the wait. Set the client request timeout above `timeout_seconds + 4 * io_timeout_seconds + 5`.
+
+## [1.12.0] - 2026-09-08
+
+A **minor** release with two threads. The first gave the OS a second harness to observe: a Codex adapter with its own hook surface, trust lock and evidence fixtures, plus a differential gate proving CC's behaviour did not drift while that was built. The second made two AI sessions able to actually reach each other - messages could already be stored and read, but nobody was told one had arrived, and eight messages naming this side (one waiting on a receipt) sat unread for half an hour during the very batch that fixed it. Surfaces: MCP tools **113 -> 115**, REST endpoints **208 -> 210**, machine checks **I1-I14 -> I1-I21**, hook scripts **11 -> 12**. Tests **2,576 -> 3,066**.
+
+### Added
+
+- **Unread badge across sessions** (`27b6860`, `20cfece`) - a `UserPromptSubmit` hook injects one line when someone has named you in a channel, `channel_read_ack` advances the read cursor, and the next turn recomputes to zero so the line disappears without any clearing mechanism. New `channel_read_cursors` table keyed by `(reader, channel, project_id)` - the repository's first composite primary key, deliberate because the natural key is the triple. `channel_messages` gains a nullable `project_id` so unread is scoped per project and nobody reads another project's mail. Two new MCP tools (`channel_unread`, `channel_read_ack`) and two REST operations. `reader` is a role identity, never a session id: keying the cursor by session would recount every historical message as unread each time a session starts. Sending stays permissive - a message without a project is stored and readable, it just never counts as unread - because rejecting it turned 9 existing tests red, so the project is filled from cwd at the MCP layer instead.
+- **A channel message wakes a session** (`20cfece`) - arm the session-scoped watcher with a reader identity (`os-watch.sh <sid> <team> <reader>`) and a new message wakes the session with no user input at all, measured end to end at about 8 seconds, twice, including once on mail the other harness really sent. The predicate counts newly arrived mentions rather than current unread: the latter would re-fire on every poll for a message that was read but not acknowledged, turning the watcher into an 8-second alarm clock that never stops.
+- **`os-channel` skill** (`e5bcc9c`) - what Claude reaches for when a user asks whether two AI sessions can talk. It leads with a per-harness capability table separating measured from unmeasured, because this feature was built through three rounds of mistaking a declaration in the repository for a verified fact. It also records what neither side can do - reach a session that has already exited - and that the two harnesses fail differently in kind: CC stops wholesale, Codex skips occasionally, so "no reply" cannot be read as "did not receive".
+- **Codex harness adapter skeleton** (`fd00ae5`, `526ca67`, `ecd7f73`) - `plugin/harness/codex/surface.py` declares the adapter's event set, hook manifest and matcher registry as pure data, with `render()` pinning the in-repo manifest byte for byte. Six new machine checks land with it: **I15** manifest/surface 1:1, **I16** execpolicy placeholder, **I17** trust lock parity with the manifest, **I18** `AGENTS.md` identity (standard header plus `CLAUDE.md`), **I19** fixture-to-generator binding, **I20** installer isolation (one-way dependency, unchanged source set, zero entry-name collision with CC hooks).
+- **CC zero-drift differential gate** (`c1d0242`) - the harness-neutral blocks of `send_event.py` extracted verbatim into two byte-identical `hook_core.py` copies, a sha256 freeze on the CC entry (`scripts/hook_entry_freeze.json`), a deterministic redactor with a built-in leak guard, and a 27-row synthetic corpus covering all 15 hook events and 12 `send_event` branches with a golden computed on master. The duplication with `send_event.py` is deliberate: the CC entry stays frozen while the adapter reuses the core.
+- **Codex evidence fixtures** (`f38770c`, `1c2c505`, `1d8c417`, `e4fe147`, `369569e`) - 28 native / 2 trimmed-import / 20 probe rollouts plus hook payloads, state and event samples, put through a deterministic redactor; G1-G15 golden values recomputed from the originals; the golden bound to its generator so a fixture cannot drift away from what produced it.
+- **Harness dimension groundwork** (`0e4b824`) - `HarnessId`/`LayerState` enums, a full harness x layer availability matrix, and five nullable observation columns (`agents.harness`, `harness_version`, `dispatch_call_id`, `reasoning_output_tokens`, `agent_activities.turn_id`). All nullable, no UNIQUE, no DATETIME; an all-NULL database yields exactly one bucket, so the existing CC coverage matrix is shape-identical.
+- **Session id resolver chain and raw payload capture** (`642edca`) - `resolve_session_id(ctx)` with the CC resolver first and the Codex slot left unregistered with its contract documented; `AITEAM_HOOK_RAW_DUMP` appends raw hook payloads to a jsonl path when set, and is zero behaviour difference when unset.
+- **Dispatch model gate (S6)** (`0c9b9a4`) - a `PreToolUse` assertion that blocks an `Agent` dispatch with a missing or empty `model`, and blocks the cheaper model tier unless the prompt opens with a stated reason. Root cause was three-layered: a memory-layer escape hatch that recorded a temporary quota concession as standing policy, dispatches inheriting the parent session's model by default so the default beat the rule, and zero hook-side checking of the dispatch parameter. Workflow scripts are scanned with a masking pass that blanks comments and strings (including multi-line templates and escaped quotes) while preserving offsets, so a model key is found in the masked view and read from the original text.
+- **Machine check I21: channel reader identities must not overlap** (`20cfece`) - if both harnesses registered the same reader, one side acknowledging would clear the other side's badge and its mail would never be surfaced, while both test suites stayed green. Twelve tests cover the check itself, including every negative case, because an invariant never shown to go red is decoration.
+
+### Changed
+
+- **Agent board folds dormant members** (`10f99bf`) - with 547 agent rows the three running ones were scattered and effectively unfindable. Active members stay expanded ordered by status then last activity, anything quiet for over 48 hours collapses behind a counted toggle, and a running agent is never folded even when its timestamps are missing.
+- **Watcher lifetime and orphan detection** (`20cfece`) - the session watcher's 1-hour cap was using time as a proxy for orphanhood, and its real price was a Leader who has to remember to re-arm and does not always. Measured cost of the watcher: 0.0% CPU, about 3MB resident, 450 loopback requests an hour. Orphanhood is now detected directly (parent reparented to PID 1) and the time cap moves to 12 hours as a backstop. The session-scoped promise is now kept by the orphan check rather than by the clock, which strengthens the no-resident-daemon argument rather than weakening it.
+- **Memo write path no longer suggests reconciling** (`3617963`) - `task_memo_add` appended a "consider reconciling" hint past a volume threshold. Memo volume says nothing about direction-layer pressure (the episodic layer is never injected, so it costs no context however far it grows), the direction layer already rejects over-quota writes at write time and hands back the whole bucket, and the hint pushed a lossy operation: reconcile marks the originals invalid and the default read path filters invalid rows, so a summary cannot be reversed back into them. The test is inverted rather than deleted, so restoring the hint turns the suite red.
+
+### Fixed
+
+- **Four silent-failure defects in the unread hook** (`067bf41`, `20cfece`) - each one leaves every gate green while nothing happens for the user. The **port file name was missing its `.txt`**, so the lookup was dead and fell back to a hardcoded 8000 which happened to be correct - unit tests, invariants and a live acceptance run all passed over it. The **ACK hint prefilled `last_read_at` with the summary's latest timestamp**, which means "you have read everything": a caller that pages and takes only the first N would mark the rest read and never be told about them again. The **ACK hint omitted `project_id`**. And **`_render` raised on a malformed payload**, with `main`'s catch-all swallowing the exception - indistinguishable from "no unread".
+- **`watermark` was taken after scanning** (`20cfece`) - anything landing between the last scan and the timestamp was skipped forever, because the caller feeds that watermark back as the next `since` and the message's `created_at` is already older. Reproduced against a real database by the reviewing harness. Taken before scanning now; a message can be reported by two adjacent rounds, and a duplicate wake is noise while a missed one is a lost message.
+- **`LIMIT` was biting a superset in mention matching** (`20cfece`) - a LIKE prefilter plus an exact check in Python meant newer lookalikes filled the scan window and pushed the real match out, measured as zero hits with a cap of 2, which reads as "nobody called you". Exact matching moved into SQL via `json_each`, so the limit applies to real matches.
+- **The wake system's `since` was corrupted in transit** (`20cfece`) - a query string encodes `+` as a space, so an unencoded `+00:00` offset arrived as a space, failed to parse and degraded to no lower bound. A `since` of two seconds ago reported **1,513 new memos and 50 terminal runs**; the watcher therefore fired on its first poll every time and had never actually watched. Repaired server-side (the space before an offset can only have been a `+`) and encoded client-side.
+- **The watcher treated one timeout as a dead service** (`20cfece`) - measured trigger was the full test suite saturating the CPU on the same machine, which made a 3-second curl budget unreachable. It now needs three consecutive failures, because high load is exactly when a watcher should stay at its post.
+- **`channel_mentions` never matched a real recipient** (`067bf41`) - it built `f"@{name}"` while real callers write the bare name, so it returned zero for every message on a live channel. The MCP tool also documented "leave empty to use the current agent" while hardcoding the literal `"agent"`. Matching now accepts both the bare and the `@`-prefixed form by exact membership; substring matching would let `leader-cc` swallow mail for `leader-cc-2`, and SQLite's LIKE is ASCII-case-insensitive with live wildcards.
+- **Workflow-derived agents could be left without a transcript path forever** (`7d1a5cf`) - the unattributed `no_transcript_path` bucket measured 618/645 rows (95.8%) as workflow-derived and still growing by 94 a month, not the historical rows the copy claimed. Two layers: registration never passed the path, relying on a Stop receipt that permanently loses the row if it goes missing; and `create_agent` silently dropped the argument even when callers did pass it, so fixing only the caller was a no-op. A two-guard check now only claims a file that is both under `/subagents/` and matches the run id, because an ordinary sub-agent carries the Leader's transcript at start; it fills only when empty and never overwrites a path the Stop side measured.
+- **`context_tracker` hit the 5s hook timeout** (`c237770`) - rewritten to a lazy tail read so `UserPromptSubmit` stops colliding with its budget.
+- **Task detail dialog rendering** (`bb46448`, `b349c45`) - three rendering defects plus memo meta-information now on its own line, so the body is no longer squeezed by a long author name; unattributed copy changed to say what is actually true.
+
+### Upgrade notes
+
+- The unread badge needs the hook registered: run `python3 install.py` from a checkout. Hook registration is read per turn, but **MCP tools are loaded once at session start**, so `channel_unread` and `channel_read_ack` only appear in a session started after installation.
+- `channel_messages` gains a nullable `project_id` and the new `channel_read_cursors` table is created on startup. Existing rows keep `project_id` NULL, which means historical messages count toward nobody's unread - they remain readable with `channel_read`.
+- Waking on a channel message is opt-in: the watcher only treats mentions as a wake signal when started with a reader identity as its third argument.
+
+## [1.11.4] - 2026-08-26
+
+A small patch, both entries pointed outward. The commit-time branch guard could not recognize its own recommended escape route; and ahead of a first proper public announcement, the repository grew the community surfaces a visitor expects to find. Surfaces stay put: MCP tools **113**, REST endpoints **208**, machine checks **I1-I14**. Tests **2,556 -> 2,576**.
+
+### Fixed
+
+- **Commit-time branch ownership guard (S5) was blind to `cd`** (`971f60d`) - the guard tells you to isolate work in a worktree, then blocked the commit you made there: its probe directory came from a regex that only understood `git -C <dir> commit`, so `cd <worktree> && git commit` was probed at the session's cwd - the main checkout - and judged against the main checkout's HEAD. If that branch carried another agent's active claim, a structurally safe commit was hard-blocked, and the guard's own advisory ("isolate in a worktree") led straight back into the block. The reverse direction was a silent false allow: a `cd` from elsewhere back into a claimed checkout kept the probe on the wrong repository just the same. The probe now resolves the effective directory through the same segment/token/cd-chain machinery the S4 teardown guard uses (`_commit_probe_cwd`), so the two commit-time guards read one command line one way; the old regex is deleted. The function - previously untested - gained 12 regression tests: cd-prefix, `git -C` and subshell commits into a worktree pass silently; a bare commit onto another agent's active claim still exits 2; a stale claim still degrades to a warning; a quoted `"git commit"` literal is still not a commit; first commit still records the claim.
+
+### Added
+
+- **Community surfaces** (`d3fb533`) - `SECURITY.md` states what the tool actually touches on your machine (SQLite and logs under `~/.claude/data/ai-team-os/` only, plain-Python hooks readable before you run anything, localhost-only API, no telemetry) and routes reports through GitHub private vulnerability reporting, now enabled on the repository. `CONTRIBUTING.md` covers dev setup, the three local gates, and names the two deliberate rules that look like bugs so nobody "fixes" them: byte-identical hook twins (I1) and the no-venv constraint. Bug/feature issue templates (the bug form asks for `/os-doctor` output) and a PR template carrying the I1 twin-copy self-check.
+- **"First words to your session"** (`d3fb533`) - both READMEs and `install.py` now end onboarding with the one sentence to say to a fresh session: this project runs on AI Team OS, learn its tools (`/os-help`), use the task wall, memos and memory for everything. Observed on real sessions: hook injection alone reads as background noise; the user saying it out loud is what makes the OS the working protocol.
+
+## [1.11.3] - 2026-08-14
+
+A **false-positive patch**. Every entry started with the user looking at a screen and saying "that is wrong", and in each case the system was healthy while the tool reporting on it was not: a teardown guard hard-blocking work it was structurally incapable of losing, a roster painting finished members as failures, an observability page presenting a static lower bound as a target that had been overshot. The one genuine defect was found while chasing the others. Surfaces stay put: MCP tools **113**, REST endpoints **208**, machine checks **I1-I14**. Tests **2,493 -> 2,556**.
+
+### Fixed
+
+- **Worktree teardown guard blocked on a criterion that cannot lose work** (`fde92f7`, `0568db3`) - removing a worktree in a repository whose development happens on a long-lived feature branch was hard-blocked with "810 commits not patch-equivalent". Two defects, both settled by experiment before any code changed. Wrong target: `git worktree remove` **does not delete the branch**, so committed work on an attached branch keeps a ref and cannot be lost (measured: zero orphans after removal); only a detached HEAD orphans anything (measured: the commit vanishes from `--all`). The guard was hard-blocking precisely the safe case. Wrong baseline: the "main branch" resolved to `master`, while that repository's work sits on a feature branch **1,090 commits ahead** of it, so one branch-local commit was reported as 810 units of risk. The criterion is now git reachability - after this command, can any other ref still reach these commits - computed by excluding, ref by ref, everything the command itself would delete (via `rev-list --stdin`, since that repository carries 210 refs). The four patch-id helpers behind the old proxy were deleted rather than kept, so the old axis has no way back. Fail-closed is unchanged and now covered by tests: a probe that cannot answer blocks. A three-lens adversarial review (false-allow hunting, test-quality audit, engineering integrity) produced 16 findings, all fixed, including one **regression against the previous version**: the new advisory told the user to delete the branch separately, while branch deletion was only guarded for `worktree-` prefixed names. Deletion now covers every ref, and the advisory computes reachability on the spot and says outright when a branch is the only thing holding those commits. Also fixed: flag spellings that skipped the guard entirely (`-ff`, `-f --`), two same-tip branches alibiing each other within one command, refname case/Unicode folding that failed to exclude the target itself, a fail-open probe on the branch path, `rm -rf` shapes outside the managed directory, ignored-but-unrecoverable files counting as clean, and only the first operand being assessed. Verified read-only against the reporting user's actual repository: the verdict flips from block to allow, working tree untouched. Out of scope by explicit declaration: `git push origin --delete` and batch `update-ref --stdin`.
+- **Late-binding race dropped hook observations** (`cbe7735`) - `_resolve_agent`'s name-based late binding writes `cc_tool_use_id` onto the row it picks; when a concurrent request had already bound that id to another row, the UPDATE hit the UNIQUE constraint and raised through as an ASGI 500, losing that observation (twice in the production stderr log). The constraint is doing its job - it is what stops two dispatches from sharing one ledger - so the loser now re-reads and adopts the winning row instead of dying, matching `get_or_create_team`'s existing convention. Unresolvable cases still stay unresolved: losing one observation beats writing to the wrong row.
+- **Workflow plan count read as a miscount** (`7c1e3fe`) - `agent_count` routinely exceeded `planned_agent_count` (8 against 2 on one run) and the UI rendered it as a bare fraction, so a correct number looked like a broken one. The plan count is a **static lower bound**: it counts literal `agent()` calls across every phase, but `pipeline(items, ...)` writes one call that fans out to `len(items)` at runtime, and that width is unknowable before the run. Deliberately **not** ratcheted up to match reality afterwards - a plan that always equals the actual is not a comparison. The presentation became honest instead: runs with dynamic nodes show `>= N` with the fan-out count in a tooltip, runs whose plan was never parsed (7 file-reconciled historical runs, previously rendered as "75/0") show "plan unknown", the actual takes the headline once a run is terminal, and `dynamic_nodes` reaches the MCP projections. The static count also stopped counting `agent(` occurrences inside comments and prompt text - measured across 178 real workflow scripts, 18.5% were inflated that way. New runs only; history is not rewritten.
+- **Finished team members rendered as failures** (`6fd72ae`) - a long-lived session's container team listed all 44 members flat with `offline` in a red `destructive` badge, reading as "40 members never exited" when every one of them had finished normally. Agent rows are deliberately never deleted (audit trail, and the token ledger lives on them), so the folding belongs in the view: active members stay expanded, finished ones collapse into a single "past members N" row that expands on click, and `offline` in a member context now reads "finished" in a neutral badge. The global `offline` string is untouched, because on a Leader row it means the session ended.
+
+### Changed
+
+- **PyPI distribution line deprecated and yanked** (`41292fd`) - the wheel had sat at 1.3.4 since April while the repository moved to 1.11.x, with no deprecation marker on the page: `pip install ai-team-os` handed newcomers a four-month-old build that ships without `plugin/` and the config resources, whose post-install step never worked and structurally cannot (PEP 517 wheel installs execute no code). All 10 releases are now yanked with a reason pointing at the plugin and source paths, 20 of 20 files confirmed. Measured before deciding: 46 non-mirror downloads in 30 days and 0 in the last 7, against 577 unique clones of the GitHub repository in 14 days - the pip channel was not carrying distribution. Both READMEs corrected: the roadmap claimed the line was frozen at 1.2.0 when it had in fact shipped through 1.3.4.
+
+## [1.11.2] - 2026-08-03
+
+A **data-integrity patch**. One near-miss set the theme: the container-team reaper - shipped two days before token ledgers landed on agent rows - was deleting rows that carried the only copy of their token attribution. This release stops that deletion (twice, at two different gates), restores byte-exact what one purge had already destroyed, pins dispatch identity so ledgers cannot be overwritten by a same-name dispatch, and brings the roster tools back under the MCP result cap so damage of this kind is at least visible. Surfaces stay put: MCP tools **113**, REST endpoints **207**, machine checks **I1-I14**. Tests **2,307 -> 2,493**.
+
+### Added
+
+- **Purge restore tool** (`0faacd8`) - `scripts/restore_purged_container_team.py` rebuilds a purged container team from three independent sources: an identity snapshot, the token-backfill journal, and a third backup used purely for corroboration (8,557 units compared, zero contradictions). Its clock-regime gate reads `PRAGMA user_version` on every source - the forensics-recommended backup turned out to predate the UTC migration, and restoring it verbatim would have injected **843 wall-clock timestamps** into a UTC database, indistinguishable from truth afterwards. Rows and their ledgers land in a single transaction, so at no instant does a restored team look like an unaccounted husk to the reaper. Used in production to restore 1 team / 7 agents / 835 activities and **325,075,503 tokens** of attribution (4.74% of everything measured), verified to the digit; idempotent re-run plans zero writes.
+- **Branch-ownership assertion at commit time** (`399c078`) - the 2026-07-10 incident was a commit silently landing on another session's branch, so the guard now lives where the harm happens instead of where the preparation happens. Each agent's first commit in a checkout records its branch in hook-local state (no API dependency - live-agent counts measured unreliable in both directions); committing on a branch another agent recorded within 24h exits 2; switching your own branch warns loudly; probe failures are loud rather than silently permissive.
+- **Governance-lease takeover observation** (`9148423`) - `governance.lease_taken_over` fires when an expired lease is claimed over a previous holder. Deliberately observation-only: the lease table keeps no history, so whether takeover ever actually happens was unknowable. Two weeks of data decide whether a fence epoch is warranted; zero events means it is not.
+- **Dispatch-identity predicate** (`0202f24`) - `services/agent_identity.py`: an agent row may be reused only by the same CC dispatch (`cc_tool_use_id`) or if it never was a dispatch and carries no ledger. All three name-matching rungs of `SubagentStart` dedup, the pre-create race check and `_resolve_agent` late binding now go through it; a reuse never blanks an existing binding (an empty payload id is "unknown", not "none").
+- **Template registry + launch-call validation** (`fdecaa6`) - `services/agent_template_registry.py` is shared by both spawn-plan construction sites. Unknown template names **pass through untouched** with a top-level `template_warnings` entry carrying nearest-match suggestions - templates are an accelerator, not an allowlist: the legal set is CC's actual registry (templates plus built-ins, and the built-ins cannot be enumerated), so validation reveals, never rejects, and never silently swaps a type. An AST-level test pins every present and future `launch_call` construction site to the validation path - both previous incidents took exactly the shape of a new construction site nobody thought to validate.
+- **Memory v2.1** (`7a75886`) - direction-layer storage cap equals the injection budget (buckets: global 1200 / project 1500 / user 300 chars). An over-quota write is rejected with the complete bucket inventory and an in-turn reorganize-then-retry protocol, so the budget is enforced at write time instead of by silent truncation at injection time. Write-side threat scan (invisible-Unicode ranges, injection patterns, credential shapes - credentials are never echoed back); `memory_invalidate` accepts a `content_match` substring; meeting conclusions stopped auto-writing to the team memory scope.
+- **Release-process closure** (`b4b7fe2`) - `scripts/release_notes.py` generates Release notes offline from the CHANGELOG slice and byte-compares against the live entry (`--check`); the `/os-release` checklist skill records who presses which button; both READMEs link the CHANGELOGs. Written after two identical misses in which tags were pushed weeks before their Release entries existed.
+
+### Fixed
+
+- **Reaper could destroy irreplaceable attribution** (`a6ccb67`, `6da695a`) - the container-team purge shipped in v1.11.0 (07-27), token columns landed on agent rows in v1.11.1 (07-29), and the retention gate was never revisited: it asked "does anything still reference this team" (six tables) while the ledger lives on the member rows themselves. Two gates now stand: any member carrying token usage - or merely a `tokens_measured_at`, since a measured zero is a measurement - blocks the purge forever; and any member still pointing at an unharvested transcript on disk blocks it too, because the row is the only pointer to that file and deleting it closes the backfill window silently. Verified against production with a paired dry-run: gate off would have deleted 9 more teams; gate on excluded exactly those 9.
+- **Same-name dispatch overwrote token ledgers** (`0202f24`) - `find_agent_by_session` was `limit(1)` with no `ORDER BY`, and SubagentStart's name-based dedup could weld a new dispatch onto an old offline row, whereupon SubagentStop overwrote that row's four token columns in place. Row identity now equals dispatch identity (see Added); `find_agent_by_session` returns the newest match. Historic fold-ins cannot be reconstructed and are disclosed in the coverage note instead of being recomputed.
+- **Roster tools were effectively dead on real teams** (`b2d1e21`, `57418c8`, `b543edf`) - `agent_list` measured 67,766 chars and `team_status` 69,660 on a 51-member team, both rejected by CC's MCP result cap (25,000 tokens; the per-tool `maxResultSizeChars` meta only governs disk spill and does not lift it). Seven tools moved to compact projections (51-member `agent_list` -> 1,982 chars; 173-member workflow-team `team_status` 170,331 -> 1,509; `workflow_get` 268,753 -> 15,909). Offline rows fold into a count plus digest with `include_offline=True` as the explicit escape hatch; `fields` controls row width and `include_offline` controls row selection - orthogonal by contract, because an escape hatch that exceeds the cap is no escape hatch. `event_list`'s compact window caps at 60 rows.
+- **Template identity split between filename and frontmatter name** (`fd177b5`, `fcf33ab`) - 15 of 25 templates had stem != name; dedup and grouping keyed on the stem while CC resolves the name, so cross-source duplicates listed twice and 15 templates could be listed but not opened. Identity now keys on frontmatter name (stem fallback), `get_template` resolves names too, and grouping keys on shared stem-prefix families (6 buckets, not 21) - grouping and identity are orthogonal.
+- **Leader-usage capture was unfalsifiable** (`f316f66`) - five distinct outcomes collapsed into one `None` with debug-only logging that rotated away within minutes, so "did capture run" could not be answered after the fact (the chain itself measured healthy end-to-end: 53MB transcript parses in 0.209s, 44 concurrent writers, zero losses). Outcomes now carry reasons, forced-capture failures log at WARNING and emit `LEADER_USAGE_CAPTURE_FAILED` (the red test caught the latent `ValueError` of an unregistered `EventType` member on the spot), and `cwd` joined `send_event`'s essential fields so the transcript-slug fallback works in the very payload-stripping scenario it was written for.
+- **Backfill Job D idempotence** (`6b01045`) - measured rows now claim their transcript's representation slot up front. Previously a re-run promoted ghost rows sharing an already-harvested main transcript into write candidates, and a second `--apply` would have double-counted the same session's usage - caught live on the production re-run check.
+- **fastmcp supply chain** (`0b34faf`) - pinned `>=3.4.5,<4` across all three requirement surfaces (`install.py` was entirely unpinned); the two private-API touchpoints replaced with public APIs; MCP `serverInfo` now reports the OS version instead of the library default.
+- preflight's eslint step skips when `node_modules` is absent, same semantics as the ruff step (`4af4169`).
+
+### Changed
+
+- worktree isolation extended from 12 to **20 of 25** agent templates (`1ad471f`, `1c7d771`) - criterion: does the template's own description promise files landing in the repo. `code-reviewer` deliberately stays out - isolation would degrade branch review from direct reads to `git show`.
+- Chinese CHANGELOG backfilled for 1.10.0 -> 1.11.1 under the mirror-translation contract (`fa4e61d`) - six versions, section structure aligned line-for-line, numbers machine-compared against the English source.
+- CLAUDE.md gained an engineering-traps section (`7b33b68`), since extended with two production receipts: delete paths must ask "can this be rebuilt" (`5d17904`), and restoring from an old backup must check the clock regime first (`8e42a73`). The workflow skill gained a structured-output size discipline (`7b33b68`).
+
+### Upgrade notes
+
+- Run `python3 install.py --update` after upgrading: the branch-ownership assertion lives in the hook copies under `~/.claude/hooks/`, which only refresh on install/update.
+- No schema migration. The reaper gates and the takeover event activate on API restart.
+
+## [1.11.1] - 2026-07-29
+
+A **patch release with no new feature domain**. Three ledgers had been quietly wrong about themselves — the clock, the token metric and the failure record — and this release makes each of them say what is actually true. The surfaces barely move: MCP tools **112 -> 113** (one read-only tool), REST endpoints **202 -> 207**, dashboard pages **22 -> 23**, hook lifecycle events stay at **15** (`WorktreeCreate` out, `TaskCreated` in). The growth is in the machine checks — **I1-I8 -> I1-I14** — because everything below is the kind of claim that rots silently.
+
+One rule runs through all of it: **no-data is not zero**. An empty column is not a measurement of zero, so nothing here reports a number without its denominator and its metric label, and every remaining gap is declared on screen rather than rounded away.
+
+### Added
+
+- **Token usage attribution v1** (design `16ea751`; stages `77c7517`, `344593b`, `e195ffa`, `d273911`, `41cc55c`, `1858277`) - the largest piece of work in the release, and it began by discarding its own headline. "186M tokens are already in the database, only the view is missing" was the wrong metric: `workflow_agents.tokens` is a **last-context watermark** (a single snapshot), while summing a transcript's per-request usage is **actual consumption**. Measured on the same six agents the two differ by **5.4x-25.5x** (42x in aggregate across the 11 rows carrying both), so adding them would have repeated, on token counts, the mixed-unit accident this same release fixes on timestamps. `metric` is therefore promoted to a first-class dimension — `TokenMetric` (`usage_sum` / `ctx_last`), no token number anywhere without its label — and the types carry **no total field at all**: 95.6% of the four layers is cache-read, so a lone total is a cache-read count in disguise.
+  - **Capture** (`6ae5b98`, `41cc55c`) - transcripts are parsed **by requestId: last snapshot per group, then summed across groups**. This is the one part that is easy to get wrong. A single API call emits one assistant line per content block (measured: 79 lines, 17 unique requestIds) with `output_tokens` climbing as the stream advances; naive per-line addition inflated input from 12,185 to 72,556 and cache-read from 1,289,742 to 5,105,773. Sub-agents are measured at `SubagentStop`. The Leader's own session is a live cumulative file, so it is written as a **snapshot overwrite, never an addition**, throttled on `Stop` (a full parse is 190 ms at 45.1 MB and only grows) and forced at `SessionStart` / `SessionEnd` / `PostCompact`. A missing transcript returns `None`, never zero.
+  - **Chain** (`344593b`) - the project -> session -> workflow -> agent hops needed no new collection at all: they are already encoded in the transcript path, which parses on **1,923 of 1,923** recorded rows. What blocked them was `agents.session_id` being empty on 2,566 of 2,567 rows, and the cause was live — `_startup_reconciliation` wiped the column on **every API start**, on the premise that "an OS restart means those CC sessions are gone". That premise is never true: the API is restarted *by* a live session. The same erasure is where the duplicate Leader rows came from, since Leader reuse looks itself up by session.
+  - **Task edge** (`e195ffa`) - a `task_id` column could never have been filled (`SubagentStart` carries no task identifier) and would have read as "spent no tokens". The binding instead parasitises bookkeeping that already happens — `task_memo_add` / `task_update` / `report_save` all carry a task id and an author — and is recorded on the existing `knowledge_links` table. Author resolution is **scoped to the current session**, because `agents.name` is provably not unique (one Leader name spans 117 rows across 79 teams over three weeks) and a whole-table match would silently bind across time. Task-level coverage is reported honestly, and it is currently the narrowest hop in the chain.
+  - **Backfill** (`d273911`) - the one part of v1 that could only be done now: billing-metric capture went live on 2026-07-28, the ~1,900 dispatches before it still had their transcripts on disk, and `transcript_gone` measured 0 rows. 1,936 transcripts / 958 MB parse in 5.1 s; sub-agent attribution coverage goes **0.7% -> 78.5%**. Three hard constraints, each backed by a machine check rather than a promise: never touch the `ctx_last` column (write allowlist, plus an assert, plus per-row sha256 fingerprints with transaction rollback), coverage windows never merged with live capture, and dry-run by default with a mandatory journal and structural idempotence.
+  - **Surface** (`1858277`) - a `/usage` diagnostic page whose five blocks are ordered by priority: the coverage matrix first and not collapsible, the unattributed drawer next (four reason codes, each marked recoverable or not), then attributed detail drilling project -> session -> workflow run -> agent, a single-probe card labelled as one measurement rather than a ledger, and a permanent metric glossary. There is **deliberately no total row anywhere**, and the page says so in words — an absent sum otherwise reads as an oversight. Three read-only endpoints (`/api/usage/scopes`, `/unattributed`, `/probe`) join the two from stage 2, and one new MCP tool, **`usage_attribution`**, hands an agent the same numbers with the same denominators attached.
+- **HTTP request-level ledger** (`b5015ed`) - "nobody calls this tool" had exactly one collection surface: the CC-side MCP tool-call observation. But every MCP tool, the dashboard, the hooks and the scripts all reach the same endpoints over HTTP, so zero on that one surface could not distinguish "unused" from "measured somewhere else". A second axis now counts **method x route template x source** and writes one hourly `api.request_rollup` event. Its three constraints are pre-existing red lines rather than shortcuts: no new table (I10 makes a declared-but-absent table fatal, and production cannot restart just to create one), no per-request rows (the events table is already 50K+), and no timer (this repo keeps no background daemon, so the bucket rolls lazily when the next request notices the hour changed).
+- **CC task observation points** (`2e2fffc`) - the task bridge had no telemetry of its own: how often it fired, and how many rows it filtered out, was unobservable, so "is the bridge alive" could not be answered. `TaskCompleted` now also emits `cc.task_completed`, `TaskCreated` is registered as denominator-only (`observed_only`), and `TaskStop` — measured at 40 uses and still in daily use, because stopping a background sub-agent *is* that tool — becomes a first-class `cc.task_stopped` event on **PreToolUse**, the only point guaranteed to fire when the call may take the receipt down with it. Booking still happens only at completion, as previously ruled.
+- **Failure observation on the state machine** (`e58a388`) - `EventType.TASK_FAILED` had **no live writer from the day it was declared**: its only emitter sat in a retired orchestration path with zero importers, while the notification allowlist and the default settings both referenced it. Failure was therefore known only when an agent reported it — precisely not the case when an agent is killed, hangs, or flips to failed silently. `repository.update_task` is the single storage-layer entrance to the task state machine, so the event is emitted there, on *transition into* failure only, tagged `detected_by=state_machine` to keep an observation distinguishable from a self-report. Analysis and diagnosis results are recorded too, so "was this failure ever diagnosed" becomes answerable at all.
+- **MCP tool discoverability** (`e74aab9`) - in the tool-search era CC loads schemas by text search, so an undescribed parameter is unfindable and unguessable. 10 of 338 parameters had descriptions that never reached the published schema — not omissions, but `limit / offset: Pagination.`-style multi-parameter lines that look complete in source and are dropped whole by the parser. I9 checks this by runtime introspection rather than by AST, because the source looks fine either way. The server instructions were rewritten from a 121-byte noun list into 1,923 bytes organised as capability -> entry tool, pinned by tests at <=2KB and forbidden from advertising tools that do not exist.
+
+### Fixed
+
+- **Every worktree-isolated dispatch on the machine was failing** (`743db40`) - `WorktreeCreate` is a **takeover** hook: registering it replaces CC's default git worktree creation, and a hook that returns no path means the creation failed. It had been registered as an observation point alongside `WorktreeRemove`, and `send_event` only watches. Nothing broke until the first real use, because nobody had used the form before — which also retires the "zero worktree events" reading that had been treated as a signal about demand. Removed from all three registration surfaces; `WorktreeRemove` (a genuine observation hook) stays, and creation is now observed by probing `git worktree list`.
+- **Three real corruptions in the ledger's own data** (`b4ed691`) - **(1)** 14 of the 18 `session.compact_checkpoint` rows in production were test residue: a unit test runs the real hook as a subprocess, and the hook falls back to `localhost:8000` when it cannot find a port file — which the test's HOME override guaranteed. The guard is placed at `repository.create_event`, the single write entrance, and rejects reserved-prefix identities (`test-` / `demo-`) by dropping and warning rather than raising, because a ledger refusing fake data must not take down the writer. Fixing only the test would have left every script, smoke run and demo free to repeat it. **(2)** `compact_summary` was being stripped by the payload size gate, so checkpoints landed as `{trigger:"", summary_chars:0}`; the length is now computed hook-side and travels as an essential field — the body was never stored by design, and now never crosses the network either. **(3)** `decision.user_asked` read a singular `question` while the real payload carries a `questions` array, so six production rulings were stored with empty question and options and the content buried in the answer JSON.
+- **The database had two clocks** (`7bfd355`, then `e5cb620` / `4e4bd65` / `dc30b71` / `09c50af`; design `8937c91`) - SQLite silently drops an aware datetime's offset on write, so the database held naive strings written against **two different clocks**: the core domain in local wall time (45 columns, 320,866 non-null cells), the ecosystem domain in UTC (37 columns). Each domain was self-consistent; **cross-domain comparison** returned an answer eight hours wrong and raised nothing. One audit found three such sites in a single batch, and the user-visible symptom was the ecosystem page showing times eight hours early. The fix is not a search-and-replace of `datetime.now()`, which would only treat this round: a single conversion point (`UtcDateTime`) at the storage boundary, one clock module usable from pure-stdlib hooks, and one parse layer on the frontend replacing 73 bare `new Date()` calls across 27 components. After it, a leftover bare wall-clock call compared against a stored value raises `TypeError` on the spot — the failure mode that was silent is now loud — and I11 keeps a second clock from being hand-written back in. The migration script for existing rows is dry-run by default and hardened against a mixed database: it detects and excludes rows already written in UTC **per row** instead of shifting a column wholesale, requires a journal it refuses to overwrite, stamps `PRAGMA user_version` so a second apply is rejected, and rolls back verified by per-row fingerprints.
+- **Ecosystem tagging emitted dispatch plans that could not run** (`cf5b78e`) - the generated `launch_call` named a `researcher` template that exists in neither the plugin's 25 templates nor CC's built-ins, and still passed the deprecated `team_name` parameter. Both defaults were hard-coded independently in the service, MCP and API layers, so fixing one would have been overwritten by the next. The parameter is deleted through the whole chain rather than only from the payload: a knob that looks configurable and is ignored is worse than no knob.
+- **Three workflow teams had been "active" for 22 days** (`344fa89`) - the reaper's only exit for a workflow team required zero members, so a team with members (all offline) fell through the branch entirely and the exemption closed the last way out. The exemption is now "exempt while runs are unfinished" rather than "exempt while members exist", with both run-linkage paths checked and any query failure resolving to *do not close*.
+
+### Changed
+
+- **Every model-facing prompt audited against one rule** (`607df71`) - the reader is a peer model, so state only what it cannot know or derive: user rulings, project facts, deprecated parameters, incident-born rules. Everything else is deleted. Four derived rules followed — no capability explanations, no preference for any dispatch style, no historical narrative (that belongs in this file), no common-sense reminders. Advisory rules went 35 -> 23, per-dispatch static injection 1,083 -> 491 characters, and the appended behaviour-binding block was removed from all 24 agent templates: it was a verbatim duplicate of what `SubagentStart` already injects, and byte-garbled in 22 of them. Tests that pinned exact wording were rewritten to assert semantics instead. A follow-up (`889c601`) removed the last orchestration preference: Agent and Workflow dispatch are presented as equals and the Leader decides.
+- **Six new machine checks** (`e74aab9`, `e615e63`, `dc30b71`, `77c7517`, `d273911`) - I9 (every MCP parameter carries a description in the *published* schema), I10 (ORM-declared tables vs. the real database, asymmetric on purpose: declared-but-absent is fatal, present-but-undeclared is only a warning, because retired tables are frozen rather than dropped), I11 (one clock), I12 (a whitelist of units allowed on the usage surface — token layers, counts, milliseconds, percentages — a whitelist rather than a banned-word list, because a banned-word list breaks on the first spelling it missed), I13 (no token number without its metric and its denominator on the same screen), and I14 (backfill safety, checked *behaviourally*: a real temporary database, a real `--apply`, real per-row fingerprints on the forbidden column, because text scanning cannot see SQL assembled at runtime). Each was red-tested by fault injection rather than assumed.
+
+### Upgrade notes
+
+- **Deployment order is load-bearing.** This release's code reads and writes UTC; against a database that has not been migrated, core-domain times render **eight hours late with no visible symptom** (measured: a team created at 10:24 local renders as 18:24). Back up first, then run `python3 scripts/migrate_timestamps_utc.py --apply --journal <path>` in the same window as the deployment. The script is dry-run by default, refuses to run twice, and can roll back from its journal.
+- **Optional history recovery**, both dry-run by default: `scripts/backfill_token_usage.py` (billing-metric usage for dispatches that predate capture — this window closes as transcripts age out) and `scripts/backfill_agent_session_ids.py` (session identity and transcript paths).
+- Run `python3 install.py --update` to drop the `WorktreeCreate` registration — **required if you use worktree-isolated dispatch**, which fails while it is registered — and to add `TaskCreated`.
+- Restart the API to pick up the new `agents` columns (four token layers, measurement time, `tokens_source`).
+
+## [1.11.0] - 2026-07-27
+
+A **minor release that realigns the OS with Claude Code's newer capability surface**. v1.10.3 shrank the tool surface until every remaining tool meant something; this one goes the other way and picks up what CC had grown while the OS was not looking. The tool surface does not move (**112 MCP tools, unchanged**) — everything here happens in observation: hook lifecycle events **11 -> 15**, REST endpoints **199 -> 202**, and one deliberate subtraction (pure heartbeats stop producing event rows at all).
+
+The groundwork was measurement, not recall: CC v2.1.219's complete hook-event set was extracted from the binary's zod literals — **31 events**, of which the OS now subscribes to 15 — and every payload shape below was checked the same way.
+
+### Added
+
+- **CC session registry bridge** (`e2bb10f`) - `api/session_registry.py` reads `~/.claude/sessions/<pid>.json`, CC's own per-process session record. It is more direct than either signal the OS already had: it carries a real pid and CC's own idle/busy status, and unlike a team directory's `leadSessionId` — stamped once at creation and never rewritten — it follows a process across session changes. Three traps are handled in code rather than assumed away: timestamps arrive as either epoch milliseconds or ISO strings (both code paths exist in the binary); `procStart` is rendered in UTC and would false-mismatch `ps` by a whole timezone, so it is deliberately left unparsed; and `session_alive()` separates `None` ("never registered") from `False` ("process gone"), so absence is never read as death. **The liveness verdict is unchanged** — the registry runs alongside the transcript-mtime track and only records `session.liveness_divergence` where the two disagree, throttled to one event per session per 10 minutes, because an observation must not become the very event flood this release is removing.
+- **`TeammateIdle`** (`e2bb10f`) - subscribed as pure observation (`cc.teammate_idle`); it never writes agent status. Resolution is by exact name within the session: the general-purpose resolver ends in "no CC agent id therefore main session therefore Leader", which is right for tool calls and wrong here — it filed a worker's idle signal under the Leader.
+- **Compaction checkpoint, actually implemented** (`928e290`) - `PreCompact` freezes the OS-side operating picture and `SessionStart(source=compact)` hands it back. The deliberate call: **CC's `compact_summary` body is not stored**. That summary is already in the model's context after compaction; what a compacted Leader actually loses is the OS-side state — which agents are in flight, what is open on the wall, which decisions are queued for the user — all of which was already in the database, merely unasked-for. The hook only reports; the snapshot is assembled server-side from the database, so the hook stays pure-stdlib and cannot render a checkpoint incomplete by forgetting to look something up. Injection is strictly limited to `source=compact`; the other four sources (`startup` / `resume` / `clear` / `fork`, verified against the binary) get not one word. `PostCompact` is subscribed as a receipt, because a `PreCompact` trigger is not proof that compaction happened — the user can interrupt — and without a receipt a cancelled compaction is indistinguishable from a real one. Only the summary's length is recorded, never its body. Stored as events rather than in a new table: compaction is low-frequency (159 times in 23 days on the author's machine), and an append-only timestamped stream is precisely what a checkpoint is.
+- **Four observation blind spots closed** (`1ddddeb`) - **Worktrees** (`WorktreeCreate` / `WorktreeRemove`): this repo's own concurrency rule mandates worktree isolation for the second and later sessions, yet the OS could not see one appear or vanish. The two payloads are **asymmetric** — Create carries only `name`, Remove only `worktree_path` — so each is recorded on its own terms instead of pretending they can be paired. **Background jobs**: `api/background_jobs.py` + `GET /api/hooks/background-jobs` read `~/.claude/jobs/<short>/state.json`, because CC's `--bg` daemon sessions register through no hook at all and keep running after the foreground window closes; without this the project summary reports that nobody is working while a daemon is. "Still running" is decided by the *absence* of `firstTerminalAt` rather than by matching `state` strings — no single place in the binary enumerates those values, so an allowlist would eventually read an unseen terminal state as alive. **Plan mode**: `ExitPlanMode` plan bodies are kept in full (`decision.plan_presented`); a whole plan previously survived only as a 200-character `input_summary`. **Skill and AskUserQuestion**: `_extract_input_summary` gained a field table for 13 tools whose key information lives in neither `description` nor `command` and so fell to the generic fallback — a wall of truncated JSON across 48K tool events. `AskUserQuestion` additionally keeps the question, the options and the chosen answer in full (`decision.user_asked`): 27 human rulings in 30 days, each the basis for everything that came after. (The contrast is intentional — heartbeats, tens of thousands a day, stopped being written in this same release; these are low-frequency and high-value, so they are stored whole.)
+- **CC teammate messages mirrored read-only** (`621d099`) - `SendMessage` recipients and bodies land as `cc.message_sent`, the body capped at 4,000 characters with the true length recorded alongside. `cc.tool_use` alone could not see who a message was addressed to. The mirror is a mirror: a regression test pins that it never writes into `channel_messages`.
+- **Dashboard event-type filter covers the new families** (`1ddddeb`) - `decision.*`, `session.*` and `workflow.*` were only reachable by scrolling "all".
+
+### Fixed
+
+- **Session identity was erased on SessionEnd** (`91e07ad`) - `_on_session_end` set `session_id: None` — a state change applied to an identity field. The knock-on was worse than the NULL: `SessionStart` reuses a Leader by looking it up through `find_agents_by_session()`, so after the erase a resuming session could not find its own Leader and **minted another Leader row in the same team every time**. Production carried 120 such rows, 11 in a single day, 3 in one team. Only `status` should follow a session's end.
+- **`Stop` was offlining other sessions' live agents** (`91e07ad`) - the mode-2 global fallback swept **every team in the database**, offlining any busy agent active within the last 10 minutes, and its trigger condition — "the stopping session has no busy agents of its own" — is exactly what an ordinary Leader wrap-up looks like. Caught in the act: an agent of this very session was offlined at 17:27:10 mid-tool-call (`trigger=stop_global`). This is the same cross-session clobber already fixed for `SessionEnd`; `Stop` had been missed. Removed outright rather than narrowed, since the branch can only ever *reduce* offline verdicts and stragglers are the reaper's and SessionEnd's job.
+- **The CC task bridge had never mirrored a single task** (`167d801`) - not one row in the database carried the `cc-task` tag. The field names had been right all along; the cause was that `TaskCreated` was first registered into `settings.json` by v1.10.3's registration-surface unification, so the hook had simply never fired. That reframed the work — this is not repairing a bridge in service, it is correcting the design before it first carries traffic. It now books at **completion** (`TaskCompleted`, identical payload shape) and mirrors only tasks with an owner or a dependency chain; dependency information is absent from the hook payload, so it is read from CC's own `~/.claude/tasks/<team>/<id>.json`. The project cache moved from a single global value to per-cwd buckets: with sessions from several projects running at once, whoever resolved first won and everyone else's tasks landed in that project for the next five minutes — not a rare race, a certainty. Server side, `tasks` gains `cc_task_id` with idempotent creation, and `TaskCreateBody` gains `assigned_to`, which the bridge had been posting all along into a model that silently discarded it — guaranteeing that a mirrored task could never have an owner.
+- **One CC process, two container teams** (`41bc433`) - because CC never rewrites a team's stamped session id, a process that starts new sessions leaves one completed `session-<sid8>` husk behind per session. By ruling, ownership logic is untouched and no cwd guessing is reintroduced. Instead the reaper — riding its existing tick, with no new scheduler — purges husks older than 7 days, and only husks: a team must be a container by both markers, already completed, free of busy or recently active members, and carrying no task, meeting, report, scheduled task, wake session or workflow run. Members and their activity rows go with it. The Teams page groups a process's containers together on two exact signals (a pid stamped at creation from the registry, or the registry read live) and lets anything unprovable stand alone. cwd-plus-start-time matching was rejected on measurement, not principle: two processes started 1.0 second apart in the same directory, with a team directory's creation timestamp landing between them.
+
+### Performance
+
+- **Pure heartbeats no longer write events** (`b1e0f26`) - `agent.updated` was **112,349 rows, 47.4% of the entire events table**; the subset whose only change was `last_active_at` accounted for 94,029 rows (39.7%). Every consumer was checked before anything was touched: StateReaper, `wake_actionable`, `wake_manager` and the watchdog read none of it — heartbeat detection has always run off the `agents.last_active_at` column. The path also wrote through `repository.create_event`, bypassing the EventBus, so it never drove the WebSocket refresh either; the UI refreshes off `cc.*` events, which makes "the dashboard will stop updating" a fear the code disproves. Measured back to back on an isolated instance replaying identical traffic: **177 events before, 86 after**, pure heartbeats 91 -> 0, with both agents' `last_active_at` advancing normally throughout. Context-watermark updates are deliberately kept — those are explicable state changes, not heartbeat. Historical rows are not deleted.
+
+### Changed
+
+- **The machine checks caught up with what they were meant to count** (`7fe0cb2`) - I6 gained a fifth hard equality on REST endpoint count, sourced from `app.openapi()` rather than grep: a static grep counts 195 where the router table says 199, losing multi-method routes and wrapped decorators, and pinning a wrong number is worse than pinning none. I8 widened from "check the section heading" to scanning every numbered lifecycle-event claim in both READMEs, after the same number was found rotting independently in the capability section and in the directory tree. Both were red-tested by hand rather than assumed. Running this **first** instead of last paid for itself three times inside the batch: eight README anchor drifts, then 199 -> 201, then 201 -> 202, each caught at the moment it broke.
+
+### Upgrade notes
+
+- Run `python3 install.py --update` to register the four new lifecycle events (`TeammateIdle`, `PostCompact`, `WorktreeCreate`, `WorktreeRemove`) into `~/.claude/settings.json`. Existing third-party hooks in the same file are preserved.
+- Restart the API to pick up the `tasks.cc_task_id` migration and the new event surface.
+
+## [1.10.3] - 2026-07-27
+
+An engineering-governance release: **no new feature domain**. A full OS-vs-Claude-Code alignment audit (10 parallel evidence-gathering agents, then 8.5 remediation batches) found that a large share of the tool surface had quietly stopped meaning anything — subsystems whose storage was empty for their entire lifetime, tools whose only effect was to create rows nothing reads, and hooks that fired on every single tool call to decide they had nothing to do. Every removal below is backed by production measurement, not by "looks unused". Net effect across the release: 296 files, +11,331 / -22,002 lines, MCP tool surface **168 -> 112**.
+
+Two user-visible behaviour changes worth calling out: permission prompts come back (the OS was silently auto-approving five tool classes), and tasks created through a team now show up on that project's task wall.
+
+### Removed - tool surface 168 -> 112 (57 retired, 1 added by merge)
+
+- **Pipeline domain, entirely** (`792e8ef`) - `pipeline_create` / `pipeline_advance` / `pipeline_status`, `src/aiteam/pipeline/` (9 files), `loop/pipeline.py`, the pipeline REST routes, the `autopilot` skill, and both `pipeline_gate.py` / `autopilot_auto_stop.py` hooks. `pipeline_gate` was registered on the **matcher-less** PreToolUse *and* PostToolUse groups: two extra processes per tool call, guarding an allowlist frozen in 2026-06 that would have blocked CC's current native tools the moment autopilot was switched on. The `/pipeline/v2/autopilot` route — the only thing that could arm it — was removed first. Kept deliberately: the `pipeline_stage_history` table and ORM (append-only history, writes stopped, no `drop_table`), `tasks.config['pipeline']`, and the soft-retired `task_type` parameter.
+- **Loop state machine, scheduler and heartbeat** (`5849317`) - `loop_start` / `loop_pause` / `loop_resume` / `loop_advance` / `loop_next_task` / `loop_review` / `loop_status`, `scheduler_create` / `scheduler_list` / `scheduler_pause` / `scheduler_delete`, `agent_heartbeat` / `watchdog_check`. Measured: 14 scheduling tools touched 6 times in 21 days, all of them smoke tests; the loop machine did an unreachable DB round-trip against every active team every 60 seconds to produce 191 idle shells; the heartbeat directory was never created and could not have worked anyway, since CC subagents are one-shot processes that never poll. `WatchdogChecker` / `WatchdogRunner` / `completion_verifier` are kept — only the file-based heartbeat is gone. `loop_states` and `scheduled_tasks` stop being written but are not dropped.
+- **Team and agent traps** (`cb8e147`) - `team_create` (+ `POST /api/teams`), `agent_register`, `agent_trust_scores` / `agent_trust_update`, `team_setup_guide` (merged into `agent_template_recommend(task_type=...)`). `team_create` produced teams with no `kind` key, outside the reaper's exemptions, for which CC never creates a `~/.claude/teams/<name>/` directory — create one, lose one on the next sweep. `agent_register` had produced exactly 0 rows out of 2,396 agents. The `agents.trust_score` column stays and `auto_assign` still weights it; only the never-called scoring chain is gone.
+- **Base domain** (`6cef48f`) - `pattern_record` / `pattern_search` (the store was empty for its entire life, so the "past execution patterns" injection block was a guaranteed-blank API call on every dispatch), `phase_create` / `phase_list`, `os_report_issue` / `os_resolve_issue` (0 issues ever filed), `send_notification` (its webhook config file was never created, so the call could only fail), `cross_project_send` / `cross_project_inbox`, `team_knowledge` (MCP tool only — repository, REST endpoint and Dashboard all kept), `git_auto_commit` / `git_create_pr` / `git_status_check` (agents already have Bash; a three-layer git wrapper only narrows CC), and `ecosystem_recipes` (merged into `find_skill(level=2, category="integration")`).
+- **Observability shells** (`3faf81e`) - `prompt_version_list` (nothing in the repo ever called `/track`, so `/versions` was permanently empty and the Dashboard rendered "-" in three columns for every row), `error_budget_status` / `error_budget_update` (data directory empty for its entire 17-day life), `guardrail_check` / `guardrail_check_payload` (**thin MCP wrappers only** — `api/guardrails.py` and `InputGuardrailMiddleware` untouched; the real guardrail is enforced at the HTTP layer), `file_lock_acquire` / `release` / `check` / `list` (lock file measured as `{}` in every run). Hook-side edit-conflict detection and `get_file_hotspots` are kept — they read real edit events, not lock files.
+- **Task domain** (`a4f5e9c`) - `task_decompose` / `task_subtasks` (0 subtasks in the entire database), `task_auto_match` (there is no pool of idle agents to match against under CC's on-demand dispatch), `what_if_analysis` / `task_compare`, plus two merges: `task_replay` -> `task_execution_trace(include_stats=True)` and `taskwall_view` -> `task_list_project(team_id=...)`. The four REST endpoints are kept.
+- **Ecosystem** (`fa1a09a`) - `ecosystem_data_source_create` / `ecosystem_scan_profile_update` (no-op stubs), and `ecosystem_pin_active` / `ecosystem_unpin` / `ecosystem_mark_no_value` / `ecosystem_clear_manual_status` merged into a single **`ecosystem_repo_manual_status(repo_id, status, ...)`**. `ecosystem_mark_as_reference` is deliberately *not* merged — it drives the Stage-3 funnel via `deep_review_id`, which is a different thing from a per-repo manual override.
+- **Fourth hook registration surface** (`82479f7`) - `src/aiteam/hooks/install.py` and the `aiteam hooks` CLI group, which wrote registrations into **project-level** `.claude/settings.local.json` (7 events, only `send_event.py`, stale matcher) and overwrote that file's whole `hooks` key. Alongside the global chain it made `send_event` fire twice per event. Independent-responsibility review found none. *If you ever ran `aiteam hooks install`, that project's `.claude/settings.local.json` is still double-firing — see `/os-hooks` for the cleanup prompt.*
+- **`scripts/install.py`** (`a2893ed`) - a no-op redirect since 2026-07-22 whose `HOOK_EVENTS` was still a second, drifting registration table. Also removed: `task_completed_gate` (structurally dead — CC task ids are integers, OS ids are UUIDs, so `/api/tasks/<int>` always 404'd and a catch-all `except` let it through), the `CORE_TOOLS` / `ADVANCED_TOOLS` dead lists (85 lines naming 6 tools that never existed), and the `continuous-mode` skill directory.
+- **Stale in-repo agent templates** (`906bcc3`) - the 22 copies under `.claude/agents/`; 16 still said `model: sonnet` and none carried `disallowedTools`. CC resolves templates project > user > plugin, so this directory shadowed the authoritative plugin versions inside this repo. Removing it falls back to the complete 25-template opus set.
+
+### Fixed
+
+- **Permission decisions handed back to CC** (`6899f3c`) - `workflow_reminder` was writing `permissionDecision=allow` on **every** PreToolUse call. That field is an optional stance that outranks the user's chosen permission mode, so `default` / `plan` / `acceptEdits` were all overridden and the permission prompt was silenced for Agent / Bash / Edit / Write / Workflow — 43,605 calls over 30 days. **Prompts come back with this release.**
+- **Hook timeouts were off by 1000x** (`6899f3c`) - CC documents hook `timeout` in *seconds* (command default 600); the whole repo had been writing milliseconds, so `3000` / `300000` meant 50 minutes to 83 hours — timeout protection was effectively disabled. Re-based on measured runtimes (`session_bootstrap` 0.20s -> 15, `send_event` 0.08s -> 5, `workflow_reminder` 0.09s -> 5, `auto_install` -> 180) across `hooks.json`, `install.py` and the example.
+- **Project attribution race** (`4ae1539`) - agents working in one project were recorded under another, with the wrong path rendered into their system prompt. The root cause was not the SubagentStart hook but `deps._auto_create_projects`, which on **every API start** bulk-bound all unowned teams to whichever project matched the *API process's own* `os.getcwd()`, falling back to `existing_projects[0]`. The API process cwd is shared global state. Both symptoms had one root, since the agent row and the prompt's `{project_path}` are both inherited from `team.project_id`. Now resolved per-team from the team's own members (Leader first), leaving teams unowned rather than guessing. Ships with `scripts/repair_team_project_attribution.py` (dry-run by default).
+- **Tasks created through a team had no project** (`c0a2e82`) - `task_run` and three other entry points created tasks with `project_id = None`, so `GET /api/projects/{id}/task-wall` never saw them. Fixed at the single choke point `repository.create_task` (explicit argument > owning team's project > request scope) rather than patching four call sites.
+- **Ecosystem queue deadlocked for 17 days** (`fa1a09a`) - measured in production: 74 rows `queued+claimed`, 0 claimable. The claim was a permanent reservation with no expiry, so a single dead sub-agent hid a row from every claimant forever. The pre-written `claimed_by` is deliberate (it prevents tick-dispatch and pull-claim from grabbing the same row) and was kept; it became a **lease** instead — `STALE_CLAIM_TTL_SECONDS=3600`, chosen above both the 600s Stage-0 timeout and the 45-minute deep-review watchdog so it can never steal work from a live worker. Also fixed a latent format bug: raw-SQL `isoformat()` timestamps were string-incomparable with ORM-written ones.
+- **Shallow-scan approval dispatched nothing** (`fa1a09a`) - the approve endpoint hand-rolled review rows **without a dispatch prompt**, then `tick()` skipped the whole batch because those rows already existed, and the return value was swallowed by a bare `except`. Approvals produced a batch nobody could run. Now routed through `worker.dispatch_batch`; a corrupt snapshot fails loudly with a 500 instead of being silently treated as empty.
+- **`ecosystem_index_update` was gated on emptied tables** (`fa1a09a`) - hard validation against `data_sources` / `scan_profiles` blocked the tool and its four downstream diff tools. Configuration now reads from settings, and the contradictory thresholds in step 3b (1000) vs step 4 (5000) were reconciled; failed `gh` queries return `query_errors` instead of being swallowed.
+- **Seven "wrong object" bugs** (`2238315`) - all one disease: identifying an object by a key from a different, non-authoritative source. Empty-argument team resolution silently picked `active_teams[0]`, which in practice is the newest per-run `workflow-*` team, so meeting / knowledge / activity tools all bound to the wrong team; `inject_subagent_context` fell back to reading the **parent session's** first user message as if it were the dispatch prompt; `send_event` matched template names against custom member names; `project_create` accepted a bare-prefix root path with no separator boundary (`/Users/cron` could claim `/Users/cronus/...`); `delete_project` missed `scope='team'` memories and cleaned events using a lazy subquery that was always empty by the time it ran; two `decision_log` branches compared prefixed tool names against bare literals, one of them against a tool name that never existed.
+- **`team_briefing` events and project-scoped event filtering** (`cb8e147`) - the old predicate `entity_id IN team_ids` matched **0** of 229,110 event rows, so adding a filter literally would have emptied the briefing. A new `_team_scope_clause` covers all four attribution shapes actually in use, which also repaired `GET /api/events?project_id=` — silently empty until now.
+- **Two installation paths produced two different systems** (`a2893ed`) - the source installer registered 4 fewer events than the plugin's `hooks.json` and disagreed on matchers. `install.py` gains `HOOK_SURFACE` (11 events / 17 entries) as the single source of truth and switched from append-only to "clear our own entries, then rebuild" — otherwise matcher and timeout changes could never land. Our entries are identified by an explicit script-name allowlist, never by path substring, so third-party hooks in the same directory survive (verified). `RETIRED_HOOK_SCRIPTS` actively removes retired hooks left running on machines that installed earlier versions.
+- **`scripts/update.py` aborted halfway on modern Pythons** (`a2893ed`) - `pip install -e .` is refused on PEP 668 externally-managed interpreters (e.g. Homebrew python3.12), and `check=True` killed the update at step 2 of 7, so hooks, skills, commands and settings were never refreshed. pip failure is now non-fatal.
+- **Governance lease was never released on shutdown** (`3e7add0`) - `/api/system/shutdown` exits via `os._exit(0)`, which skips the lifespan teardown where the release lived. Moved into the exit path itself (best-effort, never blocks exit); TTL remains the backstop. Measured end to end: the successor takes over immediately instead of after a 180-second governance vacuum.
+- **`permission_denied_recovery` was deaf on non-default ports** (`a2893ed`) - the only hook with a hard-coded `:8000`; now reads `api_port.txt`.
+- **Ten tests had been red since `75dcb18`** (`a9a2e5f`) - the file lives in `tests/` rather than `tests/unit/`, and every past "full suite green" sign-off had only run `tests/unit`. **The acceptance standard is now `pytest tests`.**
+
+### Added
+
+- **`GET /api/agents/whoami` and OS identity injection** (`cb8e147`) - a sub-agent can find its own OS agent id without a registration handshake: `inject_subagent_context` injects an identity block resolved from `cc_tool_use_id`, and the endpoint offers a three-level server-side lookup (cc id -> session+name -> name) for when enrolment hasn't landed yet.
+- **Briefing tags and filtering** (`56bce86`) - `leader_briefings` gains a `tags` column; `briefing_add` accepts tags, `briefing_list` and the REST endpoint filter by project and tag, and the Dashboard shows tag badges with a filter bar. `project_id` deliberately defaults to *unset = show everything*: a decision inbox must not hide anything by default, and rows created before 2026-07-27 carry no project stamp. Tag comparison is whole-value, not `LIKE '%tag%'`, so `release` never matches `release-candidate`.
+- **Rule B0.16b — pending decisions must be queued, not left in a report** (`56bce86`) - added to `/api/system/rules` after batch 7+8 wrote its open questions into a completion report while the briefing queue stayed empty, so the user never actually received them.
+- **Invariant I8** (`a2893ed`) - `scripts/check_hook_surface.py` pins `install.py` <-> `hooks.json` <-> both READMEs together. I1 also became a bidirectional set comparison with an explicit allowlist; the old version only walked the plugin side, so files added only on the `src` side and missing twins were both silently invisible.
+- **Repair scripts, dry-run by default** - `scripts/reclaim_stale_shallow_claims.py` and `scripts/repair_team_project_attribution.py`. Both require `--apply` to write.
+- **`task_run` gains `priority` / `horizon` / `tags` / `assigned_to`** (`a4f5e9c`) - its docstring had been instructing callers to set priority and horizon, which the signature did not accept.
+- **`event_list` gains `type` / `source` / `entity_id` / `project_id` filters** (`a4f5e9c`) - the underlying query always supported them; the tool exposed only `limit`.
+
+### Changed
+
+- **Hook registration surface unified at 11 events / 17 entries** (`a2893ed`) - `send_event` keeps the full `*` matcher (telemetry must stay complete) with cost handled by an internal inert-tool early return that is **symmetric across Pre/Post** — dropping only the Post side would pin every started span at `running` forever. `workflow_reminder` narrowed to `Agent|Bash|Edit|Write|Workflow`; `deep_review_link` and `meeting_ecosystem_writeback` narrowed from `*` to their own tool names.
+- **`failure_analysis` memories now belong to the project, not the team** (`a4f5e9c`) - teams are session- or workflow-scoped and short-lived, so a lesson died with its team (125 such orphans already existed). Historical rows are not migrated; `list_team_knowledge` reads both scopes so `/api/teams/{id}/knowledge` stays whole across the boundary.
+- **`prompt_effectiveness` no longer does N+1 queries** (`a4f5e9c`) - it looped three queries per team (762 round-trips across 254 teams) and pulled up to 2,000 activity rows into Python just to count them; now two aggregate SQL queries.
+- **`state_reaper._check_team_liveness` retired** (`cb8e147`) - it existed to follow CC's `TeamDelete`, which no longer exists. Of 254 measured teams (workflow 168 / session 80 / no kind 6) the first two categories were already exempt, so the branch could only ever reach legacy teams: zero benefit, unchanged mis-closure risk. `_check_stale_teams` takes over, and its "empty team" path gained the meeting grace period it had been missing.
+- **Documentation trued up to measurement** - both READMEs: tool groups 21 -> **16** (the table still listed `trust` / `error_budget` / `file_lock` / `git` / `guardrails`, all gone with their modules), tool modules 21 -> 16, hook lifecycle events 12 -> 11, REST endpoints 199, machine-checked invariants 9. Retired-subsystem bullets rewritten rather than deleted, so the roadmap records what was retired and why. `docs/ecosystem-recipes.md` recipes rewritten off the retired tool names, `docs/architecture.md` `loop/` description matched to its actual contents.
+
+### Docs - README screenshot generation (first release since the refresh)
+
+- **Both READMEs' screenshot sections fully regenerated** (`845ddf0`, `21ea140`, merged in `5c7c19c`) - **12 pages x zh/en = 24 viewport captures**, plus the shared auto-wake demo, for 25 tracked images and 13 local image references per language. Four views are new to the README: `workflows` (run cards with a live running workflow), `workflow-detail` (phase swim lane plus the per-agent telemetry table, including a failed contract check rendered in red), `project-detail` (Leader context watermark and the worktree uncommitted-work notice), and `agent-lanes` (14 agents across teams). The English README now uses its own `-en` image set rather than sharing the Chinese captures.
+- **Every capture reshot to a fixed viewport** (`21ea140`) - `fullPage=false` at 1440x900 throughout, replacing the previous full-page renders; one of them had been 10,963px tall, which no README reader could usefully view.
+- **Screenshots are generated from a neutral seeded database** (`845ddf0`) - `scripts/demo_seed.py` builds a self-contained demo dataset, and `storage/connection.py` gained an `AITEAM_DB_PATH` override (with 4 unit tests) so capture runs point at that seed instead of a real working database. No production data reaches the published images.
+- **Dashboard i18n completed for the newly-captured views** (`845ddf0`) - 21 keys added in both languages across the Settings model-governance card, project detail, teams, global search and the model selector, so the English captures are genuinely English rather than partially untranslated.
+- **Orphan screenshots purged** (`4dde89f`, `d41d55e`) - 7 zero-reference images removed, including a 2.5 MB mobile capture and a 42,859px-tall full-page render left over from June. `docs/screenshots/` now has zero orphans: all 25 tracked files are referenced, and every reference resolves (verified mechanically at release time).
+
+### Also in this release (landed after the v1.10.2 tag, previously unreleased)
+
+- **Agent auto-enrolment, exemption blind spot retired** (`75dcb18`) - direct agent dispatch is fully unblocked and the team system moved from a mandatory precondition to an automatic backstop: an agent with no team is no longer skipped but enrolled into a `session-<sid8>` container team, with Leader drift corrected on the way in. The unconditional `exit(2)` block in `_check_agent_team_name` is gone; the cross-project dispatch guard from the 2026-05-08 incident stays.
+- **"Dead team, live people" triple misdiagnosis** (`6a5f63e`) - four agents ran in parallel while the OS showed nothing. Three layers stacked: the reaper probed liveness via `owner_session_id` while CC v2.1.219's implicit team name is an internal id with no transcript, so it fell back to `created_at` and closed the team; teams created before the Leader registered could never get a `project_id`; and the frontend filters on active teams. Liveness now folds in members' last-activity time, and a contradictory state (completed team with busy members) self-heals.
+- **Memory isolation for unregistered directories** (`29a366d`, `f48b808`) - `scope=project` writes from a directory that matches no OS project used to silently fall back to the global `system` bucket, broadcasting one directory's project memory to every session. They now derive a per-directory bucket server-side (the fingerprint formula deliberately lives only on the server, never copied into hook files); with no cwd at all the request is refused rather than globalised.
+- **Plugin installation self-healing** (`ce64d8a`, `8559348`, `ee9cf09`, `46c9bdc`, `96dc6f7`) - version comparison replaces "import succeeded, we're done", a first-run progress card replaces silence, absolute `sys.executable` paths make the chain work on Windows where the `python3` token cannot be resolved, the standalone install path distributes skills and commands, and the Python version gate moved to module top level (a PEP 604 annotation was raising at def time on 3.9, making the guard itself unreachable — reported via community PR #4).
+- **Nagging-reminder governance** (`6de9695`) - five reminder sites made low-frequency and silenceable, on the principle that systematically-ignored reminders are a pure token and attention tax. Safety guardrails (S1-S3, rm, force push) were not touched.
+- **Team project reassignment** (`c47cc70`) and **the cwd-fallback ban for team binding** (`e812de4`) - the only way to correct an attribution the system guessed wrong, plus the hook-side half of the fix whose startup-side counterpart is `4ae1539` above.
+- **Concurrency and lint hardening** - teams find-or-create race no longer swallows the error (`7595427`), the reaper reclaims adopted-but-terminal workflow session shells (`32a2ab7`), ruff reaches zero across the repo and becomes invariant I7 after two red CI runs (`d64c635`, `702f89f`).
+- **Dashboard** - `SidebarInset` gains `min-w-0` so wide tables stop stretching the whole page past the viewport (`c72b921`). The README screenshot regeneration that shipped alongside it is described under **Docs** above.
+
+## [1.10.2] - 2026-07-14
+
+### Fixed
+
+- **Server-side event-write governance** (`4f508bd`) - "first transition to completed/terminal" detection moved inside the upsert transaction (atomic NamedTuple return) plus a per-wf_id in-process lock, making workflow completion events exactly-once regardless of connection topology; partial unique index on `agents.cc_tool_use_id` with a leader-preserving dedup migration closes the concurrent duplicate-member-row window; SessionEnd no longer offlines still-running workflow sub-agents (exemption now symmetric with the team-level one).
+- **Workflow member terminal-state badges** (`a74e6ae`) - completed workflow members render as "done" (green) driven by the workflow_agents projection state instead of a grey offline state; session-container teams keep their true offline history untouched.
+
+### Changed
+
+- **Model-tier orchestration charter** (`ef99f73`) - os-workflow skill gains §3 tier discipline: Fable orchestrates, Opus executes (workflow `agent()` defaults to explicit `model:'opus'`, top-difficulty verdict stages only inherit Fable); CLAUDE.md model-default clause clarified (DB observation field vs template frontmatter); usage aggregation added to the observability read path.
+
+## [1.10.1] - 2026-07-14
+
+### Fixed
+
+- **Dashboard write-op governance** (`c1770f2`, `77028e3`) - removed three hallucination-source controls that wrote DB state with no real effect: add-agent buttons that faked a permanently-busy agent, the wake-config tab whose file had zero consumers, and manual team creation that produced permanent orphans (plus two dead meeting hooks). Remaining queue-style actions now surface the backend's honest "waiting for an agent to pick this up" hints, and "Execute" became "Add to task wall".
+- **Session-container team display** (`eb4365b`) - kind=session teams get their own card semantics instead of borrowing the workflow template: "N active / M past" member counts, CEO name mapping when resolvable, completion timestamps without bogus swimlane links; legacy teams with empty `config.kind` are detected by name pattern.
+- **Hook auto-write governance** (`d65cd9f`) - PostToolUse SendMessage keyword matching no longer auto-completes wall tasks (advisory only; a "report back when done" instruction used to mark the task completed), TeamDelete closes only the deleted team instead of every active team, retired-pipeline auto running/completed/advance writes downgraded to advisories, dead `_auto_advance` removed.
+- **S4 teardown guard patch-id upgrade** (`d65cd9f`) - merge-base ancestry check now falls back to `git cherry` patch-equivalence: squash/rebase-landed worktrees are released automatically, mixed cases stay blocked with the non-equivalent commits named.
+
+### Changed
+
+- README (EN/zh) documents the v1.10.0 cross-session orchestration capabilities with usage guidance; ecosystem tool count corrected to 47 (`568b01f`).
+
+## [1.10.0] - 2026-07-14
+
+### Added - Cross-session orchestration (new capability)
+
+- **Fleet downlink primitive** (`f0b859c`) - headless `claude -p --resume <session_id>` drives a target sibling session for one operational turn, reusing the existing wake machinery (semaphore, fuse, allowlist, per-session dedupe, full audit trail). A session can now observe and drive its siblings instead of only spawning fresh ones.
+- **Wake system v2** (`626e248`) - `/api/wake/actionable` single-source predicate endpoint (watcher and guard consult the same criteria), SessionStart template moves from fixed 30-min cron to dynamic `/loop` intervals, turn-end guard (Stop hook, `decision:block`, user-stop keywords always pass), session-scoped event watcher with 1h hard timeout. No resident daemons.
+- **agent_reuse_recommend MCP tool** (`e3ed728`) - three-way reuse decision (reuse / slim-then-reuse / spawn-new) scored by domain match, reachability (live / resumable / cross-session / expired) and context watermark. Tools 166 -> 167.
+- **Sub-agent context watermark ledger** (`aae63ff`) - agents table columns + SubagentStop event capture + reaper backfill; exact token usage read from transcript tail, cheap-checks-first.
+- **Observability cards** (`88bbf06`, `f3f8c01`) - fleet card (per-session CEO / model / in-flight tasks / context watermark), worktree card (branch ownership + unlanded-work status via on-demand `worktree_probe`), three-color context watermark bars on agent views.
+
+### Added - Worktree isolation governance
+
+- **S4 teardown guard** (`fa230da`) - blocks `git worktree remove` / `branch -D` / `rm -rf .claude/worktrees` when unlanded work exists (uncommitted or local-only commits); push-pending-but-merged work passes.
+- Code-writing agent templates default to `isolation: worktree` (`7c9f3c2`); tool list responses gain compact projection with an escape hatch (`289a183`).
+
+### Fixed
+
+- **Fleet identity P1** (`5985f9e`) - `session_id` becomes a first-class identity key: one leader row per session bound at birth, cross-session leader drift eliminated, SessionEnd closes only teams owned by the ending session (closes two long-standing backlog items).
+- **Injection-layer audit P0-P3** (`ae54ebb`) - dead pipeline block reconnected (revives task-memo and pattern injection that had never fired), two unthrottled nag reminders gain cooldowns, report-format boilerplate deduped.
+- S4 landed-check compares against the local main branch instead of a stale `origin/*` ref (`ae43c86`); wf_id regex bounded so worktree instance suffixes are no longer swallowed into ghost team ids (`d95dfc6`).
+
+## [1.9.0] — 2026-07-13
+
+### Added — Memory System v2 (two-layer ledger + on-demand reconcile)
+
+- **Episodic layer promoted to a real table** (`573c0b8`) — task memos moved from tasks.config JSON arrays to a dedicated `task_memos` table (row IDs / invalidation axis / quality score / scope_path); 123 legacy memos backfilled with zero loss, original JSON frozen as archive; `task_memo_add` unchanged, new optional `supersedes`.
+- **Direction layer activated** (`c2ffd31`) — memories table now carries user preferences/corrections/design intent (4 kinds), MCP `memory_add`/`memory_invalidate`/`memory_list`; size guardrails (<=40 entries x 400 chars); resident injection via SessionStart + SubagentStart hooks (<=2000 chars, silent when API is down) — every spawned agent inherits team preferences at birth.
+- **On-demand reconcile** (`0666cdf`) — `memory_reconcile_candidates` (zero-LLM BM25 clustering) + `memory_reconcile_apply` (merge/invalidate/score/promote, idempotent); "agent computes, tool persists" architecture; volume-threshold hints. Tools 161→166.
+- Design doc `docs/memory-v2-design.md` checked in: three-track industry research (adversarially verified) + Kun Chen case-study content standards.
+
+### Added — Progressive tool loading (P1 alwaysLoad rotation + P2 toolset gating/read-only + P3 template least-privilege)
+
+- **P1 - session-startup alwaysLoad rotation** (`dc5d652`) - a handful of recently-hot tools get `_meta {"anthropic/alwaysLoad": true}` so CC skips ToolSearch for them. The whitelist is recomputed once per session start from `agent_activities` (7-day frequency + >=2-day span gate + 20% hysteresis, hard cap <=5). Purely additive: any stats-query failure silently degrades to all-defer. Backed by `GET /api/tools/always-load`.
+- **P2 - `AITEAM_TOOLSETS` startup group switch** - 24 capability-domain toolsets gate which modules register at startup. `default` = task/team/memory/infra/reports (44 tools, hard cap <=50); incremental via `default,ecosystem`; unknown group names warn on stderr and are ignored (never blocks server start). No env / `all` keeps the full 166 for backward compatibility.
+- **P2 - `AITEAM_READONLY=1` read-only profile** - an orthogonal overlay that strips every write tool (explicit `WRITE_TOOLS` allowlist, not name-pattern guessing) after registration while keeping all read tools. `os_restart_api` is hand-added despite its GET verb; analytical POSTs like `diagnose_task_failure` stay on the read side.
+- **P3 - agent-template tool trimming** - first, conservative batch of CC subagent `disallowedTools` (structural denylist): meeting-facilitator / debate-advocate / debate-critic drop git-write + project/team delete + os_restart_api + the ecosystem write family (34 each); technical-writer adds `task_run`; project-manager drops only git-write + os_restart_api. All read tools and meeting/memo bookkeeping tools kept; engineering/testing templates untouched. Ecosystem write set sourced from `toolsets.py::WRITE_TOOLS`.
+- Design doc `docs/tool-loading-design.md` checked in (three-track research + open-source cross-project convergence). Total tool count stays 166 - gating is a runtime env switch, not a registry change.
+
+### Fixed
+
+- All 4 major review findings fixed (`ca50607`): search-path invalidation filter / supersedes guardrail bypass / backfill dual-instance race (uuid5 + INSERT OR IGNORE) / hook-injection single-line sanitization (cross-agent prompt-injection surface closed).
+- delete_project now cascades task_memos; stale Rule13/relevance_score tests zeroed — full suite 1710 passed / 0 failed (`40935fd`).
+- Integration-test real-file pollution isolated: team-defaults.json redirected to tmp (conftest).
+
+### Changed — Scheduler retirement
+
+- Periodic cron replaced by on-demand `ecosystem_refresh` (`6bbdc58`; CC is not always-on): startup auto-registration removed, 4 dead crons purged; `POST /api/ecosystem/refresh` verified live (81 repos, 107s). install.py now registers the previously-missing deep_review_link/meeting_ecosystem_writeback hooks.
+
+## [1.8.1] — 2026-07-10
+
+### Added — Model governance (user-scoped, zero coercion)
+
+- **Available models auto-discovered from file truth** (`899217c`) — `model_discovery.py` scans every local CC transcript tail and aggregates the models you actually used (109 files ≈1s + 60s cache; `<synthetic>` filtered; tier aliases tagged). Live scan surfaced `deepreasoning-coding-max-4.7` — a third-party model no hardcoded list would ever contain.
+- **Default startup model writes `~/.claude/settings.json`** — the `model` key, effective for new CC sessions. Three-layer write guard: touch only that key / `.bak-aiteam` backup / atomic tmp+rename; corrupt settings are refused untouched.
+- **REST `/api/models/*` + MCP `model_config_get`/`model_config_set`** (tool count 158→160); Settings page gains a "Model Governance" card (default-model picker + discovered-model table).
+- **Soft hint only, never a block** — registering an agent with a model outside the discovered list attaches a hint to the response and proceeds. ultracode/Workflow agents are entirely exempt: model choice belongs to CC's orchestrator (user ruling, 2026-07-10).
+- **Pre-push preflight script** (`a00973e`) — catches red CI locally before commit leaves the machine.
+
+### Fixed
+
+- **ModelSelect degraded to a bare input** when the current value (e.g. the `fable` alias) wasn't in the discovered list — now always renders the dropdown with the current value pinned on top (`91180ab`).
+- **Legacy "Save (Demo)" buttons** in General/Ports settings were never wired — now disabled with an explanatory tooltip.
+- **Last hardcoded model defaults removed**: `DefaultsConfig.model = "claude-opus-4-7"` (the 4-7 ghost's final nest) and permanent-member default `claude-sonnet-4-6` — empty string now means "inherit the default startup model", zero maintenance across model generations.
+- **CI three-red to green** (`25f85f9`) — ruff fully clean, 108 failing unit tests to zero, eslint 0 errors.
+- Task-wall reminder now recommends `task_list_project` when no active team exists (`taskwall_view` requires one).
+
+### Changed
+
+- **Template flexibility made explicit** (`b27421e`) — `team_setup_guide` tips and the SessionStart briefing now state the three freedom paths: `general-purpose` + custom prompt (zero-template teams), rosters trimmed per task, and `plugin/agents/*.md` files editable at will. Templates are starting points, never requirements.
+
+## [1.8.0] — 2026-07-10
+
+> First full-featured public release since v1.6.2 — the entire v1.7.0 line (previously private-only) plus everything below now ships to the public repository.
+
+### Added — Knowledge layer P1: reference graph + unified search
+
+- **Cross-domain reference graph (P1a)** (`c0f49e8`) — a zero-LLM regex extractor mines OS-native ID references (`wf_` id / commit hash / task uuid / `[[memory]]`) out of task memos and reports into an append-only `knowledge_links` table (UNIQUE 5-tuple dedup). The graph is a derived view — rebuildable from source text at any time; a backfill script covers historical data.
+- **Unified search (P1b)** (`6ba4a5f`) — `/api/search` fuses three arms via RRF (k=60): BM25 full-text (Chinese bigram native), knowledge-graph fanout (an ID query pulls in everything linked to it), and exact ID-prefix / title match. Global search box in the Dashboard header; MCP tools `unified_search` / `link_query` / `link_trace`.
+
+### Added — Governance
+
+- **Red-line invariant checker** (`fe0d843`) — `scripts/check_invariants.sh` machine-checks five incident-derived invariants (hook dual-copy sync, 5-place version lockstep, dual-dist consistency, dist freshness, venv ban) with a CI fast-fail job.
+
+### Security
+
+- **InputGuardrail large-payload bypass closed** (`2a5fd46`, public issue #1) — request bodies over 16 KB used to skip the L1 guardrail entirely, so padding a malicious payload past 16 KB bypassed all checks. Bodies are now fully inspected up to a 2 MB hard cap (413 beyond it); dangerous-pattern rules scan the full input (the 10 KB per-string truncation window is gone); and the XSS rule was de-ReDoS'd (`<script[^>]*>` → `<script\b` — the former backtracked O(n²), ~113 s on a 2 MB flood). 15 regression tests added.
+
+### Fixed
+
+- **Attribution iron law** (`bb78aa0`) — a session's startup directory is the sole attribution authority: subdirectories no longer spawn phantom projects, auto-registration is removed, receipt migration gains negative-exclusion + orphan reaping, and SessionEnd no longer kills workflow teams mid-run.
+- **Per-run team creation moved to receipt time** (`3a31d8b`) — runs killed mid-flight (or with very long turns) no longer go invisible on the project page.
+- **`project_delete` cascade 500** (`16dd004`) — the cascade referenced a nonexistent `EventModel.team_id`, so every delete returned 500.
+- **Project-page run summaries restored** (`f97be00`) — request limit 500→200; a silently swallowed 422 had blanked the entire inline-summary feature.
+
+### Internal
+
+- Daily traffic-archiving workflow (`7dd9d95`) — runs in the private repository only (repository-guarded); public-release sanitation pass (`7b195c7`).
+
+## [1.7.0] — 2026-07-07
+
+> Version 1.6.2 was an internal transition number (5-place version lockstep, never tagged or released); its content ships here as part of 1.7.0.
+
+### Added — Workflow observability Phase 2: live tracking + phase swimlane
+
+- **Journal incremental tail** (`32becb5`) — byte-offset tail of `journal.jsonl` (consumes only up to the last complete line), `transcript_dir` direct addressing persisted from the Workflow receipt, run-time `live_tokens` / `last_activity_at` approximations (terminal file values overwrite on completion), conservative 900s `interrupted` detection, `mtime_ns:size` fingerprint short-circuit for cheap reconcile.
+- **Phase swimlane UI** on the `/workflows` detail page — per-agent bars grouped by phase, live polling while running, sortable per-agent telemetry table.
+- **Receipt / adoption hardening** (`10abd20`) — early-arriving workflow agents are adopted by a per-session fallback team (`workflow-session-<sid>`) and migrated to the per-run team once `wf_id` becomes visible; subagent model no longer falls back to a wrong hardcoded default.
+- **Nested-workflow layout support** — runs launched from inside a subagent land under `<session>/subagents/workflows/<wf_id>/`; live tail and terminal reconcile both resolve this layout (agent labels backfill automatically at terminal state; the running-window label gap is a CC on-disk timing limit, mitigation tracked on the task wall).
+
+### Added — Leader identity from file truth (zero registration dependency)
+
+- **`session_probe` module** (`d75b3de`) — a project's Leader *is* the newest CC main-session under `~/.claude/projects/<slug>/`: file mtime = liveness (15-min window), transcript tail = current real model (`/model` switches surface within one refresh; compact's synthetic rows with `model:"<synthetic>"` are skipped, `05f4092`). `project_summary` returns a disk-probed `leader` block; the Dashboard LeaderCard no longer walks the team chain (which broke whenever the Leader row parasitized a workflow team that migrated projects).
+- **Leader liveness** (`44c7f91`, `1ab5c37`) — in-stream tool events revive an offline Leader to busy (60s-throttled touch); the state reaper exempts `role=leader` and `workflow-subagent` from config-probe liveness (it previously exempted only the literal name "team-lead" and reaped every revived "Leader" row each tick).
+- **Per-turn model refresh** (`9327038`) — the Stop hook tail-reads the transcript every turn and updates the Leader's model; the silent `import json` omission that swallowed this for two commit cycles is fixed with an offline-repro regression test (`44c7f91`).
+
+### Added — Dashboard ultracode revamp
+
+- **Workflow-name-first display** (`f01c590`) — run name is the primary title everywhere, the `wf_` id demoted to a mono faded tag; run list sorted by `COALESCE(started_at, created_at)` (historical backfill had buried the newest runs); the `/pipelines` display layer retired with a redirect to `/workflows`.
+- **Project detail, inline run summaries (Plan A)** (`87aecd3`, `daa2df0`) — workflow team rows in both the active and history sections carry an inline run summary (status badge in swimlane colors, agent count, duration, finish time) plus a "view swimlane →" deep link; active workflow teams show `run.summary` as a subtitle and members display observability phase labels (`audit:…`) with the `wf-<ccid>` id demoted to small mono text.
+- **Leader card & session counts** (`3403e0f`, `20fff24`) — model name displayed verbatim (no alias mapping; future-proof for non-Claude models), per-project session count from file truth, explanatory empty-state card instead of hiding, stale legacy project registration cleaned after the disk migration.
+
+### Changed
+
+- **D5 dual-axis convergence** (`618e176`) — `stage_status` is the single authority, `status` becomes a derived read-only projection, claim windows closed via atomic DB claims, idempotent backfill.
+- **Pipeline retirement Phases 1–3** (`8fc3e2d`, `f01c590`) — new-entry hard blocks removed, auto-advance stopped, display layer superseded by `/workflows`; OS is now the persistence / observability layer for CC ultracode.
+- **Governance lease** (`00c861b`) — reaper + watchdog share a single-row `governance_lease` (fail-open) so only one process governs at a time; kill paths verify process identity before acting.
+
+### Fixed
+
+- **Cross-project workflow attribution** (`86c6900`, `44c7f91`) — attribution now follows file truth: a run's on-disk slug is matched against registered projects' `_project_slug(root_path)` (char-for-char identical to CC's mapping); teams follow their runs; orphan-team cwd adoption excludes workflow teams. 59 mis-filed runs + 5 teams migrated back to their real project; unmatched runs stay unattributed instead of guessing.
+- **The `claude-opus-4-7` ghost model** (`391a866`, `364060d`) — baked-in defaults removed at all four layers (types default / ORM column default / `to_pydantic` read-injection / MCP tool param). The read-injection was the real culprit — it re-materialized the ghost after every data cleanup while the DB was already clean.
+- **Defunct-zombie false alarm on restart** (`d6d6ed5`) — graceful shutdown followed by a zombie PID no longer reports `shutdown_timeout`; liveness recognizes `ZOMBIE` via psutil status + `ps` state prefix.
+- **fastmcp 3.4.3 startup crash behind SOCKS proxies** (`56733f5`) — the PyPI update check is disabled (`check_for_updates="off"`); a SOCKS proxy without `socksio` used to kill stdio with `-32000` on reconnect. Update detection now uses `git merge-base --is-ancestor` (strictly-behind), ending false "new version" reports when local is ahead.
+- **`os_restart_api` child stderr now persists** (`9d8f020`) — restart-spawned API processes wrote stderr to a tmpdir file (lost on reboot, invisible to the self-check loop); unified into the persistent `api-stderr.log`.
+- **Bootstrap no longer suggests starting a second uvicorn** (`f8da12b`); the autostart skip-test no longer hardcodes version `1.3.4` (`677c557`).
+
+### Added — Workflow governance (follow CC ultracode)
+
+OS repositions itself as **CC's persistence-and-governance layer** and stops competing with CC's built-in Workflow for in-session orchestration.
+
+- **Workflow auto-tracked as a team + recognized as delegation** (`abec404`) — `hook_translator._on_subagent_start` gains a `workflow-subagent` branch: strict **one workflow = one team** (`workflow-<wf_id>`, keyed off `wf_<id>` in the transcript path), members de-duplicated by `cc_agent_id` (fixes 16 agents collapsing into 1 row), team auto-created without requiring a pre-existing active team (fixes 0-row registration), bound to the Leader's project. `Workflow` is added to `_DELEGATION_TOOLS` so calling a Workflow counts as delegation and resets the B0.9 "why aren't you delegating" counter; PreToolUse / PostToolUse matchers now include `Workflow`.
+- **Workflow writeback governance** (`29eab2b`) — `workflow_reminder` adds a throttled (300s) soft reminder on `Workflow` calls: put the umbrella task on the wall (`task_create`) and instruct each workflow agent to write back through OS tools (`task_memo` / `report_save`), pointing at the new `/os-workflow` skill (`plugin/skills/os-workflow`). A "Workflow" badge is added to `workflow-*` teams on the Dashboard TeamsPage; the `CLAUDE.md` "using CC Workflow" section codifies the convention.
+- **Strict one-workflow-one-team (per-run) + Step 4 plan pre-registration** (`aac902f`) — `_promote_workflow_team` migrates agents from the `workflow-session-<sid>` fallback team to the per-run `workflow-<wf_id>` team as soon as `wf_id` becomes visible (in `SubagentStop` / the agent's own tool calls); `_parse_workflow_plan` statically extracts declared phases + agent counts from `tool_input.script` and emits a `workflow.planned` pre-announcement event.
+
+### Fixed
+
+- **Teams list vanished on the project detail page**: `apiFetch` previously injected the `X-Project-Id` header on *every* request, so a stale global project pin in `localStorage` also scoped `/api/teams` to a single project. ProjectDetailPage fetches all teams and filters them client-side (`project_id === projectId`), so the scoped response matched nothing and both active and history teams disappeared for every project. The `X-Project-Id` / `X-Project-Dir` headers are now attached **only to `/api/ecosystem` requests**, so all other endpoints are never affected by the project scope.
+- **New-project Leader stuck showing "idle"** (`dfe5f67`) — `project_id` used to be bound only at SessionStart, so a Leader created before its project was registered (or when the cwd didn't match) stayed `project_id=None`; every later tool call refreshed `last_active_at` (always "active") but never backfilled the project, so liveness never saw it. Fix: the **server-side `PreToolUse` hook** now resolves the cwd via a longest-prefix-match helper and rebinds any `project_id=None` Leader on its next tool call — self-healing that no longer depends on SessionStart timing.
+- **SessionStart project resolution now uses longest-prefix match** (`b3f7cb6`) — a cwd can prefix-match several projects at once; the old first-match bound the Leader to the wider parent project. It now uses the same longest-`root_path` match as the team-mapping fallback, and rebinds whenever the resolved project differs from the current binding.
+- **SessionStart reuse backfills a missing `project_id`** (`c7b4c6e`) — reusing an existing session Leader that was born without a project affiliation now backfills the project when the cwd resolves one (7 orphan Leader rows had accumulated, causing projects to read as idle).
+
+### Changed
+
+- **Ecosystem project filter moved to where it belongs**: the project dropdown is really a "view this project's ecosystem library" filter, but it had been mounted as a global Header switcher (`components/layout/ProjectSwitcher`) and commented as "Global project context" in `client.ts`, so it read as a global app switcher. The global Header switcher is removed; the component is renamed `EcosystemProjectFilter`, moved to `components/ecosystem/`, and shown only on the `/ecosystem` list page. Comments now record the history and a "do not globalize" guard to prevent regression.
+- **Project detail header layout**: the description now spans the full width (best readability for long descriptions), and active-teams / history-teams / created-date are packed into one compact row instead of four equal columns that squeezed the description.
+
+### Documentation
+
+- **Dev-machine migration guide (Windows → Mac / VS Code)** (`7828e7b`) — new `docs/` guide (force-tracked, same pattern as `ecosystem-recipes.md`): cross-platform status (source code carries no version problem) + the three things that do **not** travel with git (unpushed commits / the `aiteam.db` database / `.mcp.json` · `.claude` machine-local config) + full Mac install steps including the DB copy command.
+
+### Added — Workflow observability layer MVP (CC ultracode)
+
+The self-built pipeline is deliberately deprecated (it duplicated CC's built-in orchestration); OS becomes the **persistent observability layer** for CC ultracode/Workflow. Hooks only supply timing + correlation anchors; the on-disk `wf_<id>.json` rich snapshot is the telemetry source of truth. Completion detection = a reaper safety-net poll reconciled against hook traffic, idempotent ingest, offline-gap self-healing. _(This batch folds into 1.6.2 or 1.7.0 at the author's discretion — see Notes.)_
+
+- **New `workflow_runs` / `workflow_agents` tables + repository CRUD** (`6f9ceb4`) — rebuildable caches of the immutable snapshot files, UPSERT by natural key with monotonic progress (rows are never deleted; the audit trail stays in the `events` table). New `WorkflowRun` / `WorkflowAgent` models; orphan `TeamState` removed along the way.
+- **`workflow.planned` / `workflow.started` / `workflow.completed` event types** — adding `planned` to `EventType` fixes the "Step 4: 0 valid data" root cause (it wasn't in the enum, so `create_event` raised a swallowed `ValueError`).
+- **Ingestion + reconcile** (`workflow_ingest.py`) — receipt parsing / rich-snapshot ingest / reconcile (re-reads only when `mtime` beats `updated_at`, so steady state costs just a `stat`; a `resume` that rewrites the same file naturally re-triggers ingest). `hook_translator` gains a `PostToolUse(Workflow)` receipt-anchor branch + a SessionStart reconcile (with an `mtime` short-circuit for the full pass); `state_reaper` polls as a safety net (zero `stat` when nothing is running).
+- **4 REST endpoints `/api/workflows` + 3 MCP tools** (`workflow_list` / `workflow_get` / `workflow_reconcile`) — brings the MCP tool total to **155**.
+- **Dashboard `/workflows` page** — list card-stream + per-agent telemetry detail page, sidebar entry, bilingual i18n, real-time invalidation on `workflow.*` events, and the TeamsPage workflow badge is now a clickable link; both `dist` copies synced.
+- **`killed` / `failed` terminal states** in `_WF_STATUS_RANK` — 10% of 69 real wf files hit these; missing them would pin a run at `running` forever and break the reaper short-circuit. Frontend status union / badge / filter synced.
+
+### Changed
+
+- **Pure-Python BM25 wired into the main retrieval chain** (`15e4fe3`) — `retriever.py` gets a built-in BM25 (TF saturation + non-negative IDF + length normalization, keeping the Chinese bigram + single-char tokenizer), replacing the optional `rank_bm25` dependency path (`keyword_search` kept as a fallback). `search_memories` moves from whole-string SQL `ilike` to "recent-window coarse recall within scope → BM25 rerank", so non-contiguous multi-word queries (e.g. `Python deploy`) now hit where the old implementation always missed.
+- **LangGraph downgraded to an optional `[langgraph]` extra** (`f6b3140`) — `langgraph` / `langchain-anthropic` / `langchain-core` leave the core deps; they only serve the legacy graph-execution path of the CLI `aiteam task run` (CC Agent took over execution after `456512f`), and API / MCP / Dashboard never touch them. `team_manager.compile_graph` is lazy-loaded at runtime with a `pip install 'ai-team-os[langgraph]'` hint when the deps are missing.
+- **Version lockstep to 1.6.2 across 5 places + backfilled historical CHANGELOG** (`7be8cd8`) — `__init__` / `pyproject` / `plugin.json` / two marketplace entries unified to 1.6.2 (previously diverged across 9 spots, 0.0.0–1.6.1, and 1.6.x was never tagged); `pyproject` gains pytest `pythonpath=['src']` (src-layout, no editable install needed for CI); CHANGELOG backfilled with 1.5.2 / 1.6.0 / 1.6.1 in both languages. `tag v1.6.2` left for the author to cut at release.
+- **CI real gate restored** (`e2d725f`) — dropped the `2>&1 || true` on the test step (a firefighting leftover that stayed green even when pytest failed with exit code 4 for not importing `aiteam` — 0 tests actually ran); deps add `typer` / `rich` / `alembic`; importability comes from `pyproject pythonpath=['src']` (deliberately not `pip install -e .`, a historical red line).
+
+### Fixed
+
+- **Plugin manifest interpreter unified to `python3` + first-launch self-heal to `sys.executable`** (`715acc8`) — `plugin/hooks/hooks.json` (22 commands) and `plugin/.mcp.json` switch from bare `python` to `python3` (stock macOS has no `python` shim, otherwise MCP + every hook is `command-not-found`); `auto_install._self_heal_interpreter()` rewrites the manifest interpreter to the absolute `sys.executable` on first launch (idempotent / silent-fail), landing the `e2d0fbb` invariant on the static distribution path and resolving both the missing-shim and project-`.venv`-hijack dilemmas. `src/aiteam/hooks/install.py` likewise generates hook commands with `sys.executable` + absolute script paths.
+- **Cross-project guard backfilled to the plugin copy** (`715acc8`) — `workflow_reminder.py` (the plugin execution copy) regains `_check_team_cross_project`; the v1.5.2 fix for the 2026-05-08 shallow-scan leak had until now only existed in the never-distributed `src` copy.
+- **Dashboard artifact governance** (`fe5b682`) — the Dashboard is rebuilt and `plugin/dashboard-dist` re-synced (carrying the `7550f33` project-isolation fix that had been stuck at `29eab2b`); `dashboard/dist` is removed from the git index (a force-added partial snapshot — only `index.html` + fonts, no JS/CSS — was masking the complete `plugin/dashboard-dist` and white-screening the source-install path); `app.py` candidate-dir discovery now skips a directory missing its JS bundle; version references `aiteam.__version__` to kill OpenAPI drift; SettingsPage shows v1.6.2.
+- **`/api/tasks/compare` route reachable again** (`2606297`) — since `082a0e7` it had been shadowed by the `{task_id}` param route (always 404); it is moved ahead of the param route (with a guard comment), and the `task_compare` MCP chain works again.
+- **Self-started API `stderr` written to a file to prevent pipe deadlock** (`2606297`) — `_autostart`'s `stderr=PIPE` was never drained, so accumulated tracebacks would freeze the whole API once the ~64KB buffer filled; now appended to `~/.claude/data/ai-team-os/api-stderr.log` (premature-exit diagnosis tail-reads it); `stdout=DEVNULL` and the command array unchanged.
+- **Installer self-check no longer fails falsely** (`b7e225b`) — `verify_installation` reads `~/.claude.json` (where `register_global_mcp` actually writes, after the CC read-location migration in `a050585`); `_check_package` uses `find_spec('aiteam')` (not `pip show aiteam`, which always failed on the `ai-team-os` dist name); the `_write_project_mcp_json` fallback writes `sys.executable`; `scripts/install.py` `project_root` fixed to the flat repo layout.
+- **`greenlet>=3.0` added to core deps (Apple Silicon)** (`f6b3140`) — required by SQLAlchemy async, but its platform markers omit Apple Silicon macOS (`platform_machine=='arm64'`), so a missing greenlet made the async engine `ValueError` on first connect (hit during the real Mac migration).
+
+### Removed
+
+- **`semantic_cache` feature deleted** (`15e4fe3`) — `api/semantic_cache.py` + `routes/cache.py` + `mcp/tools/cache.py` + 30 tests removed; a ghost feature never wired since birth, whose `/api/cache/stats` always returned 0 and misled users. The bilingual README entry advertising semantic cache is dropped.
+
+### Notes
+
+- All the entries above ship together as **1.7.0**. Observability-layer integration tests 27/27; autostart + MCP suites 84/84; `tsc` + production build green; attribution / liveness / label-backfill all verified against live runs.
+
+## [1.6.1] — 2026-06-12
+
+### Added
+
+- **Multi-source schema scaffolding** (`e1b3ddd`) — `ecosystem_repo_profiles` gains `sources` (JSON list) + `primary_source` (kept in sync across COLUMNS_TO_ENSURE + ORM + Pydantic); 678 GitHub profiles backfilled with `sources=[{kind:github,…}]`. A new `ecosystem_hf_fetcher.py` (HuggingFace Spaces public API) is archived for future reference only — the PoC `dry_run` measured 0% overlap with the Claude/agent/MCP ecosystem, so it is **not** wired into the main flow.
+- **Per-project weekly cron automation** (`4e317f2`) — `deps.py` idempotently registers a weekly refresh cron per project (`interval = refresh_interval_days × 86400`, `action=emit_event`, `event=ecosystem.refresh.periodic`); 5 projects auto-provisioned with `next_run` 7 days out.
+- **`os_restart_api` standardized restart tool + graceful shutdown** (`896d5b9`) — MCP `os_restart_api(force)`: refuses while agents are busy, **pins the port so it never drifts**, waits until the old process is fully dead, then health-verifies and returns old/new version + PID. New `POST /api/system/shutdown` self-exits after a 0.5s delay with a best-effort WAL checkpoint. Both wait loops get a hard 200-iteration cap so a frozen/mocked clock still terminates. This is a deliberate **fixed-port** restart — distinct from `_autostart`'s free-port auto-discovery (see the stdio-decoupling fix below).
+- **Ecosystem Phase 2 — shallow-scan batch approval gate** (`c74d53b`) — new `ecosystem_shallow_batches` table + 6 endpoints (create / list / detail / items / **approve** / **cancel**); nothing is enqueued before approval (governance gate). New batch-management pages + `metadata_changed_count` on `ScanRun`.
+- **Project status recognizes an online CC session** (`4370468`) — status is derived from real agent activity time and surfaced in the project dropdown.
+
+### Changed
+
+- **Default model `claude-opus-4-6` → `claude-opus-4-7`** (`5a0f9a2`) — 10 backend defaults + 4 test assertions refreshed; member-edit Select refreshed to Opus 4.7 / Sonnet 4.6 / Haiku 4.5; removed the non-functional "default LLM model" settings dropdown (its `handleSave` never persisted).
+- **Deprecated heuristic fields removed from the wire** (`e1b3ddd`) — the API no longer returns `relevance_category` / `relevance_score`; the frontend drops "relevance X/10" and "active-set rank". Schema columns are kept (reads/writes stopped, no migration risk).
+- **Project status wording** — "关闭" → "空闲" (Inactive → Idle) (`6cb4914`).
+
+### Fixed
+
+- **Old-repo rescan + tick budget + status API semantics** (`4e317f2`) — the shallow-queue candidate check now uses `pushed_at > last_shallow_refreshed_at`; the skip decision uses `stage_status` instead of `status` (678 `shallow_done` rows had been wrongly skipped); `tick` dispatches all candidates at once (concurrency enforced at worker-claim, no more 15-item budget); `queue_status` reports accurate `pending / in_progress / done / failed`. Verified `tick dispatched=134 / skipped=0`.
+- **`context_tracker` default window is now 1M** (`af495c7`) — CC transcripts strip the `[1m]` suffix, so on a fresh machine with no 1M history the fallback used 200K and reported 17% real usage as 85.3%, firing constant false CONTEXT WARNINGs. `DEFAULT_CONTEXT_SIZE` 200K → 1M (the `>200K` fallback branch removed); the `CLAUDE_CONTEXT_SIZE` env override is retained.
+- **MCP `X-Project-Dir` latin-1 header encoding** (`af495c7`) — a Chinese project path (e.g. `AI团队框架`) broke urllib's latin-1 header encoding, making `report_save` / `team_list` unusable in Chinese environments; the value is now percent-encoded on send (`urllib.parse.quote`) and decoded on receive.
+- **`os_restart_api` spawn fully decoupled from MCP stdio** (`3e7d320`) — spawning from an MCP tool-call context inherited the busy MCP stdio pipe and hung **before import** (9MB, never progressing). Fixed with `stdin=DEVNULL`, `stderr` → `%TEMP%/aiteam-api-restart.log` (keeps diagnosability), `close_fds`, and `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` on Windows.
+- **Project-liveness clock aligned to naive-local-time** (`cfa6861`) — agent timestamps are written naive-local everywhere (`datetime.now()` in `hook_translator` / `StateReaper`), but liveness compared against UTC; the constant local-UTC offset (measured 4h) meant the 15-min threshold was never met and projects showed "idle" forever. Comparison and serialization now use the same local clock.
+
+### Notes
+
+- `__init__.py` bumped to **1.6.1** in this cycle (`896d5b9`). GitHub-only development milestone (continuing the v1.4.0 / v1.5.0 pattern); not published to PyPI/marketplace.
+
+## [1.6.0] — 2026-05-13
+
+### Added — Ecosystem unified-design MVP (config-driven, multi-source framework)
+
+Rebuilt the ecosystem scan around a **config-driven unified design** (v4). A user starts a scan by answering ~3 questions (data source / topics / default params), previews safely via `dry_run`, and gets an auto-generated diff report with a status-change timeline. This all stays inside the **single-DB `project_scope`** model — ecosystem tables are scoped by `project_id`, not split into per-project databases.
+
+- **Config-driven schema (P0)** — new `DataSourceKind` (8 source kinds) / `RepoActiveStatus` / `NormalizedSignal` / `DataSource` / `ScanProfile` / `EcosystemIndexDiff` / `EcosystemStatusChange` types; `ecosystem_repo_profiles` +6 fields (`canonical_id` / `source_kind` / `last_active_status` / `last_status_change_at` / `popularity_percentile` / `activity_score`, with idempotent backfill preserving all 265 repos); 4 new tables (`ecosystem_data_sources` / `scan_profiles` / `index_diffs` / `status_changes`).
+- **9 new REST endpoints + 5 new MCP tools** — data-source CRUD, `scan_profile` GET/PUT, `quick_setup`, `index_update` (real `dry_run`, no side effects), `index_diffs` latest/history; MCP `quick_setup` / `data_source_create` / `scan_profile_update` / `index_update` / `index_diff_latest`.
+- **Simplified activation (P1.A)** — stars are only an **ingestion gate**; once ingested a repo participates in search forever. Activation reduces to: archived → `archived`, `manual_status='no_value'` → `manual_archived`, else `active`; repos not seen in a scan keep their status (append-only). New `manual_status` column + `POST /repos/{id}/manual_status` + `ecosystem_mark_no_value` / `clear_manual_status`.
+- **Layered `list` endpoint (P1.B)** — summary serializer (18 fields, excludes `shallow_summary`), `limit` default 20 / max 100 + `has_more`, to prevent token blow-ups; `/teams/{id}/agents` capped at max 200 (guards against the 254-agent history incident).
+- **Event sourcing** — new `ecosystem_repo_events` table becomes the single source of truth per repo (discovered / topics_changed / stars_jumped / status_changed / …); period diffs are computed dynamically via `GET /api/ecosystem/diff?from=&to=`. New `ecosystem_repo_events` / `ecosystem_diff_period` MCP tools + an "event history" detail tab. Legacy `index_diffs` / `status_changes` tables and endpoints kept for compatibility.
+- **Real GitHub topics + global `topicRankMap`** — the fetcher was upgraded from query-hint topics to real `repositoryTopics` (per-repo `gh api repos/{owner}/{repo}`); `compute_ecosystem_facet_counts` adds a global `topics` facet (678 repos → 2425 unique topics; top: mcp 386 / claude-code 294 / ai 257 / claude 185 / …). A global `topicRankMap` gives each topic a stable color across every card and the stats bar.
+- **SST — single source of truth for field mapping** — removed client-side `inferStage()` and `relevance_category` derivations; backend `_build_stage_map` / `_serialize_full` is authoritative. Deprecated `is_active` / `active_rank` / `relevance_*` (kept for compat).
+- **Ingested 678 repos** — a real `dry_run=False` run grew the DB 265 → 678 (+413) and refreshed 252 existing repos' topics (e.g. `n8n-io/n8n`: `['mcp']` → 15 real topics); default `popularity_floor` lowered (github 5000 → 1000, huggingface 1000 → 200, npm / pypi 5000 → 1000) for broader inclusion.
+
+### Fixed
+
+- **`GET /api/ecosystem/diff` with `from > to`** now returns HTTP 400 instead of a misleading empty 200 (`4f1926e`).
+- Frontend "failed to load ecosystem profile" + pagination UI; scan-history split into shallow vs deep; empty-placeholder filtering; the removal of the heuristic `lifecycle` tab and category badges from `RepoCard`.
+
+### Notes
+
+- `__init__.py` bumped to **1.6.0** (`355aae8`). GitHub-only development milestone (continuing the v1.4.0 / v1.5.0 pattern); not published to PyPI/marketplace.
+
+## [1.5.2] — 2026-05-11
+
+### Fixed — Cross-project isolation hotfix
+
+Triggered by a real incident: on **2026-05-08 five shallow-summary agents** dispatched for the ecosystem platform were mis-routed into `topic-mapping-v8` (a separate quant exam-prep project) and endorsed / wrote research there, because the Leader's active-team resolution was not project-aware.
+
+- **`context_resolve` is now project-aware** (`infra.py`) — it resolves the project by cwd first and only then filters teams, so a session can no longer pick up another project's active team.
+- **New cross-project guard on `PreToolUse:Agent`** (`src/aiteam/hooks/workflow_reminder.py`) — when a dispatched team's `project_id` ≠ the current project, the hook hard-blocks with `exit 2`.
+- **Stage 0 dual-channel writeback** — shallow-summary results write back via MCP primary + SendMessage fallback, so a flaky MCP tool surface no longer loses the whole batch.
+- **`research_count` semantics fixed** — `_build_stage_map` counts only `architecture_done`+ rows, so a shallow summary no longer inflates the deep-review count; `apply_summary` no longer writes `status='completed'` (shallow done ≠ whole review done).
+- **Ecosystem UI refactor** — "深扫摘要 / deep-scan summary" renamed to "评审记录 / review record" (the `ecosystem_deep_reviews` table carries all 4 stages); `ReviewCard` renders by `stage_status`; a `parseAsUtc` helper fixes a naive-datetime timezone bug in the elapsed-time display; new `RecentScanRunsBar`.
+
+**Known issue**: this cross-project guard was added to `src/aiteam/hooks/workflow_reminder.py` only — the `plugin/hooks/` distribution copy does **not** yet carry `_check_team_cross_project`, so plugin users do not get the hard-block until that copy is backfilled.
+
+## [1.5.0] — 2026-05-08
+
+### Added — Ecosystem Research Platform v2: Progressive Deep-Review Funnel
+
+Refactored the v1.4.0 "single-pass 5-section deep-review" into a **4-stage progressive knowledge-base funnel**, making ecosystem repos accumulate research findings over time instead of one-shot reports. Designed per user spec to prevent token waste on low-value repos and to enable knowledge recall across research cycles.
+
+- **Stage 0 — Auto shallow-summary on archive (Stage A/B)**
+  - New `EcosystemShallowQueueWorker` (552 LOC) auto-dispatches `ai-engineer` agents (5 concurrent) to summarise newly-archived repos
+  - Each shallow summary captures: core function / positioning / advantages / use case (200-400 chars)
+  - Worker runs every 5 min, returns `DispatchIntent[]` (no direct agent spawn — Leader uses Agent tool with `team_name=ecosystem-platform`)
+  - 8-class failure handling: `404→mark_deleted` / `403_private→mark_private` / `rate_limit→backoff+retry` / `5xx→exp_retry` / `agent_read→retry+swap` / `agent_timeout` / `json_parse→retry+example` / `fetch_style→pattern_record`
+  - **Self-learning mechanism**: same `fetch_style` failure ≥ 3 distinct repos → auto `pattern_record(type='failure')`, future agents read lessons via `pattern_search`
+
+- **Stage 1 — On-demand architecture analysis (Stage C)**
+  - New `ecosystem_deep_review_request_batch(tags, min_stars, limit)` MCP tool
+  - User picks research direction (e.g., "memory_system") → batch-dispatches `backend-architect` to read architecture key files
+  - Output: `architecture_md` field + `stage_status='architecture_done'`
+
+- **Stage 2 — Multi-perspective debate (Stage C)**
+  - New `ecosystem_trigger_debate(repo_ids, research_goal)` triggers existing `debate_start` (NOT a built-in debate engine — reuses meeting system)
+  - Leader has full control over debate participants and rounds (existing meeting capabilities preserved)
+  - **Meeting → Ecosystem reverse-writeback hook** (`meeting_ecosystem_writeback.py`): when meeting concludes with ecosystem keyword in topic, hook reminds Leader to dispatch agent that calls `ecosystem_apply_debate_result(risks_md / learnings_md / integration_md / integration_recommendation)`
+  - Output: 4 fields per finalist + `stage_status='debated'`
+
+- **Stage 3 — Reference / Integrate marking (Stage C)**
+  - `ecosystem_mark_as_reference` adds `lifecycle:reference` tag + `stage_status='referenced'`
+  - `ecosystem_start_integration` adds `lifecycle:integrated` tag + creates real integration task via `task_create` (existing task system, NOT a built-in implementation engine)
+  - Both paths preserve research findings for future quick recall (avoid re-deep-scanning)
+
+### Added — Project-customizable thresholds (Stage A)
+
+- New `EcosystemProjectSettings` table per project: `min_stars` / `top_n` / `refresh_interval_days` / `focus_topics` / `focus_languages` / `shallow_concurrency` / `deep_concurrency`
+- AI Team OS default: `min_stars=5000, top_n=200, focus_topics=['claude-code','mcp','agent-framework']`
+- Other projects default: `min_stars=1000, top_n=100`
+
+### Added — Active vs Full dual-view + append-only history (Stage A/D)
+
+- **Decision (D)**: Data is **append-only forever** — repos that fall below threshold are not deleted, just `is_active=False`. Stars climb back → auto-promoted to active set + Stage 0 re-queue
+- **Decision (E)**: Periodic shallow-refresh only scans active set (top_n by stars), saving GitHub API quota
+- New `EcosystemRepoStatusSnapshot` table records every scan's stars/pushed_at/is_archived/is_active for historical analysis
+- New `EcosystemRefresher` service (480 LOC) provides `shallow_refresh()` (diff-based, skips repos with no push since last refresh), `recompute_active_set()`, and `resurrect()` (revives deleted/private repos when GitHub returns 200 again)
+
+### Added — Frontend stage funnel UI (Stage E)
+
+- List page: stage colored badges (queued/shallow_done/architecture_done/debated/referenced/integrated/_failed) + 3 tabs (active/full/deleted)
+- Detail page: new "研究历程" timeline tab showing stage progression + agent outputs + `shallow_summary_history` snapshots
+- New `/ecosystem/research` candidate-filtering page: input research goal → tags-based candidate list with shallow_summary preview → multi-select to trigger Stage 1 → finalists trigger Stage 2
+- Project settings tab on project detail page: 8 fields (min_stars / top_n / refresh_interval_days / focus_topics / focus_languages / shallow_concurrency / deep_concurrency / auto_shallow_on_archive)
+- Failed repos: red badge + "Retry now" button (calls `POST /api/ecosystem/profiles/{id}/retry`)
+
+### Added — 11 new MCP tools
+
+- Stage 0: `ecosystem_apply_shallow_summary`, `ecosystem_shallow_queue_status`
+- Stage 1: `ecosystem_deep_review_request_batch`, `ecosystem_apply_architecture_md`
+- Stage 2: `ecosystem_trigger_debate`, `ecosystem_link_debate_meeting`, `ecosystem_apply_debate_result`
+- Stage 3: `ecosystem_mark_as_reference`, `ecosystem_start_integration`, `ecosystem_link_integration_task`
+- Refresh: (extended `ecosystem_scan_periodic` with refresh strategy)
+
+### Added — 8 new REST endpoints
+
+- `/api/ecosystem/lifecycle/*` (Stage 1/2/3 trigger paths)
+- `/api/ecosystem/profiles/{id}/retry` (manual retry for failed)
+- `GET/PUT /api/ecosystem/projects/{project_id}/settings`
+- `POST /api/ecosystem/shallow_queue/{apply_summary,tick}`, `GET /api/ecosystem/shallow_queue/status`
+
+### Schema changes (Stage A — fully backward compatible via COLUMNS_TO_ENSURE)
+
+- `EcosystemDeepReview` +8 fields: `stage_status` enum / `integration_md` / 4 stage timestamps / `debate_meeting_id` / `integration_task_id`
+- `EcosystemRepoProfile` +8 fields: `shallow_summary` / `last_shallow_refreshed_at` / `is_deleted` / `is_private_now` / `last_fetch_error` / `fetch_failure_count` / `is_active` / `active_rank`
+- 2 new tables: `EcosystemRepoStatusSnapshot` (append-only history) / `EcosystemProjectSettings` (per-project config)
+- Tag dictionary: 26 → 31 (added 5 lifecycle tags: `evaluating` / `reference` / `integrated` / `deleted` / `private_now`)
+- Tag source enum +1: `lifecycle` (auto-managed by Stage 3 transitions)
+
+### Tests
+
+- 1283+ unit tests passing (1264 baseline + 110+ new ecosystem tests across A/B/C/D/E)
+- 0 regressions
+- 6 pre-existing failures (CLI version flag / debate template / mcp_autostart / pipeline) verified unrelated via `git stash`
+
+### Architecture decisions (locked from user spec)
+
+- **(A)** Ecosystem is a **knowledge base, not a workflow engine** — Stage 2 reuses `debate_start`, Stage 3 reuses `task_create`. Ecosystem only records, recalls, and tags.
+- **(B)** Meeting → ecosystem reverse-writeback hook reminds Leader to record debate verdicts back to ecosystem (preserves Leader decision authority)
+- **(C)** Each project has independent thresholds + active/full dual-view
+- **(D)** Data append-only forever; stars-falling repos kept for potential future revival
+- **(E)** Periodic refresh only scans active set
+- **(F)** Rate-limit testing-driven concurrency tuning (no preset, observed and adjusted)
+
+### Notes
+
+- This release is **published to GitHub only** (continuing the v1.4.0 development-milestone pattern); PyPI publication deferred until further stability validation.
+
+## [1.4.0] — 2026-05-07
+
+### Added — Ecosystem Research Platform (Stage A-J)
+
+A complete project-isolated platform for discovering, tagging, and deep-reviewing the Claude/MCP/agent open-source ecosystem. 188 repos indexed in initial scan, with multi-layer tagging achieving 2.05 tags/repo average and 1.5% zero-tag rate.
+
+- **Storage layer (Stage B)** — 5 new tables (`EcosystemRepoProfile` extended + `EcosystemDeepReview` + `EcosystemTag` dictionary + `EcosystemRepoTag` association + `EcosystemRelation` + `EcosystemScanRun`); 21 seed tags; FK CASCADE for repo deletes, RESTRICT for tag deletes; 50/50 unit tests.
+
+- **Periodic scanning (Stage C)** — `EcosystemScanner` service with incremental strategy (skips repos scanned <7 days), full strategy, ScanRun audit trail, GitHub API graceful degradation, owner blacklist + keyword whitelist secondary filtering. 3 new MCP tools (`ecosystem_scan_periodic`, `ecosystem_scan_status`, `ecosystem_scan_history`) + 5 REST endpoints + 31 new tests.
+
+- **Three-layer tagging (Stage D)** — Layer 1 GitHub topics direct mapping (105 hits), Layer 2 keyword rules (70 hits), Layer 3 LLM dispatch_plan mode for sub-agent fan-out. 5 new MCP tools + EcosystemTag dictionary with 26 tags (incl. capability/tech_stack/maturity/positioning categories) + 48 unit tests.
+
+- **Multi-dim search (Stage E)** — `ecosystem_search` upgraded to 11 parameters (query/tags AND/min_stars/language/sort_by/has_deep_review/etc.), `ecosystem_repo_get` returns full profile + tags + deep_reviews + relations + scan_run, `ecosystem_search_by_capability` for tag-driven retrieval. SQLite NULLS LAST emulation, EXISTS subquery for tag AND. 38 new tests, p95 < 50ms target.
+
+- **Deep-review workflow (Stage F)** — 5-section report template (positioning / architecture / lessons / risks / integration), `EcosystemDeepReviewer` service dispatches Explore + backend-architect agents via `dispatch_plan` (CC subagent compatible), PostToolUse `deep_review_link.py` hook auto-links saved reports to `EcosystemDeepReview.report_id`. 4 new MCP tools + 5 REST endpoints + 19 new tests.
+
+- **Auto-summary (Stage G)** — 4 markdown summary tools: `ecosystem_summary_weekly`, `ecosystem_summary_by_tag`, `ecosystem_summary_top_n`, `ecosystem_summary_health`. Auto `report_save` with `report_type=ecosystem-{weekly,by-tag,top-n,health}`. N+1 avoided via single-pass joins. 33 new tests.
+
+- **Frontend (Stage H)** — `/ecosystem` list page (4-col card grid + filter bar + pagination), `/ecosystem/:repoId` detail page with 4 new components (`CapabilityTags` / `DeepReviewSection` / `RelationsSection` / `ScanRunSection`), v2 API consumed via `useEcosystemRepoFull` hook (UUID → full_name resolution + path encoding). Mobile responsive, Playwright screenshots verified.
+
+- **Project isolation (Stage J)** — All 6 ecosystem tables get nullable `project_id` column with composite UNIQUE on `(project_id, repo_full_name)` for `EcosystemRepoProfile`. `EcosystemTag` dictionary keeps `project_id=NULL` for global seed (21 tags shared across projects). `X-Project-Id` HTTP header → `get_scoped_repository` routing; MCP `_api_call` auto-injects header from cwd-inferred session project. Auto `backfill_ecosystem_to_project` startup hook migrates legacy 188 repos to AI Team OS project. Dashboard `setCurrentProjectId` syncs on project switch. 10 new isolation tests, 1109 unit tests passing.
+
+### Added — Tag quality polish (Stage K4)
+
+- **`replace_auto` mode** for `ecosystem_tag_apply_batch` — Replace mode (default `False` for backward compat) deletes existing `auto_rule` and `github_topic` tags before re-applying, preserving `manual` and `auto_llm` tags. Solved the bug where new rules produced new tags but stale `mcp_framework` false positives (99 repos) remained from old rule passes.
+
+- **5 new tags + edge-case rules** — Added `claude_code` / `agent_harness` / `javascript` / `java` / `docs_only` to seed dictionary. New `LANGUAGE_TAG_MAP`, `DOCS_ONLY_LANGUAGES`, `DOCS_ONLY_NAME_PATTERNS` for Layer 2 sub-rules. `mcp_framework` false-positive rate dropped from 37% (99/265) to **0.8% (2/265)**, average tags/repo from **1.01 → 2.05**, zero-tag from **28.7% → 1.5%**.
+
+- **18+ edge-case research** — `docs/ecosystem-tag-edge-cases.md` documents real-world tagging anomalies (n8n / dify / awesome-mcp-servers / claude-cookbooks / hermes-agent / netdata / JavaGuide) with root causes and rule fixes.
+
+### Performance — Search optimization (Stage K1)
+
+- **5 composite indexes** on `ecosystem_repo_profiles`: `(project_id, stars)`, `(project_id, category, stars)`, `(project_id, language, stars)`, `(project_id, pushed_at)`, `(project_id, is_archived, stars)`. EXPLAIN QUERY PLAN verified all TEMP B-TREE eliminated.
+
+- **search p95: 2057ms → 13.1ms (156x improvement)** measured on 100 random queries (real production data, 265 repos). p50 6.6ms / p99 25ms.
+
+- **`ecosystem_search` default behavior fixed** — Empty `tags=[]` now bypasses the EXISTS subquery (prevents full-table scan) and returns the full result set sorted by stars instead of an empty list.
+
+- `compute_ecosystem_facet_counts` refactored to single-pass aggregation (eliminates 2/3 IO).
+
+- 6 new performance regression tests.
+
+### Fixed
+
+- **`context_tracker` 1M context window detection on new model variants** — `claude-opus-4-7` and other new opus variants were misreported as 200K when actually 1M, causing false 99% context warnings at 198K tokens. Two-level detection now: (1) exact `{model}[1m]` match, (2) family-level fallback (any `claude-{opus|sonnet|haiku}-*[1m]` history triggers 1M for that family). New `CLAUDE_CONTEXT_SIZE` env var for ultimate user override. 4 new tests with module-level autouse fixture isolating `~/.claude.json` from test machine.
+
+- **Auto-revive completed teams on new agent registration** — Hook translator now flips `team.status=completed` back to `active` when a new CC agent registers against it, with loud warning log + `team.auto_revived` event. Replaces the previous hard-block which disrupted long-running tasks (e.g., scan jobs on archived teams).
+
+### Frontend bug fix (Stage K2)
+
+- **Detail page `深度档案区` placeholder removed** — Previously the detail page hardcoded "TODO: Stage E v2 API" placeholder text even though the v2 API (`/profiles/{name}/full`) existed since Stage E. `useEcosystemRepoFull` hook now consumes v2 directly with UUID → full_name resolution and path-segment encoding for slashes. v2 failure gracefully degrades to v1 list-based fallback.
+
+### Changed
+
+- **Plugin description updated** — Now reflects 140+ MCP tools (incl. 30+ ecosystem research) + Ecosystem Research Platform feature set. New marketplace tags: `ecosystem-research`, `github-discovery`, `code-mining`.
+
+## [1.3.4] — 2026-04-14
+
+### Fixed
+- **Critical: `meeting_send_message` 500 on databases upgraded from <1.3.0** — The 1.3.3 `_sqlite_migrate()` added `meetings.meta_json` but omitted `meeting_messages.metadata_json`. Any database created before that column was added to the ORM model would raise `OperationalError` on every `INSERT`/`SELECT` against `meeting_messages`. Fixed by refactoring `_sqlite_migrate()` into a data-driven loop over `COLUMNS_TO_ENSURE`, which also covers `meetings.meta_json`. All entries are idempotent (guarded by `PRAGMA table_info`).
+- **Migration framework now data-driven** — future schema additions require only a one-line append to `COLUMNS_TO_ENSURE`.
+
+## [1.3.3] — 2026-04-14
+
+### Fixed
+- **Critical: `meeting_create` API 500 when called from external projects** — Three root causes fixed:
+  1. **Missing `meta_json` column** — The `meetings` table lacked the `meta_json` column on databases created before this field was added to the ORM model. `init_db` uses `create_all` which does not add new columns to existing tables. Added an idempotent SQLite migration in `connection.py` that runs at startup and safely `ALTER TABLE`s the column if absent.
+  2. **Team ID not resolved by name** — The `POST /api/teams/{team_id}/meetings` route accepted team names (e.g. `"repo-insight-build"`) but passed them straight to the repository without UUID resolution, causing downstream queries to silently fail. Route now tries UUID lookup first, then falls back to name lookup, returning HTTP 404 if neither matches.
+  3. **Unhandled ORM exception caused worker hang** — Added `try/except` around `create_meeting` call so DB errors surface as HTTP 500 JSON instead of leaving the worker stuck.
+
+## [1.3.2] — 2026-04-14
+
+### Fixed
+- **Critical: MCP auto port discovery broken** — `plugin/.mcp.json` hardcoded `AITEAM_API_URL=http://localhost:8000` as an env var, which overrode the dynamic port fallback in `_get_api_url()`. When autostart picked a free port (e.g. 59711) because 8000 was occupied, MCP tools still tried port 8000 and reported `unhealthy`, while hooks (using the same `_get_api_url()` code path) worked correctly. Removed the env var from plugin config, root `.mcp.json`, and all install scripts so MCP now falls back to reading `api_port.txt` dynamically. User-provided `AITEAM_API_URL` env still takes priority (for remote API use cases).
+
+## [1.3.1] — 2026-04-13
+
+### Fixed
+- **Hotfix: context_tracker 1M context window detection** — Transcripts record model as `claude-opus-4-6` without the `[1m]` suffix, causing 1M-context sessions to be treated as 200K and report absurd percentages (e.g. 342%). Added token-count fallback: if `used_tokens > 200K`, auto-detect as 1M context window.
+
+## [1.3.0] — 2026-04-13
+
+### Added
+- **CC native integration (Track A)**
+  - `TaskCompleted` hook — hard gate that blocks task completion without memo/result via `task_completed_gate.py`; exit 2 on missing progress records
+  - `TaskCreated` hook bridge — `cc_task_bridge.py` auto-mirrors CC native task creations into the OS task wall
+  - `PermissionDenied` hook with classifier — `permission_denied_recovery.py` calls new `POST /api/hooks/diagnose_denial` endpoint for 4-way decisions: `recoverable_with_retry`, `recoverable_with_workaround`, `needs_user_approval`, `permanent_denial`
+  - MCP tool `meta={"anthropic/maxResultSizeChars": 500000}` annotations on 8 data-heavy tools (`taskwall_view`, `task_list_project`, `report_list`, `report_read`, `event_list`, `meeting_read_messages`, `memory_search`, `team_knowledge`)
+  - `wake_agent` `--bare` + `--exclude-dynamic-system-prompt-sections` optimization — expected ~50% startup latency reduction with long prompt temp file fallback for Windows cmdline length limit
+
+- **Meeting system complete redesign (Track B)**
+  - `meeting_create` returns full `dispatch_plan[]` with ready-to-paste `Agent()` launch parameters, eliminating Leader impersonation by providing explicit spawn instructions per participant
+  - Structured `participants` input: `{name, agent_template, role, context_files, expected_output}` replaces legacy string list (backward compatible)
+  - `meeting_attendance_check(meeting_id)` — query spoken/pending participants per round with timeout tracking
+  - `meeting_send_message` new `caller_agent_id` parameter — impersonation audit; mismatched calls get `impersonation: true` metadata and event log entry
+  - `meeting_conclude` default `validate_attendance: true` — returns 400 with missing participant list when not all spoken; `force=true` bypasses but logs `meeting.forced_conclude_with_missing` event
+  - `Meeting.meta_json` persistent field stores `expected_participants` and round state
+
+- **Meeting templates migrated to Plugin Skills (Track C)**
+  - 8 templates moved from hardcoded `templates.py` dict (234 lines) to `plugin/skills/meeting-facilitate/templates/*.md` files (brainstorm/decision/review/retrospective/standup/debate/lean_coffee/council)
+  - Each template has YAML frontmatter with structured round data + markdown body (when to use / participant guide / anti-patterns)
+  - `templates.py` rewritten as lazy YAML loader (107 lines), backward-compatible API
+  - **User extensibility**: drop a new `.md` file to add custom meeting templates without touching Python code
+  - Uses CC's progressive disclosure pattern — templates only loaded when needed, zero token penalty
+  - Completely rewrote `plugin/skills/meeting-facilitate/SKILL.md` (355 lines) with 7-step lifecycle aligned to new dispatch_plan API, template selection matrix, 3 end-to-end scenarios, 7 anti-pattern warnings
+
+- **Context tracking via transcript parsing (Plan E)**
+  - New `context_tracker.py` hook on `UserPromptSubmit` — reads `transcript_path` from hook payload and extracts `usage.input_tokens` + cache tokens from the last assistant message in the session jsonl for 100% accurate context usage
+  - Automatic 1M context window detection via model identifier suffix (`[1m]`)
+  - Warns at `>=80%` (CONTEXT WARNING) and `>=90%` (CONTEXT CRITICAL) with token breakdown
+  - **Zero dependency on statusline** — works for plugin users who don't have our custom statusline installed
+  - **Natural project isolation** — transcript path itself encodes project identity, eliminating cross-project monitor file bugs
+
+- **Project auto-registration flow**
+  - New `POST /api/context/resolve` endpoint with exact/prefix/auto-create matching strategies
+  - `session_bootstrap.py` detects unregistered directories and injects registration prompt to Leader (non-blocking)
+  - New `dismiss_project_registration(cwd)` MCP tool — users can opt out; persisted to `~/.claude/data/ai-team-os/dismissed_projects.json`
+  - Fixes the bug where new project directories (e.g., `靖安笔试`, `repo-insight`) were never registered until manually triggered
+
+### Changed
+- **Task wall auto-sync in `workflow_reminder.py`**
+  - PreToolUse: extracts agent prompt + description, performs keyword matching against project task wall pending items, warns when Leader-dispatched work doesn't correspond to any wall task
+  - PostToolUse: new `_post_tool_taskwall_sync()` — Agent dispatch auto-updates matching task to `running`; completion SendMessage auto-updates to `completed`
+  - Narrowed report data directory warning to only `.claude/data/ai-team-os/reports/` paths (no more false positives on source code)
+
+- **Session bootstrap context engineering**
+  - Removed broken instruction to read `~/.claude/context-monitor.json` (file no longer maintained)
+  - New instruction: "hook has already monitored context; you only need to focus on task progression"
+  - Added project auto-registration prompt block when current cwd is unregistered
+
+- **Documentation updates**
+  - `README.md` / `README.zh-CN.md` reflects new meeting system and template architecture
+  - Skill docs reorganized per CC's progressive disclosure best practices
+
+### Fixed
+- **Distribution sync** — 4 hook scripts were out of sync between `src/aiteam/hooks/` and `plugin/hooks/` (missing `_get_api_url()`, project registration checks, task wall auto-sync). Plugin users would have experienced broken dynamic port detection and silent feature loss. All 4 files now byte-identical between dev and distribution copies.
+- **`meeting.py:103`** — `_build_dispatch_plan` return type annotation aligned with actual three-tuple return (added `legacy_warnings`)
+- **`context-monitor.json` cross-project pollution** — old `_find_monitor_file()` globbed all projects and picked most-recent by mtime, reading stale data from other sessions. Replaced entirely by `context_tracker.py` which uses `transcript_path.parent` for natural isolation.
+- **Scheduled task false warnings** — auto-wake prompt no longer reads a 9-day-old global `context-monitor.json` that falsely reported `<10%` regardless of actual usage
+
+### Removed
+- `src/aiteam/hooks/context_monitor.py` and `plugin/hooks/context_monitor.py` — replaced by `context_tracker.py`
+- Global `~/.claude/context-monitor.json` dependency — no longer read or written by OS
+
+## [1.2.1] — 2026-04-07
+
+### Added
+- **Report system database migration** — Reports now stored in SQLite database instead of filesystem; eliminates permission issues and enables project isolation
+- **ReportModel ORM** — New `reports` table with `project_id`, `author`, `topic`, `report_type`, `content` fields
+- **Report REST API** — `POST/GET/DELETE /api/reports` with `project_id`, `report_type`, `author` query filters
+- **Dashboard full project isolation** — All 9 dashboard pages now have project selector dropdowns:
+  - Reports: project selector + author filter
+  - Events & Failures: project_id query parameter in events API
+  - Meetings & Agent Board: frontend team.project_id filtering
+  - Analytics & Pipelines: project→team cascading selectors
+- **Task wall auto-sync** — `_post_tool_taskwall_sync()` in workflow_reminder: Agent dispatch auto-links to matching task wall item and updates status (pending→running→completed)
+- **PreToolUse task wall matching** — Keyword overlap check between Agent prompt and project task wall items; warns when work is not tracked on the wall
+- **Project cascade deletion** — `delete_project()` now cleans up 11 related tables: meetings, meeting_messages, tasks, agents, teams, phases, reports, briefings, memories, events, cross_messages
+
+### Changed
+- **`report_save` MCP tool** — Now calls `POST /api/reports` instead of writing files directly; no filesystem permission needed
+- **`report_list` MCP tool** — Now calls `GET /api/reports` with server-side filtering (report_type, author, topic)
+- **`report_read` MCP tool** — Now reads from database by report ID instead of filename
+- **Events API** — `list_events` endpoint accepts `project_id` query parameter; filters by project's team IDs
+- **Subagent context injection** — Strengthened report_save instruction: "reports must be saved via report_save tool (direct Write won't be tracked by OS)"
+- **Workflow reminder reports check** — Narrowed path matching to only `.claude/data/ai-team-os/reports/` data directories; no longer false-positives on source code files containing "reports"
+- **i18n** — Added `allProjects`, `filterType`, `types.*` keys for both English and Chinese
+
+### Fixed
+- `app.py` — `_dist_dir` NoneType crash when no dashboard dist directory found
+- `test_version_flag` — Updated assertion from `0.8.0` to `1.2.0`
+- `test_teamcreate_reminds_task` — Relaxed warning count assertion to `>= 1` (accommodates new active-team warning)
+- Report page couldn't switch categories or read reports — Complete rewrite with database backend
+- 155 legacy filesystem reports migrated to database via `scripts/migrate_reports.py`
+
+## [1.2.0] — 2026-04-05
+
+### Added
+- **Agent Watchdog heartbeat system** — `agent_heartbeat` / `watchdog_check` MCP tools with 5-minute TTL timeout detection, automatic identification of stuck agents
+- **SRE error budget model** — GREEN/YELLOW/ORANGE/RED four-level response, 20-task sliding window, `error_budget_status` / `error_budget_update` tools
+- **Completion verification protocol** — `verify_completion` checks task status + memo existence, prevents hallucinated completion reports
+- **Alembic incremental migration** — Full v1.1 schema migration file (trust_score / channel_messages / entity_id / state_snapshot, etc.)
+- **Ecosystem integration recipes documentation** — GitHub / Slack / Linear / full-stack team, 4 preset recipes (`docs/ecosystem-recipes.md`)
+- **`ecosystem_recipes()` MCP tool** — Integration recipe discovery and query
+- **MCP debug log enhancement** — Startup lock mechanism logging, API startup process now traceable
+- **Auto port discovery** — API server automatically finds an available port to avoid multi-project conflicts; port written to `api_port.txt` for sharing
+- **MCP HTTP Streamable endpoint** — `/mcp/` mounted on FastAPI (supplementary capability; CC connection remains stdio)
+- **INSTALL.md** — CC-assisted installation guide with venv detection logic
+- **PyPI 1.2.0 release** — `pip install ai-team-os` fetches the latest version
+
+### Changed
+- **Session bootstrap context engineering** — Rules reduced from 23 to 5 core rules (context injection reduced by 60%)
+- **Subagent context injection** — Added 60-line cap with priority-based auto-discard of low-priority content
+- **`_ensure_api_running` atomic startup lock** — Prevents multi-session port race conditions (`O_CREAT|O_EXCL` file lock)
+- **Hooks dynamically read API port** — Port sourced from `api_port.txt` instead of hardcoded 8000
+- **`__init__.py` version synced to 1.2.0**
+- **`pyproject.toml` metadata** — Added classifiers, keywords, and project URLs
+
+### Fixed
+- Alembic integration caused `_run_migrations` to be skipped — changed to always execute (idempotent safe)
+- Multiple CC sessions starting API simultaneously caused port conflicts — resolved with atomic file lock
+- StateReaper cascade-closing active meetings incorrectly closed meetings with recent messages — added recent message check
+- `_read_pid_file` threw `SystemError` on Windows — added catch
+- `install.py` uses `sys.executable` absolute path — fixes project venv hijacking hooks/MCP
+- `auto_install.py` installs from GitHub — ensures latest code when PyPI version lags
+- Startup lock 60-second TTL — prevents stale lock file from blocking startup after CC abnormal exit
+- MCP HTTP mount fix — lifespan passthrough + `path='/'` route + 308 redirect handling
+- Plugin marketplace 15 install bugs fixed — hooks switched to `${CLAUDE_PLUGIN_ROOT}` paths + restored `.py` scripts
+
+## [1.1.0] — 2026-04-05
+
+### Added
+- **Agent trust scoring system** — `trust_score` field (0-1), auto-adjusted on task success/failure, weighted matching in `auto_assign`, `agent_trust_scores` / `agent_trust_update` MCP tools
+- **Semantic cache layer** — BM25 + Jaccard similarity matching, JSON persistence, TTL expiration, `cache_stats` / `cache_clear` MCP tools
+- **Tool tiering definitions** — CORE (15 essential tools) vs ADVANCED (46 domain tools) classification, preparing for future context budget optimization
+
+### Changed
+- Added database index on `TaskModel.status` (query performance improvement)
+- `resolve_task_dependencies` uses batch IN query replacing per-row queries (N+1 optimization)
+- `detect_dependency_cycle` switched to BFS + batch query (large dependency graph performance optimization)
+- `task_list_project` pagination — added `limit` / `offset` / `include_completed` / `status` parameters
+
+### Fixed
+- `trust.py` error responses changed to `HTTPException` (previously returned raw dict)
+- `git_ops.py` sensitive file filter uses `basename` (avoids false positives when path contains keywords)
+- `channels.py` dead code removed
+- Pre-existing `test_check_for_updates_no_git_repo_silent` fix
+
+## [1.0.0] — 2026-04-05
+
+### Added
+- **Error type to recovery strategy mapping** — `_api_call` uniformly attaches `_recovery` and `_error_category`, auto-recommends recovery actions
+- **File lock / workspace isolation** — `file_lock_acquire` / `release` / `check` / `list` 4 MCP tools + TTL=300s + hook warning, prevents concurrent edit conflicts
+- **Channel messaging system** — `team:` / `project:` / `global` three channel formats + `@mention` support, `channel_send` / `channel_read` / `channel_mentions` MCP tools
+- **Execution pattern memory** — Success/failure pattern recording + BM25 retrieval + subagent context injection, `pattern_record` / `pattern_search` MCP tools
+- **Git automation tools** — `git_auto_commit` / `git_create_pr` / `git_status_check` MCP tools with automatic sensitive file filtering
+- **Guardrails L1** — 7 dangerous pattern detections + PII warning + `InputGuardrailMiddleware`, prevents destructive operations during unsupervised runs
+- **Alembic database migration system** — Initial revision + dual-path init (fresh / existing database), migration history trackable
+- **MCP debug logging system** — `~/.claude/data/ai-team-os/mcp-debug.log`, tool call chain observability
+
+### Changed
+- **Trap tool elimination** — `team_create` / `agent_register` description first line adds warning + `_warning` return value, prevents misuse
+- **`task_id` auto-injection** — Subagent context automatically carries current task_id, no manual passing required
+- **Enhanced task assignment** — `auto_assign` adds `completion_rate` + `trust_score` weighting, prioritizes reliable agents
+- **`inject_subagent_context` environment variable unification** — Unified to `AITEAM_API_URL`
+
+### Fixed
+- `context_monitor` reads project-level monitor file (not outdated global file)
+- Pre-existing `test_check_for_updates_no_git_repo_silent` fix
+
+### Tests
+- 28 cross-functional integration tests
+- Total test count: 769 (up from 389)
+
+## [0.9.0] — 2026-04-04
+
+### Added
+- **Prompt Registry** — Agent template version tracking + effectiveness statistics, 3 API endpoints + `prompt_version_list` / `prompt_effectiveness` MCP tools, linked with `failure_alchemy`
+- **BM25 search upgrade** — Chinese bigram + English word tokenization replacing simple keyword matching, 3-5x search quality improvement, graceful degradation (`jieba` optional dependency)
+- **Event log enhancement** — EventModel adds `entity_id` / `entity_type` / `state_snapshot` fields, automatic snapshot + entity filtering
+- **Debate mode** — 4-round structured debate (Advocate -> Critic -> Response -> Judge) + `debate_start` / `debate_code_review` MCP tools + 2 debate role templates
+- **3 Dashboard observability pages** — Pipeline visualization / Failure Analysis / Prompt Registry
+- **Agent template auto-install** — `install.py` auto-installs to `~/.claude/agents/` (default opus model)
+- **CC Marketplace submission** — Officially submitted to Anthropic Plugin Marketplace
+
+### Changed
+- **server.py modular split** — 3050-line monolith split into 57-line entry point + 14 tool modules + 2 base modules, significantly improved maintainability
+- **Session startup optimization** — 15-25s reduced to 1-2s: parallelization + async git check + reduced retry count
+- **workflow_reminder project isolation** — All API calls now include `X-Project-Id` header
+- **install.py refactor** — Supports multiple hook groups/events, auto-sets `AGENT_TEAMS` environment variable and `effortLevel` recommended config
+- **`_resolve_project_id` caching** — 5-minute TTL file cache, reduces HTTP calls from high-frequency hooks
+- **inject_subagent_context environment variable unification** — `AI_TEAM_OS_API` renamed to `AITEAM_API_URL`
+- **Test import path migration** — `plugin/hooks/` migrated to `aiteam.hooks` package imports
+
+### Fixed
+- workflow_reminder project-level task query missing `X-Project-Id` header (B1)
+- TeamDelete PUT request missing `X-Project-Id` header (B2)
+- Test file import paths broken (after plugin/hooks deletion)
+- `context_monitor` path fix — reads project-level file instead of outdated global file
+- statusline.py related deprecated tests cleaned up
+
+### Removed
+- **plugin/hooks/ dead code cleanup** — Deleted 11 obsolete `.py` / `.ps1` files, kept only `hooks.json` + `README`
+- **Duplicate agent template cleanup** — Deleted old `meeting-facilitator.md` and `tech-lead.md` (25 reduced to 23 templates)
+- **enforce_model hook removed** — Preserves user model selection flexibility
+- **Model setting removed from install.py** — No longer forces model configuration on new users
+
+## [0.8.0] — 2026-04-04
+
+### Added
+- **Cost tracking**: `tokens_input`/`tokens_output`/`cost_usd` on AgentActivity, `GET /api/analytics/token-costs`, `token_costs` MCP tool
+- **Execution trace**: `GET /api/tasks/{id}/execution-trace` unified timeline (events + memos), `task_execution_trace` MCP tool
+- **Agent live board**: `AgentLivePage` dashboard with status badges (busy/waiting/offline), 30s auto-refresh
+- **Failure auto-diagnosis**: `FailureAlchemist.diagnose_failure()`, `POST /api/tasks/{id}/diagnose`, `diagnose_task_failure` MCP tool
+- **Slack/webhook notifications**: `NotificationService`, EventBus auto-trigger, `GET/PUT/DELETE /api/settings/webhook`, `send_notification` MCP tool
+- **Pipeline parallel execution**: `parallel_with` field, completion gate, 4 new parallel tests (28 total)
+- **Execution replay engine**: `ReplayEngine` (get_replay + compare_executions), `task_replay`/`task_compare` MCP tools
+- **Cost budget & alerts**: weekly budget limit ($50 default), 80% alert threshold, `GET /api/analytics/budget`, `budget_status` MCP tool
+- **Leader Briefing page**: dual-layer tabs (project + status), project name badge, resolve/dismiss UI
+- **79 MCP tools** (was 72)
+
+### Fixed
+- **P0 API process management**: PID file replaces file lock, `_is_api_healthy()` replaces `_is_port_open()`, stuck process 15s auto-kill
+- **Universal project isolation**: `Repository._apply_project_filter()`, `X-Project-Id` header auto-injection from MCP
+- **Session bootstrap**: uses cwd-matched project (not `projects[0]`)
+- **Briefing list isolation**: uses scoped repository
+- **context-monitor**: per-project file isolation (no more cross-session overwrite)
+
+### Changed
+- **Hook scripts**: `python -m aiteam.hooks.*` module invocation (no file paths)
+- **Plugin hooks.json + .mcp.json**: unified python -m commands
+- **install.py**: module-based hooks, `~/.mcp.json` for cross-project MCP
+
+## [0.7.2] — 2026-04-02
+
+### Added
+- **MCP tools**: `project_update`, `project_delete`, `project_summary`, `task_subtasks`, `team_delete`, `briefing_dismiss` (72 total)
+- **Dashboard project revamp**: status badge (active/inactive), expandable detail rows, wake settings tab
+- **Project summary API**: `GET /api/projects/{id}/summary` — quick status + top tasks
+
+### Changed
+- **Project isolation redesigned**: removed per-project DB (dead code, -180 lines), unified `context_resolve()` with process-level cache
+- **SQLite WAL mode**: enabled via engine event listener for multi-session concurrency
+- **Disabled auto project registration**: SessionStart no longer creates projects automatically, prompts user to register via `project_create`
+- **context_resolve()**: removed dangerous `projects[0]` fallback, returns None when no match
+
+### Fixed
+- Multi-session DB lock: SQLite `journal_mode=WAL` + `busy_timeout=10s` prevents concurrent write failures
+- Data backfill: 272 orphan agents, 57 tasks, 72 meetings assigned to correct projects
+- Garbage project cleanup: removed 6 auto-created projects, deduplicated quant project
+- Dashboard `ProjectSwitcher` dropdown removed (was navigating to blank page)
+- Wake agent `--output-format stream-json` error removed (incompatible with `-p` flag)
+- Wake circuit breaker: only counts real failures (error/timeout), not skips
+
+## [0.7.1] — 2026-04-02
+
+### Added
+- **Leader Briefing system** — decision escalation for autonomous operation
+  - DB table `leader_briefings` + Pydantic model + ORM
+  - 3 MCP tools: `briefing_add`, `briefing_list`, `briefing_resolve`
+  - API endpoints: GET/POST `/api/leader-briefings`, PUT `/{id}/resolve`, PUT `/{id}/dismiss`
+  - Leader records pending decisions during autonomous work, user reviews on return
+- **Auto-wake via CronCreate** — SessionStart bootstrap injects CronCreate instruction
+  - Every 3 minutes, Leader auto-checks task wall and pushes work autonomously
+  - Escalates decisions via `briefing_add`, reports pending items when user returns
+- **install.py** — one-command setup for hooks, MCP, and verification
+  - `python scripts/install.py` — full install (hooks + MCP + settings.json)
+  - `python scripts/install.py --check` — verify 9 hooks, MCP, API, package
+  - `python scripts/install.py --uninstall` — remove config, preserve data
+
+## [0.7.0] — 2026-04-02
+
+### Added
+- **Wake Agent Scheduler** — auto-wake agents via `claude -p` subprocess
+  - WakeAgentManager: subprocess lifecycle (communicate + 2-phase kill)
+  - WakeSession data model + ORM + 7 repository CRUD methods
+  - 7-layer security: array args, UUID validation, per-agent lock, global semaphore (max=2), circuit breaker, prompt/data XML separation, env cleanup
+  - Triage pre-check: skip wake if agent has no actionable tasks (~70% skip rate)
+  - Kill switch API: `PUT /wake-pause-all`, `PUT /wake-resume-all`
+  - StateReaper integration (fire-and-forget + graceful shutdown)
+  - allowedTools presets: safe (no Bash) / with_bash (explicit opt-in)
+- **CronCreate session wake** — verified CC built-in cron for waking current session
+- 20 unit tests for wake_manager (all passing)
+- Wake session outcome tracking (completed/timeout/error/fused/skipped_triage)
+
+### Fixed
+- `context_resolve()` auto-project selection: match by cwd to root_path instead of blindly picking first project
+- Hook path encoding: moved hook scripts to ASCII path (`~/.claude/plugins/ai-team-os/hooks/`)
+- Hook exempt list: added claude-code-guide, tdd-guide, refactor-cleaner to non-blocking agent types
+- `valid_actions` in scheduler route: added "wake_agent" (was missing, blocked API creation)
+- Semaphore private API access (`_value`) replaced with `locked()`
+- Circuit breaker: only count real failures (error/timeout), not skips
+- `duration_seconds` now correctly calculated and recorded
+- `shutdown()` dict iteration safety (snapshot values before cancel)
+- Global MCP config: added `cwd` field for cross-directory availability
+- Data migration: 19 tasks + 1 team moved from wrong project to correct one
+
+### Changed
+- `_clean_env()` switched from whitelist to blacklist strategy (inherit all, exclude secrets)
+- Plugin manifest: added `hooks` field pointing to `hooks/hooks.json`
+- Plugin `.mcp.json`: local dev mode uses `python -m aiteam.mcp.server` with `cwd`
+
+## [0.6.0] — 2026-03-22
+
+### Added
+- Workflow orchestration pipeline (7 templates, auto phase progression)
+- Pipeline enforcement: task_type parameter + progressive blocking
+- Cross-project messaging system (v1, single machine)
+- Auto-update mechanism (scripts/update.py)
+- Team cleanup reminder (SessionStart + Rule 15)
+- Self-contained install (hooks copied to ~/.claude/hooks/)
+- CC Plugin package structure
+- Uninstall script (scripts/uninstall.py)
+- Dashboard: activity table + decision timeline enhancement
+
+### Fixed
+- Global MCP: ~/.claude.json (not settings.json)
+- Install dependencies (fastapi, uvicorn, fastmcp now required)
+- SessionStart API retry (3 attempts for timing issue)
+- B0.9 noise reduction (remind once then every 10 calls)
+- Windows UTF-8 encoding in all hook scripts
+
+## [0.5.0] — 2026-03-22
+
+### Added
+- Cross-project messaging system (2 MCP tools + 4 API endpoints + global DB)
+- Auto-update mechanism (scripts/update.py + install.py --update)
+- SessionStart 24h-cooldown update checker
+- Self-contained install: hooks copied to ~/.claude/hooks/ai-team-os/
+- Global MCP registration in ~/.claude/settings.json
+
+### Changed
+- Install reduced to 3 steps (API auto-starts with MCP, no manual startup)
+
+## [0.4.0] — 2026-03-21
+
+### Added
+- Per-project database isolation (Phase 1-4)
+- EnginePool with LRU cache for multi-DB management
+- ProjectContextMiddleware (X-Project-Dir header routing)
+- Migration script: split global DB by project_id
+- StateReaper + Watchdog multi-DB adaptation
+- Dashboard project switcher
+- install.py: full onboarding (hooks + agents + MCP + verification)
+- GET /api/health endpoint
+
+### Fixed
+- Windows UTF-8 encoding in all hook scripts (gbk to utf-8)
+- Team templates reference actual agent template names
+
+## [0.3.0] — 2026-03-21
+
+### Added
+- Workflow enforcement: Rule 2 task wall check + template reminder
+- Local agent blocking (B0.4): all non-readonly agents must have team_name
+- Council meeting template (3-round multi-perspective expert review)
+- Meeting auto-select: keyword matching across 8 templates
+- Meeting cascade close on team shutdown
+- find_skill MCP tool with 3-layer progressive loading
+- task_update MCP tool + PUT /api/tasks/{id}
+- 6 new MCP tools (total: 55)
+- 467+ tests
+
+### Fixed
+- S1 safety regex catches uppercase -R flag
+- S1 heredoc false positive
+- Rule 7 task wall timer initialization
+- Meeting expiry 2h to 45min
+- B0.9 infrastructure tools exempt from delegation counter
+
+## [0.2.0] — 2026-03-20
+
+### Added
+- LoopEngine with AWARE cycle
+- Task wall with score ranking + kanban
+- Scheduler system (periodic tasks)
+- React Dashboard (6 pages)
+- Meeting system with 7 templates
+- 26 agent templates across 7 categories
+- Failure alchemy (antibody + vaccine + catalyst)
+- What-if analysis
+- i18n support (zh/en)
+- R&D monitoring system (10 sources)
+
+## [0.1.0] — 2026-03-12
+
+### Added
+- MCP server with FastAPI backend
+- CC Hooks integration (7 lifecycle events)
+- Team/agent/task/project management
+- SQLite storage with async repository
+- Session bootstrap with behavioral rule injection
+- Event bus + decision logging
+- Memory search

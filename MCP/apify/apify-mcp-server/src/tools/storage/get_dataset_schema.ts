@@ -1,0 +1,119 @@
+import dedent from 'dedent';
+import { z } from 'zod';
+
+import { HELPER_TOOLS } from '../../const.js';
+import type { InternalToolArgs, ToolDescriptionContext, ToolEntry, ToolInputSchema } from '../../types.js';
+import { ALL_TOOLS_PRESENT, TOOL_TYPE } from '../../types.js';
+import { compileSchema } from '../../utils/ajv.js';
+import { stripQuoteWrappers } from '../../utils/generic.js';
+import { respondServerError, respondUserError } from '../../utils/mcp.js';
+import { generateSchemaFromItems } from '../../utils/schema_generation.js';
+import { datasetSchemaOutputSchema } from '../structured_output_schemas.js';
+import { buildStorageResponse, catchNotFound, resolveSiblingNextStep } from './storage_helpers.js';
+
+const getDatasetSchemaArgs = z.object({
+    datasetId: z.string().min(1).describe('Dataset ID or username~dataset-name.'),
+    limit: z.number().describe('Maximum number of items to use for schema generation. Default is 5.').default(5),
+    clean: z
+        .boolean()
+        .describe('If true, uses only non-empty items and skips hidden fields (starting with #). Default is true.')
+        .default(true),
+});
+
+function buildDescription({ hasTool }: ToolDescriptionContext): string {
+    const alternatives = [
+        hasTool(HELPER_TOOLS.DATASET_GET) ? HELPER_TOOLS.DATASET_GET : '',
+        hasTool(HELPER_TOOLS.DATASET_GET_ITEMS) ? HELPER_TOOLS.DATASET_GET_ITEMS : '',
+    ]
+        .filter(Boolean)
+        .join(' or ');
+    return dedent`
+        Generate a JSON schema inferred from a sample of dataset items — field names and types.
+        Not the full field list, item counts, or stats${hasTool(HELPER_TOOLS.DATASET_GET) ? ` — use ${HELPER_TOOLS.DATASET_GET} for those` : ''}.
+        The schema can be used for validation, documentation, or processing.
+
+        Do not use for metadata, stats, or fetching rows${alternatives ? ` — use ${alternatives}` : ''}.
+
+        USAGE:
+        - Use when the user asks for a JSON schema or to infer structure/shape from a sample.
+
+        USAGE EXAMPLES:
+        - user_input: Generate schema for dataset 34das2 using 10 items
+        - user_input: Show schema of username~my-dataset (clean items only)`;
+}
+
+/**
+ * Generates a JSON schema from dataset items
+ */
+export const getDatasetSchema: ToolEntry = Object.freeze({
+    type: TOOL_TYPE.INTERNAL,
+    name: HELPER_TOOLS.DATASET_SCHEMA_GET,
+    title: 'Get dataset schema',
+    description: buildDescription(ALL_TOOLS_PRESENT),
+    buildDescription,
+    inputSchema: z.toJSONSchema(getDatasetSchemaArgs) as ToolInputSchema,
+    outputSchema: datasetSchemaOutputSchema,
+    ajvValidate: compileSchema(z.toJSONSchema(getDatasetSchemaArgs)),
+    paymentRequired: true,
+    annotations: {
+        title: 'Get dataset schema',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+    },
+    call: async (toolArgs: InternalToolArgs) => {
+        const { args, apifyClient: client, loadedToolNames } = toolArgs;
+        const parsed = getDatasetSchemaArgs.parse(args);
+        const datasetId = stripQuoteWrappers(parsed.datasetId);
+
+        const datasetResponse = await catchNotFound(
+            client.dataset(datasetId).listItems({ clean: parsed.clean, limit: parsed.limit }),
+        );
+
+        if (!datasetResponse) {
+            return respondUserError(`Dataset '${datasetId}' not found.`);
+        }
+
+        const datasetItems = datasetResponse.items;
+
+        if (datasetItems.length === 0) {
+            // No items to infer from, but still emit a schema-conforming response (empty schema =
+            // "any") rather than bare text. Under clean=true, items=[] does not mean empty: a dataset
+            // whose items hold only #-prefixed or empty fields is filtered out entirely, which `total`
+            // (counted before the filter) tells apart from a truly empty one.
+            const isCleanFiltered = parsed.clean && datasetResponse.total > 0;
+            const checkStats = `${HELPER_TOOLS.DATASET_GET} with datasetId=${datasetId} to check itemCount and stats.`;
+            const summary = isCleanFiltered
+                ? `Dataset '${datasetId}' returned no items with clean=true, which skips empty items and hidden (#) fields; no schema to infer.`
+                : `Dataset '${datasetId}' is empty; no schema to infer.`;
+            const cleanFalseFact = 'clean=false includes those items.';
+            const nextStep = resolveSiblingNextStep(
+                HELPER_TOOLS.DATASET_GET,
+                loadedToolNames,
+                isCleanFiltered ? `${cleanFalseFact} Use ${checkStats}` : `Use ${checkStats}`,
+                isCleanFiltered ? cleanFalseFact : undefined,
+            );
+            return buildStorageResponse({ structuredContent: { datasetId, schema: {} }, summary, nextStep });
+        }
+
+        const schema = generateSchemaFromItems(datasetItems, {
+            limit: parsed.limit,
+            clean: parsed.clean,
+        });
+
+        if (!schema) {
+            // A schema-generation failure is a server/processing error, not a user error.
+            return respondServerError(`Failed to generate schema for dataset '${datasetId}'.`);
+        }
+
+        const fieldCount = Object.keys(schema.items.properties ?? {}).length;
+        const summary = `Schema inferred from ${datasetItems.length} ${datasetItems.length === 1 ? 'item' : 'items'}, ${fieldCount} ${fieldCount === 1 ? 'field' : 'fields'}.`;
+        const nextStep = resolveSiblingNextStep(
+            HELPER_TOOLS.DATASET_GET_ITEMS,
+            loadedToolNames,
+            `Use ${HELPER_TOOLS.DATASET_GET_ITEMS} with datasetId=${datasetId} and fields="..." to project specific fields.`,
+        );
+        return buildStorageResponse({ structuredContent: { datasetId, schema }, summary, nextStep });
+    },
+} as const);

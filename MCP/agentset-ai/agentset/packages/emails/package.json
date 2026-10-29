@@ -1,0 +1,40 @@
+{
+  "name": "@agentset/emails",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./env": "./src/env.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "dev:emails": "email dev -p 3001 --dir ./src/templates",
+    "export": "email export --dir ./src/templates",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "@react-email/components": "^1.0.1",
+    "@react-email/render": "^1.0.1",
+    "@t3-oss/env-nextjs": "catalog:",
+    "react": "catalog:react19",
+    "react-dom": "catalog:react19",
+    "resend": "^6.7.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@agentset/eslint-config": "workspace:*",
+    "@agentset/prettier-config": "workspace:*",
+    "@agentset/tsconfig": "workspace:*",
+    "@react-email/preview-server": "5.0.7",
+    "@types/react": "catalog:react19",
+    "@types/react-dom": "catalog:react19",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "react-email": "^5.0.7",
+    "typescript": "catalog:"
+  },
+  "prettier": "@agentset/prettier-config"
+}

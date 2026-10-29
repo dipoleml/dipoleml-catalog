@@ -1,0 +1,16 @@
+node_modules/
+design-extract-output/
+test-output/
+*.log
+.DS_Store
+.vercel/
+.vercel
+.npmrc
+
+# Internal planning, never push
+STRATEGY.md
+NOTES.md
+PLAN.md
+.planning/
+.engram/
+.env*.local

@@ -1,0 +1,549 @@
+"""Async HTTP fetcher with timeout, retry, rate limiting, and circuit breaker integration.
+
+All external HTTP calls in world-intel-mcp go through this module.
+Stale-data fallback: when an API call fails, the last-known-good cached
+response is returned (marked with _stale=True) so dashboards never go blank.
+Source modules that rebuild their response drop that marker, so every
+stale serve is also appended to the caller's ``recording_stale_serves()``
+log, which the collector reads per source run.
+"""
+
+import asyncio
+import contextlib
+import contextvars
+import logging
+import os
+import re
+import sqlite3
+import time
+from dataclasses import dataclass
+from typing import Any, Callable, Iterator
+
+import httpx
+
+from . import shared_floor
+from .cache import Cache
+from .circuit_breaker import CircuitBreaker
+
+logger = logging.getLogger("world-intel-mcp.fetcher")
+
+# Yahoo Finance requires serialized access (600ms gap)
+_yahoo_lock = asyncio.Lock()
+_yahoo_last_call: float = 0.0
+_YAHOO_MIN_INTERVAL = 0.6  # seconds
+
+# Per-source rate limits (min seconds between calls).
+# Sources not listed here have no enforced limit.
+_SOURCE_RATE_LIMITS: dict[str, float] = {
+    "nominatim": 1.1,  # OSM usage policy: absolute max 1 req/sec
+    "ripestat": 1.0,
+    "yahoo-finance": 0.6,  # unofficial — ~100 req/min safe
+    "opensky": 6.0,  # free tier: 10 req/min
+    "coingecko": 2.0,  # free tier: 30 calls/min
+    "cloudflare-radar": 3.0,  # 20 req/min
+    "reddit": 1.5,  # ~60 req/min (be conservative)
+    "nasa-firms": 2.0,  # API key: ~1000 req/day
+    "adsblol": 5.0,  # community API — be very polite
+    "polymarket": 1.0,  # be polite
+    "faa": 1.0,  # govt API
+    "usgs": 1.0,  # generous but be polite
+    "acled": 2.0,  # API key based
+    "nga": 2.0,  # govt API
+    "sec-edgar": 1.0,  # SEC EDGAR — be polite
+    "fred-graph": 1.0,  # fred.stlouisfed.org robots.txt: Crawl-delay: 1
+    # adsb.lol globe_history heatmaps are ~14 MB each; one at a time,
+    # spaced, so a cold baseline never bursts the community server.
+    "adsblol-history": 2.0,
+    # GDELT DOC API 429 body (2026-10-17): "Please limit requests to one
+    # every 5 seconds". Every GDELT caller passes source="gdelt".
+    "gdelt": 5.0,
+}
+
+
+@dataclass(frozen=True)
+class BinaryResult:
+    """Outcome of :meth:`Fetcher.get_bytes`.
+
+    ``status`` is the final HTTP status (None when no response arrived),
+    ``content`` the body on 2xx, ``error`` a short reason otherwise. A
+    404 is reported as ``status=404`` with no error so callers can tell
+    "not published (yet)" apart from "the fetch failed"; a 404 rejected
+    by ``accept_404`` carries an error like any failed fetch. ``location``
+    is the absolute redirect target when ``follow_redirects=False`` and the
+    URL answered with a redirect (which was not requested).
+    """
+
+    status: int | None
+    content: bytes | None
+    error: str | None = None
+    location: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.content is not None
+
+
+# Query parameters whose values are credentials. httpx puts the full
+# request URL in its error text, so a failed keyed request would otherwise
+# carry the key into logs and returned error strings.
+_SECRET_PARAMS = (
+    "api_key|apikey|app_key|appid|key|token|access_token|auth|password|secret|client_secret"
+)
+_SECRET_QUERY_RE = re.compile(rf"(?i)([?&](?:{_SECRET_PARAMS})=)[^&#\s'\"]+")
+# The same names as dict keys, as they appear in a cache key built from params.
+_SECRET_DICT_RE = re.compile(rf"(?i)(['\"](?:{_SECRET_PARAMS})['\"]\s*:\s*['\"])[^'\"]*")
+# Environment variables holding credentials; their values are masked wherever
+# they appear, which covers keys carried in a URL path (NASA FIRMS).
+_SECRET_ENV_RE = re.compile(r"(?i)(KEY|TOKEN|SECRET|PASSWORD)$")
+_MASK = "***"
+
+
+def redact(text: object) -> str:
+    """``str(text)`` with credential values masked.
+
+    Masks the values of credential-named query parameters and dict keys,
+    and any value (8+ characters) of an environment variable whose name
+    ends in KEY, TOKEN, SECRET or PASSWORD.
+    """
+    out = str(text)
+    for name, value in os.environ.items():
+        if len(value) >= 8 and _SECRET_ENV_RE.search(name) and value in out:
+            out = out.replace(value, _MASK)
+    out = _SECRET_QUERY_RE.sub(rf"\g<1>{_MASK}", out)
+    return _SECRET_DICT_RE.sub(rf"\g<1>{_MASK}", out)
+
+
+@dataclass(frozen=True)
+class StaleServe:
+    """One expired cache entry served because the live fetch failed."""
+
+    source: str
+    cache_key: str
+    age_seconds: float
+
+
+# The logs of every recording_stale_serves() block active in this context.
+# asyncio tasks inherit a copy of the context, so a task started inside a
+# block (asyncio.gather of sub-fetches) appends to the same lists.
+_STALE_SERVE_LOGS: contextvars.ContextVar[tuple[list[StaleServe], ...]] = (
+    contextvars.ContextVar("world_intel_stale_serve_logs", default=())
+)
+
+
+@contextlib.contextmanager
+def recording_stale_serves() -> Iterator[list[StaleServe]]:
+    """Collect the stale-cache serves made while the block runs.
+
+    Scoped to the current task and the tasks it starts, so concurrent
+    callers (one per collector source, one per MCP tool call) each see
+    only their own serves, whatever ``source`` name the fetches used.
+    Blocks nest: an outer block also sees an inner block's serves. A
+    caller that awaits a fetch another task started does not see that
+    task's serves.
+    """
+    served: list[StaleServe] = []
+    outer = _STALE_SERVE_LOGS.get()
+    reset_point = _STALE_SERVE_LOGS.set(outer + (served,))
+    try:
+        yield served
+    finally:
+        _STALE_SERVE_LOGS.reset(reset_point)
+
+
+_source_locks: dict[str, asyncio.Lock] = {}
+_source_last_call: dict[str, float] = {}
+
+
+class Fetcher:
+    """Centralized HTTP fetcher with caching, retries, and circuit breaking."""
+
+    def __init__(
+        self,
+        cache: Cache,
+        breaker: CircuitBreaker,
+        default_timeout: float = 15.0,
+        max_retries: int = 2,
+        client: httpx.AsyncClient | None = None,
+        vector_store: Any = None,
+    ):
+        self.cache = cache
+        self.breaker = breaker
+        self.default_timeout = default_timeout
+        self.max_retries = max_retries
+        self._client: httpx.AsyncClient | None = client
+        self.vector_store = vector_store  # VectorStore instance (optional)
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.default_timeout),
+                follow_redirects=True,
+                limits=httpx.Limits(max_connections=200, max_keepalive_connections=40),
+                headers={"User-Agent": "PhoenixAGI-WorldIntel/0.1"},
+                proxy=None,  # never inherit system SOCKS proxy
+            )
+        return self._client
+
+    async def close(self) -> None:
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json: Any = None,
+        content: str | bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = 15.0,
+    ) -> httpx.Response:
+        """Outbound POST for operator-configured sinks (webhooks).
+
+        Deliberately outside the get_json machinery: no caching, no
+        retries, no circuit breaking, no rate floor — the target is the
+        operator's own endpoint and delivery/failure semantics belong
+        to the caller. Raises whatever httpx raises.
+        """
+        client = await self._get_client()
+        return await client.post(
+            url, json=json, content=content, headers=headers, timeout=timeout
+        )
+
+    async def get_json(
+        self,
+        url: str,
+        source: str,
+        cache_key: str | None = None,
+        cache_ttl: int = 300,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        yahoo_rate_limit: bool = False,
+    ) -> dict | list | None:
+        """Fetch JSON with caching, circuit breaking, and retries.
+
+        Args:
+            url: Target URL.
+            source: Source name for circuit breaker tracking.
+            cache_key: Cache key. If None, uses url+params hash.
+            cache_ttl: Cache TTL in seconds.
+            headers: Extra HTTP headers.
+            params: Query parameters.
+            timeout: Per-request timeout override.
+            yahoo_rate_limit: If True, enforce Yahoo Finance 600ms serialization.
+
+        Returns:
+            Parsed JSON or None on failure.
+        """
+        # Check cache (live)
+        effective_key = cache_key or f"{source}:{url}:{params}"
+        cached = self.cache.get(effective_key)
+        if cached is not None:
+            return cached
+
+        # Check circuit breaker — fall back to stale data if open
+        if not self.breaker.is_available(source):
+            logger.debug("Circuit open for %s, trying stale cache", source)
+            return self._stale_fallback(effective_key, source)
+
+        # Fetch with retries
+        client = await self._get_client()
+        last_error: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            if yahoo_rate_limit:
+                await self._yahoo_throttle()
+            await self._source_throttle(source)
+            try:
+                resp = await client.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=timeout or self.default_timeout,
+                )
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "")
+                if "html" in content_type and "json" not in content_type:
+                    raise ValueError(
+                        f"Expected JSON but got HTML from {source} ({url})"
+                    )
+                data = resp.json()
+                if not isinstance(data, (dict, list)):
+                    raise ValueError(
+                        f"Expected dict/list from {source}, got {type(data).__name__}"
+                    )
+                self.breaker.record_success(source)
+                self.cache.set(effective_key, data, cache_ttl)
+                if self.vector_store:
+                    await self.vector_store.store(source, data)
+                return data
+            except (httpx.HTTPStatusError, httpx.RequestError, Exception) as exc:
+                last_error = exc
+                if attempt < self.max_retries:
+                    wait = min(2**attempt, 30)
+                    if (
+                        isinstance(exc, httpx.HTTPStatusError)
+                        and exc.response.status_code == 429
+                    ):
+                        # A 429 asks for slower requests: never retry sooner
+                        # than the source's own floor (GDELT: 5 s).
+                        wait = max(wait, _SOURCE_RATE_LIMITS.get(source, 0.0))
+                    logger.debug(
+                        "Retry %d/%d for %s (%s), waiting %.1fs",
+                        attempt + 1,
+                        self.max_retries,
+                        source,
+                        redact(exc),
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+
+        # All retries failed — try stale cache before giving up
+        self.breaker.record_failure(source)
+        logger.warning(
+            "Fetch failed for %s: %s (url=%s)", source, redact(last_error), redact(url)
+        )
+        return self._stale_fallback(effective_key, source)
+
+    async def get_text(
+        self,
+        url: str,
+        source: str,
+        cache_key: str | None = None,
+        cache_ttl: int = 300,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> str | None:
+        """Fetch raw text with caching and circuit breaking."""
+        effective_key = cache_key or f"{source}:text:{url}:{params}"
+        cached = self.cache.get(effective_key)
+        if cached is not None:
+            return cached
+
+        if not self.breaker.is_available(source):
+            return self._stale_fallback(effective_key, source)
+
+        client = await self._get_client()
+        last_error: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            await self._source_throttle(source)
+            try:
+                resp = await client.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=timeout or self.default_timeout,
+                )
+                resp.raise_for_status()
+                text = resp.text
+                self.breaker.record_success(source)
+                self.cache.set(effective_key, text, cache_ttl)
+                return text
+            except (httpx.HTTPStatusError, httpx.RequestError, Exception) as exc:
+                last_error = exc
+                if attempt < self.max_retries:
+                    await asyncio.sleep(min(2**attempt, 30))
+
+        self.breaker.record_failure(source)
+        logger.warning("Text fetch failed for %s: %s", source, redact(last_error))
+        return self._stale_fallback(effective_key, source)
+
+    async def get_xml(
+        self,
+        url: str,
+        source: str,
+        cache_key: str | None = None,
+        cache_ttl: int = 300,
+        timeout: float | None = None,
+    ) -> str | None:
+        """Fetch XML content (returns raw text for feedparser/ET parsing)."""
+        return await self.get_text(url, source, cache_key, cache_ttl, timeout=timeout)
+
+    async def get_bytes(
+        self,
+        url: str,
+        source: str,
+        headers: dict[str, str] | None = None,
+        timeout: float | None = None,
+        max_bytes: int = 256 * 1024 * 1024,
+        *,
+        accept_404: Callable[[bytes], bool] | None = None,
+        follow_redirects: bool = True,
+    ) -> BinaryResult:
+        """Fetch a binary body with rate limiting, retries and circuit breaking.
+
+        Not cached here: binary payloads (multi-MB) do not belong in the
+        SQLite TTL cache, so callers own any on-disk caching. A 404 is a
+        definitive answer (not retried, not a breaker failure). The body
+        is read as it arrives and refused as soon as its decoded size
+        passes ``max_bytes``, so no more than ``max_bytes`` plus one
+        decoded network read is held (one 64 KiB read of gzip can decode
+        to about 64 MiB). With ``follow_redirects=False`` a redirect is
+        also a definitive answer, and its target is never requested.
+
+        ``accept_404`` (a predicate on the 404 body that must not raise)
+        separates the API's own "not found" from a 404 sent by something
+        in front of it, such as a proxy error page. A 404 it rejects is
+        handled like any other HTTP error: retried, then counted as a
+        breaker failure and returned as ``BinaryResult(404, None, error)``.
+        Without it, every 404 is a definitive answer. A 404 body is read
+        for it only up to ``max_bytes``; a longer one counts as rejected.
+
+        The result (see BinaryResult), by outcome:
+
+        - body: ``status`` 2xx, ``content`` the decoded body.
+        - 404: ``status`` 404, ``content`` None, ``error`` None.
+        - redirect not followed: ``status`` 3xx, ``content`` None,
+          ``error`` "redirect to <location> not followed", ``location``
+          the absolute target. ``location`` is None in every other case.
+        - over the cap: ``status`` 2xx, ``content`` None, ``error``
+          "body exceeds cap <max_bytes>: stopped after <n> decoded bytes".
+        - failure (HTTP or transport error after the retries, or an open
+          circuit): ``status`` the last status or None, ``content`` None,
+          ``error`` a one-line reason.
+        """
+        if not self.breaker.is_available(source):
+            return BinaryResult(None, None, f"circuit open for {source}")
+
+        client = await self._get_client()
+        last_error = "unknown error"
+        last_status: int | None = None
+
+        async def read_capped(resp: httpx.Response) -> tuple[bytes | None, int]:
+            chunks: list[bytes] = []
+            size = 0
+            async with contextlib.aclosing(resp.aiter_bytes()) as decoded:
+                async for chunk in decoded:
+                    size += len(chunk)
+                    if size > max_bytes:
+                        return None, size
+                    chunks.append(chunk)
+            return b"".join(chunks), size
+
+        for attempt in range(self.max_retries + 1):
+            await self._source_throttle(source)
+            try:
+                async with client.stream(
+                    "GET",
+                    url,
+                    headers=headers,
+                    timeout=timeout or self.default_timeout,
+                    follow_redirects=follow_redirects,
+                ) as resp:
+                    last_status = resp.status_code
+                    if not follow_redirects and resp.next_request is not None:
+                        location = str(resp.next_request.url)
+                        self.breaker.record_success(source)
+                        return BinaryResult(
+                            resp.status_code, None, f"redirect to {location} not followed", location
+                        )
+                    if resp.status_code == 404:
+                        if accept_404 is None:
+                            self.breaker.record_success(source)
+                            return BinaryResult(404, None, None)
+                        not_found, _ = await read_capped(resp)
+                        if not_found is not None and accept_404(not_found):
+                            self.breaker.record_success(source)
+                            return BinaryResult(404, None, None)
+                    resp.raise_for_status()
+                    body, size = await read_capped(resp)
+                self.breaker.record_success(source)
+                if body is None:
+                    return BinaryResult(
+                        last_status,
+                        None,
+                        f"body exceeds cap {max_bytes}: stopped after {size} decoded bytes",
+                    )
+                return BinaryResult(last_status, body, None)
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                last_error = redact(f"{type(exc).__name__}: {exc}")
+                if attempt < self.max_retries:
+                    await asyncio.sleep(min(2**attempt, 30))
+
+        self.breaker.record_failure(source)
+        logger.warning(
+            "Binary fetch failed for %s: %s (url=%s)", source, last_error, redact(url)
+        )
+        return BinaryResult(last_status, None, last_error)
+
+    def _stale_fallback(self, cache_key: str, source: str) -> Any | None:
+        """Return stale (expired) cached data as last-known-good fallback.
+
+        Per the module docstring's promise, dict responses are marked with
+        ``_stale=True`` and ``_stale_age_seconds`` so a caller (dashboard,
+        MCP tool consumer) can tell arbitrarily old data from a fresh
+        response instead of receiving it silently. Non-dict responses
+        (raw text/XML, lists) can't carry an inline marker the same way,
+        so the circuit breaker's per-source stale-serve count is the
+        signal there. Every serve, whatever its type, is also appended to
+        each active ``recording_stale_serves()`` log.
+        """
+        meta = self.cache.get_stale_meta(cache_key)
+        if meta is None:
+            return None
+        value, created_at = meta
+        age_seconds = max(0.0, time.time() - created_at)
+        logger.info(
+            "Serving stale cache for %s (key=%s, age=%.0fs)",
+            source,
+            redact(cache_key),
+            age_seconds,
+        )
+        serve = StaleServe(source, cache_key, round(age_seconds, 1))
+        for log in _STALE_SERVE_LOGS.get():
+            log.append(serve)
+        if isinstance(value, dict):
+            value["_stale"] = True
+            value["_stale_age_seconds"] = round(age_seconds, 1)
+        self.breaker.record_stale_serve(source)
+        return value
+
+    async def _source_throttle(self, source: str) -> None:
+        """Enforce per-source rate limit from _SOURCE_RATE_LIMITS."""
+        min_interval = _SOURCE_RATE_LIMITS.get(source)
+        if min_interval is None:
+            return
+        if source not in _source_locks:
+            _source_locks[source] = asyncio.Lock()
+        async with _source_locks[source]:
+            now = time.time()
+            last = _source_last_call.get(source, 0.0)
+            elapsed = now - last
+            if elapsed < min_interval:
+                await asyncio.sleep(min_interval - elapsed)
+            if source in shared_floor.SHARED_SOURCES:
+                await self._shared_floor_wait(source, min_interval)
+            _source_last_call[source] = time.time()
+
+    async def _shared_floor_wait(self, source: str, min_interval: float) -> None:
+        """Wait out another process's reserved slot (see ``shared_floor``)."""
+        db_path = getattr(self.cache, "db_path", None)
+        if not isinstance(db_path, (str, os.PathLike)):
+            return
+        try:
+            slot = await asyncio.to_thread(
+                shared_floor.reserve, db_path, source, min_interval
+            )
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning(
+                "Cross-process %s floor unavailable (%s); spacing this process only",
+                source,
+                exc,
+            )
+            return
+        wait = slot - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+    async def _yahoo_throttle(self) -> None:
+        """Enforce Yahoo Finance rate limit (600ms between calls)."""
+        global _yahoo_last_call
+        async with _yahoo_lock:
+            now = time.time()
+            elapsed = now - _yahoo_last_call
+            if elapsed < _YAHOO_MIN_INTERVAL:
+                await asyncio.sleep(_YAHOO_MIN_INTERVAL - elapsed)
+            _yahoo_last_call = time.time()

@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.samanhappy.mcphub",
+  "type": "mcp",
+  "name": "Mcphub",
+  "slug": "mcphub",
+  "vendor": "samanhappy",
+  "description": "Self-hosted MCP gateway and control plane for connecting, controlling, and operating MCP servers.",
+  "version": "dev",
+  "homepage": "https://github.com/samanhappy/mcphub",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "mcp-gateway",
+    "mcp-hub",
+    "mcp-router"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-gateway",
+    "mcp-hub",
+    "mcp-router",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "samanhappy",
+    "brandName": "samanhappy",
+    "source": "https://github.com/samanhappy.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:35Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "samanhappy/mcphub",
+    "url": "https://github.com/samanhappy/mcphub",
+    "commit": "267cdb9603cbb5924859274a6eff4bb44790a544",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 2594,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:11Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@samanhappy/mcphub"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "bin/cli.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "@samanhappy/mcphub"
+    ],
+    "env": [
+      "MCPHUB_CREDENTIAL_ENCRYPTION_KEY"
+    ],
+    "credentials": [
+      "MCPHUB_CREDENTIAL_ENCRYPTION_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

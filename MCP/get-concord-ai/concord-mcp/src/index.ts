@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+import { startBackgroundAdapterCheck } from './adapter-check.js';
+import { writeArtifacts } from './artifacts/index.js';
+import { cloudSessionFor, connectCloud, createCloudProxyServer } from './cloud/proxy.js';
+import { LINKED_MACHINE_MESSAGE, linkedMachine } from './cloud/target.js';
+import { startBackgroundUpdateCheck } from './update-notifier.js';
+import { resolveCheckoutRoot, resolveRepoRoot } from './config/paths.js';
+import { resolveIdentity } from './domain/identity.js';
+import { createServer } from './server.js';
+import { ensureAgentRegistered } from './tools/register-agent.js';
+import { createTelemetryClient } from './telemetry/client.js';
+import { TelemetryTransport } from './telemetry/transport.js';
+import { VERSION } from './version.js';
+import { hasExplicitRepoRoot, joinClientRoot } from './workspaces/client-roots.js';
+import { WorkspaceManager } from './workspaces/manager.js';
+
+async function main(): Promise<void> {
+  const repoRoot = resolveRepoRoot(process.cwd(), process.env);
+  // One server process per session, with the session id in its environment, so
+  // this agent's identity is known before the transport connects — and it is the
+  // same id the relay CLI derives for the same session.
+  const kind = process.env['CONCORD_AGENT_KIND']?.trim();
+  const identity = resolveIdentity(process.env, kind !== undefined && kind !== '' ? { kind } : {});
+
+  // A machine linked to Concord Cloud works through it everywhere: no local
+  // database, and no telemetry from this package for operations that are not local.
+  const cloud = cloudSessionFor(
+    repoRoot,
+    process.env,
+    identity,
+    resolveCheckoutRoot(process.cwd(), process.env),
+  );
+  // Before the cloud branch: adapters are installed on this machine either way.
+  const adapterCheck = startBackgroundAdapterCheck(identity, process.env);
+  if (cloud !== undefined) {
+    const proxy = createCloudProxyServer(cloud, () => connectCloud(cloud));
+    await proxy.connect(new StdioServerTransport());
+    return;
+  }
+
+  const workspaceManager = WorkspaceManager.fromEnvironment(repoRoot, process.env, {
+    // Started unlinked, this server outlives a later `cloud login`; from then
+    // on it opens no further local store, which no cloud agent could reach.
+    refuseOpen: () =>
+      linkedMachine(process.env) === undefined ? undefined : LINKED_MACHINE_MESSAGE,
+  });
+  if (identity !== undefined) {
+    ensureAgentRegistered(workspaceManager.current().repos, identity, repoRoot);
+  }
+  const updateCheck = startBackgroundUpdateCheck(VERSION, process.env);
+  const telemetry = createTelemetryClient({
+    surface: 'mcp',
+    workspaceRoot: () => workspaceManager.activeRoot,
+    recordSessionStarted: true,
+  });
+  const server = createServer(workspaceManager.current().repos, {
+    workspaceManager,
+    ...(identity === undefined ? {} : { identity }),
+    getAvailableUpdate: updateCheck.getAvailableUpdate,
+    getAdapterNotice: adapterCheck.getNotice,
+    ...(telemetry === undefined ? {} : { telemetry }),
+    onToolWrite: (workspace) => {
+      if (workspace !== undefined) {
+        writeArtifacts(workspace.concordPath, workspace.repos);
+      }
+    },
+  });
+  if (!hasExplicitRepoRoot(process.env)) {
+    // Nothing names the repository, so this server may have been started far
+    // from it; ask the client which folder it has open.
+    server.server.oninitialized = () => {
+      joinClientRoot(server.server, workspaceManager)
+        .then((joined) => {
+          if (joined !== undefined && identity !== undefined) {
+            ensureAgentRegistered(workspaceManager.current().repos, identity, joined.repoRoot);
+          }
+        })
+        .catch(() => {
+          // The working directory stays the workspace, as before.
+        });
+    };
+  }
+  const stdio = new StdioServerTransport();
+  const transport = telemetry === undefined ? stdio : new TelemetryTransport(stdio, telemetry);
+  process.once('beforeExit', () => {
+    void telemetry?.close();
+  });
+  await server.connect(transport);
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write(`concord-mcp failed to start: ${String(error)}\n`);
+  process.exitCode = 1;
+});

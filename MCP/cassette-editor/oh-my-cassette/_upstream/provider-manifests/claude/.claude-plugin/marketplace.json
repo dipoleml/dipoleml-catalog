@@ -1,0 +1,27 @@
+{
+  "name": "cassette-editor",
+  "description": "Video editing through the Cassette agent for Claude Code, Codex, OpenCode and Hermes.",
+  "owner": {
+    "name": "Oh My Cassette contributors",
+    "url": "https://github.com/Cassette-Editor/oh-my-cassette"
+  },
+  "plugins": [
+    {
+      "name": "oh-my-cassette",
+      "description": "Import local media, drive the Cassette editing agent turn by turn, read the timeline, export.",
+      "source": {
+        "source": "github",
+        "repo": "Cassette-Editor/oh-my-cassette",
+        "ref": "v0.6.0"
+      },
+      "version": "0.6.0",
+      "category": "productivity",
+      "tags": [
+        "video-editing",
+        "media",
+        "mcp",
+        "cassette"
+      ]
+    }
+  ]
+}

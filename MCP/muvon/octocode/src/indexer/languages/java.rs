@@ -1,0 +1,417 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Java language implementation for the indexer
+
+use crate::indexer::languages::Language;
+use tree_sitter::Node;
+
+pub struct Java {}
+
+impl Language for Java {
+	fn name(&self) -> &'static str {
+		"java"
+	}
+
+	fn get_ts_language(&self) -> tree_sitter::Language {
+		tree_sitter_java::LANGUAGE.into()
+	}
+
+	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
+		vec![
+			// Individual method-level constructs (following pattern from other languages)
+			"method_declaration",
+			"constructor_declaration",
+			// Removed: "class_declaration" - too large, not semantic
+			// Removed: "interface_declaration" - too large, not semantic
+			// Removed: "enum_declaration" - too large, not semantic
+			// Individual methods inside classes/interfaces/enums will be captured separately
+			"annotation_type_declaration", // Keep for small annotation definitions
+			"record_declaration",          // Java 14+ - usually small and semantic
+			// Single-line statements that will be merged by smart merging
+			"import_declaration",
+			"package_declaration",
+			"field_declaration",
+			// Lambda expressions and method references for modern Java
+			"lambda_expression",
+			"method_reference",
+		]
+	}
+
+	fn descend_first_kinds(&self) -> Vec<&'static str> {
+		// `record_declaration`'s body uses the same `class_body` production as
+		// `class_declaration` (excluded from meaningful kinds), so a record
+		// with explicit methods/a compact constructor currently becomes one
+		// oversized block. Descend first so those are chunked individually;
+		// fall back to the whole node for a plain data record with only
+		// implicit accessors and no explicit methods.
+		vec!["record_declaration"]
+	}
+
+	fn get_symbol_kinds(&self) -> Vec<&'static str> {
+		// Symbol tier restores the type containers chunking excludes and drops
+		// non-symbol noise: field_declaration would name the symbol after its
+		// TYPE (first matching child), and lambdas/imports declare no symbol.
+		vec![
+			"class_declaration",
+			"interface_declaration",
+			"enum_declaration",
+			"record_declaration",
+			"annotation_type_declaration",
+			"method_declaration",
+			"constructor_declaration",
+		]
+	}
+
+	fn extract_declaration_name(&self, node: Node, contents: &str) -> Option<String> {
+		// The default child scan would match a method's RETURN TYPE
+		// (type_identifier precedes the name), so use the grammar's `name`
+		// field — every symbol kind above declares one.
+		node.child_by_field_name("name")
+			.and_then(|name| name.utf8_text(contents.as_bytes()).ok())
+			.map(str::to_string)
+	}
+
+	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
+		let mut symbols = Vec::new();
+
+		match node.kind() {
+			"class_declaration"
+			| "interface_declaration"
+			| "enum_declaration"
+			| "annotation_type_declaration"
+			| "record_declaration" => {
+				// Extract class/interface/enum/annotation/record name
+				if let Some(name) = super::extract_symbol_by_kind(node, contents, "identifier") {
+					symbols.push(name);
+				}
+			}
+			"method_declaration" | "constructor_declaration" => {
+				// Extract method or constructor name
+				if let Some(name) = super::extract_symbol_by_kind(node, contents, "identifier") {
+					symbols.push(name);
+				}
+				// Surface the enclosing class/interface/enum/record name so
+				// "Foo.bar" queries can resolve the method via BM25/dense.
+				if let Some(owner) = super::find_enclosing_container_name(
+					node,
+					contents,
+					&[
+						"class_declaration",
+						"interface_declaration",
+						"enum_declaration",
+						"record_declaration",
+						"annotation_type_declaration",
+					],
+					&["identifier"],
+				) {
+					symbols.push(owner);
+				}
+			}
+			"lambda_expression" => {
+				// For lambda expressions, mark as lambda
+				symbols.push("<lambda>".to_string());
+			}
+			"method_reference" => {
+				// For method references, extract the referenced method if possible
+				if let Ok(method_ref) = node.utf8_text(contents.as_bytes()) {
+					symbols.push(method_ref.to_string());
+				}
+			}
+			_ => {
+				// For other nodes, don't recurse to avoid infinite loops
+				// Just try to extract direct identifiers if this is an identifier node
+				if node.kind() == "identifier" {
+					if let Ok(name) = node.utf8_text(contents.as_bytes()) {
+						symbols.push(name.to_string());
+					}
+				}
+			}
+		}
+
+		super::deduplicate_symbols(&mut symbols);
+		symbols
+	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"import_declaration" => {
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					// Clean up import statement. Must trim whitespace between
+					// "import" and "static" before checking for the "static" prefix,
+					// otherwise `import static ...` never has "static" stripped.
+					let after_import = import_text
+						.trim()
+						.strip_prefix("import")
+						.unwrap_or(import_text)
+						.trim_start();
+					let import_path = after_import
+						.strip_prefix("static")
+						.map(str::trim_start)
+						.unwrap_or(after_import)
+						.trim_end_matches(';')
+						.trim();
+					if !import_path.is_empty() {
+						imports.push(import_path.to_string());
+					}
+				}
+			}
+			"package_declaration" => {
+				// Package declaration defines the current module's namespace
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "scoped_identifier" || child.kind() == "identifier" {
+						if let Ok(package_name) = child.utf8_text(contents.as_bytes()) {
+							exports.push(format!("package:{}", package_name));
+							break;
+						}
+					}
+				}
+			}
+			"class_declaration"
+			| "interface_declaration"
+			| "enum_declaration"
+			| "annotation_type_declaration"
+			| "record_declaration" => {
+				// Check if this is a public declaration (exported)
+				let mut is_public = false;
+				let mut type_name = String::new();
+
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "modifiers" {
+						if let Ok(modifiers_text) = child.utf8_text(contents.as_bytes()) {
+							if modifiers_text.contains("public") {
+								is_public = true;
+							}
+						}
+					} else if child.kind() == "identifier" {
+						if let Ok(name) = child.utf8_text(contents.as_bytes()) {
+							type_name = name.to_string();
+						}
+					}
+				}
+
+				if is_public && !type_name.is_empty() {
+					let type_kind = match node.kind() {
+						"class_declaration" => "class",
+						"interface_declaration" => "interface",
+						"enum_declaration" => "enum",
+						"annotation_type_declaration" => "annotation",
+						"record_declaration" => "record",
+						_ => "type",
+					};
+					exports.push(format!("{}:{}", type_kind, type_name));
+				}
+			}
+			"method_declaration" => {
+				// Check if this is a public method (exported)
+				let mut is_public = false;
+				let mut method_name = String::new();
+
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "modifiers" {
+						if let Ok(modifiers_text) = child.utf8_text(contents.as_bytes()) {
+							if modifiers_text.contains("public") {
+								is_public = true;
+							}
+						}
+					} else if child.kind() == "identifier" {
+						if let Ok(name) = child.utf8_text(contents.as_bytes()) {
+							method_name = name.to_string();
+						}
+					}
+				}
+
+				if is_public && !method_name.is_empty() {
+					exports.push(format!("method:{}", method_name));
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Java-specific equivalences for better merging
+		// Keep this simple to avoid infinite recursion
+		match (type1, type2) {
+			// Single-line statements that should be merged together
+			("import_declaration", "package_declaration") | ("package_declaration", "import_declaration") => true,
+			("field_declaration", "import_declaration") | ("import_declaration", "field_declaration") => true,
+			("field_declaration", "package_declaration") | ("package_declaration", "field_declaration") => true,
+			// Same types are equivalent
+			("field_declaration", "field_declaration") => true,
+			("import_declaration", "import_declaration") => true,
+			("package_declaration", "package_declaration") => true,
+			// Methods and constructors should NOT be merged - keep them separate
+			// annotation_type_declaration and record_declaration should NOT be merged
+			// Default: exact match only
+			_ => type1 == type2,
+		}
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"class_declaration" => "Java class definition",
+			"interface_declaration" => "Java interface definition",
+			"enum_declaration" => "Java enum definition",
+			"method_declaration" => "Java method definition",
+			"constructor_declaration" => "Java constructor definition",
+			"field_declaration" => "Java field declaration",
+			"annotation_type_declaration" => "Java annotation type definition",
+			"record_declaration" => "Java record definition (Java 14+)",
+			"import_declaration" => "Java import statement",
+			"package_declaration" => "Java package declaration",
+			"lambda_expression" => "Java lambda expression",
+			"method_reference" => "Java method reference",
+			_ => "Java code element",
+		}
+	}
+
+	fn extract_identifiers(&self, node: Node, contents: &str, java_files: &mut Vec<String>) {
+		super::extract_identifiers_default(node, contents, java_files, |kind, text| {
+			// Include identifiers with length > 1 (avoid single-char variables)
+			kind == "identifier" && text.len() > 1
+		});
+	}
+
+	fn extract_function_calls(&self, node: Node, contents: &str) -> Vec<super::CallTarget> {
+		match node.kind() {
+			"method_invocation" => {
+				let Some(name_node) = node.child_by_field_name("name") else {
+					return Vec::new();
+				};
+				let Ok(name) = name_node.utf8_text(contents.as_bytes()) else {
+					return Vec::new();
+				};
+				let raw = node
+					.child_by_field_name("object")
+					.and_then(|object| object.utf8_text(contents.as_bytes()).ok())
+					.map(|object| format!("{}.{}", object, name))
+					.unwrap_or_else(|| name.to_string());
+				super::extract_call_target(&raw).into_iter().collect()
+			}
+			"object_creation_expression" => {
+				// new Foo() → extract type name
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "type_identifier" || child.kind() == "generic_type" {
+						if let Ok(text) = child.utf8_text(contents.as_bytes()) {
+							return super::extract_call_target(text).into_iter().collect();
+						}
+					}
+				}
+				Vec::new()
+			}
+			_ => Vec::new(),
+		}
+	}
+
+	fn extract_type_relations(&self, node: Node, contents: &str) -> Vec<(super::TypeRelationKind, String)> {
+		let mut out = Vec::new();
+		match node.kind() {
+			// `class Foo extends Bar implements I, J { }`
+			"class_declaration" => {
+				let mut cursor = node.walk();
+				for child in node.children(&mut cursor) {
+					match child.kind() {
+						"superclass" => {
+							collect_java_clause_types(child, contents, super::TypeRelationKind::Extends, &mut out);
+						}
+						"super_interfaces" => {
+							collect_java_clause_types(child, contents, super::TypeRelationKind::Implements, &mut out);
+						}
+						_ => {}
+					}
+				}
+			}
+			// `interface A extends B, C { }`
+			"interface_declaration" => {
+				let mut cursor = node.walk();
+				for child in node.children(&mut cursor) {
+					if child.kind() == "extends_interfaces" {
+						collect_java_clause_types(child, contents, super::TypeRelationKind::Extends, &mut out);
+					}
+				}
+			}
+			// `enum Foo implements Bar { }` / `record Point(...) implements Shape { }`
+			"enum_declaration" | "record_declaration" => {
+				let mut cursor = node.walk();
+				for child in node.children(&mut cursor) {
+					if child.kind() == "super_interfaces" {
+						collect_java_clause_types(child, contents, super::TypeRelationKind::Implements, &mut out);
+					}
+				}
+			}
+			_ => {}
+		}
+		out
+	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		_current_file: &str,
+		java_files: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		// Wildcard imports (e.g. java.util.*) cannot resolve to a single file
+		if import_path.ends_with('*') {
+			return None;
+		}
+		// Convert dotted path to file path: com.example.MyClass -> com/example/MyClass.java
+		if import_path.contains('.') {
+			let candidate = format!("{}.java", import_path.replace('.', "/"));
+			// Only return if the file actually exists in the project
+			return java_files
+				.get_all_files()
+				.iter()
+				.find(|f| f.ends_with(&candidate))
+				.cloned();
+		}
+		None
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["java"]
+	}
+}
+
+/// Pull `type_identifier` / `generic_type` names from a `superclass`,
+/// `super_interfaces`, `extends_interfaces`, or similar clause.
+fn collect_java_clause_types(
+	clause: Node,
+	contents: &str,
+	kind: super::TypeRelationKind,
+	out: &mut Vec<(super::TypeRelationKind, String)>,
+) {
+	let mut cursor = clause.walk();
+	for child in clause.children(&mut cursor) {
+		match child.kind() {
+			"type_identifier" | "generic_type" | "scoped_type_identifier" => {
+				if let Ok(text) = child.utf8_text(contents.as_bytes()) {
+					if let Some(name) = super::simple_type_name(text) {
+						out.push((kind, name));
+					}
+				}
+			}
+			"type_list" | "interface_type_list" => {
+				// Some grammar versions wrap interfaces in a list node.
+				collect_java_clause_types(child, contents, kind, out);
+			}
+			_ => {}
+		}
+	}
+}

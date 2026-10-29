@@ -1,0 +1,17 @@
+{
+  "skill": "ecto-constraint-debug",
+  "should_trigger": [
+    "Unique constraint error on users email",
+    "Foreign key constraint violation when deleting",
+    "Check constraint failing on product prices table",
+    "Constraint violation in my Ecto test, need to fix the root cause",
+    "Database trigger conflicting with unique constraint, need to check migration"
+  ],
+  "should_not_trigger": [
+    "How do I add a unique constraint to my schema?",
+    "Scan my code for N+1 queries",
+    "Best practices for designing Ecto schemas",
+    "My app has a database error during deployment",
+    "Help me design referential integrity for users"
+  ]
+}

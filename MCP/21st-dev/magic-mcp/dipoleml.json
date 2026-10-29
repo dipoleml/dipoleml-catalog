@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.21st-dev.magic-mcp",
+  "type": "mcp",
+  "name": "Magic MCP",
+  "slug": "magic-mcp",
+  "vendor": "21st-dev",
+  "description": "It's like v0, but in your Cursor / DipoleML / Windsurf: search 10,000+ React/Tailwind components, generate new UI with AI, and publish your own — right from your editor. Magic MCP is now the 21st MCP; this package keeps old configs working. Setup: 21st.dev/mcp",
+  "version": "1.0.1",
+  "homepage": "https://github.com/21st-dev/magic-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "21st",
+    "cursor",
+    "model-context-protocol",
+    "react",
+    "tailwindcss",
+    "ui-components"
+  ],
+  "tags": [
+    "21st",
+    "claude",
+    "cursor",
+    "mcp",
+    "model-context-protocol",
+    "react",
+    "tailwindcss",
+    "ui-components"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "21st-dev",
+    "brandName": "21st-dev",
+    "source": "https://github.com/21st-dev.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "21st-dev/magic-mcp",
+    "url": "https://github.com/21st-dev/magic-mcp",
+    "commit": "6b5299e8a83ceffa73d4fc4e148905bb3eeeeb55",
+    "path": "",
+    "license": "ISC",
+    "licenseClass": "green",
+    "stars": 6291,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Magic MCP | It's like v0, but in your Cursor / Claude Code / Windsurf: search 10,000+ React/Tailwind components, generate new UI with AI, and publish your own — right from your editor. Magic MCP is now the 21st MCP; this package keeps old configs working. Setup: 21st.dev/mcp",
+        "after": "Magic MCP | It's like v0, but in your Cursor / DipoleML / Windsurf: search 10,000+ React/Tailwind components, generate new UI with AI, and publish your own — right from your editor. Magic MCP is now the 21st MCP; this package keeps old configs working. Setup: 21st.dev/mcp",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://21st.dev/api/mcp",
+      "transport": "http",
+      "command": "21st"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@21st-dev/magic"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "@21st-dev/magic"
+    ],
+    "env": [
+      "YOUR_21ST_API_KEY",
+      "API_KEY",
+      "TWENTY_FIRST_API_KEY",
+      "API_KEY_21ST"
+    ],
+    "credentials": [
+      "YOUR_21ST_API_KEY",
+      "API_KEY",
+      "TWENTY_FIRST_API_KEY",
+      "API_KEY_21ST"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:ISC",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

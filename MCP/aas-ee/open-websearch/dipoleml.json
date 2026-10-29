@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.aas-ee.open-websearch",
+  "type": "mcp",
+  "name": "Open Websearch",
+  "slug": "open-websearch",
+  "vendor": "aas-ee",
+  "description": "Multi-engine MCP server, CLI, and local daemon for agent web search and content retrieval — skill-guided workflows, no API keys.",
+  "version": "2.2.0",
+  "homepage": "https://github.com/Aas-ee/open-webSearch",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "aas-ee",
+    "brandName": "aas-ee",
+    "source": "https://github.com/Aas-ee.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:35Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Aas-ee/open-webSearch",
+    "url": "https://github.com/Aas-ee/open-webSearch",
+    "commit": "fb11fd94df736819a0d2765bf7645224f98b2c6b",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1879,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "open-websearch"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "open-websearch"
+    ],
+    "env": [
+      "PROXY_URL",
+      "GITHUB_TOKEN"
+    ],
+    "credentials": [
+      "GITHUB_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+import { connectionScopedArgsShape, DBOperationArgs, MongoDBToolBase } from "../../mongodbTool.js";
+import type { ToolArgs, ToolResult } from "@mongodb-js/mcp-core";
+import type { OperationType } from "@mongodb-js/mcp-types";
+import { escapeMarkdown } from "../../helpers/escapeMarkdown.js";
+import { z } from "zod";
+
+const DropDatabaseOutputSchema = {
+    database: z.string(),
+    dropped: z.boolean(),
+};
+
+export type DropDatabaseOutput = z.infer<z.ZodObject<typeof DropDatabaseOutputSchema>>;
+
+const DropDatabaseArgsShapeVariants = connectionScopedArgsShape(DBOperationArgs);
+
+export class DropDatabaseTool extends MongoDBToolBase {
+    static toolName = "drop-database";
+    public description = "Removes the specified database, deleting the associated data files";
+    public argsShape(): typeof DropDatabaseArgsShapeVariants.preconfigured {
+        return this.selectConnectionScopedArgsShape(DropDatabaseArgsShapeVariants);
+    }
+    public override outputSchema(): typeof DropDatabaseOutputSchema {
+        return DropDatabaseOutputSchema;
+    }
+    static operationType: OperationType = "delete";
+
+    protected async execute({
+        connectionId,
+        database,
+    }: ToolArgs<ReturnType<typeof this.argsShape>>): Promise<ToolResult<ReturnType<typeof this.outputSchema>>> {
+        const provider = await this.resolveConnection(connectionId);
+        const result = await provider.dropDatabase(database);
+
+        return {
+            content: [
+                {
+                    text: `${result.ok ? "Successfully dropped" : "Failed to drop"} the requested database.`,
+                    type: "text",
+                },
+            ],
+            structuredContent: {
+                database,
+                dropped: Boolean(result.ok),
+            },
+        };
+    }
+
+    protected getConfirmationMessage({ database }: ToolArgs<ReturnType<typeof this.argsShape>>): string {
+        return (
+            `You are about to drop the **${escapeMarkdown(database)}** database:\n\n` +
+            "This operation will permanently remove the database and ALL its collections, documents, and indexes.\n\n" +
+            "**Do you confirm the execution of the action?**"
+        );
+    }
+}

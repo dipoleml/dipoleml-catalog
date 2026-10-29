@@ -1,0 +1,122 @@
+import type { CallToolResult, OperationType, ToolExecutionContext } from "@mongodb-js/mcp-types";
+import { AtlasLocalToolBase, type IAtlasLocalConfig } from "../../atlasLocalTool.js";
+import type { ToolArgs, ToolResult } from "@mongodb-js/mcp-core";
+import { CommonArgs } from "@mongodb-js/mcp-core";
+import type { Client, CreateDeploymentOptions, Deployment } from "@mongodb-js/atlas-local";
+import { AtlasLocalDeploymentNotReadyError, waitForConnectionString } from "../../connectionString.js";
+import { z } from "zod";
+
+const CreateDeploymentOutputSchema = {
+    deploymentName: z.string(),
+    containerId: z.string(),
+    loadSampleData: z.boolean(),
+    imageTag: z.string(),
+};
+
+export type CreateDeploymentOutput = z.infer<z.ZodObject<typeof CreateDeploymentOutputSchema>>;
+
+// Loading sample data downloads several hundred MBs of seed data inside the
+// container before it becomes healthy. Without a bound, a stalled download or
+// a dead container makes createDeployment hang forever (CLOUDP-459388), so
+// bound the native wait-until-healthy loop when sample data is requested.
+const WAIT_UNTIL_HEALTHY_TIMEOUT_WITH_SAMPLE_DATA_SECONDS = 480;
+
+const CreateDeploymentArgsShape = {
+    deploymentName: CommonArgs.asciiOnlyString().describe("Name of the deployment to create").optional(),
+    loadSampleData: z.boolean().describe("Load sample data into the deployment").optional().default(false),
+    imageTag: z
+        .string()
+        .describe("Atlas Local image tag: 'preview', 'latest', or a semver (e.g. '8.0.0'). Default: 'preview'.")
+        .optional()
+        .default("preview"),
+};
+
+export class CreateDeploymentTool extends AtlasLocalToolBase {
+    static toolName = "atlas-local-create-deployment";
+    public description =
+        "Create a MongoDB Atlas local deployment. Default image is preview. When the user does not specify an image tag, inform them that preview is used by default and provide this link for more information: https://hub.docker.com/r/mongodb/mongodb-atlas-local";
+    static operationType: OperationType = "create";
+    public argsShape(): typeof CreateDeploymentArgsShape {
+        return CreateDeploymentArgsShape;
+    }
+
+    public override outputSchema(): typeof CreateDeploymentOutputSchema {
+        return CreateDeploymentOutputSchema;
+    }
+
+    protected async executeWithAtlasLocalClient(
+        { deploymentName, loadSampleData, imageTag }: ToolArgs<ReturnType<typeof this.argsShape>>,
+        { client }: { client: Client; context: ToolExecutionContext<IAtlasLocalConfig> }
+    ): Promise<ToolResult<typeof CreateDeploymentOutputSchema> & Pick<CallToolResult, "_meta">> {
+        const deploymentOptions: CreateDeploymentOptions = {
+            name: deploymentName,
+            creationSource: {
+                type: "MCPServer",
+                source: "MCPServer",
+            },
+            loadSampleData,
+            imageTag,
+            ...(loadSampleData
+                ? {
+                      waitUntilHealthy: true,
+                      waitUntilHealthyTimeout: WAIT_UNTIL_HEALTHY_TIMEOUT_WITH_SAMPLE_DATA_SECONDS,
+                  }
+                : {}),
+            ...(this.server.config.voyageApiKey ? { voyageApiKey: this.server.config.voyageApiKey } : {}),
+            doNotTrack: !this.server.telemetry.isTelemetryEnabled(),
+        };
+        // Create the deployment
+        const deployment = await client.createDeployment(deploymentOptions);
+
+        // createDeployment returns once the container is healthy, but Docker may
+        // not have published port bindings yet. Block until connect can succeed.
+        const resolvedDeploymentName = deployment.name ?? deploymentName;
+        let stillStarting = false;
+        if (resolvedDeploymentName) {
+            try {
+                await waitForConnectionString({ client, deploymentName: resolvedDeploymentName });
+            } catch (error: unknown) {
+                if (error instanceof AtlasLocalDeploymentNotReadyError) {
+                    stillStarting = true;
+                } else {
+                    throw error;
+                }
+            }
+        }
+
+        const structuredContent = this.buildStructuredContent(deployment, {
+            deploymentName: resolvedDeploymentName ?? "",
+            loadSampleData,
+            imageTag,
+        });
+
+        const startingNote = stillStarting
+            ? " The deployment is still initializing; if atlas-local-connect-deployment fails, wait a few seconds and try connecting again."
+            : "";
+
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: `Deployment with container ID "${deployment.containerId}" and name "${deployment.name}" created (imageTag: ${imageTag}).${startingNote}`,
+                },
+            ],
+            structuredContent,
+            _meta: {
+                ...(await this.lookupTelemetryMetadata(client, deployment.containerId)),
+            },
+        };
+    }
+
+    private buildStructuredContent(
+        deployment: Deployment,
+        args: { deploymentName: string; loadSampleData: boolean; imageTag: string }
+    ): CreateDeploymentOutput {
+        return {
+            deploymentName: args.deploymentName,
+            containerId: deployment.containerId,
+            loadSampleData: args.loadSampleData,
+            imageTag: args.imageTag,
+        };
+    }
+}

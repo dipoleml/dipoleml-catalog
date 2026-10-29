@@ -1,0 +1,35 @@
+enum ConnectionType {
+  NOTION
+  GOOGLE_DRIVE
+  DROPBOX
+  ONE_DRIVE
+}
+
+enum ConnectionStatus {
+  PENDING
+  CONNECTED
+  FAILED
+  REVOKED
+}
+
+model Connection {
+  id   String @id @default(cuid())
+  name String
+
+  type   ConnectionType
+  status ConnectionStatus @default(PENDING)
+
+  statusDetails     String?
+  clientRedirectUrl String?
+
+  /// [ConnectionConfig]
+  config Json?
+
+  namespaceId String
+  namespace   Namespace @relation(fields: [namespaceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("connection")
+}

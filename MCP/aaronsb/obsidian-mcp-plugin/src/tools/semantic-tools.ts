@@ -1,0 +1,979 @@
+import { Debug } from '../utils/debug';
+import { ObsidianAPI } from '../utils/obsidian-api';
+import { SemanticRouter } from '../semantic/router';
+import { SemanticRequest } from '../types/semantic';
+import { ObsidianImageFile } from '../types/obsidian';
+import { DataviewTool, isDataviewToolAvailable } from './dataview-tool';
+import { formatResponse } from '../formatters';
+
+/**
+ * Per-action parameter validation for destructive vault actions.
+ *
+ * The input schema is assembled per OPERATION, not per action —
+ * `getParametersForOperation(operation)` returns the union of every parameter
+ * any action of that tool might take. So `mode`, `overwrite`, `path1` and the
+ * rest are schema-valid on every `vault` call regardless of which action is
+ * requested, and each handler simply reads the parameters it needs and ignores
+ * the rest.
+ *
+ * That silence is affordable on a read. It is not affordable on a write. An
+ * ignored parameter means the caller believes something untrue about the
+ * command they invoked, and on a destructive action that belief gets acted on
+ * before anyone can notice it was wrong. Two real cases:
+ *
+ *   vault.update + mode: 'append'    -> file replaced. The caller wanted
+ *                                       edit.append and did not know it existed.
+ *   vault.update + overwrite: false  -> file replaced, despite an explicit
+ *                                       instruction not to. `overwrite` belongs
+ *                                       to move/copy.
+ *
+ * Both returned success. Neither left a diff. This rejects instead, and names
+ * the action the parameter actually belongs to, so a wrong assumption becomes a
+ * signpost rather than a silent overwrite.
+ *
+ * Deliberately narrow: only the destructive `vault` actions are gated. Read
+ * paths are left permissive, where a stray parameter costs nothing and a false
+ * positive would break working callers.
+ */
+const DESTRUCTIVE_ACTION_PARAMS: Record<string, readonly string[]> = {
+  'vault.update': ['path', 'content'],
+  'vault.create': ['path', 'content'],
+  'vault.delete': ['path'],
+};
+
+/** Accepted on every action, so never counted as inapplicable. */
+const UNIVERSAL_PARAMS: readonly string[] = ['action', 'raw'];
+
+/**
+ * Where a misplaced parameter actually belongs, keyed by parameter name.
+ * Covers every `vault` parameter plus the `edit` parameters a caller reaching
+ * for a partial edit is most likely to send by mistake.
+ */
+const PARAM_OWNER_HINTS: Record<string, string> = {
+  // The two that motivated this check.
+  mode: "'mode' applies to vault.concatenate (joining two FILES via path1/path2) and to edit.at_line (before/after/replace). To append TEXT to a file use edit.append; for partial replacement use edit.patch or edit.window.",
+  overwrite: "'overwrite' applies to vault.move and vault.copy. vault.update always replaces the entire file contents. To modify part of a file use edit.patch or edit.window.",
+
+  // vault: move / copy / rename
+  destination: "'destination' applies to vault.move, vault.copy and vault.combine.",
+  newName: "'newName' applies to vault.rename.",
+
+  // vault: concatenate / combine
+  path1: "'path1' and 'path2' apply to vault.concatenate.",
+  path2: "'path1' and 'path2' apply to vault.concatenate.",
+  paths: "'paths' applies to vault.combine.",
+  separator: "'separator' applies to vault.combine and vault.concatenate.",
+  includeFilenames: "'includeFilenames' applies to vault.combine.",
+  sortBy: "'sortBy' and 'sortOrder' apply to vault.combine.",
+  sortOrder: "'sortBy' and 'sortOrder' apply to vault.combine.",
+
+  // vault: split
+  splitBy: "'splitBy' applies to vault.split.",
+  level: "'level' applies to vault.split with splitBy='heading'.",
+  delimiter: "'delimiter' applies to vault.split with splitBy='delimiter'.",
+  linesPerFile: "'linesPerFile' applies to vault.split with splitBy='lines'.",
+  maxSize: "'maxSize' applies to vault.split with splitBy='size'.",
+  outputDirectory: "'outputDirectory' and 'outputPattern' apply to vault.split.",
+  outputPattern: "'outputDirectory' and 'outputPattern' apply to vault.split.",
+
+  // vault: search / list / read
+  query: "'query' applies to vault.search and vault.fragments.",
+  ranked: "'ranked' applies to vault.search.",
+  searchStrategy: "'searchStrategy' applies to vault.search.",
+  includeSnippets: "'includeSnippets' applies to vault.search.",
+  snippetLength: "'snippetLength' applies to vault.search.",
+  includeContent: "'includeContent' applies to vault.search.",
+  directory: "'directory' applies to vault.list.",
+  page: "'page' and 'pageSize' apply to paginated reads: vault.list, vault.search, vault.read.",
+  pageSize: "'page' and 'pageSize' apply to paginated reads: vault.list, vault.search, vault.read.",
+  returnFullFile: "'returnFullFile' applies to vault.read.",
+  strategy: "'strategy' applies to vault.fragments.",
+  maxFragments: "'maxFragments' applies to vault.fragments.",
+
+  // edit parameters, included because a caller trying to modify part of a file
+  // is exactly the caller most likely to land on a destructive vault action.
+  oldText: "'oldText' and 'newText' belong to edit.window (find/replace with fuzzy matching).",
+  newText: "'oldText' and 'newText' belong to edit.window (find/replace with fuzzy matching).",
+  fuzzyThreshold: "'fuzzyThreshold' belongs to edit.window.",
+  operation: "'operation' belongs to edit.patch (append/prepend/replace against a heading, block, or frontmatter field).",
+  target: "'target' and 'targetType' belong to edit.patch.",
+  targetType: "'target' and 'targetType' belong to edit.patch.",
+  lineNumber: "'lineNumber' belongs to edit.at_line.",
+};
+
+/**
+ * Returns an error result if `args` carries parameters that do not apply to the
+ * requested destructive action, or null to proceed.
+ *
+ * Each rejected parameter is reported individually under `rejected`, so a
+ * caller that sent several gets a hint per parameter rather than one blob.
+ */
+function rejectInapplicableParams(
+  operation: string,
+  args: ToolArgs,
+): MCPToolResult | null {
+  const key = `${operation}.${args.action}`;
+  const allowed = DESTRUCTIVE_ACTION_PARAMS[key];
+  if (!allowed) return null;
+
+  const inapplicable = Object.keys(args).filter(
+    k => !allowed.includes(k) && !UNIVERSAL_PARAMS.includes(k),
+  );
+  if (inapplicable.length === 0) return null;
+
+  const rejected = inapplicable.map(name => ({
+    parameter: name,
+    hint: PARAM_OWNER_HINTS[name]
+      ?? `'${name}' is not a parameter of ${key}. Remove it, or call the action it belongs to.`,
+  }));
+
+  const named = inapplicable.map(k => `'${k}'`).join(', ');
+  const subject = inapplicable.length === 1
+    ? `Parameter ${named} does not apply`
+    : `Parameters ${named} do not apply`;
+
+  return {
+    content: [{
+      type: 'text' as const,
+      text: JSON.stringify({
+        error: {
+          code: 'INVALID_PARAMETERS',
+          message: `${subject} to ${key}. Rejected rather than silently ignored, because ${key} is destructive. Accepted parameters: ${allowed.join(', ')}.`,
+          rejected,
+        },
+      }, null, 2),
+    }],
+    isError: true,
+  };
+}
+
+/** MCP content item for text responses */
+interface MCPTextContent {
+  type: 'text';
+  text: string;
+}
+
+/** MCP content item for image responses */
+interface MCPImageContent {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+
+/** MCP tool handler result */
+interface MCPToolResult {
+  content: (MCPTextContent | MCPImageContent)[];
+  isError?: boolean;
+}
+
+/** JSON Schema property definition */
+interface JsonSchemaProperty {
+  type: string;
+  description: string;
+  enum?: string[];
+  default?: unknown;
+  items?: { type: string };
+}
+
+/** Tool arguments passed to handler */
+interface ToolArgs {
+  action: string;
+  raw?: boolean;
+  query?: string;
+  format?: string;
+  source?: string;
+  path?: string;
+  [key: string]: unknown;
+}
+
+/** Semantic tool definition */
+export interface SemanticTool {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: string;
+    properties: Record<string, JsonSchemaProperty | { type: string; description: string }>;
+    required: string[];
+  };
+  handler: (api: ObsidianAPI, args: unknown) => Promise<MCPToolResult>;
+}
+
+/** Tool visibility map — keys are "operation" or "operation.action", values are enabled/disabled */
+export type ToolVisibility = Record<string, boolean>;
+
+/** Plugin interface for checking read-only mode */
+interface PluginWithSettings {
+  settings?: {
+    readOnlyMode?: boolean;
+  };
+}
+
+/** Context for Dataview operation results */
+interface DataviewContext {
+  operation: string;
+  action: string;
+  query?: string;
+  source?: unknown;
+  path?: string;
+}
+
+/** Dataview operation result (either success with result or error) */
+interface DataviewResult {
+  result?: unknown;
+  error?: { code: string; message: string };
+  context: DataviewContext;
+}
+
+/**
+ * Unified semantic tools that consolidate all operations into 5 main verbs
+ */
+
+const createSemanticTool = (operation: string, visibility?: ToolVisibility, webFetchEnabled?: boolean): SemanticTool | null => {
+  // Check operation-level toggle
+  if (visibility && visibility[operation] === false) return null;
+
+  // Filter actions based on visibility
+  let actions = getActionsForOperation(operation);
+  if (visibility) {
+    actions = actions.filter(action => visibility[`${operation}.${action}`] !== false);
+    if (actions.length === 0) return null;
+  }
+
+  // ADR-109: fetch_web is gated by its dedicated setting, not the visibility
+  // tree. Hiding it here is presentation — enforcement is the security-layer
+  // URL validator, which reads the setting live on every call.
+  //
+  // Fail closed on an omitted flag rather than testing `=== false`: a caller
+  // that forgets to thread the setting should advertise less, not more. The
+  // pool always passes an explicit boolean, so this changes nothing in
+  // production — it removes a default-open path before something grows into it.
+  if (operation === 'system' && webFetchEnabled !== true) {
+    actions = actions.filter(action => action !== 'fetch_web');
+    if (actions.length === 0) return null;
+  }
+
+  // Keep the advertised description in step with the action list.
+  let description = getOperationDescription(operation);
+  if (operation === 'system' && !actions.includes('fetch_web')) {
+    description = description.replace(/, fetch_web:[^,]*$/, '');
+  }
+
+  return {
+  name: operation,
+  description,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        description: 'The specific action to perform',
+        enum: actions
+      },
+      raw: {
+        type: 'boolean',
+        description: 'Return raw JSON instead of formatted markdown (use when you need complete metadata or structured data for processing)',
+        default: false
+      },
+      ...getParametersForOperation(operation)
+    },
+    required: ['action']
+  },
+  handler: async (api: ObsidianAPI, rawArgs: unknown): Promise<MCPToolResult> => {
+    const args = (rawArgs ?? {}) as ToolArgs;
+    const app = api.getApp();
+
+    // Defense in depth: block actions disabled by visibility even if tool is
+    // enumerated.
+    //
+    // Both the operation-level and action-level toggles are checked here, not
+    // just the action-level one. Operation-level used to be enforced ONLY by the
+    // tool being absent from the built list — which is enumeration, and
+    // enumeration is advisory: the settings UI mutates toolVisibility in place,
+    // so switching a whole operation off left every live MCP session with full
+    // access to it until eviction or restart. Same staleness class as the
+    // read-only bug in ADR-108, in the sibling control.
+    if (visibility && (visibility[operation] === false ||
+        visibility[`${operation}.${args.action}`] === false)) {
+      const operationDisabled = visibility[operation] === false;
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            error: {
+              code: 'ACTION_DISABLED',
+              message: operationDisabled
+                ? `Operation '${operation}' is disabled in tool visibility settings`
+                : `Action '${args.action}' is disabled in tool visibility settings`
+            }
+          }, null, 2)
+        }]
+      };
+    }
+
+    // An inapplicable parameter on a destructive action is a signal that the
+    // caller has the wrong command. Refuse before the write, not after.
+    const paramError = rejectInapplicableParams(operation, args);
+    if (paramError) return paramError;
+
+    // Read-only mode is NOT enforced here (ADR-108). It is enforced once, in
+    // VaultSecurityManager.validateOperation, which now reads the setting live.
+    // This layer previously enforced it too — for `operation === 'vault'` only —
+    // and the two disagreed: the live check here blocked `vault` writes while a
+    // security layer holding a stale snapshot let `edit` writes through until the
+    // next server restart. The duplicate gate was the defect, so it is gone
+    // rather than widened. What remains below is presentation.
+    const plugin = (api as unknown as { plugin?: PluginWithSettings }).plugin;
+
+    // Handle Dataview operations separately
+    if (operation === 'dataview') {
+      const dataviewTool = new DataviewTool(api);
+      let result: DataviewResult;
+
+      switch (args.action) {
+        case 'status':
+          result = {
+            result: dataviewTool.getStatus(),
+            context: { operation, action: args.action }
+          };
+          break;
+        case 'query': {
+          if (!args.query) {
+            result = {
+              error: { code: 'MISSING_PARAMETER', message: 'Query parameter is required' },
+              context: { operation, action: args.action }
+            };
+          } else {
+            const dvFormat = args.format === 'js' ? 'js' : 'dql';
+            const queryResult = await dataviewTool.executeQuery(args.query, dvFormat);
+            result = {
+              result: queryResult,
+              context: { operation, action: args.action, query: args.query }
+            };
+          }
+          break;
+        }
+        case 'list': {
+          const listResult = await dataviewTool.listPages(args.source);
+          result = {
+            result: listResult,
+            context: { operation, action: args.action, source: args.source }
+          };
+          break;
+        }
+        case 'metadata': {
+          if (!args.path) {
+            result = {
+              error: { code: 'MISSING_PARAMETER', message: 'Path parameter is required' },
+              context: { operation, action: args.action }
+            };
+          } else {
+            const metadataResult = await dataviewTool.getPageMetadata(args.path);
+            result = {
+              result: metadataResult,
+              context: { operation, action: args.action, path: args.path }
+            };
+          }
+          break;
+        }
+        case 'validate': {
+          if (!args.query) {
+            result = {
+              error: { code: 'MISSING_PARAMETER', message: 'Query parameter is required' },
+              context: { operation, action: args.action }
+            };
+          } else {
+            const validateResult = await dataviewTool.validateQuery(args.query);
+            result = {
+              result: validateResult,
+              context: { operation, action: args.action, query: args.query }
+            };
+          }
+          break;
+        }
+        default:
+          result = {
+            error: { code: 'INVALID_ACTION', message: `Unknown Dataview action: ${args.action}` },
+            context: { operation, action: args.action }
+          };
+      }
+
+      // Format Dataview response for MCP
+      if (result.error) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              error: result.error,
+              context: result.context
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
+
+      // Format Dataview success response through presentation facade
+      const rawMode = args.raw === true;
+      const formattedOutput = rawMode
+        ? JSON.stringify({ result: result.result, context: result.context }, null, 2)
+        : formatResponse('dataview', args.action, result.result, rawMode);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: formattedOutput
+        }]
+      };
+    }
+
+    const router = new SemanticRouter(api, app);
+    
+    const request: SemanticRequest = {
+      operation,
+      action: args.action,
+      params: args
+    };
+    
+    const response = await router.route(request);
+    
+    // Format for MCP
+    if (response.error) {
+      // Presentation only: relabel the security layer's generic
+      // PERMISSION_DENIED as READ_ONLY_MODE when read-only is what caused it, so
+      // callers get an actionable reason instead of "not permitted in current
+      // security mode". This makes no policy decision — the operation was already
+      // refused by the gate. Deciding here is what ADR-108 removed.
+      const error = plugin?.settings?.readOnlyMode &&
+        (response.error as { code?: string }).code === 'PERMISSION_DENIED'
+        ? {
+            ...response.error,
+            code: 'READ_ONLY_MODE',
+            // Not "write operation" — read-only also denies EXECUTE
+            // (view.open_in_obsidian), which writes nothing.
+            message: `Operation '${args.action}' is blocked - read-only mode is enabled`
+          }
+        : response.error;
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            error,
+            workflow: response.workflow,
+            context: response.context
+          }, null, 2)
+        }],
+        isError: true
+      };
+    }
+    
+    // Check if the result is an image file for vault read operations
+    if (operation === 'vault' && args.action === 'read' && response.result) {
+      const resultObj = response.result as Record<string, unknown>;
+      if ('mimeType' in resultObj && 'base64Data' in resultObj) {
+        // Return image content for MCP
+        const imageResult = resultObj as unknown as ObsidianImageFile;
+        return {
+          content: [{
+            type: 'image' as const,
+            data: imageResult.base64Data,
+            mimeType: imageResult.mimeType
+          }]
+        };
+      }
+    }
+
+    // Only filter image files if they contain binary data that would cause JSON errors
+    // For search results, we want to show image files in the results list
+    const filteredResult: unknown = response.result;
+
+    // Special handling for image files in view operations
+    if (operation === 'view' && args.action === 'file' && filteredResult && typeof filteredResult === 'object') {
+      const viewResult = filteredResult as Record<string, unknown>;
+      if (viewResult.base64Data) {
+        return {
+          content: [{
+            type: 'image' as const,
+            data: viewResult.base64Data as string,
+            mimeType: viewResult.mimeType as string
+          }]
+        };
+      }
+    }
+    
+    try {
+      // Format response through presentation facade
+      const rawMode = args.raw === true;
+      const formattedOutput: string = rawMode
+        ? JSON.stringify({
+            result: filteredResult,
+            workflow: response.workflow,
+            context: response.context,
+            efficiency_hints: response.efficiency_hints
+          }, null, 2)
+        : formatResponse(operation, args.action, filteredResult, rawMode);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: formattedOutput
+        }]
+      };
+    } catch (error: unknown) {
+      // Handle JSON serialization errors
+      Debug.error('JSON serialization failed:', error);
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Error: Unable to serialize response. ${error instanceof Error ? error.message : 'Unknown error'}`
+        }]
+      };
+    }
+  }
+  };
+};
+
+export function getOperationDescription(operation: string): string {
+  const descriptions: Record<string, string> = {
+    vault: '📁 File operations - list, read, create, update, delete, search, fragments, move, rename, copy, split, combine, concatenate. Search supports: operators (file:, path:, content:, tag:), OR/AND, "quoted phrases", /regex/. Options: ranked=true for TF-IDF relevance scoring, searchStrategy (filename|content|combined|auto), includeSnippets for contextual extracts. Search matches words, not meaning — it will miss notes that cover a topic in different vocabulary, and its scores are term frequency, so a low-scoring hit is NOT necessarily unimportant (do not prune on score). Prefer a couple of BROAD scans over many narrow ones, then follow links from the hits with `graph.neighbors` to reach what search cannot rank.',
+    edit: '✏️ Edit files - window: find/replace with fuzzy matching, append: add to end, patch: modify headings/blocks/frontmatter, at_line: insert at line number, from_buffer: reuse previous window content',
+    view: '👁️ View content - file: entire document, window: ~20 lines around point, active: current editor file, open_in_obsidian: launch in app',
+    workflow: '💡 Get contextual suggestions for next actions based on current state',
+    system: 'ℹ️ System operations - info: server details, commands: available actions, fetch_web: retrieve and process web content',
+    graph: '🕸️ Graph navigation — follow the vault\'s own links. Use this to EXPAND from a note you already found rather than running another search: search ranks by term frequency, so it cannot reach a note that covers the topic in different words, but a link to it usually exists. BLIND SPOT (the mirror of search\'s): traversal only reaches what someone actually linked. A note can be genuinely relevant and simply unlinked — no amount of traversal will find it. So the two are complements, not substitutes: scan broadly with `vault.search` to catch the unlinked, then follow links from the hits to catch the differently-worded. Trust neither alone. Actions — neighbors: immediate links of a note (start here); traverse: multi-hop exploration; search-traverse: scan-and-follow in one call, but it returns SNIPPETS per node and prunes on scoreThreshold, so use it to discover WHICH notes matter, then read them — do not treat its snippets as the whole argument; path: how two notes connect; backlinks/forwardlinks: directional links (backlinks are how you find what depends on a note — its own text does not know); statistics: link counts (call with no sourcePath for vault-wide density); tag-analysis/shared-tags: tag structure.',
+    dataview: '📊 Dataview operations - query: execute DQL queries (LIST FROM "folder", TABLE field FROM #tag WHERE condition), list: get pages with metadata and frontmatter, metadata: extract complete page metadata, validate: check DQL syntax, status: plugin availability. Supports LIST, TABLE, TASK, CALENDAR queries with WHERE filters, sorting, grouping.',
+    bases: '🗃️ Bases operations - list: show all .base files, read: get YAML config, create: new base with views/filters/formulas, query: execute filters on vault notes, view: get table/card view data, evaluate: test formulas, export: CSV/JSON/Markdown. Bases use YAML format with expression-based filters like status == "active" and file.hasTag("project")'
+  };
+  return descriptions[operation] || 'Unknown operation';
+}
+
+export function getActionsForOperation(operation: string): string[] {
+  const actions: Record<string, string[]> = {
+    vault: ['list', 'read', 'create', 'update', 'delete', 'search', 'fragments', 'move', 'rename', 'copy', 'split', 'combine', 'concatenate'],
+    edit: ['window', 'append', 'patch', 'at_line', 'from_buffer'],
+    view: ['file', 'window', 'active', 'open_in_obsidian'],
+    workflow: ['suggest'],
+    system: ['info', 'commands', 'fetch_web'],
+    graph: ['traverse', 'neighbors', 'path', 'statistics', 'backlinks', 'forwardlinks', 'search-traverse', 'advanced-traverse', 'tag-traverse', 'tag-analysis', 'shared-tags'],
+    dataview: ['query', 'list', 'metadata', 'validate', 'status'],
+    bases: ['list', 'read', 'create', 'query', 'view', 'export']
+  };
+  return actions[operation] || [];
+}
+
+function getParametersForOperation(operation: string): Record<string, unknown> {
+  // Common parameters across operations
+  const pathParam = {
+    path: {
+      type: 'string',
+      description: 'File path relative to vault root'
+    }
+  };
+  
+  const contentParam = {
+    content: {
+      type: 'string',
+      description: 'Text content to write (markdown supported)'
+    }
+  };
+  
+  // Operation-specific parameters
+  const operationParams: Record<string, Record<string, unknown>> = {
+    vault: {
+      ...pathParam,
+      directory: {
+        type: 'string',
+        description: 'Directory path for list operations'
+      },
+      query: {
+        type: 'string',
+        description: 'Search query - supports operators (file:, path:, content:, tag:), OR/AND, "quoted phrases", /regex/'
+      },
+      ranked: {
+        type: 'boolean',
+        description: 'Use TF-IDF relevance scoring (default: auto-detected based on query type)'
+      },
+      searchStrategy: {
+        type: 'string',
+        enum: ['auto', 'filename', 'content', 'combined'],
+        description: 'Search strategy: auto (detect from query), filename (names only), content (full-text), combined (both)'
+      },
+      includeSnippets: {
+        type: 'boolean',
+        description: 'Extract contextual snippets around matches (default: true)'
+      },
+      snippetLength: {
+        type: 'number',
+        description: 'Maximum snippet length in characters (default: 300)'
+      },
+      page: {
+        type: 'number',
+        description: 'Page number for paginated results (list/search; also large-file read — see returnFullFile)'
+      },
+      pageSize: {
+        type: 'number',
+        description: 'Number of results per page'
+      },
+      strategy: {
+        type: 'string',
+        enum: ['auto', 'adaptive', 'proximity', 'structure', 'semantic'],
+        description: 'Fragment retrieval strategy (default: auto). None of these are embedding/vector search — all match words, not meaning. auto: pick per query. adaptive: term-frequency ranked passages. proximity: passages where the query terms appear close together. structure: passages cut on the document\'s own structure (headings, paragraphs) with surrounding context kept. "semantic" is a deprecated alias of "structure" — it never meant vector similarity, and is retained only for compatibility.'
+      },
+      maxFragments: {
+        type: 'number',
+        description: 'Maximum number of fragments to return (default: 5)'
+      },
+      returnFullFile: {
+        type: 'boolean',
+        description: 'read: force the ENTIRE file verbatim regardless of size (explicit large-context override). Default read already returns the whole file verbatim when it fits the size budget; large files return a verbatim page 1 with absolute line bookends (use page=N to continue, or query/strategy/maxFragments for fragments).'
+      },
+      includeContent: {
+        type: 'boolean',
+        description: 'Include file content in search results (slower but more thorough)'
+      },
+      destination: {
+        type: 'string',
+        description: 'Destination path for move/copy/combine operations. For combine: omit to return the combined content inline without writing a file'
+      },
+      newName: {
+        type: 'string',
+        description: 'New filename for rename operation (without path). If the extension is omitted, the source file\'s extension is preserved (renaming "note.md" to "renamed" yields "renamed.md")'
+      },
+      overwrite: {
+        type: 'boolean',
+        description: 'Whether to overwrite if destination exists (default: false)'
+      },
+      // Split operation parameters
+      splitBy: {
+        type: 'string',
+        enum: ['heading', 'delimiter', 'lines', 'size'],
+        description: 'Split strategy: heading (by markdown headings), delimiter (by custom string), lines (by line count), size (by character count)'
+      },
+      delimiter: {
+        type: 'string',
+        description: 'Delimiter string/regex for delimiter strategy (default: "---")'
+      },
+      level: {
+        type: 'number',
+        description: 'Heading level for heading strategy (1-6)'
+      },
+      linesPerFile: {
+        type: 'number',
+        description: 'Number of lines per file for lines strategy (default: 100)'
+      },
+      maxSize: {
+        type: 'number',
+        description: 'Max characters per file for size strategy (default: 10000)'
+      },
+      outputPattern: {
+        type: 'string',
+        description: 'Naming pattern for output files (default: "{filename}-{index}{ext}")'
+      },
+      outputDirectory: {
+        type: 'string',
+        description: 'Directory for output files (defaults to source directory)'
+      },
+      // Combine operation parameters
+      paths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Array of file paths to combine'
+      },
+      separator: {
+        type: 'string',
+        description: 'Content separator between files (default: "\\n\\n---\\n\\n")'
+      },
+      includeFilenames: {
+        type: 'boolean',
+        description: 'Include source filenames as headers (default: false)'
+      },
+      sortBy: {
+        type: 'string',
+        enum: ['name', 'modified', 'created', 'size'],
+        description: 'Sort files before combining'
+      },
+      sortOrder: {
+        type: 'string',
+        enum: ['asc', 'desc'],
+        description: 'Sort order (default: "asc")'
+      },
+      // Concatenate operation parameters
+      path1: {
+        type: 'string',
+        description: 'First file path for concatenation'
+      },
+      path2: {
+        type: 'string',
+        description: 'Second file path for concatenation'
+      },
+      mode: {
+        type: 'string',
+        enum: ['append', 'prepend', 'new'],
+        description: 'Concatenation mode: append to path1, prepend to path1, or create new file'
+      },
+      ...contentParam
+    },
+    edit: {
+      ...pathParam,
+      ...contentParam,
+      oldText: {
+        type: 'string',
+        description: 'Text to search for (supports fuzzy matching)'
+      },
+      newText: {
+        type: 'string',
+        description: 'Text to replace with'
+      },
+      fuzzyThreshold: {
+        type: 'number',
+        description: 'Similarity threshold for fuzzy matching (0-1)',
+        default: 0.7
+      },
+      lineNumber: {
+        type: 'number',
+        description: 'Line number for at_line action'
+      },
+      mode: {
+        type: 'string',
+        enum: ['before', 'after', 'replace'],
+        description: 'Insert mode for at_line action'
+      },
+      operation: {
+        type: 'string',
+        enum: ['append', 'prepend', 'replace'],
+        description: 'Patch operation: append (add after), prepend (add before), or replace'
+      },
+      targetType: {
+        type: 'string',
+        enum: ['heading', 'block', 'frontmatter'],
+        description: 'Structure to target: heading (use :: for nesting), block (by ID), or frontmatter (field name)'
+      },
+      target: {
+        type: 'string',
+        description: 'Target identifier (e.g., "Section::Subsection", "blockId", "status")'
+      }
+    },
+    view: {
+      ...pathParam,
+      searchText: {
+        type: 'string',
+        description: 'Text to search for and highlight'
+      },
+      lineNumber: {
+        type: 'number',
+        description: 'Line number to center view around'
+      },
+      windowSize: {
+        type: 'number',
+        description: 'Number of lines to show',
+        default: 20
+      }
+    },
+    workflow: {
+      type: {
+        type: 'string',
+        description: 'Type of analysis or workflow'
+      }
+    },
+    system: {
+      url: {
+        type: 'string',
+        description: 'URL to fetch and convert to markdown'
+      }
+    },
+    graph: {
+      sourcePath: {
+        type: 'string',
+        description: 'Starting file path for graph operations'
+      },
+      targetPath: {
+        type: 'string',
+        description: 'Target file path (for path finding operations)'
+      },
+      maxDepth: {
+        type: 'number',
+        description: 'Maximum depth for traversal (default: 3)'
+      },
+      maxNodes: {
+        type: 'number',
+        description: 'Maximum number of nodes to return (default: 50)'
+      },
+      includeUnresolved: {
+        type: 'boolean',
+        description: 'Include unresolved links in the results'
+      },
+      followBacklinks: {
+        type: 'boolean',
+        description: 'Follow backlinks during traversal (default: true)'
+      },
+      followForwardLinks: {
+        type: 'boolean',
+        description: 'Follow forward links during traversal (default: true)'
+      },
+      followTags: {
+        type: 'boolean',
+        description: 'Follow tag connections during traversal'
+      },
+      fileFilter: {
+        type: 'string',
+        description: 'Regex pattern to filter file names'
+      },
+      tagFilter: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Only include files with these tags'
+      },
+      folderFilter: {
+        type: 'string',
+        description: 'Only include files in this folder'
+      },
+      // Graph search traversal parameters
+      startPath: {
+        type: 'string',
+        description: 'Starting document path for search traversal'
+      },
+      searchQuery: {
+        type: 'string',
+        description: 'Search query to apply at each node (for search-traverse)'
+      },
+      searchQueries: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Multiple search queries (for advanced-traverse)'
+      },
+      maxSnippetsPerNode: {
+        type: 'number',
+        description: 'Maximum snippets to extract per node (default: 2)'
+      },
+      scoreThreshold: {
+        type: 'number',
+        description: 'Minimum score threshold for including nodes (0-1, default: 0.5)'
+      },
+      strategy: {
+        type: 'string',
+        enum: ['breadth-first', 'best-first', 'beam-search'],
+        description: 'Traversal strategy (for advanced-traverse)'
+      },
+      beamWidth: {
+        type: 'number',
+        description: 'Beam width for beam-search strategy'
+      },
+      includeOrphans: {
+        type: 'boolean',
+        description: 'Include orphaned notes in traversal'
+      },
+      filePattern: {
+        type: 'string',
+        description: 'Filter traversal to files matching this pattern'
+      },
+      // Tag-based graph parameters
+      tagWeight: {
+        type: 'number',
+        description: 'Weight factor for tag connections (0-1, default: 0.8)'
+      }
+    },
+    dataview: {
+      query: {
+        type: 'string',
+        description: 'DQL query string. Examples: "LIST FROM #project WHERE status = \\"active\\"", "TABLE file.size, rating FROM \\"Notes\\" WHERE rating > 3 SORT file.mtime DESC", "TASK FROM #todo WHERE !completed", "CALENDAR file.ctime FROM \\"Daily Notes\\""'
+      },
+      format: {
+        type: 'string',
+        enum: ['dql'],
+        description: 'Query format (currently only DQL supported)',
+        default: 'dql'
+      },
+      source: {
+        type: 'string',
+        description: 'Source filter for pages. Examples: "folder/path" (folder), "#tag" (tag), "[[Note Name]]" (backlinks), "" (all pages)'
+      },
+      ...pathParam
+    },
+    bases: {
+      path: {
+        type: 'string',
+        description: 'Path to the .base file'
+      },
+      config: {
+        type: 'object',
+        description: 'Base configuration object with name, source, properties, and views'
+      },
+      viewName: {
+        type: 'string',
+        description: 'Name of the view to retrieve'
+      },
+      filters: {
+        type: 'array',
+        items: { type: 'object' },
+        description: 'Array of filter objects with property, operator, and value'
+      },
+      sort: {
+        type: 'object',
+        description: 'Sort options with property and order (asc/desc)'
+      },
+      pagination: {
+        type: 'object',
+        description: 'Pagination options with page and pageSize'
+      },
+      includeContent: {
+        type: 'boolean',
+        description: 'Include note content in results'
+      },
+      properties: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Specific properties to include in results'
+      },
+      basePath: {
+        type: 'string',
+        description: 'Path to the base for template generation'
+      },
+      template: {
+        type: 'object',
+        description: 'Template configuration with name, folder, properties, and contentTemplate'
+      },
+      format: {
+        type: 'string',
+        enum: ['csv', 'json', 'markdown'],
+        description: 'Export format'
+      },
+      dateFormat: {
+        type: 'string',
+        description: 'Date format for export (e.g., YYYY-MM-DD)'
+      }
+    }
+  };
+  
+  return operationParams[operation] || {};
+}
+
+/**
+ * Create semantic tools array with optional Dataview support
+ */
+export function createSemanticTools(api?: ObsidianAPI, visibility?: ToolVisibility, webFetchEnabled?: boolean): SemanticTool[] {
+  const operations = ['vault', 'edit', 'view', 'workflow', 'system', 'graph', 'bases'];
+
+  // Add Dataview if available
+  if (api && isDataviewToolAvailable(api)) {
+    operations.push('dataview');
+  }
+
+  // Create tools, filtering by visibility (null = operation fully disabled)
+  return operations
+    .map(op => createSemanticTool(op, visibility, webFetchEnabled))
+    .filter((tool): tool is SemanticTool => tool !== null);
+}
+
+/** All operation group names (for UI enumeration) */
+export const ALL_OPERATIONS = ['vault', 'edit', 'view', 'workflow', 'system', 'graph', 'bases', 'dataview'] as const;
+
+// Export the base semantic tools (for backward compatibility, no visibility filtering)
+// There is deliberately no exported module-level tool list.
+//
+// One existed, built by calling createSemanticTool() with no visibility argument,
+// which produced tools that neither filtered their action enum nor performed the
+// ACTION_DISABLED check — a complete bypass of tool visibility for any caller
+// that picked it up. mcp-server.ts did, on a dead request-dispatch path.
+//
+// Tools must be built per session via createSemanticTools(api, visibility) so the
+// live settings apply. Anything needing the list of operations wants
+// ALL_OPERATIONS; anything needing a tool wants createSemanticTools().

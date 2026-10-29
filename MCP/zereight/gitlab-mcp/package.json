@@ -1,0 +1,110 @@
+{
+  "name": "@zereight/mcp-gitlab",
+  "version": "2.3.14",
+  "mcpName": "io.github.zereight/gitlab-mcp",
+  "description": "GitLab MCP server for projects, merge requests, issues, pipelines, wiki, releases, and more",
+  "keywords": [
+    "gitlab",
+    "gitlab-mcp",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "gitlab-api",
+    "claude",
+    "cursor",
+    "vscode",
+    "copilot",
+    "ai-agent",
+    "merge-requests",
+    "pipelines",
+    "oauth",
+    "stdio",
+    "sse",
+    "streamable-http"
+  ],
+  "license": "MIT",
+  "author": "zereight",
+  "type": "module",
+  "bin": {
+    "mcp-gitlab": "build/index.js",
+    "zereight-mcp-gitlab": "build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "homepage": "https://zereight.github.io/gitlab-mcp/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zereight/gitlab-mcp.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('build',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "prepare": "npm run build",
+    "dev": "npm run build && node build/index.js",
+    "watch": "tsc -p tsconfig.build.json --watch",
+    "changelog": "auto-changelog -p",
+    "test": "npm run test:all",
+    "test:all": "npm run build && npm run test:mock && npm run test:live",
+    "test:mock": "bash scripts/run-mock-tests.sh",
+    "test:stateless": "npm run build && node --import tsx/esm --test --experimental-test-isolation=none test/stateless/codec.test.ts test/stateless/client-id.test.ts test/stateless/callback-proxy.test.ts test/stateless/session-id.test.ts test/stateless/session-id-integration.test.ts test/stateless/config-ttl.test.ts test/stateless/consumed-proxy-code-cache.test.ts",
+    "test:mcp-oauth": "npm run build && node --import tsx/esm --test test/mcp-oauth-tests.ts",
+    "test:live": "node test/validate-api.js",
+    "test:consumer-smoke": "bash scripts/consumer-install-smoke.sh",
+    "test:remote-auth": "npm run build && node --import tsx/esm --test --experimental-test-isolation=none test/remote-auth-simple-test.ts",
+    "test:schema": "tsx test/schema-tests.ts && tsx test/test-json-schema.ts && node --import tsx/esm --test --experimental-test-isolation=none --test-concurrency=1 test/*-schema.test.ts",
+    "test:oauth": "tsx test/oauth-tests.ts && node --import tsx/esm --test --experimental-test-isolation=none test/oauth-device-flow-tests.ts",
+    "test:list-merge-requests": "npm run build && tsx test/test-list-merge-requests.ts",
+    "test:approvals": "npm run build && tsx test/test-merge-request-approvals.ts",
+    "test:tools-list:update": "npm run build && UPDATE_TOOLS_LIST_GOLDEN=1 node --import tsx/esm --test --experimental-test-isolation=none test/tools-list-golden.test.ts",
+    "lint": "eslint .",
+    "check:runtime-deps": "node scripts/check-runtime-deps.mjs",
+    "check:skill-sync": "tsx scripts/check-skill-sync.ts",
+    "docs:tools": "tsx scripts/generate-tool-docs.ts && tsx scripts/generate-tool-coverage.ts",
+    "lint:fix": "eslint . --fix",
+    "release": "bash scripts/release.sh",
+    "release:mcp-registry": "bash scripts/publish_mcp_registry.sh",
+    "pack:mcpb": "npm run build && bash scripts/pack-mcpb.sh",
+    "format": "prettier --write \"**/*.{js,ts,json,md}\"",
+    "format:check": "prettier --check \"**/*.{js,ts,json,md}\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "diff": "^9.0.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.5.2",
+    "fetch-cookie": "^3.1.0",
+    "jmespath": "^0.16.0",
+    "open": "^10.2.0",
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.0.0",
+    "pkce-challenge": "^5.0.0",
+    "re2js": "2.9.0",
+    "socks-proxy-agent": "^8.0.5",
+    "tldts": "^6.1.86",
+    "tough-cookie": "^5.1.2",
+    "undici": "^6.29.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.27.0",
+    "@types/express": "^5.0.2",
+    "@types/jmespath": "^0.15.2",
+    "@types/node": "^22.13.10",
+    "@typescript-eslint/eslint-plugin": "^8.21.0",
+    "@typescript-eslint/parser": "^8.21.0",
+    "auto-changelog": "^2.4.0",
+    "dotenv": "^17.2.2",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.2"
+  }
+}

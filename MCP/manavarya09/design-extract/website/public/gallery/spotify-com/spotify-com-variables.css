@@ -1,0 +1,226 @@
+:root {
+  /* Colors — Primary */
+  --color-primary: #1ed760;
+  --color-secondary: #346e4a;
+  --color-accent: #1db954;
+
+  /* Colors — Neutrals */
+  --color-neutral-50: #ffffff;
+  --color-neutral-100: #b3b3b3;
+  --color-neutral-200: #000000;
+  --color-neutral-300: #696969;
+  --color-neutral-400: #555555;
+  --color-neutral-500: #121212;
+  --color-neutral-600: #7c7c7c;
+  --color-neutral-700: #1f1f1f;
+  --color-neutral-800: #333333;
+  --color-neutral-900: #292929;
+
+  /* Colors — Backgrounds */
+  --color-bg: #121212;
+  --color-bg-1: #000000;
+  --color-bg-2: #535353;
+  --color-bg-3: #eeeeee;
+
+  /* Colors — Text */
+  --color-text: #000000;
+  --color-text-1: #b3b3b3;
+  --color-text-2: #0000ee;
+  --color-text-3: #ffffff;
+  --color-text-4: #7c7c7c;
+
+  /* Typography — Families */
+  --font-sans: 'SpotifyMixUI', sans-serif;
+  --font-body: 'Times', sans-serif;
+  --font-font-2: 'SpotifyMixUITitle', sans-serif;
+
+  /* Typography — Scale */
+  --font-size-24: 24px;
+  --font-size-16: 16px;
+  --font-size-14.4: 14.4px;
+  --font-size-14: 14px;
+  --font-size-13.6: 13.6px;
+  --font-size-13.3333: 13.3333px;
+  --font-size-13.008: 13.008px;
+  --font-size-12.992: 12.992px;
+  --font-size-12.8: 12.8px;
+  --font-size-12: 12px;
+  --font-size-10.5: 10.5px;
+
+  /* Spacing */
+  --spacing-1: 1px;
+  --spacing-15: 15px;
+  --spacing-20: 20px;
+  --spacing-23: 23px;
+  --spacing-28: 28px;
+  --spacing-35: 35px;
+  --spacing-40: 40px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+  --spacing-96: 96px;
+  --spacing-125: 125px;
+  --spacing-154: 154px;
+
+  /* Border Radius */
+  --radius-xs: 2px;
+  --radius-md: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 32px;
+  --radius-full: 50px;
+  --radius-full: 500px;
+  --radius-full: 9999px;
+
+  /* Box Shadows */
+  --shadow-sm: rgb(124, 124, 124) 0px 0px 0px 1px inset;
+  --shadow-xs: rgb(18, 18, 18) 0px 1px 0px 0px, rgb(124, 124, 124) 0px 0px 0px 1px inset;
+  --shadow-sm: rgb(128, 128, 128) 0px 0px 5px 0px;
+  --shadow-sm: rgba(0, 0, 0, 0.5) 0px 2px 4px 0px;
+  --shadow-md: rgb(199, 197, 199) -3px -3px 5px -2px;
+  --shadow-md: rgb(153, 153, 153) 0px 2px 10px -3px;
+  --shadow-md: rgb(199, 197, 199) 0px 0px 12px 2px;
+  --shadow-md: rgba(0, 0, 0, 0.3) 0px 8px 8px 0px;
+  --shadow-lg: rgba(0, 0, 0, 0.2) 0px 0px 18px 0px;
+  --shadow-lg: rgba(0, 0, 0, 0.5) 0px 8px 24px 0px;
+
+  /* Original Site Variables */
+  /* — colors — */
+  --start-gradient-color: rgb(0, 0, 0);
+  --encore-border-width-focus: 2px;
+  --encore-border-width-thick: 4px;
+  --encore-border-radius-rounded: 9999px;
+  --encore-border-width-hairline: 1px;
+  --encore-border-width-thin: 2px;
+  --encore-z-index-popover: 1060;
+  --end-gradient-color: rgb(0, 0, 0);
+  --gradient-color-bottom: rgb(24, 24, 24);
+  --text-bright-accent: #1ed760;
+  --essential-bright-accent: #1ed760;
+  --encore-border-width-thicker: 8px;
+  /* — spacing — */
+  --encore-control-size-larger: 56px;
+  --encore-layout-margin-tighter: 24px;
+  --encore-text-size-smaller-2: .75rem;
+  --encore-graphic-size-informative-smaller: 1rem;
+  --content-spacing: 16px;
+  --encore-text-size-larger-3: 3rem;
+  --encore-text-size-larger-5: 6rem;
+  --encore-spacing-looser-4: 64px;
+  --encore-layout-margin-looser: 64px;
+  --encore-graphic-size-decorative-smaller-2: 12px;
+  --encore-text-size-base: 1rem;
+  --encore-graphic-size-informative-smaller-2: .75rem;
+  --encore-graphic-size-decorative-larger-5: 88px;
+  --encore-spacing-looser-6: 128px;
+  --encore-graphic-size-decorative-larger-3: 48px;
+  --encore-graphic-size-decorative-larger: 32px;
+  --encore-spacing-looser-5: 96px;
+  --encore-spacing-tighter-5: 2px;
+  --encore-graphic-size-decorative-larger-2: 40px;
+  --encore-spacing-tighter-2: 8px;
+  --encore-graphic-size-informative-larger-2: 2.5rem;
+  --encore-layout-margin-base: 32px;
+  --encore-spacing-looser-2: 32px;
+  --encore-text-size-larger-4: 4rem;
+  --encore-text-size-large: 1.25rem;
+  --encore-graphic-size-informative-larger-3: 3rem;
+  --encore-graphic-size-informative-larger-4: 4rem;
+  --encore-control-size-base: 48px;
+  --encore-spacing-tighter-4: 4px;
+  --encore-control-size-smaller: 32px;
+  --encore-graphic-size-informative-larger: 2rem;
+  --encore-text-size-larger-2: 2rem;
+  --encore-graphic-size-decorative-smaller: 16px;
+  --encore-spacing-looser: 24px;
+  --encore-spacing-looser-3: 48px;
+  --encore-text-size-larger: 1.5rem;
+  --encore-graphic-size-decorative-base: 24px;
+  --encore-graphic-size-informative-base: 1.5rem;
+  --encore-graphic-size-decorative-larger-4: 64px;
+  --encore-spacing-tighter: 12px;
+  --encore-spacing-base: 16px;
+  --encore-graphic-size-informative-larger-5: 5.5rem;
+  --encore-spacing-tighter-3: 6px;
+  --encore-text-size-smaller: .875rem;
+  --encore-text-size-smaller-3: .625rem;
+  /* — typography — */
+  --text-negative: #f3727f;
+  --encore-title-font-stack: SpotifyMixUITitle,CircularSp-Arab,CircularSp-Hebr,CircularSp-Cyrl,CircularSp-Grek,CircularSp-Deva,Helvetica Neue,helvetica,arial,Hiragino Sans,Hiragino Kaku Gothic ProN,Meiryo,MS Gothic;
+  --encore-body-font-stack: SpotifyMixUI,CircularSp-Arab,CircularSp-Hebr,CircularSp-Cyrl,CircularSp-Grek,CircularSp-Deva,Helvetica Neue,helvetica,arial,Hiragino Sans,Hiragino Kaku Gothic ProN,Meiryo,MS Gothic;
+  --text-subdued: #b3b3b3;
+  --encore-variable-font-stack: SpotifyMixUITitleVariable,CircularSp-Arab,CircularSp-Hebr,CircularSp-Cyrl,CircularSp-Grek,CircularSp-Deva,Helvetica Neue,helvetica,arial,Hiragino Sans,Hiragino Kaku Gothic ProN,Meiryo,MS Gothic;
+  --text-warning: #ffa42b;
+  --text-positive: #1ed760;
+  --encore-bodyMono-font-stack: SpotifyMixMono,CircularSp-Arab,CircularSp-Hebr,CircularSp-Cyrl,CircularSp-Grek,CircularSp-Deva,Helvetica Neue,helvetica,arial,Hiragino Sans,Hiragino Kaku Gothic ProN,Meiryo,MS Gothic;
+  --fallback-fonts: Helvetica Neue,helvetica,arial,Hiragino Sans,Hiragino Kaku Gothic ProN,Meiryo,MS Gothic;
+  --text-announcement: #539df5;
+  --text-base: #fff;
+  /* — shadows — */
+  --encore-overlay-drop-shadow: 0 4px 6px #0000004d;
+  --encore-overlay-box-shadow: 0 4px 12px 0 #0000004d;
+  --encore-focus-box-shadow: 0 3px 0 0;
+  /* — radii — */
+  --encore-corner-radius-larger-2: 8px;
+  --encore-corner-radius-larger: 6px;
+  --encore-corner-radius-base: 4px;
+  --encore-corner-radius-smaller: 2px;
+  --encore-corner-radius-larger-3: 16px;
+  /* — other — */
+  --essential-announcement: #1278f2;
+  --right-sidebar-width: 0;
+  --background-base: #121212;
+  --background-elevated-press: #191919;
+  --scrollAnimationRangeStart: 0px;
+  --os-viewport-percent: 0;
+  --encore-shortest-1: 50ms;
+  --background-elevated-highlight: #2a2a2a;
+  --encore-shortest-4: .2s;
+  --cinema-canvas-distance-from-top: 0px;
+  --encore-productive-accelerate: cubic-bezier(.8,0,1,1);
+  --encore-sidebar-base-width: 200px;
+  --encore-shortest-3: .15s;
+  --decorative-subdued: #292929;
+  --background-press: #000;
+  --essential-base: #fff;
+  --essential-positive: #1ed760;
+  --essential-subdued: #7c7c7c;
+  --encore-opacity-disabled: .3;
+  --encore-productive-exit-duration: .2s;
+  --background-highlight: #1f1f1f;
+  --encore-opacity-active: .7;
+  --essential-warning: #ffa42b;
+  --encore-z-index-dialog: 1050;
+  --encore-short-1: .25s;
+  --encore-z-index-skiplink: 9999;
+  --decorative-base: #fff;
+  --encore-button-hover-scale: 1.04;
+  --encore-short-2: .3s;
+  --scrollAnimationRangeEnd: 0px;
+  --cinema-media-height: 0px;
+  --background-tinted-press: #ffffff36;
+  --background-noise: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj4KICAgPGZpbHRlciBpZD0ibiIgeD0iMCIgeT0iMCI+CiAgICAgIDxmZVR1cmJ1bGVuY2UgdHlwZT0iZnJhY3RhbE5vaXNlIiBiYXNlRnJlcXVlbmN5PSIwLjc1IiBzdGl0Y2hUaWxlcz0ic3RpdGNoIiAvPgogICAgICA8ZmVDb2xvck1hdHJpeCB0eXBlPSJzYXR1cmF0ZSIgdmFsdWVzPSIwIiAvPgogICA8L2ZpbHRlcj4KICAgPHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSIzMDAiIGZpbHRlcj0idXJsKCNuKSIgb3BhY2l0eT0iMC4wNSIgLz4KPC9zdmc+);
+  --encore-productive-decelerate: cubic-bezier(0,0,.2,1);
+  --encore-productive-exit: .2s/**/cubic-bezier(.8,0,1,1);
+  --left-sidebar-width: 232;
+  --background-elevated-base: #1f1f1f;
+  --os-scroll-percent: 0;
+  --background-tinted-highlight: #ffffff24;
+  --cinema-canvas-height: 0px;
+  --marquee-width: 0px;
+  --cinema-media-distance-from-top: 0px;
+  --background-tinted-base: #ffffff1a;
+  --encore-productive: cubic-bezier(.3,0,0,1);
+  --essential-negative: #ed2c3f;
+  --encore-shortest-2: .1s;
+  --top-bar-z-index: 1;
+  --content-max-width: 1955px;
+  --encore-productive-enter: .25s/**/cubic-bezier(0,0,.2,1);
+  --onboarding-circle-percentage: 0%;
+  /* — semantic — */
+  success: [object Object];
+  warning: [object Object];
+  error: [object Object];
+  info: [object Object];
+
+}

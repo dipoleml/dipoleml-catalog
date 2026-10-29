@@ -1,0 +1,197 @@
+{
+  "run_id": "EVO-7F3A21",
+  "symbol": "XAUUSD",
+  "timeframe": "1h",
+  "generations": 3,
+  "per_generation": [
+    {
+      "generation": 0,
+      "hypotheses_count": 10,
+      "graduated_count": 1,
+      "eliminated_count": 3
+    },
+    {
+      "generation": 1,
+      "hypotheses_count": 10,
+      "graduated_count": 2,
+      "eliminated_count": 2
+    },
+    {
+      "generation": 2,
+      "hypotheses_count": 10,
+      "graduated_count": 1,
+      "eliminated_count": 1
+    }
+  ],
+  "graduated": [
+    {
+      "hypothesis_id": "HYP-001A",
+      "pattern_name": "London Open Breakout",
+      "generation": 0,
+      "fitness_is": {
+        "sharpe_ratio": 0.84,
+        "win_rate": 0.47,
+        "profit_factor": 1.31,
+        "total_pnl": 9550.0,
+        "max_drawdown_pct": 0.082,
+        "trade_count": 146
+      },
+      "fitness_oos": {
+        "sharpe_ratio": 0.61,
+        "win_rate": 0.45,
+        "profit_factor": 1.19,
+        "total_pnl": 3100.0,
+        "max_drawdown_pct": 0.094,
+        "trade_count": 58
+      }
+    },
+    {
+      "hypothesis_id": "HYP-004C",
+      "pattern_name": "NY Reversal After Asia Range",
+      "generation": 1,
+      "fitness_is": {
+        "sharpe_ratio": 0.77,
+        "win_rate": 0.44,
+        "profit_factor": 1.26,
+        "total_pnl": 7400.0,
+        "max_drawdown_pct": 0.071,
+        "trade_count": 121
+      },
+      "fitness_oos": {
+        "sharpe_ratio": 0.48,
+        "win_rate": 0.43,
+        "profit_factor": 1.12,
+        "total_pnl": 1775.0,
+        "max_drawdown_pct": 0.088,
+        "trade_count": 47
+      }
+    },
+    {
+      "hypothesis_id": "HYP-007B",
+      "pattern_name": "Pre-News Volatility Fade",
+      "generation": 1,
+      "fitness_is": {
+        "sharpe_ratio": 0.69,
+        "win_rate": 0.51,
+        "profit_factor": 1.22,
+        "total_pnl": 5325.0,
+        "max_drawdown_pct": 0.066,
+        "trade_count": 94
+      },
+      "fitness_oos": {
+        "sharpe_ratio": 0.39,
+        "win_rate": 0.48,
+        "profit_factor": 1.08,
+        "total_pnl": 950.0,
+        "max_drawdown_pct": 0.079,
+        "trade_count": 36
+      }
+    },
+    {
+      "hypothesis_id": "HYP-011D",
+      "pattern_name": "Session Handover Momentum",
+      "generation": 2,
+      "fitness_is": {
+        "sharpe_ratio": 0.72,
+        "win_rate": 0.46,
+        "profit_factor": 1.24,
+        "total_pnl": 6250.0,
+        "max_drawdown_pct": 0.075,
+        "trade_count": 108
+      },
+      "fitness_oos": null
+    }
+  ],
+  "graveyard": [
+    {
+      "hypothesis_id": "HYP-X01",
+      "pattern_name": "Hourly RSI Crossover",
+      "generation": 0,
+      "elimination_reason": "Negative Sharpe in IS (-0.31)",
+      "fitness_is": {
+        "sharpe_ratio": -0.31,
+        "win_rate": 0.38,
+        "profit_factor": 0.87,
+        "total_pnl": -3550.0,
+        "max_drawdown_pct": 0.163,
+        "trade_count": 132
+      }
+    },
+    {
+      "hypothesis_id": "HYP-X02",
+      "pattern_name": "Round Number Bounce",
+      "generation": 0,
+      "elimination_reason": "PF below 1.05 gate (0.98)",
+      "fitness_is": {
+        "sharpe_ratio": 0.04,
+        "win_rate": 0.41,
+        "profit_factor": 0.98,
+        "total_pnl": -525.0,
+        "max_drawdown_pct": 0.118,
+        "trade_count": 97
+      }
+    },
+    {
+      "hypothesis_id": "HYP-X03",
+      "pattern_name": "Weekend Gap Fill",
+      "generation": 0,
+      "elimination_reason": "Sample too small (n=19)",
+      "fitness_is": {
+        "sharpe_ratio": 0.22,
+        "win_rate": 0.53,
+        "profit_factor": 1.14,
+        "total_pnl": 650.0,
+        "max_drawdown_pct": 0.061,
+        "trade_count": 19
+      }
+    },
+    {
+      "hypothesis_id": "HYP-X04",
+      "pattern_name": "MA Ribbon Stack",
+      "generation": 1,
+      "elimination_reason": "OOS Sharpe collapsed (0.81 -> -0.12)",
+      "fitness_is": {
+        "sharpe_ratio": 0.81,
+        "win_rate": 0.49,
+        "profit_factor": 1.29,
+        "total_pnl": 6600.0,
+        "max_drawdown_pct": 0.079,
+        "trade_count": 115
+      }
+    },
+    {
+      "hypothesis_id": "HYP-X05",
+      "pattern_name": "Volume Spike Chase",
+      "generation": 1,
+      "elimination_reason": "Max drawdown 21.4% over gate",
+      "fitness_is": {
+        "sharpe_ratio": 0.58,
+        "win_rate": 0.44,
+        "profit_factor": 1.17,
+        "total_pnl": 4725.0,
+        "max_drawdown_pct": 0.214,
+        "trade_count": 103
+      }
+    },
+    {
+      "hypothesis_id": "HYP-X06",
+      "pattern_name": "Fractal Divergence",
+      "generation": 2,
+      "elimination_reason": "Negative expectancy OOS (-0.09R)",
+      "fitness_is": {
+        "sharpe_ratio": 0.44,
+        "win_rate": 0.42,
+        "profit_factor": 1.11,
+        "total_pnl": 2450.0,
+        "max_drawdown_pct": 0.092,
+        "trade_count": 76
+      }
+    }
+  ],
+  "total_graduated": 4,
+  "total_graveyard": 6,
+  "total_tokens": 45000,
+  "total_backtests": 30,
+  "started_at": "2026-02-16T12:00:00+00:00",
+  "completed_at": "2026-02-16T12:15:30+00:00"
+}

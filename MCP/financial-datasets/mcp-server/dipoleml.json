@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.financial-datasets.mcp-server",
+  "type": "mcp",
+  "name": "MCP Server",
+  "slug": "mcp-server",
+  "vendor": "financial-datasets",
+  "description": "An MCP server for interacting with the Financial Datasets stock market API.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/financial-datasets/mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "financial-datasets",
+    "brandName": "financial-datasets",
+    "source": "https://github.com/financial-datasets.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "financial-datasets/mcp-server",
+    "url": "https://github.com/financial-datasets/mcp-server",
+    "commit": "08e7a3dbb949d3d99bbd6d6f3a22e5f02973ec58",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2314,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-server"
+    ],
+    "env": [
+      "FINANCIAL_DATASETS_API_KEY"
+    ],
+    "credentials": [
+      "FINANCIAL_DATASETS_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

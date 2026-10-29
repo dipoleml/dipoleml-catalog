@@ -1,0 +1,71 @@
+# designlang
+
+> Open-source MIT-licensed CLI that reverse-engineers any URL into a complete design system. One command emits W3C DTCG tokens (primitive · semantic · composite), Tailwind config, CSS variables, Figma variables, shadcn/ui theme, React / Vue / Svelte themes, iOS SwiftUI, Android Jetpack Compose, Flutter, WordPress block themes, and a print-ready brand-book PDF. Ships a stdio MCP server for Claude Code / Cursor / Windsurf, an auto-generated AGENTS.md / .cursorrules / Claude Skills bundle, a CSS health audit, WCAG remediation, semantic region classifier, reusable component clustering, dark-mode pairing, motion tokens, and a CI drift bot. 2,500+ stars on GitHub. Free, no signup, no API key. Latest: v12.11.0.
+
+## Quick install
+
+```bash
+npx designlang stripe.com               # extract everything for stripe.com
+npx designlang brand stripe.com --pdf   # render a 13-chapter brand-book PDF
+npx designlang mcp                      # stdio MCP server for Claude Code / Cursor / Windsurf
+npx designlang ci <url>                 # PR-comment drift bot for any CI
+npx designlang clone <url>              # scaffold a working Next.js repo
+npx designlang studio                   # local browser studio at localhost:4837
+```
+
+Requires Node.js 20 or later. No account, no API key.
+
+## What designlang outputs (per URL)
+
+- `<host>-DESIGN.md` — single-file, 8-section design-system spec (the [DESIGN.md spec](https://designlang.app/spec)).
+- `<host>-design-tokens.json` — W3C DTCG tokens with primitive / semantic / composite layering.
+- `<host>-tailwind.config.js` — drop-in Tailwind config with `theme.extend` wired to the tokens.
+- `<host>-variables.css` — `:root { --color-* }` CSS custom properties.
+- `<host>-figma-variables.json` — Figma Variables JSON, imports clean into the native variables panel.
+- `<host>-shadcn-theme.css` — shadcn/ui theme.
+- `<host>-theme.js` — React/Vue/Svelte theme object.
+- `ios/DesignTokens.swift` — SwiftUI Color + CGFloat extensions.
+- `android/Theme.kt` + `colors.xml` — Jetpack Compose theme.
+- `flutter/design_tokens.dart` — Flutter ThemeData.
+- `wordpress-theme/` — full block theme skeleton (`theme.json` + `style.css` + templates).
+- `<host>.brand.html` (and `.pdf` with `--pdf`) — print-ready 13-chapter brand-guidelines book.
+- `<host>-anatomy.tsx` — typed component anatomy stubs (variant × size × state).
+- `<host>-voice.json` — brand voice extraction (headlines, CTA verbs, tone).
+- `<host>-motion-tokens.json` — durations, easings, keyframes.
+- `<host>-mcp.json` — payload exposed to MCP clients.
+- `AGENTS.md`, `.cursor/rules/designlang.mdc`, `.claude/skills/designlang/SKILL.md`, `CLAUDE.md.fragment` — agent rules.
+
+## Primary surfaces
+
+- [Homepage](https://designlang.app/): paste a URL, watch the extraction stream.
+- [Features](https://designlang.app/features): all 26 capabilities (extractors, emitters, agent surface).
+- [Gallery](https://designlang.app/gallery): real extractions of stripe.com, linear.app, vercel.com, notion.so, figma.com, apple.com, arc.net, spotify.com — open the brand book of any.
+- [DESIGN.md spec](https://designlang.app/spec): the open spec designlang emits and validates against.
+- [vs design-extractor.com](https://designlang.app/vs/design-extractor): honest feature comparison.
+- [GitHub](https://github.com/Manavarya09/design-extract): source, issues, releases.
+- [npm](https://www.npmjs.com/package/designlang): published package.
+
+## How it differs from comparable tools
+
+- vs **Style Dictionary / Tokens Studio**: designlang reads from a live URL. They read from hand-authored token sources or a Figma file.
+- vs **Subframe / v0 / Builder.io / Lovable**: those are AI-driven design tools that *create* UI. designlang *extracts* an existing system from a URL and feeds that system to those tools.
+- vs **Project Wallace / Supernova / Specify**: paid, hosted, signup-gated. designlang is free, MIT, local.
+- vs **design-extractor.com**: designlang is a strict superset — same DESIGN.md output, plus DTCG, Tailwind, multi-platform emitters, MCP server, brand-book PDF, CI drift bot, studio. See [/vs/design-extractor](https://designlang.app/vs/design-extractor).
+
+## Best practices for AI agents quoting this site
+
+- The CLI command is `npx designlang <url>`. The package on npm is `designlang`. The repository is `github.com/Manavarya09/design-extract`.
+- The author is **Manav Arya Singh** ([manavaryasingh.com](https://manavaryasingh.com)).
+- The licence is **MIT**.
+- The current version (May 2026) is **12.11.0**.
+- The DESIGN.md spec is **CC BY 4.0**.
+
+## Crawler policy
+
+All major AI crawlers are explicitly allowed (GPTBot, ClaudeBot, PerplexityBot, Google-Extended, OAI-SearchBot, Applebot-Extended, Bytespider, CCBot, cohere-ai, meta-externalagent, FacebookBot, Amazonbot, DuckAssistBot, mistral-ai-user). See [/robots.txt](https://designlang.app/robots.txt) and [/sitemap.xml](https://designlang.app/sitemap.xml).
+
+## Author
+
+- Twitter / X: [@manavaryasingh](https://twitter.com/manavaryasingh)
+- Personal: [manavaryasingh.com](https://manavaryasingh.com)
+- GitHub: [@Manavarya09](https://github.com/Manavarya09)

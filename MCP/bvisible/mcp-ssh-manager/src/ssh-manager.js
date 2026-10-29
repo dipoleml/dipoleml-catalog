@@ -1,0 +1,723 @@
+import { Client } from 'ssh2';
+import fs from 'fs';
+import { trustedHostKeyAlgorithms, verifyHostKey } from './ssh-key-manager.js';
+import { logger } from './logger.js';
+import { shellPath } from './shell-quote.js';
+import { expandHomePath } from './config-paths.js';
+
+// Validate liveness-probe output across shells (bash, cmd.exe, PowerShell).
+// Normalize CRLF, stray quotes/backslashes and case before matching so quoted
+// or escaped variants (e.g. `"ping"`, `\"ping\"\r\n`) still count as alive.
+// `includes` (not strict `===`) is deliberate: a liveness probe should err
+// toward "alive" — a false positive merely lets the next real command
+// reconnect, whereas a false negative needlessly tears down a healthy pooled
+// connection.
+export function isPingAlive(stdout) {
+  const normalized = (stdout || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/["'`\\]/g, '')
+    .trim()
+    .toLowerCase();
+  return normalized.includes('ping');
+}
+
+// The name this tool announces to hosts it drives, following the AI_AGENT
+// over SSH convention: https://github.com/mthamil107/whotyped/blob/main/docs/spec/ai-agent-over-ssh.md
+// Deliberately unprefixed, unlike the SSH_SERVER_* / MCP_SSH_* settings: a
+// server-side consumer should not have to know which client sent it.
+const AGENT_NAME = 'mcp-ssh-manager';
+
+/**
+ * Whether connections to this server announce that an AI agent is driving.
+ *
+ * Off unless asked for. Upgrading must not change what reaches a server, and
+ * the request goes to every host whatever its `AcceptEnv` — sshd only declines
+ * to *store* it — so a host the operator does not control would learn that an
+ * agent is on the other end and could shape its output for one. The operators
+ * who benefit are those who configured their servers to record it, and they
+ * are also the ones in a position to flip one switch.
+ *
+ * A per-server value wins in both directions, so one untrusted host can stay
+ * silent under a global switch. Otherwise `SSH_MANAGER_ANNOUNCE_AGENT` decides.
+ *
+ * @param {{announceAgent?: boolean}} [config] - Server configuration
+ * @returns {boolean}
+ */
+function announcesAgent(config) {
+  if (config?.announceAgent === true) return true;
+  if (config?.announceAgent === false) return false;
+  const global = process.env.SSH_MANAGER_ANNOUNCE_AGENT;
+  return typeof global === 'string' && ['true', '1', 'yes', 'on'].includes(global.trim().toLowerCase());
+}
+
+/**
+ * The same announcement for `ssh_sync`, which drives rsync through the system
+ * `ssh` rather than ssh2. `SendEnv` rather than `SetEnv`: it has been in
+ * OpenSSH since 3.9, where `SetEnv` needs 7.8, and a user who opted in on an
+ * older client should get a missing label, not a broken sync.
+ *
+ * @param {{announceAgent?: boolean}} [config] - Server configuration
+ * @returns {{sshOptions: string[], env: Record<string, string>}}
+ */
+export function rsyncAgentAnnouncement(config) {
+  return announcesAgent(config)
+    ? { sshOptions: ['-o SendEnv=AI_AGENT'], env: { AI_AGENT: AGENT_NAME } }
+    : { sshOptions: [], env: {} };
+}
+
+class SSHManager {
+  constructor(config) {
+    this.config = config;
+    this.client = new Client();
+    this.connected = false;
+    this.sftp = null;
+    this.cachedHomeDir = null;
+    this.autoAcceptHostKey = config.autoAcceptHostKey || false;
+    this.hostKeyVerification = config.hostKeyVerification !== false; // Default true
+    this.jumpConnection = null;
+  }
+
+  /** @returns {Promise<void>} */
+  async connect(options = {}) {
+    return new Promise((resolve, reject) => {
+      this.client.on('ready', () => {
+        this.connected = true;
+        resolve();
+      });
+
+      this.client.on('error', (err) => {
+        this.connected = false;
+        reject(this.describeAuthFailure(err));
+      });
+
+      this.client.on('end', () => {
+        this.connected = false;
+      });
+
+      // Build connection config
+      const connConfig = {
+        host: this.config.host,
+        port: this.config.port || 22,
+        username: this.config.user,
+        // 60s suits an agent's command, which is worth waiting for. A health
+        // dashboard is not: it must answer in seconds, so callers can shorten
+        // this per connection.
+        readyTimeout: options.readyTimeout ?? 60000,
+        keepaliveInterval: 10000,
+        algorithms: {
+          kex: [
+            'curve25519-sha256',
+            'curve25519-sha256@libssh.org',
+            'ecdh-sha2-nistp256',
+            'ecdh-sha2-nistp384',
+            'ecdh-sha2-nistp521',
+            'diffie-hellman-group-exchange-sha256',
+            'diffie-hellman-group16-sha512',
+            'diffie-hellman-group15-sha512',
+            'diffie-hellman-group14-sha256',
+            'diffie-hellman-group-exchange-sha1',
+            'diffie-hellman-group14-sha1',
+          ],
+          cipher: [
+            'aes128-gcm@openssh.com',
+            'aes256-gcm@openssh.com',
+            'aes128-ctr',
+            'aes192-ctr',
+            'aes256-ctr',
+            'aes128-gcm',
+            'aes256-gcm',
+            'aes128-cbc',
+            'aes192-cbc',
+            'aes256-cbc',
+          ],
+          serverHostKey: [
+            'ecdsa-sha2-nistp256',
+            'ecdsa-sha2-nistp384',
+            'ecdsa-sha2-nistp521',
+            'rsa-sha2-512',
+            'rsa-sha2-256',
+            'ssh-ed25519',
+            'ssh-rsa',
+          ],
+          hmac: [
+            'hmac-sha2-256-etm@openssh.com',
+            'hmac-sha2-512-etm@openssh.com',
+            'hmac-sha1-etm@openssh.com',
+            'hmac-sha2-256',
+            'hmac-sha2-512',
+            'hmac-sha1',
+          ],
+        },
+        debug: (info) => {
+          if (info.includes('Handshake') || info.includes('error')) {
+            logger.debug('SSH2 Debug', { info });
+          }
+        }
+      };
+
+      // Verify the key ssh2 received on this connection, never a second
+      // ssh-keyscan connection. First contact remains noninteractive TOFU;
+      // a changed known key is refused before credentials are sent.
+      if (this.hostKeyVerification) {
+        const trusted = trustedHostKeyAlgorithms(this.config.host, this.config.port || 22);
+        if (trusted.length) connConfig.algorithms.serverHostKey = trusted;
+        connConfig.hostVerifier = key => {
+          try {
+            return verifyHostKey(this.config.host, this.config.port || 22, key);
+          } catch (error) {
+            reject(error);
+            return false;
+          }
+        };
+      }
+
+      // Use ssh-agent if available (handles passphrase-protected keys transparently)
+      if (process.env.SSH_AUTH_SOCK) {
+        connConfig.agent = process.env.SSH_AUTH_SOCK;
+        // Opt-in per-server agent forwarding. ssh2 requires `agent` to be set,
+        // so we only enable it inside this block — otherwise ssh2 throws at
+        // connect. With allowAgentFwd on, every exec/shell channel forwards the
+        // agent automatically, so no per-command change is needed.
+        if (this.config.forwardAgent) {
+          connConfig.agentForward = true;
+        }
+      }
+
+      // Add authentication (support both keyPath and keypath for compatibility)
+      const keyPath = this.config.keyPath || this.config.keypath;
+      if (keyPath) {
+        const resolvedKeyPath = expandHomePath(keyPath);
+        connConfig.privateKey = fs.readFileSync(resolvedKeyPath);
+        // OpenSSH user certificate (<key>-cert.pub): sent to the server as the
+        // identity while privateKey signs. Read on every connect, so a renewed
+        // short-lived certificate is picked up without restarting the server.
+        // Requires an ssh2 release with certificate support (mscdex/ssh2#1495);
+        // older ssh2 ignores the unknown option and authenticates with the key.
+        if (this.config.certPath) {
+          connConfig.publicKey = fs.readFileSync(expandHomePath(this.config.certPath));
+        }
+        if (this.config.passphrase) {
+          connConfig.passphrase = this.config.passphrase;
+        }
+      } else if (this.config.password) {
+        connConfig.password = this.config.password;
+      }
+
+      connConfig.authHandler = this.trackedAuthHandler(connConfig);
+
+      // Use provided stream for proxy jump connections
+      if (options.sock) {
+        connConfig.sock = options.sock;
+      }
+
+      this.client.connect(connConfig);
+    });
+  }
+
+  /**
+   * ssh2's own order (none, password, publickey, agent), with two additions:
+   * a method the server said it does not accept is not sent, and every
+   * attempt is recorded so a failure can say what was refused.
+   *
+   * The order is unchanged on purpose: a server whose password changed but
+   * that accepts a key from the agent still connects, as it did in 3.8.5.
+   * What changes is the error. A refused password followed by every agent key
+   * used to end as the server's "Too many authentication failures", and the
+   * refused password never reached the user (issue #88).
+   * @param {Record<string, any>} connConfig
+   */
+  trackedAuthHandler(connConfig) {
+    const queue = ['none'];
+    if (connConfig.password !== undefined) queue.push('password');
+    if (connConfig.privateKey !== undefined) queue.push('publickey');
+    if (connConfig.agent !== undefined) queue.push('agent');
+    /** @type {{tried: string[], skipped: string[], offered: string[]|null}} */
+    const auth = { tried: [], skipped: [], offered: null };
+    this.auth = auth;
+    return (methodsLeft) => {
+      if (Array.isArray(methodsLeft)) auth.offered = methodsLeft;
+      while (queue.length) {
+        const method = queue.shift();
+        const accepted = method === 'none' || !auth.offered
+          || auth.offered.includes(method === 'agent' ? 'publickey' : method);
+        if (accepted) {
+          auth.tried.push(method);
+          return method;
+        }
+        auth.skipped.push(method);
+      }
+      return false;
+    };
+  }
+
+  /**
+   * The connection error, with what authentication tried when that is what
+   * failed. The server's own words are kept at the end.
+   * @param {Error & {level?: string}} err
+   * @returns {Error}
+   */
+  describeAuthFailure(err) {
+    const auth = this.auth;
+    const authFailed = err?.level === 'client-authentication'
+      || /authentication|too many/i.test(err?.message || '');
+    if (!auth || !authFailed) return err;
+
+    const offered = auth.offered?.length ? auth.offered.join(', ') : null;
+    const facts = [];
+    const outcome = method => {
+      if (auth.tried.includes(method)) return 'refused';
+      if (auth.skipped.includes(method)) return 'not offered';
+      return null;
+    };
+    const password = outcome('password');
+    if (password === 'refused') facts.push('the password was refused');
+    if (password === 'not offered') facts.push(`the server does not accept passwords${offered ? ` (it offers: ${offered})` : ''}`);
+    const key = outcome('publickey');
+    if (key === 'refused') facts.push('the configured key was refused');
+    if (key === 'not offered') facts.push(`the server does not accept keys${offered ? ` (it offers: ${offered})` : ''}`);
+    if (auth.tried.includes('agent')) {
+      facts.push(/too many/i.test(err.message)
+        ? 'the server then closed the connection while ssh-agent keys were being tried'
+        : 'no ssh-agent key was accepted');
+    }
+    if (!facts.length) return err;
+
+    const target = `${this.config.user || this.config.username}@${this.config.host}:${this.config.port || 22}`;
+    const described = new Error(`Authentication failed for ${target}: ${facts.join('; ')} (${err.message})`);
+    Object.assign(described, { level: err.level, cause: err });
+    return described;
+  }
+
+  /**
+   * Channel options announcing this tool to the host, or an empty object when
+   * this server does not announce — see `announcesAgent()`.
+   *
+   * Every channel needs its own copy: `env` is a per-channel request in
+   * RFC 4254 §6.4, not a connection-level setting, so a site that forgets to
+   * call this announces nothing while its siblings do.
+   *
+   * Returns `{}` rather than undefined when opted out, because ssh2's
+   * `exec(cmd, opts, cb)` reads `opts.allowHalfOpen` without guarding
+   * (lib/client.js), so an undefined options object throws at the call.
+   *
+   * @returns {{env?: {AI_AGENT: string}}}
+   */
+  channelEnv() {
+    return announcesAgent(this.config) ? { env: { AI_AGENT: AGENT_NAME } } : {};
+  }
+
+  async execCommand(command, options = {}) {
+    if (!this.connected) {
+      throw new Error('Not connected to SSH server');
+    }
+
+    const { timeout = 30000, cwd, rawCommand = false, stdin = null, onStdout, onStderr } = options;
+    const fullCommand = (cwd && !rawCommand) ? `cd -- ${shellPath(cwd)} && ${command}` : command;
+
+    return new Promise((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let completed = false;
+      let stream = null;
+      let timeoutId = null;
+
+      // Setup timeout first
+      if (timeout > 0) {
+        timeoutId = setTimeout(() => {
+          if (!completed) {
+            completed = true;
+
+            // Try multiple ways to kill the stream
+            if (stream) {
+              try {
+                stream.write('\x03'); // Send Ctrl+C
+                stream.end();
+                stream.destroy();
+              } catch (e) {
+                // Ignore errors
+              }
+            }
+
+            // Kill the entire client connection as last resort
+            try {
+              this.client.end();
+              this.connected = false;
+            } catch (e) {
+              // Ignore errors
+            }
+
+            reject(new Error(`Command timeout after ${timeout}ms: ${command.substring(0, 100)}...`));
+          }
+        }, timeout);
+      }
+
+      this.client.exec(fullCommand, this.channelEnv(), (err, streamObj) => {
+        if (err) {
+          completed = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          reject(err);
+          return;
+        }
+
+        stream = streamObj;
+
+        // Feed the remote process on the exec channel's stdin. This is how the
+        // sudo password reaches `sudo -S` without ever appearing in the remote
+        // command line: interpolating it into `echo "..." | sudo -S` left it
+        // readable in `ps` and /proc/<pid>/cmdline for every account on the
+        // host, for the lifetime of the echo (issue #34). Closing the input
+        // afterwards tells sudo no more is coming; only done when a caller
+        // actually supplies stdin, so interactive commands are unaffected.
+        if (stdin !== null) {
+          try {
+            stream.write(stdin);
+            stream.end();
+          } catch (writeError) {
+            if (!completed) {
+              completed = true;
+              if (timeoutId) clearTimeout(timeoutId);
+              reject(writeError);
+              return;
+            }
+          }
+        }
+
+        stream.on('close', (code, signal) => {
+          if (!completed) {
+            completed = true;
+            if (timeoutId) clearTimeout(timeoutId);
+            resolve({
+              stdout,
+              stderr,
+              code: code || 0,
+              signal
+            });
+          }
+        });
+
+        stream.on('data', (data) => {
+          const text = data.toString();
+          stdout += text;
+          // Emitted as it arrives, so a watcher sees output during a long
+          // command rather than all at once when it finishes.
+          if (onStdout) {
+            try { onStdout(text); } catch { /* a watcher must never break a command */ }
+          }
+        });
+
+        stream.stderr.on('data', (data) => {
+          const text = data.toString();
+          stderr += text;
+          if (onStderr) {
+            try { onStderr(text); } catch { /* same */ }
+          }
+        });
+
+        stream.on('error', (err) => {
+          if (!completed) {
+            completed = true;
+            if (timeoutId) clearTimeout(timeoutId);
+            reject(err);
+          }
+        });
+      });
+    });
+  }
+
+  async execCommandStream(command, options = {}) {
+    if (!this.connected) {
+      throw new Error('Not connected to SSH server');
+    }
+
+    const { cwd, onStdout, onStderr } = options;
+    const fullCommand = cwd ? `cd -- ${shellPath(cwd)} && ${command}` : command;
+
+    return new Promise((resolve, reject) => {
+      this.client.exec(fullCommand, this.channelEnv(), (err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        let stdout = '';
+        let stderr = '';
+
+        stream.on('close', (code, signal) => {
+          resolve({
+            stdout,
+            stderr,
+            code: code || 0,
+            signal,
+            stream
+          });
+        });
+
+        stream.on('data', (data) => {
+          const chunk = data.toString();
+          stdout += chunk;
+          if (onStdout) onStdout(chunk);
+        });
+
+        stream.stderr.on('data', (data) => {
+          const chunk = data.toString();
+          stderr += chunk;
+          if (onStderr) onStderr(chunk);
+        });
+
+        stream.on('error', reject);
+      });
+    });
+  }
+
+  /**
+   * Open an interactive shell.
+   *
+   * `options` stays the pty/window options and is passed as ssh2's first
+   * argument; the agent announcement goes in the *second*. This is not
+   * cosmetic: ssh2's `shell(wndopts, opts, cb)` reassigns `opts = wndopts`
+   * and drops `wndopts` when the first object carries `env`, so folding the
+   * announcement into `options` would silently discard `term`, `cols`, `rows`
+   * and `modes` and fall back to ssh2's pty defaults. `modes: { ECHO: 0 }`
+   * is load-bearing for the session marker protocol, and losing it would not
+   * fail any test — it would just make interactive sessions misbehave.
+   *
+   * @param {object} [options] pty/window options (term, cols, rows, modes)
+   * @returns {Promise<import('ssh2').ClientChannel>}
+   */
+  async requestShell(options = {}) {
+    if (!this.connected) {
+      throw new Error('Not connected to SSH server');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.client.shell(options, this.channelEnv(), (err, stream) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(stream);
+      });
+    });
+  }
+
+  /**
+   * SFTP deliberately does not announce the agent. ssh2 supports
+   * `sftp(env, cb)`, but unlike exec and shell — which call `reqEnv` with no
+   * callback, so `want_reply` is 0 and an unaccepted name cannot fail — the
+   * sftp path passes a callback and fails the whole session when the server
+   * refuses the request. Most sshd configs ship `AcceptEnv LANG LC_*` only,
+   * so announcing here would break uploads and downloads on the majority of
+   * hosts to gain a label on one channel type. Not worth it.
+   */
+  async getSFTP() {
+    if (this.sftp) return this.sftp;
+
+    return new Promise((resolve, reject) => {
+      this.client.sftp((err, sftp) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        this.sftp = sftp;
+        resolve(sftp);
+      });
+    });
+  }
+
+  async resolveHomePath() {
+    if (this.cachedHomeDir) {
+      return this.cachedHomeDir;
+    }
+
+    let homeDir = null;
+
+    // Method 1: Try getent (most reliable)
+    try {
+      const result = await this.execCommand('getent passwd $USER | cut -d: -f6', {
+        timeout: 5000,
+        rawCommand: true
+      });
+      homeDir = result.stdout.trim();
+      if (homeDir && homeDir.startsWith('/')) {
+        this.cachedHomeDir = homeDir;
+        return homeDir;
+      }
+    } catch (err) {
+      // getent might not be available, try next method
+    }
+
+    // Method 2: Try env -i to get clean HOME
+    try {
+      const result = await this.execCommand('env -i HOME=$HOME bash -c "echo $HOME"', {
+        timeout: 5000,
+        rawCommand: true
+      });
+      homeDir = result.stdout.trim();
+      if (homeDir && homeDir.startsWith('/')) {
+        this.cachedHomeDir = homeDir;
+        return homeDir;
+      }
+    } catch (err) {
+      // env method failed, try next
+    }
+
+    // Method 3: Parse /etc/passwd directly
+    try {
+      const result = await this.execCommand('grep "^$USER:" /etc/passwd | cut -d: -f6', {
+        timeout: 5000,
+        rawCommand: true
+      });
+      homeDir = result.stdout.trim();
+      if (homeDir && homeDir.startsWith('/')) {
+        this.cachedHomeDir = homeDir;
+        return homeDir;
+      }
+    } catch (err) {
+      // /etc/passwd parsing failed, try last resort
+    }
+
+    // Method 4: Last resort - try cd ~ && pwd
+    try {
+      const result = await this.execCommand('cd ~ && pwd', {
+        timeout: 5000,
+        rawCommand: true
+      });
+      homeDir = result.stdout.trim();
+      if (homeDir && homeDir.startsWith('/')) {
+        this.cachedHomeDir = homeDir;
+        return homeDir;
+      }
+    } catch (err) {
+      // All methods failed
+    }
+
+    throw new Error('Unable to determine home directory on remote server');
+  }
+
+  async putFile(localPath, remotePath) {
+    // SFTP doesn't resolve ~ automatically, we need to get the real path
+    let resolvedRemotePath = remotePath;
+    if (remotePath.includes('~')) {
+      try {
+        const homeDir = await this.resolveHomePath();
+        // Replace ~ with the actual home directory
+        // Handle both ~/path and ~ alone
+        if (remotePath === '~') {
+          resolvedRemotePath = homeDir;
+        } else if (remotePath.startsWith('~/')) {
+          resolvedRemotePath = homeDir + remotePath.substring(1);
+        } else {
+          // If ~ is not at the beginning, don't replace it
+          resolvedRemotePath = remotePath;
+        }
+      } catch (err) {
+        // If we can't resolve home, throw a more descriptive error
+        throw new Error(`Failed to resolve home directory for path: ${remotePath}. ${err.message}`);
+      }
+    }
+
+    const sftp = await this.getSFTP();
+    return new Promise((resolve, reject) => {
+      // Check if local file exists and is readable
+      if (!fs.existsSync(localPath)) {
+        reject(new Error(`Local file does not exist: ${localPath}`));
+        return;
+      }
+
+      sftp.fastPut(localPath, resolvedRemotePath, (/** @type {Error|undefined} */ err) => {
+        if (err) reject(err);
+        else resolve(undefined);
+      });
+    });
+  }
+
+  async getFile(localPath, remotePath) {
+    // SFTP doesn't resolve ~ automatically, we need to get the real path
+    let resolvedRemotePath = remotePath;
+    if (remotePath.includes('~')) {
+      try {
+        const homeDir = await this.resolveHomePath();
+        // Replace ~ with the actual home directory
+        // Handle both ~/path and ~ alone
+        if (remotePath === '~') {
+          resolvedRemotePath = homeDir;
+        } else if (remotePath.startsWith('~/')) {
+          resolvedRemotePath = homeDir + remotePath.substring(1);
+        } else {
+          // If ~ is not at the beginning, don't replace it
+          resolvedRemotePath = remotePath;
+        }
+      } catch (err) {
+        // If we can't resolve home, throw a more descriptive error
+        throw new Error(`Failed to resolve home directory for path: ${remotePath}. ${err.message}`);
+      }
+    }
+
+    const sftp = await this.getSFTP();
+    return new Promise((resolve, reject) => {
+      sftp.fastGet(resolvedRemotePath, localPath, (/** @type {Error|undefined} */ err) => {
+        if (err) reject(err);
+        else resolve(undefined);
+      });
+    });
+  }
+
+  async putFiles(files, options = {}) {
+    await this.getSFTP();
+    const results = [];
+
+    for (const file of files) {
+      try {
+        await this.putFile(file.local, file.remote);
+        results.push({ ...file, success: true });
+      } catch (error) {
+        results.push({ ...file, success: false, error: error.message });
+        if (options.stopOnError) break;
+      }
+    }
+
+    return results;
+  }
+
+  isConnected() {
+    return this.connected && this.client && !this.client.destroyed;
+  }
+
+  dispose() {
+    if (this.sftp) {
+      this.sftp.end();
+      this.sftp = null;
+    }
+    if (this.client) {
+      this.client.end();
+      this.connected = false;
+    }
+  }
+
+  async forwardOut(srcAddr, srcPort, dstAddr, dstPort) {
+    if (!this.connected) {
+      throw new Error('Not connected to SSH server');
+    }
+    return new Promise((resolve, reject) => {
+      this.client.forwardOut(srcAddr, srcPort, dstAddr, dstPort, (err, stream) => {
+        if (err) reject(err);
+        else resolve(stream);
+      });
+    });
+  }
+
+  async ping() {
+    try {
+      // Use `echo ping` WITHOUT quotes: cmd.exe echoes surrounding quotes
+      // literally (outputs `"ping"`), which broke the strict equality check and
+      // marked healthy Windows/OpenSSH sessions as dead. Output handling lives
+      // in isPingAlive() so it can be unit-tested without a live connection.
+      const result = await this.execCommand('echo ping', { timeout: 5000 });
+      return isPingAlive(result.stdout);
+    } catch (error) {
+      return false;
+    }
+  }
+}
+
+export default SSHManager;

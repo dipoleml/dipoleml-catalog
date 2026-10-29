@@ -1,0 +1,660 @@
+# Changelog
+
+All notable changes to mcp-searxng are documented here.
+Versions follow [Semantic Versioning](https://semver.org/).
+
+## Unreleased
+
+## [2.9.0] - 2026-10-27
+
+### Added
+
+- Fetch up to five consecutive search pages concurrently with the optional `pages` argument. Results are merged in page order and deduplicated before applying result limits; partial page failures are reported without exposing upstream errors. [#346](https://github.com/ihor-sokoliuk/mcp-searxng/pull/346)
+- Add bounded stateful HTTP lifecycle diagnostics for capacity rejection, idle reclaim, initialization and request timeouts, resource-close failures and forced shutdown. Fixed event names and numeric counts aggregate repeated events; shutdown flushes pending counts. [#344](https://github.com/ihor-sokoliuk/mcp-searxng/pull/344)
+
+### Maintenance
+
+- Update MCP SDK core/server/client to 2.4.0, the Node adapter to 2.1.2 and TypeScript ESLint to 8.72.1. Refresh pinned CodeQL and Docker login Actions, and align packed-consumer verification with the installed SDK. [#345](https://github.com/ihor-sokoliuk/mcp-searxng/pull/345)
+- Remove unsupported Nix packaging, obsolete archived test artifacts and dead proxy code. Supported NPX, Docker, STDIO and HTTP invocation remain available. [#343](https://github.com/ihor-sokoliuk/mcp-searxng/pull/343)
+
+### Compatibility
+
+Existing single-page searches retain their default behavior. The new `pages` control is available in the full tool schema; the Lite schema is unchanged. Node.js 22 or later remains required. Source-level imports and deep imports from the npm package remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, implementation and release verification.
+
+## [2.8.1] - 2026-10-25
+
+## Security and build
+
+- Refresh the compatible transitive Hono and ip-address dependencies to fix CVE-2026-111757 and CVE-2026-111997. npm audit is clean for the release dependency graph. [#340](https://github.com/ihor-sokoliuk/mcp-searxng/pull/340)
+- Make Docker SARIF scans honor the configured HIGH/CRITICAL threshold. [#340](https://github.com/ihor-sokoliuk/mcp-searxng/pull/340)
+- Publish the Docker image with Node.js 24.22.1, including the upstream Brotli decoder fix for CVE-2026-111497, and body-parser 2.4.0 for CVE-2026-111181.
+
+## Delivery
+
+Docker 2.8.0 was not published. Docker users should use `isokoliuk/mcp-searxng:2.8.1`. This release includes the Unix-domain socket support and Nix packaging introduced in 2.8.0.
+
+## Contributors
+
+- @ihor-sokoliuk — security maintenance and release verification.
+
+## [2.8.0] - 2026-10-25
+
+## Added
+
+- Support `unix:` SearXNG instance URLs through Unix-domain sockets. Include Nix flake packaging. [#328](https://github.com/ihor-sokoliuk/mcp-searxng/pull/328)
+
+## Security
+
+- Update the Docker runtime from Node.js 24.22.0 to 24.22.1, including the upstream Brotli decoder fix for CVE-2026-111497. [#337](https://github.com/ihor-sokoliuk/mcp-searxng/pull/337)
+- Update the compatible transitive `body-parser` dependency to 2.4.0, fixing CVE-2026-111181 involving compressed request bodies. [#337](https://github.com/ihor-sokoliuk/mcp-searxng/pull/337)
+
+## Compatibility
+
+The existing Node.js compatibility range and direct dependency versions are unchanged.
+
+## Contributors
+
+- @nsrkn2n — Unix-domain socket support and Nix packaging.
+- @ihor-sokoliuk — security maintenance and release verification.
+
+## [2.7.0] - 2026-10-20
+
+### Added
+
+- Add opt-in `MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS` for retained stateful HTTP POSTs. It defaults to `0` (disabled); expiry returns HTTP 504 before headers or closes a started response, invalidates the session, terminates siblings and releases capacity. Initialization and standalone GET have separate lifecycles. [#333](https://github.com/ihor-sokoliuk/mcp-searxng/pull/333)
+- Drain retained stateful HTTP sessions on SIGINT/SIGTERM. New stateful requests receive HTTP 503 with `Retry-After: 5` after existing gates; admitted POSTs have up to four seconds to finish, with a five-second total session-shutdown budget before listener closure. Repeated signals share one operation, queued terminal responses may flush within the same bound, and hanging/rejecting resource closes cannot retain admission state. Existing modern/stateless work can extend subsequent listener closure. [#335](https://github.com/ihor-sokoliuk/mcp-searxng/pull/335)
+
+### Dependencies and build
+
+- Update Undici to 7.30.1, unpdf to 1.9.1, jose to 6.2.13, node-html-parser to 9.0.5, ESLint to 10.13.0 and TypeScript ESLint to 8.72.0. Refresh pinned CodeQL/Scorecard Actions and the Node LTS Alpine image from Node 24.21.0 to 24.22.0. Normalize two lockfile URLs to the official npm registry without changing their integrity. [#334](https://github.com/ihor-sokoliuk/mcp-searxng/pull/334)
+
+### Compatibility
+
+Node.js >=22 remains supported. Legacy stateless HTTP and STDIO retain their existing shutdown behavior; modern HTTP remains sessionless. The new request lifetime control is disabled by default. Supported integration remains the executable MCP server via CLI, npx or container; JavaScript/TypeScript package imports remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, verification and stateful HTTP lifecycle improvements.
+
+
+## [2.6.0] - 2026-10-13
+
+### Added
+
+- Add configurable concurrency limits for retained stateful HTTP requests: 16 POSTs and 4 standalone GET streams per session by default, with process-wide limits of 256 for each. Excess work returns HTTP 503 `Server busy` with `Retry-After: 1`; DELETE remains available. Initialization shares the POST pool with reserved headroom for established sessions. Tune the four documented `MCP_HTTP_MAX_*` settings for your workload. [#327](https://github.com/ihor-sokoliuk/mcp-searxng/pull/327)
+
+### Security and build
+
+- Replace shell-based build permission tooling with native Node handling, removing the vulnerable development-only dependency chain. Both full and production dependency audits are clean for this release. [#321](https://github.com/ihor-sokoliuk/mcp-searxng/pull/321)
+
+### Dependencies and tests
+
+- Update Express to 5.3.0, Undici to 7.30.0, Zod to 4.6.7, paired TypeScript ESLint packages to 8.71.2, and pinned GitHub Actions revisions. Node.js >=22 remains supported. [#325](https://github.com/ihor-sokoliuk/mcp-searxng/pull/325)
+- Correct compact-search E2E assertions to accept the existing engine-failure diagnostics, including CAPTCHA warnings, while rejecting malformed results and unrelated metadata. Add deterministic coverage for empty results and normalized failure tuples. [#326](https://github.com/ihor-sokoliuk/mcp-searxng/pull/326)
+
+### Compatibility
+
+This minor release adds retained-stateful HTTP controls. Modern HTTP, legacy stateless HTTP and STDIO keep their existing controls. Supported integration remains the executable MCP server via CLI, npx or container; JavaScript/TypeScript package imports remain unsupported.
+
+### Contributors
+
+- @ihor-sokoliuk — maintenance, verification and HTTP concurrency hardening.
+
+## [2.5.1] - 2026-10-06
+
+### Security
+
+- Patch the transitive `proxy-addr` dependency to 2.0.8, addressing IP spoofing through IPv4-mapped IPv6 trusted subnets. [#316](https://github.com/ihor-sokoliuk/mcp-searxng/pull/316)
+- Update development-only `brace-expansion` to 5.0.12, resolving its three denial-of-service advisories. [#317](https://github.com/ihor-sokoliuk/mcp-searxng/pull/317)
+
+### Dependencies and compatibility
+
+- Update MCP core/server/client to 2.3.1 and the Node adapter to 2.1.1. Use SDK-owned protocol-header validation in place of the temporary workaround, with regression coverage for missing/mismatched headers and valid requests. STDIO clients must keep input open until responses arrive: EOF signals disconnect and aborts outstanding requests. Node >=22 remains supported. [#319](https://github.com/ihor-sokoliuk/mcp-searxng/pull/319)
+- Refresh compatible runtime and development dependencies, including `express-rate-limit`, TypeScript ESLint, ESLint, its security plugin, Supertest and Node 22 types. [#316](https://github.com/ihor-sokoliuk/mcp-searxng/pull/316)
+
+### Documentation and publication
+
+- Add tested SearXNG search configuration and browser-solver deployment guides, including writable settings, explicit engine filtering and private build-context exclusions. [#312](https://github.com/ihor-sokoliuk/mcp-searxng/pull/312)
+- Publish MCP Registry independently after npm, with bounded readiness/retry handling and final verification so transient propagation delays can recover within the same run. [#310](https://github.com/ihor-sokoliuk/mcp-searxng/pull/310)
+
+### Dependency audit
+
+- The production dependency audit is clean. A pre-existing `braces` denial-of-service advisory remains in the development-only `shx` tooling chain; no patched latest release is currently available.
+
+### Contributors
+
+- @ihor-sokoliuk — dependency maintenance, compatibility validation, documentation and publication reliability.
+
+## [2.5.0] - 2026-09-29
+
+### Added
+
+- Add opt-in idle expiry for legacy stateful HTTP sessions with `MCP_HTTP_SESSION_IDLE_TTL_MS` (default `0`, disabled). Expiry uses monotonic activity, protects initialization and active POST work, counts successful notification sends, and closes an idle GET stream without a terminal event. Clients using an expired session receive 404 and must initialize again. Classification runs every 60 seconds and at most once per second when session capacity is reached. [#309](https://github.com/ihor-sokoliuk/mcp-searxng/pull/309)
+
+### Fixed
+
+- Distinguish degraded empty searches from genuine empty results in both text and JSON MCP responses. Empty responses with engine failures return `Search Degraded` and `isError: true`, while usable full-detail metadata, filtered-empty results, and a completed empty replica without reported failures remain successful. Normalize malformed failure entries, retain diagnostics in compact output, and merge/deduplicate metadata across completed replicas. [#308](https://github.com/ihor-sokoliuk/mcp-searxng/pull/308)
+- Engine diagnostics can cover all completed replicas; `servedBy` retains its result-provider meaning. HTML fallback cannot supply engine-failure metadata. Compact JSON may now include top-level `unresponsive_engines`, and compact text may append a failure note after its result records.
+
+### Dependencies and CI
+
+- Refresh TypeScript ESLint, the security lint plugin, Supertest and pinned CodeQL actions. Update transitive `ip-address` to 10.7.2; the final dependency audit reports zero vulnerabilities. [#306](https://github.com/ihor-sokoliuk/mcp-searxng/pull/306)
+
+### Contributors
+
+- @tdhooghe — reported degraded-search behavior and contributed the prior implementation discussion in [#262](https://github.com/ihor-sokoliuk/mcp-searxng/issues/262) and [#299](https://github.com/ihor-sokoliuk/mcp-searxng/pull/299).
+- @ihor-sokoliuk — implementation, verification, dependency maintenance and release.
+
+## [2.4.0] - 2026-09-22
+
+### Added
+
+- Bound retained and concurrently initializing legacy HTTP sessions with `MCP_HTTP_MAX_SESSIONS` (default 1000). At capacity, initialization returns HTTP 503 with `Retry-After: 1`; existing sessions and DELETE remain available. ([#297](https://github.com/ihor-sokoliuk/mcp-searxng/pull/297))
+- Add `MCP_HTTP_INITIALIZE_TIMEOUT_MS` (default 30000 ms) to bound legacy stateful initialization through response delivery. Expiry releases capacity, invalidates the session, and returns 504 before headers or closes an already-started response. Successful SSE response delivery cancels the deadline without limiting the subsequent stream lifetime. ([#298](https://github.com/ihor-sokoliuk/mcp-searxng/pull/298))
+
+### Security
+
+- Protect configured credentials across diagnostics, cached content, and tool-response boundaries, including overlapping credentials and ambiguous proxy URLs. ([#291](https://github.com/ihor-sokoliuk/mcp-searxng/pull/291), [#292](https://github.com/ihor-sokoliuk/mcp-searxng/pull/292))
+
+### Fixed
+
+- Use rendered browser-solver content, preserve terminal read outcomes, replay non-HTML wrappers, and recheck destination DNS before returning solver results. Improve eligible read failover and timeout diagnostics. ([#293](https://github.com/ihor-sokoliuk/mcp-searxng/pull/293))
+
+### Dependencies and CI
+
+- Update supported development tools and pinned GitHub Actions. Refresh both Docker stages to a tested Node 24.21.0 Alpine base; the minimum supported Node version remains 22. ([#296](https://github.com/ihor-sokoliuk/mcp-searxng/pull/296))
+- Retire the independent Docker rebuild schedule; version-tag releases continue publishing signed multi-architecture images. ([#290](https://github.com/ihor-sokoliuk/mcp-searxng/pull/290))
+
+### Contributors
+
+- @ihor-sokoliuk — credential protection, browser-solver recovery, HTTP session bounds, dependency maintenance, and release work.
+
+## [2.3.0] - 2026-09-15
+
+### Added
+
+- Conform retained stateful HTTP sessions to the Streamable HTTP lifecycle: missing identifiers return JSON HTTP 400, unknown or terminated identifiers return JSON HTTP 404, successful DELETE termination returns an empty 204, protocol-version validation remains enforced, and clients can reconnect with a fresh session after termination. Failed transport closure remains retryable. ([#289](https://github.com/ihor-sokoliuk/mcp-searxng/pull/289))
+
+### Fixed and security
+
+- Align MCP error classification across STDIO and HTTP transports. Malformed protocol input uses `-32602`, expected tool failures return `isError: true`, unexpected internal failures use a sanitized `-32603`, cancellation stays distinct, and resource errors no longer expose credentials. ([#288](https://github.com/ihor-sokoliuk/mcp-searxng/pull/288))
+- Update Undici to its supported security release and strengthen packed-runtime verification. ([#279](https://github.com/ihor-sokoliuk/mcp-searxng/pull/279))
+- Update Zod with single-source dependency verification. ([#280](https://github.com/ihor-sokoliuk/mcp-searxng/pull/280))
+
+### Documentation
+
+- Correct transport and client examples, clarify proxy trust and Linux/container networking, and validate published setup commands. ([#281](https://github.com/ihor-sokoliuk/mcp-searxng/pull/281))
+- Reorganize client setup and troubleshooting around common tasks with validated navigation and anchors. ([#282](https://github.com/ihor-sokoliuk/mcp-searxng/pull/282))
+
+### Dependencies and CI
+
+- Refresh compatible runtime and development dependencies, including `jose` 6.2.12, Zod 4.6.5, `fast-check` 4.10.0 and Node.js type definitions 22.20.2; update CodeQL workflow pins to v4.38.0. ([#287](https://github.com/ihor-sokoliuk/mcp-searxng/pull/287))
+
+### Contributors
+
+- @ihor-sokoliuk — HTTP lifecycle conformance, error-contract repairs, dependency maintenance, documentation and release work.
+
+## [2.2.0] - 2026-09-09
+
+### Added
+
+- Optional MCP OAuth protected-resource mode with resource discovery, signed access-token validation and authenticated legacy-session ownership. Static-token deployments and STDIO remain available. See the OAuth configuration guide for provider and HTTPS routing requirements. ([#277](https://github.com/ihor-sokoliuk/mcp-searxng/pull/277))
+
+### Fixed and security
+
+- Block private IPv4 destinations embedded in IPv6 and native non-global IPv6 URL targets. ([#266](https://github.com/ihor-sokoliuk/mcp-searxng/pull/266), [#268](https://github.com/ihor-sokoliuk/mcp-searxng/pull/268))
+- Preserve successful search results when upstream metadata contains malformed entries, and prevent metadata from injecting misleading result-shaped lines. Thanks to @shauneccles. ([#271](https://github.com/ihor-sokoliuk/mcp-searxng/pull/271))
+- Refresh the vulnerable query-parser dependency. ([#269](https://github.com/ihor-sokoliuk/mcp-searxng/pull/269))
+
+### Dependencies and CI
+
+- Update tested runtime/development dependencies and CodeQL/QEMU action pins. The production dependency audit is clean; the documented Node.js 22+ requirement remains unchanged. ([#276](https://github.com/ihor-sokoliuk/mcp-searxng/pull/276))
+
+### Contributors
+
+- @shauneccles — search metadata resilience and rendering safeguards.
+- @ihor-sokoliuk — URL-policy fixes, dependency maintenance and release work.
+
+## [2.1.0] - 2026-08-25
+
+### Changed
+
+- **Explicit engine time-range searches now fail closed instead of returning misleading empty results:** When `engines` and `time_range` are combined, every configured SearXNG instance must provide `/config` and every selected engine must confirm time-range support before the search runs. Callers can omit `time_range` or use an engine-specific query filter when capability cannot be confirmed. This is an intentional, backward-compatible tool behavior change and is therefore released as a minor version. ([#244](https://github.com/ihor-sokoliuk/mcp-searxng/pull/244))
+
+### Testing
+
+- **Release and protocol contract tests now validate stable semantics:** Version surfaces, workflow action pins, Node support, and MCP tool definitions are checked structurally instead of against mutable release literals or opaque whole-definition digests. This prevents routine releases, action refreshes, and description-only updates from failing unrelated tests while preserving the supported contracts. ([#259](https://github.com/ihor-sokoliuk/mcp-searxng/pull/259), [#260](https://github.com/ihor-sokoliuk/mcp-searxng/pull/260))
+
+## [2.0.0] - 2026-08-20
+
+### Breaking Changes
+
+- **Node.js 22 or later is now required:** Node.js 20 is no longer supported, and the PDF extraction runtime now uses `unpdf` 1.8.1 with loading-task teardown. Consumers and deployments must upgrade to Node.js 22 or a newer supported release before installing mcp-searxng 2.0.0. ([#251](https://github.com/ihor-sokoliuk/mcp-searxng/pull/251), [#253](https://github.com/ihor-sokoliuk/mcp-searxng/pull/253))
+
+- **STDIO post-connect logging notifications were removed:** The modern protocol deprecates MCP logging notifications, so clients must no longer rely on the former post-connect version, log-level, environment, or configured-instance notices. Interactive launches retain version and configured-instance connection diagnostics on sanitized stderr; non-TTY launches retain configured-instance status there. Tool and resource behavior is unchanged. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+- **The npm package is now executable-only:** The accidental programmatic module entry point has been removed, and direct package imports such as `createMcpServer` are no longer a supported integration surface. Run mcp-searxng through its CLI, `npx`, or container and communicate with it through MCP. Standard MCP client configuration, tool calls, resources, CLI usage, and container deployments are unchanged. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+- **HTTP requests now use the modern protocol's validation and capacity boundaries:** Every `POST /mcp` requires `Content-Type: application/json` or receives HTTP 415. When HTTP hardening enables Host validation, it now covers retained stateful as well as stateless requests. Modern sessionless POSTs require the matching `MCP-Protocol-Version: 2026-07-28` header, use the initialization rate-limit bucket, and are bounded by `MCP_HTTP_STATELESS_MAX_IN_FLIGHT`, `MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP`, and `MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS` even when legacy `MCP_HTTP_STATELESS` mode is disabled; overload and timeout responses are HTTP 503 and 504. Before upgrading, custom HTTP clients must send the required content type and protocol header, hardened deployments must allow the intended Host values, and operators should tune the documented capacity limits for expected modern traffic. STDIO users are unaffected. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+### Added
+
+- **Modern MCP protocol serving with the official split SDK v2 packages:** HTTP and STDIO now support the modern `2026-07-28` protocol while retaining the documented legacy transports, tool and resource contracts, admission controls, credential-safe diagnostics, and bounded HTTP cleanup. Modern HTTP requests are sessionless POST operations; legacy stateful and stateless behavior keeps its documented session boundaries. ([#255](https://github.com/ihor-sokoliuk/mcp-searxng/pull/255))
+
+### Security
+
+- **Process-wide tool invocation admission now protects every transport:** STDIO, stateful HTTP, and stateless HTTP share a bounded fixed-window tool-call rate and a hard no-queue in-flight ceiling. Operators can tune `MCP_TOOL_RATE_WINDOW_MS`, `MCP_TOOL_RATE_MAX`, and `MCP_TOOL_MAX_IN_FLIGHT`; exhausted calls receive a sanitized retryable result while initialization, discovery, resources, logging, and health checks remain available. ([#254](https://github.com/ihor-sokoliuk/mcp-searxng/pull/254))
+
+### Contributors
+
+- @app/dependabot - [#252](https://github.com/ihor-sokoliuk/mcp-searxng/pull/252) chore(deps): bump docker/setup-buildx-action from 4.2.0 to 4.3.0 in the github-actions group across 1 directory
+
+## [1.16.0] - 2026-08-19
+
+### Added
+
+- **Bounded SearXNG response-body consumption:** Search JSON and HTML fallback, `/config`, and suggestions now share a streaming response reader with a configurable `SEARXNG_MAX_RESPONSE_BYTES` ceiling (5 MiB by default). Request deadlines remain active until body consumption finishes, diagnostic previews are capped at 64 KiB, and oversized, partial, stalled, cancelled, or malformed bodies are rejected without parsing, caching, or health credit. Abort identity and credential redaction are preserved. ([#250](https://github.com/ihor-sokoliuk/mcp-searxng/pull/250))
+
+  **Migration note:** Operators may set `SEARXNG_MAX_RESPONSE_BYTES` to a positive safe integer. Unset, blank, zero, negative, fractional, exponent, unit-suffixed, or unsafe values use the documented 5 MiB default with a value-free warning.
+
+### Security
+
+- **Origin validation now covers every Streamable HTTP request:** Every present `Origin` is checked before MCP routing in compatibility, stateful, and stateless modes. Absent Origin remains supported for non-browser clients; safe loopback defaults and explicit `MCP_HTTP_ALLOWED_ORIGINS` replacement allowlists preserve intended browser access. ([#249](https://github.com/ihor-sokoliuk/mcp-searxng/pull/249))
+
+### Build / CI
+
+- **Node.js 24 LTS is tested and used for trusted publishing:** Required CI now runs on Node.js 20 and 24, while npm and container publishing use Node.js 24. The package continues to support its documented Node.js 20 floor. ([#248](https://github.com/ihor-sokoliuk/mcp-searxng/pull/248))
+
+## [1.15.0] - 2026-08-11
+
+### Added
+
+- **Configurable search result detail:** `searxng_web_search` accepts optional `result_detail` values `compact` and `full` (default). Compact responses emit only safe title, URL, and description/content-snippet fields (JSON keys: `title`, `url`, `content`), while full responses retain the existing SearXNG metadata and research signals. `SEARXNG_MAX_RESULT_CHARS` applies only to result content in both modes.
+
+  **Migration note:** compact text has exactly three lines per result and no preamble or cache annotation. Line parsers that rely on relevance scores or other metadata should request `result_detail="full"` or accept compact's three-line records.
+
+  Compact suppresses warnings, provenance, and every other search signal. Full text adds valid optional metadata in fixed score, engines, category, published-date, thumbnail, and image-source order; invalid optional metadata is omitted, and text fields are normalized to single lines. Existing users with `SEARXNG_MAX_RESULT_CHARS` set now also receive truncated full JSON content.
+
+## [1.14.1] - 2026-08-06
+
+### Fixed
+
+- **Built HTTP transport regression coverage now exercises real loopback TCP:** The end-to-end suite launches the compiled CLI in both stateful and stateless modes and verifies session negotiation, tool listing, bounded readiness and diagnostics, process cleanup, and narrowly classified address-in-use retries. This is test-only hardening; supported transport behavior is unchanged. ([#237](https://github.com/ihor-sokoliuk/mcp-searxng/pull/237))
+
+### Changed
+
+- **Compatible runtime dependencies and the pinned container base are refreshed:** The Hono override floor moves to 4.13.0, `ip-address` resolves to 10.4.0, `fast-uri` resolves to 3.1.5, and both Docker stages use the current pinned Node 24 LTS Alpine digest. These are non-major compatibility and supply-chain maintenance updates; the supported API and product behavior are unchanged. ([#228](https://github.com/ihor-sokoliuk/mcp-searxng/pull/228), [#233](https://github.com/ihor-sokoliuk/mcp-searxng/pull/233), [#235](https://github.com/ihor-sokoliuk/mcp-searxng/pull/235), [#236](https://github.com/ihor-sokoliuk/mcp-searxng/pull/236))
+
+### Security
+
+- **The development dependency tree now resolves the patched `brace-expansion` release:** The ESLint/minimatch lock resolution moves from vulnerable 5.0.8 to 5.0.9, the first patched 5.x release for GHSA-rgw5-rvv9-x895, without adding a direct dependency or changing the production dependency tree. ([#239](https://github.com/ihor-sokoliuk/mcp-searxng/pull/239))
+
+## [1.14.0] - 2026-07-31
+
+### Added
+
+- **Configurable default search response format:** Operators can set `SEARXNG_DEFAULT_RESPONSE_FORMAT` to the exact lowercase value `text` or `json` for calls that omit `response_format`. Explicit per-call values continue to take precedence, and unset, blank, or invalid configuration preserves the existing text default. The tool schema no longer advertises the hard-coded `default: "text"` annotation so clients can omit the argument and allow the operator default to apply; clients that explicitly send or auto-inject `text` continue to override it. The operator default also applies in lite-tools mode. ([#225](https://github.com/ihor-sokoliuk/mcp-searxng/pull/225))
+
+- **Bounded stateless Streamable HTTP mode:** Set `MCP_HTTP_STATELESS=true` to isolate every `POST /mcp` in a fresh MCP server and transport for serverless or horizontally scaled deployments that cannot preserve process-local sessions. Stateless requests are protected by configurable global and per-client-IP in-flight limits, a request lifetime, authorization and hardened Host/Origin checks before server construction, and bounded cleanup. Stateful sessions remain the default; stateless mode is POST-only and does not preserve cross-request sessions, resumable streams, standalone GET notification streams, or DELETE-based termination. ([#226](https://github.com/ihor-sokoliuk/mcp-searxng/pull/226))
+
+## [1.13.0] - 2026-07-30
+
+### Added
+
+- **FlareSolverr-primary failover to Byparr:** Operators can configure `FLARESOLVERR_URL`, `BYPARR_URL`, or both. Dual mode always tries FlareSolverr first, advances to Byparr only for busy or transient-unavailable acquisition, and uses one uncached direct fetch only after every configured provider is busy or unavailable. Persistent 4xx, cancellation, solution-integrity failures, and solved non-2xx target status stop the chain. Provider timeouts and concurrency remain independent, cache entries use the winning provider, and canonically duplicate endpoints fail closed. Verified provider versions remain FlareSolverr 3.5.0 and Byparr 2.1.0 from 2026-07-30. ([#220](https://github.com/ihor-sokoliuk/mcp-searxng/pull/220), [#223](https://github.com/ihor-sokoliuk/mcp-searxng/pull/223), [#224](https://github.com/ihor-sokoliuk/mcp-searxng/pull/224))
+
+  **Migration note:** Browser-solver endpoints are now validated during startup. A `FLARESOLVERR_URL` containing userinfo, a query, a fragment, or a non-HTTP(S) scheme now prevents startup instead of failing only when a URL read first uses it.
+
+- **Bounded PDF text extraction:** `web_url_read` now extracts text-layer content from `application/pdf` responses using the new production `unpdf` dependency in a resource-limited worker. Input and output are capped at the lower of `URL_READ_MAX_CONTENT_LENGTH_BYTES` and 16 MiB, documents above 500 pages are rejected, parsing has a separate 30-second budget, and at most two extractions run concurrently. OCR is not supported. This supersedes the v1.10.0 behavior that rejected PDF responses. ([#221](https://github.com/ihor-sokoliuk/mcp-searxng/pull/221))
+
+- **Expanded operator and client guidance:** New documentation covers self-hosted and public SearXNG instances, MCP client configuration, evidence-focused research workflows, and measured deployment profiles. ([#214](https://github.com/ihor-sokoliuk/mcp-searxng/pull/214), [#215](https://github.com/ihor-sokoliuk/mcp-searxng/pull/215), [#216](https://github.com/ihor-sokoliuk/mcp-searxng/pull/216), [#217](https://github.com/ihor-sokoliuk/mcp-searxng/pull/217), [#218](https://github.com/ihor-sokoliuk/mcp-searxng/pull/218))
+
+### Fixed
+
+- **HTTP rate-limit settings now honor the strict integer-validation contract:** `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` reject fractional, unit-suffixed, exponent, non-decimal, non-positive, and unsafe values instead of accepting numeric prefixes. Invalid values fall back with a raw-value-free warning. Because previously accepted numeric prefixes may have produced a different effective limit, the documented default may be looser or stricter until the operator corrects the setting. ([#219](https://github.com/ihor-sokoliuk/mcp-searxng/pull/219))
+
+- **Solver and PDF documentation now matches runtime boundaries:** Security and deployment guidance consistently describes browser-solver disclosure, acquisition fallback, PDF parsing limits, and timeout behavior. ([#222](https://github.com/ihor-sokoliuk/mcp-searxng/pull/222))
+
+## [Unreleased]
+
+## [1.12.1] - 2026-07-28
+
+### Fixed
+
+- **Configuration integers are now validated consistently:** Cache limits, timeouts, HTTP settings, URL content limits, and search page numbers reject fractional, unit-suffixed, non-decimal, unsafe, and otherwise malformed values instead of accepting numeric prefixes or truncating fractions. ([#201](https://github.com/ihor-sokoliuk/mcp-searxng/pull/201), [#202](https://github.com/ihor-sokoliuk/mcp-searxng/pull/202), [#211](https://github.com/ihor-sokoliuk/mcp-searxng/pull/211))
+
+- **Search and URL caching now preserve only useful final results:** Empty searches are no longer cached, URL-reader entries retain the final markdown instead of redundant raw payloads, and SearXNG requests use aligned fetch and dispatcher clients. ([#203](https://github.com/ihor-sokoliuk/mcp-searxng/pull/203), [#206](https://github.com/ihor-sokoliuk/mcp-searxng/pull/206), [#207](https://github.com/ihor-sokoliuk/mcp-searxng/pull/207))
+
+- **CLI metadata flags no longer initialize the MCP server:** `--help`, `-h`, `--version`, and `-v` return immediately through a minimal path, avoiding configuration and network startup side effects. ([#204](https://github.com/ihor-sokoliuk/mcp-searxng/pull/204))
+
+- **MCP logging thresholds are isolated per server session:** Changing one connected client's log level no longer changes the threshold used by other sessions. ([#205](https://github.com/ihor-sokoliuk/mcp-searxng/pull/205))
+
+- **The default Compose deployment now remains STDIO-only:** HTTP transport is no longer exposed unless it is explicitly configured. ([#198](https://github.com/ihor-sokoliuk/mcp-searxng/pull/198))
+
+- **Server configuration now reports every supported proxy source:** The `hasProxy` indicator includes global, search-specific, and URL-reader-specific HTTP and HTTPS proxy variables in either case. ([#212](https://github.com/ihor-sokoliuk/mcp-searxng/pull/212))
+
+- **Development and regression tooling is more reliable:** Coverage works on supported Node releases, test environment mutations are restored even after failures, and documentation now accurately describes configuration exposure, LFU eviction, fallback errors, and available test commands. ([#199](https://github.com/ihor-sokoliuk/mcp-searxng/pull/199), [#200](https://github.com/ihor-sokoliuk/mcp-searxng/pull/200), [#208](https://github.com/ihor-sokoliuk/mcp-searxng/pull/208), [#209](https://github.com/ihor-sokoliuk/mcp-searxng/pull/209), [#210](https://github.com/ihor-sokoliuk/mcp-searxng/pull/210), [#213](https://github.com/ihor-sokoliuk/mcp-searxng/pull/213))
+
+### Security
+
+- **Published-package dependency verification is now fail-closed:** The MCP SDK is updated from 1.29.0 to 1.30.0 so clean consumer installs can resolve the patched `@hono/node-server` 2.x line. The previous root-only adapter override was removed because npm consumers do not inherit dependency-owned overrides. The npm publication workflow now packs and installs the exact release artifact in an isolated consumer, rejects every resolved `@hono/node-server` version below `2.0.5`, requires a zero-vulnerability production audit, and smoke-tests the installed MCP CLI before publication. ([#197](https://github.com/ihor-sokoliuk/mcp-searxng/pull/197))
+
+- **Security regression assertions now match complete diagnostic URLs:** Exact-message tests prevent ambiguous safe substrings from hiding an unsafe credential-bearing URL. ([#190](https://github.com/ihor-sokoliuk/mcp-searxng/pull/190))
+
+### Contributors
+
+- @app/dependabot - [#193](https://github.com/ihor-sokoliuk/mcp-searxng/pull/193) chore(deps-dev): bump the development dependencies group
+- @app/dependabot - [#194](https://github.com/ihor-sokoliuk/mcp-searxng/pull/194) chore(deps): bump undici from 7.28.0 to 7.29.0
+- @app/dependabot - [#195](https://github.com/ihor-sokoliuk/mcp-searxng/pull/195) chore(deps): bump express-rate-limit from 8.6.0 to 8.6.1
+- @app/dependabot - [#196](https://github.com/ihor-sokoliuk/mcp-searxng/pull/196) chore(deps): bump the GitHub Actions group
+
+## [1.12.0] - 2026-07-25
+
+### Fixed
+
+- **Established HTTP sessions now receive the configured session rate limit:** Each `POST /mcp` request now passes through exactly one limiter. Requests with a currently live `mcp-session-id` use the session allowance, while initialization requests and missing, malformed, unknown, or stale session identifiers retain the stricter initialization limit. ([#179](https://github.com/ihor-sokoliuk/mcp-searxng/pull/179))
+
+- **Logging now honors all eight MCP severity levels:** Filtering recognizes `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, and `emergency`, so selecting a threshold such as `notice` or `emergency` no longer lets lower-severity messages through. ([#178](https://github.com/ihor-sokoliuk/mcp-searxng/pull/178))
+
+- **TypeScript test launchers now work consistently on Windows, Linux, and WSL:** Integration and end-to-end tests use Node's portable `--import tsx` loader instead of trying to execute npm's platform-specific `.bin/tsx` shim directly. This changes development and CI launchers only; production runtime behavior is unchanged. ([#176](https://github.com/ihor-sokoliuk/mcp-searxng/pull/176))
+
+### Security
+
+- **Authentication data is now sanitized at every diagnostic boundary:** Process output, MCP logging notifications, JSON-RPC errors, and HTTP diagnostic errors pass through a centralized redaction layer that removes configured credentials, URL userinfo, authorization values, proxy secrets, and structured authentication fields. Malformed SearXNG entries are reported without echoing their raw values. MCP registry metadata now marks `SEARXNG_URL`, `AUTH_USERNAME`, and `AUTH_PASSWORD` as secrets so compatible clients can mask and protect their values. If an older release exposed credentials in logs or client-visible errors, upgrade, rotate the affected credentials, and remove or restrict access to captured logs and telemetry.
+
+- **Hardened HTTP bearer authentication now uses constant-time comparison:** Authorization accepts only the documented exact, case-sensitive `Bearer <token>` form, fails closed when either value is absent, hashes the complete presented and expected strings with SHA-256, and compares the equal-length digests with timing-safe equality. Raw-token and malformed authorization headers are rejected. Before upgrading, clients that previously sent an undocumented bare token must change the header to `Authorization: Bearer <token>`. ([#177](https://github.com/ihor-sokoliuk/mcp-searxng/pull/177))
+
+- **Vulnerable transitive dependencies were patched:** `fast-uri` is updated to 3.1.4 for its host-confusion fixes, the root install overrides `@hono/node-server` to patched 2.0.11, and the development graph uses `brace-expansion` 5.0.8. Applications that install `mcp-searxng` as a dependency may need their own `@hono/node-server` 2.0.11 override until the MCP SDK admits the patched 2.x adapter, because npm does not apply dependency-owned overrides in a consuming application's root graph. ([#189](https://github.com/ihor-sokoliuk/mcp-searxng/pull/189))
+
+### Contributors
+
+- @app/dependabot - [#185](https://github.com/ihor-sokoliuk/mcp-searxng/pull/185) chore(deps): bump hono from 4.12.25 to 4.12.31
+- @app/dependabot - [#184](https://github.com/ihor-sokoliuk/mcp-searxng/pull/184) chore(deps): bump body-parser from 2.2.2 to 2.3.0
+- @app/dependabot - [#183](https://github.com/ihor-sokoliuk/mcp-searxng/pull/183) chore(deps-dev): bump brace-expansion from 5.0.6 to 5.0.7
+- @app/dependabot - [#182](https://github.com/ihor-sokoliuk/mcp-searxng/pull/182) chore(deps): bump the github-actions group with 4 updates
+- @app/dependabot - [#181](https://github.com/ihor-sokoliuk/mcp-searxng/pull/181) chore(deps): bump express-rate-limit from 8.5.2 to 8.6.0
+- @app/dependabot - [#180](https://github.com/ihor-sokoliuk/mcp-searxng/pull/180) chore(deps-dev): bump the dev-dependencies group with 3 updates
+
+## [1.11.1] - 2026-07-14
+
+### Fixed
+
+- **Hardened HTTP mode no longer rejects every request on non-default ports:** With `MCP_HTTP_HARDEN` enabled and `MCP_HTTP_ALLOWED_HOSTS` left unset, the default DNS-rebinding Host allowlist contained only the bare hostnames `127.0.0.1` and `localhost`. Because the transport matches the raw `Host` header — port included — with an exact list-membership check, any bind to a port other than 80 caused every request (including the initial `initialize`) to fail with `403`. The bind port is now threaded into the defaults, so the allowlist also accepts `127.0.0.1:PORT`, `localhost:PORT`, and `[::1]:PORT` (plus `[::1]` to mirror the SDK's own localhost default). An explicit `MCP_HTTP_ALLOWED_HOSTS` still overrides these defaults unchanged. (BUG-012, [#172](https://github.com/ihor-sokoliuk/mcp-searxng/pull/172))
+
+- **`SEARXNG_TIMEOUT_MS` is now validated and clamped:** Non-integer, unit-suffixed (e.g. `5000ms`), decimal, non-positive, or otherwise malformed values are now rejected with a warning and fall back to the default `10000`. The value is also capped at the 32-bit `setTimeout` ceiling (`2147483647`); a larger delay was previously clamped by Node to 1 ms, so an over-large timeout fired almost immediately instead of waiting. (BUG-013, [#171](https://github.com/ihor-sokoliuk/mcp-searxng/pull/171))
+
+- **Corrected the HTTP transport example and refreshed the docs:** README and `CONFIGURATION.md` were synced with the current feature set and a misleading Streamable HTTP transport example was fixed. ([#165](https://github.com/ihor-sokoliuk/mcp-searxng/pull/165))
+
+### Security
+
+- **`MCP_RATE_*` environment variables are now validated:** Malformed values for the HTTP rate-limit settings — `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, and `MCP_RATE_SESSION_MAX` — are rejected with a warning and fall back to safe defaults instead of being applied verbatim, so a typo can no longer silently disable or misconfigure rate limiting. (SEC-025, [#170](https://github.com/ihor-sokoliuk/mcp-searxng/pull/170))
+
+## [1.11.0] - 2026-07-06
+
+### Added
+
+- **In-memory search result cache:** Repeated `searxng_web_search` calls with identical arguments are now served from a per-process cache instead of re-querying the instance, mirroring the existing URL-reader cache. The cache key is a SHA-256 of the tool name plus the search arguments canonicalized with sorted object keys, so semantically identical requests hit the same entry regardless of argument order, while any change to the query or parameters caches separately. Two new variables tune it: `SEARCH_CACHE_TTL_MS` (default `86400000`, 24 hours) sets the entry lifetime, and `SEARCH_CACHE_MAX_ENTRIES` (default `200`) caps the cache, evicting the least-frequently-used entry first with the oldest entry as the tie-breaker. Invalid or non-positive values fall back to the defaults. (FEAT-008, [#164](https://github.com/ihor-sokoliuk/mcp-searxng/pull/164))
+
+- **Per-instance HTTP Basic Auth from `SEARXNG_URL` userinfo:** Credentials can now be embedded directly in each `SEARXNG_URL` entry (`https://user:pass@host`), and each semicolon-separated replica carries its own credentials — so a mixed deployment of one auth-gated private instance and one public instance no longer sends the private credentials to the public host. The legacy global `AUTH_USERNAME` / `AUTH_PASSWORD` variables are now a fallback used only for entries that have no userinfo, preserving existing single-instance setups. Percent-encode special characters in the username or password (for example, write `p@ss` as `p%40ss`). (FEAT-049, [#160](https://github.com/ihor-sokoliuk/mcp-searxng/pull/160))
+
+- **`SEARCH_USER_AGENT` override for SearXNG-instance requests:** A new per-group `SEARCH_USER_AGENT` variable sets the `User-Agent` for all SearXNG-instance traffic — `searxng_web_search`, `/config` capability discovery, and search suggestions — independently of the `web_url_read` group's `URL_READER_USER_AGENT`. Both groups fall back to `USER_AGENT` when unset, and if neither the group override nor `USER_AGENT` is set, no `User-Agent` header is added. (FEAT-050, [#150](https://github.com/ihor-sokoliuk/mcp-searxng/pull/150))
+
+### Fixed
+
+- **Basic Auth and custom CA certs now applied on every SearXNG endpoint:** `SEARXNG_URL` Basic Auth credentials and the `NODE_EXTRA_CA_CERTS` custom CA bundle were previously honored on the main search request but not on the `/config` capability-discovery and `/autocompleter` suggestion fetches, so those two paths failed against auth-gated or custom-CA instances. All three now go through the same authenticated, TLS-aware request path. A follow-up also fixes Windows, where setting `NODE_EXTRA_CA_CERTS` had dropped the bundled Mozilla root store instead of adding to it. (`d33f7e9`, `2a037f5`, [#152](https://github.com/ihor-sokoliuk/mcp-searxng/pull/152))
+
+- **Clearer "content too large" message from `web_url_read`:** When a page exceeds the size limit, the error now reports the size with an explicit, unambiguous unit and gives accurate advice for narrowing the request, replacing the earlier misleading wording. ([#148](https://github.com/ihor-sokoliuk/mcp-searxng/pull/148))
+
+### Security
+
+- **`SEARXNG_URL` userinfo redacted in the config resource:** Now that credentials can be embedded per instance, the `config` MCP resource redacts any `user:pass@` userinfo from the reported instance URLs, and the `hasAuth` indicator is userinfo-aware so it reflects embedded credentials as well as the legacy `AUTH_USERNAME` / `AUTH_PASSWORD` variables — keeping embedded secrets out of client-visible configuration output. (`2026bf9`)
+
+### Contributors
+
+- @wchy1128 - [#152](https://github.com/ihor-sokoliuk/mcp-searxng/pull/152) fix(auth+tls): Basic Auth on /config and /autocompleter; honor NODE_EXTRA_CA_CERTS everywhere
+
+## [1.10.1] - 2026-07-04
+
+### Fixed
+
+- **`USER_AGENT` now applied to the `/config` and suggestions requests:** The configured `USER_AGENT` header is now sent on the SearXNG `/config` instance-info fetch and on search-suggestion fetches. These two paths previously always used the default agent while the main search and `web_url_read` paths already honored `USER_AGENT`, so instances that filter or rate-limit by User-Agent behaved inconsistently. The header is now merged in one shared request-config helper covering every outbound instance request. (BUG-009, [#145](https://github.com/ihor-sokoliuk/mcp-searxng/pull/145))
+
+### Security
+
+- **SSRF guard now blocks CGNAT and the remaining IANA special-purpose IPv4 ranges:** The private-address guard that protects `web_url_read` — and the DNS-rebinding lookup hook that re-validates every resolved answer — previously only rejected RFC1918, loopback, link-local, and `0.0.0.0/8`. It now also blocks CGNAT (`100.64.0.0/10`, Tailscale's default range plus container overlays and ISP CGNAT), the TEST-NET ranges, benchmarking (`198.18.0.0/15`), IETF protocol assignments (`192.0.0.0/24`), 6to4 relay anycast, multicast (`224.0.0.0/4`), and reserved/broadcast (`240.0.0.0/4`). All blocked ranges are consolidated into a single auditable CIDR table (RFC 6890) enforced at both the literal-hostname and DNS-resolved paths; IPv4-mapped IPv6 delegates here and is covered too. (SEC-024, [#147](https://github.com/ihor-sokoliuk/mcp-searxng/pull/147))
+
+## [1.10.0] - 2026-07-03
+
+### Added
+
+- **Content-type-aware `web_url_read`:** The URL reader now inspects the response `Content-Type` before converting. HTML is converted to markdown as before; JSON (`application/json` and `*+json`) is pretty-printed in a fenced block; and plain text, YAML, TOML, and XML are returned as readable fenced text. Binary, media, archive, and PDF responses are now rejected with a short hint instead of being decoded into unreadable bytes — fixing the case where fetching a PDF URL fed garbage to the model. Responses whose declared type is missing or generic are sniffed for a NUL byte in the first kilobyte and rejected if they look binary, which also catches binaries mislabeled as `text/plain`; anything textual continues through the existing HTML pipeline unchanged. (FEAT-045, [#142](https://github.com/ihor-sokoliuk/mcp-searxng/pull/142), resolves [#133](https://github.com/ihor-sokoliuk/mcp-searxng/issues/133))
+
+- **Actionable errors when a SearXNG instance returns non-JSON:** When a search gets a `200` response whose body is not JSON — an HTML results page because the instance never enabled `format: json`, or a Cloudflare/WAF interstitial — the error now names both fixes (enable `- json` under `search.formats` in the instance's `settings.yml`, or set `SEARXNG_HTML_FALLBACK=true`) while still including the response preview, instead of failing with an opaque "Invalid JSON format". (FEAT-053, [#141](https://github.com/ihor-sokoliuk/mcp-searxng/pull/141), resolves [#137](https://github.com/ihor-sokoliuk/mcp-searxng/issues/137))
+
+- **Documented `NODE_EXTRA_CA_CERTS` for Windows and corporate-proxy TLS:** A new "TLS / Corporate CA" section in `CONFIGURATION.md` explains that Linux and macOS auto-detect the system CA bundle, while Windows users behind a TLS-inspecting corporate proxy (Zscaler, Netskope, Palo Alto, Blue Coat) must export the proxy's root CA to PEM and point the standard Node.js `NODE_EXTRA_CA_CERTS` variable at it — with the PowerShell export steps and an explicit warning never to use the insecure `NODE_TLS_REJECT_UNAUTHORIZED=0`. No code change; the variable was already honored by Node/undici. (FEAT-054, [#143](https://github.com/ihor-sokoliuk/mcp-searxng/pull/143), resolves [#138](https://github.com/ihor-sokoliuk/mcp-searxng/issues/138))
+
+## [1.9.0] - 2026-07-02
+
+### Added
+
+- **Configurable Express `trust proxy` for HTTP mode (`MCP_HTTP_TRUST_PROXY`):** When the Streamable HTTP transport runs behind a trusted reverse proxy, set `MCP_HTTP_TRUST_PROXY` so Express resolves the real client IP from `X-Forwarded-For` before computing rate-limit keys and request logs. Accepts `true`, a trusted hop count such as `1`, or a subnet/preset such as `loopback` or `10.0.0.0/8`; unset, `false`, or `0` disables it, which stays the secure default (enabling it without a real proxy in front lets clients spoof `X-Forwarded-For`). This is distinct from the outbound `HTTP_PROXY` / `HTTPS_PROXY` settings that govern this server's own requests. (FEAT-051, [#140](https://github.com/ihor-sokoliuk/mcp-searxng/pull/140))
+
+### Fixed
+
+- **HTTP session recovered after a server restart:** The Streamable HTTP `sessions` map is in-memory, so a client that reused its `mcp-session-id` across a server restart got wedged — a fresh `initialize` still carried the stale header and fell through to `400 / -32000`. `initialize` is now accepted regardless of any stale session header, and unknown session IDs on non-`initialize` POSTs return `404 / -32001 "Session not found"` (matching the MCP SDK's own shape) so clients can detect a dead session and re-initialize. (BUG-010, [#139](https://github.com/ihor-sokoliuk/mcp-searxng/pull/139))
+
+- **Search JSON-parse errors keep the real response preview:** A `fetch` response body is single-use, and the old path called `response.text()` in the catch after `response.json()` had already consumed it, so a JSON-parse failure always degraded to `[Could not read response text]`. The body is now read as text first and then parsed, so the error carries the actual response preview — making misconfigured or HTML-returning instances far easier to diagnose. (BUG-008, [#131](https://github.com/ihor-sokoliuk/mcp-searxng/pull/131))
+
+### Security
+
+- **`SEARXNG_URL` credentials redacted in errors, logs, and provenance:** Embedded userinfo (`user:pass@host`) in `SEARXNG_URL` no longer leaks into model-visible error messages, client logs, or `servedBy` provenance. A shared redaction helper is now applied at every instance-URL emission point — the aggregate failover error, the `ECONNREFUSED` nested message, request/fallback logs, error context, and `servedBy`. (BUG-007, [#136](https://github.com/ihor-sokoliuk/mcp-searxng/pull/136))
+
+## [1.8.0] - 2026-06-23
+
+### Added
+
+- **Multi-instance failover and optional parallel fanout for `SEARXNG_URL`:** `SEARXNG_URL` now accepts several semicolon-separated SearXNG replica URLs that are treated as interchangeable. In the default failover mode a search tries each instance in order until one returns results; an instance with 3 consecutive hard failures is skipped for 60 seconds, while a `200 OK` with an empty result set is treated as healthy and does not trigger cooldown. Set the new `SEARXNG_FANOUT=true` to instead query all healthy instances in parallel and merge results — deduplicated by canonical URL, keeping the highest-scoring copy and ordered by descending score. A single-URL `SEARXNG_URL` behaves exactly as before, so no configuration change is required. (FEAT-047, [#128](https://github.com/ihor-sokoliuk/mcp-searxng/pull/128))
+
+- **Capability discovery aggregated across all instances for filter guidance:** `searxng_instance_info` and the `categories`/`engines` search parameters now aggregate live `/config` capabilities from every reachable configured instance instead of a single one. The tool reports `common` categories and engines (supported on every reachable instance, so safe for consistent multi-instance results) alongside best-effort `available` values, keeping filter guidance accurate when replicas differ in their enabled engines. A `/config` endpoint that fails is skipped for about 60 seconds, or retried immediately when `searxng_instance_info` is called with `refresh=true`. (FEAT-048, [#130](https://github.com/ihor-sokoliuk/mcp-searxng/pull/130))
+
+### Fixed
+
+- **`safesearch` accepted as a string enum and honoring the instance default when omitted:** `safesearch` is now declared as a string enum (`"0"`, `"1"`, `"2"`) so MCP clients that send every tool argument as a string — notably Gemini and Antigravity — no longer fail schema validation. The schema default was also dropped, so omitting `safesearch` now falls back to each instance's server-side default instead of forcing a value. (BUG-006, [#127](https://github.com/ihor-sokoliuk/mcp-searxng/pull/127))
+
+- **Docker Compose HTTP transport reachable from the host:** The HTTP transport in the provided `docker-compose` setup now binds to `0.0.0.0` instead of a loopback address, so the mapped port is reachable from the host rather than only from inside the container.
+
+## [1.7.2] - 2026-06-20
+
+### Security
+
+- **Container image now runs as a non-root user (UID 1000):** The published Docker image previously ran as `root`, so Kubernetes deployments using the `runAsNonRoot: true` pod security context were rejected at admission. The image now sets a numeric `USER 1000` (the `node` account already present in the `node:lts-alpine` base), which satisfies `runAsNonRoot` without an additional `runAsUser` override and reduces the container's blast radius. No configuration change is required. (Reported by @nogweii, [#122](https://github.com/ihor-sokoliuk/mcp-searxng/issues/122))
+
+## [1.7.1] - 2026-06-18
+
+### Security
+
+- **DNS-resolved private-address SSRF in `web_url_read` blocked (GHSA-mrvx-jmjw-vggc):** The URL reader previously validated only the literal hostname string, so a public-looking hostname that DNS-resolves to a private, loopback, or link-local address (for example a domain pointing at `127.0.0.1`/`10.0.0.0/8` or a cloud metadata endpoint like `169.254.169.254`) bypassed the SSRF guard. Direct (no-proxy) reads now validate every resolved DNS answer before connecting and pin the connection to the validated address, closing the DNS-rebinding window. The `MCP_HTTP_ALLOW_PRIVATE_URLS=true` opt-out still applies. When a URL-reader proxy is configured the proxy performs DNS resolution, so those deployments must rely on egress/firewall controls (documented in `SECURITY.md`).
+- **Unbounded response-body read in `web_url_read` capped (GHSA-xcqx-9jf5-w339):** The page-size limit was advisory only — a server using chunked transfer encoding, a failing/absent HEAD response, or a body larger than its reported `Content-Length` could force the entire response into memory (denial of service). The body is now read through a bounded stream that enforces `URL_READ_MAX_CONTENT_LENGTH_BYTES` (default 5 MB) against the decompressed size and stops once the cap is exceeded, before any conversion or caching.
+
+## [1.7.0] - 2026-06-18
+
+### Added
+
+- **HTML-search fallback (`SEARXNG_HTML_FALLBACK=true`):** Opt-in compatibility mode for SearXNG instances that disable JSON output. When a search hits a `403`/`404` or a non-JSON response, it is automatically retried without `format=json` and results (title, URL, snippet) are parsed from the regular HTML results page and marked `sourceFormat: "html"`. Triggers strictly on format rejections — never on `401`, `5xx`, network, or timeout errors. Enabling JSON on a SearXNG instance you control remains the recommended setup; see the README troubleshooting section.
+
+### Security
+
+- **`undici` upgraded to 7.28.0** — resolves two HIGH advisories affecting 7.0.0–7.27.2: GHSA-vmh5-mc38-953g (TLS certificate validation bypass in the SOCKS5 ProxyAgent) and GHSA-pr7r-676h-xcf6 (cross-user information disclosure via shared-cache whitespace bypass).
+- **`form-data` upgraded to 4.0.6** — clears a CRLF-injection advisory (GHSA-hmw2-7cc7-3qxx) in the test toolchain.
+
+## [1.6.0] - 2026-06-16
+
+### Added
+
+- **`engines` parameter on `searxng_web_search`:** A comma-separated list routes a search to specific SearXNG engines (e.g. `google,bing,duckduckgo`) instead of the category defaults. Omitting it preserves the previous behaviour.
+
+- **Validated & normalized `categories` / `engines`:** Values are now trimmed and matched case-insensitively against the connected instance's live `/config`, and the canonical names are sent to SearXNG. Unknown values are rejected up front with the available options listed — fixing silent search degradation from miscased or invalid engine/category names.
+
+- **Configurable URL cache controls:** `CACHE_TTL_MS` sets the URL cache TTL (default `86400000` ms = 24 h) and `CACHE_MAX_ENTRIES` sets the maximum cached URLs (default `500`).
+
+- **Bounded URL cache eviction:** URL cache entries now track hit counts and use LFU eviction with oldest-entry tie-breaking, keeping the cache within the configured size limit.
+
+### Changed
+
+- **URL cache TTL default:** The URL cache now reuses cached pages for up to 24 h within a running server unless entries expire or are evicted. Previous default was 60 s.
+
+### Security
+
+- **Least-privilege Docker workflow permissions:** `security-events: write` is now isolated to a dedicated image-scan job in both the publish and rebuild workflows, with `id-token: write` confined to the publish/sign job and workflow-level permissions kept read-only.
+
+- **Patched bundled `hono`:** Pinned the transitive `hono` dependency to ≥ 4.12.25 (via npm `overrides`) to resolve CVE-2026-54290 — a CORS middleware flaw that reflected any origin with credentials — in the published Docker image.
+
+### Build / CI
+
+- Added a CI workflow that runs lint plus unit and integration tests on every pull request and push to `main`.
+
+## [1.5.0] - 2026-06-12
+
+### Added
+
+- **`searxng_suggestions` tool:** Returns search autocomplete suggestions from the SearXNG instance. Useful for exploring related queries before committing to a full search.
+
+- **`searxng_instance_info` tool:** Discovers the capabilities of the connected SearXNG instance — enabled engines, supported categories, available languages, and safe-search settings.
+
+- **JSON response format:** `searxng_web_search` accepts a new `response_format` parameter (`"text"` or `"json"`). The `"json"` format returns raw structured data instead of the formatted Markdown text, enabling programmatic result processing.
+
+- **Search metadata in text output:** `searxng_web_search` text responses now include SearXNG answers, spelling corrections, infoboxes, and autocomplete suggestions when the instance returns them — giving richer context alongside the ranked web results.
+
+### Fixed
+
+- Metadata (answers, corrections, infoboxes) is now preserved in text output even when `min_score` filters out all web results. Previously the metadata was silently dropped.
+
+- Unresponsive engines are no longer listed in text output.
+
+- `searxng_suggestions` and `searxng_instance_info` requests now route through the configured search proxy and default TLS dispatcher, matching the behaviour of `searxng_web_search`.
+
+## [1.4.0] - 2026-06-11
+
+### Added
+
+- **Result count control:** `num_results` parameter on `searxng_web_search` (1–20) lets callers request only as many results as they need. `SEARXNG_MAX_RESULTS` env var sets an operator-level hard cap that applies even when `num_results` is omitted — useful for reducing token spend across all callers.
+
+- **Token budget limits:** `SEARXNG_MAX_RESULT_CHARS` env var truncates each search result snippet to a character limit (appending `…`) before returning. `URL_READ_MAX_CHARS` env var sets a default `maxLength` for URL reads when the caller omits it — both controls are recommended for local models with small context windows.
+
+- **HEAD preflight for URL reader:** A fast HEAD request is made before every URL fetch to check `Content-Length`. If the server reports a size above `URL_READ_MAX_CONTENT_LENGTH_BYTES` (default 5 MB), the download is blocked and a descriptive message with `readHeadings`/`section` pagination hints is returned instead of downloading an unbounded body.
+
+- **`categories` parameter on `searxng_web_search`:** Routes searches to specific SearXNG categories — `general`, `news`, `images`, `videos`, `it`, `science`, `files`, `social media`. Omitting the parameter uses the SearXNG instance default (`general`).
+
+- **Configurable search defaults:** `SEARXNG_DEFAULT_LANGUAGE` and `SEARXNG_DEFAULT_SAFESEARCH` env vars set operator-level defaults for language and safe-search level. Per-call parameters still take precedence. Invalid `SEARXNG_DEFAULT_SAFESEARCH` values (not `0`, `1`, or `2`) are logged and ignored.
+
+- **Configurable timeouts:** `SEARXNG_TIMEOUT_MS` controls the search request timeout and `FETCH_TIMEOUT_MS` controls the URL reader fetch timeout (both default to `10000` ms).
+
+- **Lite tool schemas (`SEARXNG_LITE_TOOLS=true`):** When set, registers minimal `query`-only and `url`-only tool schemas instead of the full parameter list. Reduces context overhead for local models with small context windows while still forwarding any extra arguments the caller provides.
+
+### Security
+
+- Pinned the npm trusted publishing installer step in the publish workflow to a full commit SHA to guard against tag-swap supply-chain attacks.
+
+## [1.3.4] - 2026-06-11
+
+### Security
+- Docker images are now signed with Cosign (keyless OIDC). Verify a published image with:
+  ```bash
+  cosign verify docker.io/isokoliuk/mcp-searxng:latest \
+    --certificate-identity-regexp 'https://github.com/ihor-sokoliuk/mcp-searxng/.github/workflows/docker-publish.yml@.*' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+  ```
+- Expanded fuzz test coverage: search parameter handling and URL read arguments are now fuzz-tested on every CI run.
+- Tightened GitHub Actions workflow permissions to least-privilege and switched to reproducible `npm ci` installs in the publish pipeline.
+
+## [1.3.3] - 2026-06-10
+
+### Fixed
+- `test:coverage` script now enforces the coverage threshold mechanically.
+- Gitignored AI process artifacts (plans, drafts) so they can never be committed.
+
+### Security
+- Docker base image (`node:lts-alpine`) is now pinned by digest and bumped automatically via Dependabot.
+- Added a weekly rebuild workflow: when upstream patches the base image, the published Docker image is rebuilt from the latest release tag, re-scanned with Trivy, and republished under the same version tags. Published images now embed the `org.opencontainers.image.base.digest` OCI label for auditability.
+
+## [1.3.2] - 2026-06-09
+
+### Fixed
+- Expanded `SearXNGWeb` response interface to include all fields returned by the API.
+- Search requests now use `AbortController` to enforce the configured timeout and prevent hanging.
+
+### Security
+- Pinned all GitHub Actions workflow steps to full commit SHAs to guard against tag-swap supply-chain attacks.
+- Added CodeQL static analysis, Trivy Docker image scanning, and ClusterFuzzLite continuous fuzzing.
+- Added Dependabot for automated npm and GitHub Actions dependency updates.
+- Verified `mcp-publisher` binary integrity with SHA-256 checksum before use.
+
+## [1.3.1] - 2026-06-09
+
+### Fixed
+- Hotfix: corrected `bin` entry in `package-lock.json` that caused install failures in some environments.
+
+## [1.3.0] - 2026-06-09
+
+### Fixed
+- Server silently exiting when launched via `npx`, Claude Desktop, opencode, or mcpo (#91). Root cause: the `isMainModule` path comparison introduced in v1.2.0 fails when Node runs through an npm `.bin/` symlink. Replaced with a dedicated `src/cli.ts` entrypoint — works on every Node version and invocation method.
+
+### Security
+- **Breaking:** HTTP server now binds to `127.0.0.1` by default instead of `0.0.0.0`. Operators who need network-wide access must opt in with `MCP_HTTP_HOST=0.0.0.0`.
+- Added `express-rate-limit` to all HTTP routes — configurable via `MCP_RATE_WINDOW_MS`, `MCP_RATE_INIT_MAX`, `MCP_RATE_SESSION_MAX`.
+
+## [1.2.1] - 2026-06-07
+
+### Fixed
+- Hotfix for issue #91 (server exit on npx invocation).
+
+## [1.2.0] - 2026-06-07
+
+### Added
+- `week` option for `searxng_web_search` `time_range` parameter.
+- `min_score` filter parameter for `searxng_web_search`.
+
+### Security
+- Added `MCP_HTTP_AUTH_TOKEN` bearer token authentication for HTTP transport.
+- Enabled TLS certificate verification options (`MCP_TLS_*`).
+
+## [1.1.1] - 2026-06-06
+
+### Fixed
+- Minor stability fixes for HTTP transport.
+
+## [1.1.0] - 2026-06-03
+
+### Added
+- `MCP_HTTP_HOST` environment variable to customise server address binding.
+
+### Fixed
+- URL fetch tool (`web_url_read`) reliability improvements.
+
+## [1.0.4] - 2026-05-23
+
+### Fixed
+- Escape user input in `extractSection` regex to prevent ReDoS (CWE-1333) (#71).
+- Add `mcp-protocol-version` to CORS `allowedHeaders` (#77).
+
+### Documentation
+- Improved `searxng_web_search` tool description to prevent LLM using `prompt` instead of `query` (#80).
+
+## [1.0.3] - 2026-04-05
+
+### Fixed
+- Create a new `McpServer` per HTTP session to prevent `Already connected` crash (#66).
+
+## [1.0.1] - 2026-04-01
+
+### Changed
+- Enhanced `SEARXNG_URL` validation, error handling, and documentation (#64).
+
+## [0.10.1] - 2026-03-30
+
+### Security
+- Updated all dependencies to latest versions to address known vulnerabilities.

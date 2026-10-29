@@ -1,0 +1,16 @@
+from seleniumbase import sb_cdp
+
+sb = sb_cdp.Chrome(fast=True)
+sb.goto("https://seleniumbase.io/demo_page")
+sb.type("input", "Quickly type text!")
+sb.press_keys("textarea", "Slowly type text!")
+sb.click("#myButton")
+sb.set_value("input#mySlider", "100")
+sb.click_visible_elements("input.checkBoxClassB")
+sb.select_option_by_text("#mySelect", "Set to 75%")
+sb.hover_and_click("#myDropdown", "#dropOption2")
+sb.click("#checkBox1")
+sb.drag_and_drop("img#logo", "div#drop2")
+sb.nested_click("iframe#myFrame3", ".fBox")
+sb.highlight("#myButton")
+sb.quit()

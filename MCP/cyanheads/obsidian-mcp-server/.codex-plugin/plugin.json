@@ -1,0 +1,25 @@
+{
+  "name": "obsidian-mcp-server",
+  "version": "3.7.2",
+  "description": "Read, write, search, and surgically edit Obsidian vault notes, tags, and frontmatter via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
+  },
+  "homepage": "https://github.com/cyanheads/obsidian-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/obsidian-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "obsidian", "notes", "knowledge-base"],
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "obsidian-mcp-server",
+    "shortDescription": "Read, write, search, and surgically edit Obsidian vault notes, tags, and frontmatter via MCP. STDIO or Streamable HTTP.",
+    "longDescription": "Read, write, search, and surgically edit Obsidian vault notes, tags, and frontmatter via MCP. STDIO or Streamable HTTP.",
+    "developerName": "cyanheads",
+    "category": "productivity",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/cyanheads/obsidian-mcp-server",
+    "defaultPrompt": []
+  }
+}

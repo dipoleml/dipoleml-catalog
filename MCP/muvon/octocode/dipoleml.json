@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.muvon.octocode",
+  "type": "mcp",
+  "name": "Octocode",
+  "slug": "octocode",
+  "vendor": "muvon",
+  "description": "Structural code intelligence for AI agents — semantic search, knowledge graphs, and a built-in MCP server in one Rust binary. Give DipoleML, Cursor, and any MCP client a deep understanding of your codebase.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Muvon/octocode",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cli",
+    "code-intelligence",
+    "code-search",
+    "cursor",
+    "developer-tools",
+    "doc-search",
+    "embeddings",
+    "graphrag"
+  ],
+  "tags": [
+    "ai",
+    "ai-agents",
+    "claude-code",
+    "cli",
+    "code-intelligence",
+    "code-search",
+    "cursor",
+    "developer-tools",
+    "doc-search",
+    "embeddings",
+    "graphrag",
+    "knowledge-graph",
+    "lancedb",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "rag",
+    "rust",
+    "semantic-search",
+    "tree-sitter"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "muvon",
+    "brandName": "muvon",
+    "source": "https://github.com/Muvon.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:23Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Muvon/octocode",
+    "url": "https://github.com/Muvon/octocode",
+    "commit": "65266c4f51ca53a2f064caa48bb4b3ceced7e682",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 518,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Octocode | Structural code intelligence for AI agents — semantic search, knowledge graphs, and a built-in MCP server in one Rust binary. Give Claude, Cursor, and any MCP client a deep understanding of your codebase.",
+        "after": "Octocode | Structural code intelligence for AI agents — semantic search, knowledge graphs, and a built-in MCP server in one Rust binary. Give DipoleML, Cursor, and any MCP client a deep understanding of your codebase.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "API_KEYS"
+    ],
+    "credentials": [
+      "API_KEYS"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

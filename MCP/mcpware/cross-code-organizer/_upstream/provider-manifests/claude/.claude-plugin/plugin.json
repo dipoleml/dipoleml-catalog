@@ -1,0 +1,21 @@
+{
+  "name": "cross-code-organizer",
+  "version": "0.20.0",
+  "description": "Inspect and organize Claude Code memories, skills, MCP servers, hooks, and project context from a local dashboard",
+  "author": {
+    "name": "ithiria894",
+    "url": "https://github.com/ithiria894"
+  },
+  "homepage": "https://github.com/mcpware/cross-code-organizer",
+  "repository": "https://github.com/mcpware/cross-code-organizer",
+  "license": "MIT",
+  "keywords": [
+    "organizer",
+    "memory",
+    "skills",
+    "mcp",
+    "config",
+    "scope",
+    "dashboard"
+  ]
+}

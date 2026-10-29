@@ -1,0 +1,63 @@
+#pragma warning disable CS1591 // Action conversion members mirror the enums; operation descriptions live on the Core command contracts.
+namespace Sbroenne.ExcelMcp.Core.Models.Actions;
+
+/// <summary>
+/// Helper extensions to convert enum actions to string format and parse from cli strings.
+/// </summary>
+public static class ActionExtensions
+{
+    public static string ToActionString(this FileAction action) => action switch
+    {
+        FileAction.List => "list",
+        FileAction.Open => "open",
+        FileAction.Close => "close",
+        FileAction.Create => "create",
+        FileAction.Test => "test",
+        FileAction.Save => "save",
+        FileAction.Discover => "discover",
+        FileAction.Attach => "attach",
+        FileAction.Notices => "notices",
+        FileAction.EnableEditing => "enable-editing",
+        FileAction.EnableConnections => "enable-connections",
+        FileAction.EnableMacros => "enable-macros",
+        _ => throw new ArgumentException($"Unknown FileAction: {action}")
+    };
+
+    // NOTE: PowerQueryAction.ToActionString() is now generated in ServiceRegistry.PowerQuery.ToActionString()
+    // NOTE: SheetAction.ToActionString() is now generated in ServiceRegistry.Sheet.ToActionString()
+    // NOTE: WorksheetStyleAction.ToActionString() is now generated in ServiceRegistry.WorksheetStyle.ToActionString()
+    // See Sbroenne.ExcelMcp.Generated namespace
+
+    // NOTE: RangeAction.ToActionString() is now generated in ServiceRegistry.Range.ToActionString()
+    // NOTE: RangeEditAction.ToActionString() is now generated in ServiceRegistry.RangeEdit.ToActionString()
+    // NOTE: RangeFormatAction.ToActionString() is now generated in ServiceRegistry.RangeFormat.ToActionString()
+    // NOTE: RangeLinkAction.ToActionString() is now generated in ServiceRegistry.RangeLink.ToActionString()
+
+    // NamedRangeAction.ToActionString() is now generated in ServiceRegistry.NamedRange.ToActionString()
+
+    // ConditionalFormatAction.ToActionString() is now generated in ServiceRegistry.ConditionalFormat.ToActionString()
+
+    // VbaAction.ToActionString() is now generated in ServiceRegistry.Vba.ToActionString()
+
+    // ConnectionAction.ToActionString() is now generated in ServiceRegistry.Connection.ToActionString()
+
+    // DataModelAction.ToActionString() is now generated in ServiceRegistry.DataModel.ToActionString()
+
+    // DataModelRelationshipAction.ToActionString() is now generated in ServiceRegistry.DataModelRelationship.ToActionString()
+
+    // TableAction.ToActionString() is now generated in ServiceRegistry.Table.ToActionString()
+
+    // TableColumnAction.ToActionString() is now generated in ServiceRegistry.TableColumn.ToActionString()
+
+    // PivotTableAction.ToActionString() is now generated in ServiceRegistry.PivotTable.ToActionString()
+    // PivotTableFieldAction.ToActionString() is now generated in ServiceRegistry.PivotTableField.ToActionString()
+    // PivotTableCalcAction.ToActionString() is now generated in ServiceRegistry.PivotTableCalc.ToActionString()
+
+    // ChartAction.ToActionString() is now generated in ServiceRegistry.Chart.ToActionString()
+    // ChartConfigAction.ToActionString() is now generated in ServiceRegistry.ChartConfig.ToActionString()
+
+    // SlicerAction.ToActionString() is now generated in ServiceRegistry.Slicer.ToActionString()
+
+    // CalculationModeAction.ToActionString() is now generated in ServiceRegistry.CalculationMode.ToActionString()
+}
+#pragma warning restore CS1591

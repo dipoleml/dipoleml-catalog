@@ -1,0 +1,67 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hashicorp/terraform-mcp-server",
+  "title": "Terraform",
+  "description": "Generate more accurate Terraform and automate workflows for HCP Terraform and Terraform Enterprise",
+  "repository": {
+    "url": "https://github.com/hashicorp/terraform-mcp-server",
+    "source": "github"
+  },
+  "version": "1.4.1",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/hashicorp/terraform-mcp-server:1.4.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "HCP Terraform or Terraform Enterprise base URL.",
+          "value": "TFE_ADDRESS={address}",
+          "isRequired": false,
+          "variables": {
+            "address": {
+              "isRequired": false,
+              "isSecret": false,
+              "format": "string",
+              "default": "https://app.terraform.io"
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "HCP Terraform or Terraform Enterprise API token used to authenticate requests.",
+          "value": "TFE_TOKEN={token}",
+          "isRequired": false,
+          "variables": {
+            "token": {
+              "isRequired": false,
+              "isSecret": true,
+              "format": "string"
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "-e",
+          "description": "Set to true to enable tools that execute Terraform operations requiring explicit approval.",
+          "value": "ENABLE_TF_OPERATIONS={enabled}",
+          "isRequired": false,
+          "variables": {
+            "enabled": {
+              "isRequired": false,
+              "isSecret": false,
+              "format": "boolean",
+              "default": "false"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

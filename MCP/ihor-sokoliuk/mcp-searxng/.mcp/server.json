@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ihor-sokoliuk/mcp-searxng",
+  "title": "SearXNG Search",
+  "description": "MCP server for SearXNG — privacy-respecting web search with pagination, URL reading",
+  "repository": {
+    "url": "https://github.com/ihor-sokoliuk/mcp-searxng",
+    "source": "github"
+  },
+  "version": "2.9.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mcp-searxng",
+      "version": "2.9.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SEARXNG_URL",
+          "description": "URL of your SearXNG instance",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTH_USERNAME",
+          "description": "Legacy global SearXNG Basic Auth username",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTH_PASSWORD",
+          "description": "Legacy global SearXNG Basic Auth password",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

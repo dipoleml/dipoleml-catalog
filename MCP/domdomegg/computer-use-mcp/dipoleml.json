@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.domdomegg.computer-use-mcp",
+  "type": "mcp",
+  "name": "Computer Use MCP",
+  "slug": "computer-use-mcp",
+  "vendor": "domdomegg",
+  "description": "💻 Give AI models complete control of your computer (probably a bad idea)",
+  "version": "1.8.0",
+  "homepage": "https://github.com/domdomegg/computer-use-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "domdomegg",
+    "brandName": "domdomegg",
+    "source": "https://github.com/domdomegg.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "domdomegg/computer-use-mcp",
+    "url": "https://github.com/domdomegg/computer-use-mcp",
+    "commit": "84628eb7b8e706e93ab48c438ac447ee2d533293",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 390,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:52Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "computer-use-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "computer-use-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

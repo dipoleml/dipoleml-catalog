@@ -1,0 +1,718 @@
+package e2e_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/openai/tunnel-client/pkg/healthurl"
+	"github.com/openai/tunnel-client/pkg/types"
+	"github.com/openai/tunnel-client/testsupport/mockmcpserver"
+	"github.com/openai/tunnel-client/testsupport/mockproxy"
+	"github.com/openai/tunnel-client/testsupport/mocktunnelservice"
+)
+
+const (
+	runtimeTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	runtimeTracestate  = "vendor=opaque"
+)
+
+// TestRuntimeTraceAndTimingCompatibility verifies the wire behavior through
+// every shipped runtime: local trace opt-in changes MCP metadata, while timing
+// remains available independently of the forwarding setting.
+func TestRuntimeTraceAndTimingCompatibility(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, tc := range []struct {
+		name, yaml, flag string
+		wantTrace        bool
+	}{
+		{name: "default-off"},
+		{name: "enabled", yaml: "true", wantTrace: true},
+		{name: "explicit-false", yaml: "true", flag: "false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+				profile, healthFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				if tc.yaml != "" {
+					data, err := os.ReadFile(profile)
+					require.NoError(t, err)
+					data = []byte(strings.Replace(string(data), "mcp:\n", "mcp:\n  forward_trace_context: "+tc.yaml+"\n", 1))
+					require.NoError(t, os.WriteFile(profile, data, 0o600))
+				}
+				return runtimeScenario{
+					name: tc.name, profilePath: profile, healthURLFile: healthFile, pidFile: pidFile,
+					options: runtimeRunOptions{
+						fixtureFactory: newRuntimeTraceTimingFixture,
+						configure: func(_ *testing.T, run *runtimeSubjectRun) {
+							if tc.flag != "" {
+								run.env["MCP_FORWARD_TRACE_CONTEXT"] = "true"
+								run.args = append(run.args, "--mcp.forward-trace-context="+tc.flag)
+							}
+						},
+						afterReady: func(t *testing.T, run *runtimeSubjectRun) {
+							assertRuntimeTerminalTiming(t, run.fixture.controlPlane, "runtime-trace-tool", "streamable_http")
+							matched := 0
+							for _, request := range run.fixture.mcpServer.ReceivedHTTPRequests() {
+								if !assertRuntimeTraceMetadata(t, request.Body, tc.wantTrace) {
+									continue
+								}
+								matched++
+								require.Empty(t, request.Headers.Get("traceparent"), "metadata forwarding must not inject HTTP tracing headers")
+								require.Empty(t, request.Headers.Get("tracestate"))
+								require.Empty(t, request.Headers.Get("baggage"))
+							}
+							require.Equal(t, 1, matched, "one traced tools/call should reach the MCP server")
+						},
+					},
+				}
+			})
+		})
+	}
+}
+
+func newRuntimeTraceTimingFixture(t *testing.T) runtimeFixture {
+	t.Helper()
+	mcpServer := mockmcpserver.NewMockMCPServer(
+		mockmcpserver.WithOAuthDiscoveryResources(),
+		mockmcpserver.WithCalls(mockmcpserver.Call{Tool: "echo", Result: json.RawMessage(`{"ok":true}`)}),
+	)
+	mcpServer.Start(t)
+	controlPlane := newRuntimeTraceTimingControlPlane(t, "runtime-trace-tool", "echo", true)
+	return runtimeFixture{controlPlane: controlPlane, mcpServer: mcpServer}
+}
+
+func newRuntimeTraceTimingControlPlane(t *testing.T, requestID, tool string, httpTransport bool) *mocktunnelservice.MockTunnelService {
+	t.Helper()
+	params, err := json.Marshal(map[string]any{
+		"name": tool, "arguments": map[string]string{"name": "Ada"}, "_meta": map[string]string{"operator": "preserved"},
+	})
+	require.NoError(t, err)
+	command := mocktunnelservice.NewCommand(requestID, json.RawMessage(fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":"runtime-trace-call","method":"tools/call","params":%s}`, params,
+	)), nil)
+	var envelope map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(command, &envelope))
+	envelope["trace_context"] = json.RawMessage(fmt.Sprintf(
+		`{"traceparent":%q,"tracestate":%q,"baggage":"tenant=private"}`, runtimeTraceparent, runtimeTracestate,
+	))
+	command, err = json.Marshal(envelope)
+	require.NoError(t, err)
+	opts := []mocktunnelservice.Option{
+		mocktunnelservice.WithAPIKey(runtimeArtifactAPIKey),
+		mocktunnelservice.WithTunnelID(runtimeArtifactTunnelID),
+	}
+	if httpTransport {
+		opts = append(opts, mocktunnelservice.WithSessionHeaderPropagation(), mocktunnelservice.WithInitializationPhaseCommands())
+	} else {
+		opts = append(opts, mocktunnelservice.WithInitializationPhaseCommandsWithoutSessionHeaders())
+	}
+	// Session propagation selects a mutator when commands are appended, so it
+	// must be configured before the HTTP tool command is added.
+	opts = append(opts, mocktunnelservice.WithCommandResponses(mocktunnelservice.CommandResponse{
+		Command:           command,
+		ExpectedResponses: []mocktunnelservice.ExpectedResponse{{RequestID: requestID}},
+	}))
+	controlPlane := mocktunnelservice.NewMockTunnelService(opts...)
+	controlPlane.Start(t)
+	return controlPlane
+}
+
+func assertRuntimeTerminalTiming(t *testing.T, controlPlane *mocktunnelservice.MockTunnelService, requestID, transport string) {
+	t.Helper()
+	matched := 0
+	for _, response := range controlPlane.ReceivedResponses(mocktunnelservice.ResponseMatchMatched) {
+		if response.RequestID != requestID {
+			continue
+		}
+		matched++
+		require.Equal(t, http.StatusOK, response.ResponseCode)
+		require.Equal(t, "jsonrpc_response", response.ResponseType)
+		var message map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(response.JSONResponse, &message))
+		require.NotContains(t, message, "error", "timing must accompany a successful tool result")
+		require.Contains(t, message, "result")
+		require.NotNil(t, response.ResponseTiming)
+		require.Equal(t, 1, response.ResponseTiming.Version)
+		require.Equal(t, transport, response.ResponseTiming.Transport)
+		require.GreaterOrEqual(t, response.ResponseTiming.TargetElapsedUS, int64(0))
+		require.LessOrEqual(t, response.ResponseTiming.TargetElapsedUS, types.MaxTargetElapsedUS)
+	}
+	require.Equal(t, 1, matched, "one matching terminal response should be posted")
+}
+
+// The fixtures record complete requests before returning their tool response,
+// so these snapshots are safe to inspect once the response script is idle.
+func assertRuntimeTraceMetadata(t *testing.T, body []byte, wantTrace bool) bool {
+	t.Helper()
+	var request struct {
+		Method string `json:"method"`
+		Params struct {
+			Meta map[string]json.RawMessage `json:"_meta"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(body, &request) != nil || request.Method != "tools/call" {
+		return false
+	}
+	var operator string
+	require.NoError(t, json.Unmarshal(request.Params.Meta["operator"], &operator))
+	require.Equal(t, "preserved", operator)
+	if wantTrace {
+		var traceparent, tracestate string
+		require.NoError(t, json.Unmarshal(request.Params.Meta["traceparent"], &traceparent))
+		require.NoError(t, json.Unmarshal(request.Params.Meta["tracestate"], &tracestate))
+		require.Equal(t, runtimeTraceparent, traceparent)
+		require.Equal(t, runtimeTracestate, tracestate)
+	} else {
+		require.NotContains(t, request.Params.Meta, "traceparent")
+		require.NotContains(t, request.Params.Meta, "tracestate")
+	}
+	require.NotContains(t, request.Params.Meta, "baggage")
+	return true
+}
+
+// TestRuntimeComponentHealthConfigurationCompatibility applies the same profile
+// configuration, environment, flags and requests to each real shipped flavor.
+// The existing scenario assertions also protect legacy probes and wire traffic.
+func TestRuntimeComponentHealthConfigurationCompatibility(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject(), runtimeCloudflaredSubject())
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		flag string
+		want bool
+	}{
+		{name: "default"},
+		{name: "yaml_true", yaml: "true", want: true},
+		{name: "env_false_over_yaml_true", yaml: "true", env: "false"},
+		{name: "env_true_over_yaml_false", yaml: "false", env: "true", want: true},
+		{name: "flag_false_over_true", yaml: "true", env: "true", flag: "false"},
+		{name: "flag_true_over_false", yaml: "false", env: "false", flag: "true", want: true},
+	} {
+		for _, unix := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/unix_%t", tc.name, unix), func(t *testing.T) {
+				t.Parallel()
+				observations := runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+					profile, healthFile, pidFile := writeRuntimeCompatibilityProfile(t)
+					data, err := os.ReadFile(profile)
+					require.NoError(t, err)
+					if tc.yaml != "" {
+						data = []byte(strings.Replace(string(data), "health:\n", "health:\n  show_details: "+tc.yaml+"\n", 1))
+					}
+					require.NoError(t, os.WriteFile(profile, data, 0o600))
+					return runtimeScenario{
+						name: "component-health", profilePath: profile, healthURLFile: healthFile, pidFile: pidFile,
+						options: runtimeRunOptions{
+							configure: func(t *testing.T, run *runtimeSubjectRun) {
+								if tc.env != "" {
+									run.env["HEALTH_SHOW_DETAILS"] = tc.env
+								}
+								if tc.flag != "" {
+									run.args = append(run.args, "--health.show-details="+tc.flag)
+								}
+								if unix {
+									// Unix sockets must fit the macOS path limit regardless of TMPDIR.
+									dir, err := os.MkdirTemp("/tmp", "runtime-health-")
+									require.NoError(t, err)
+									t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+									run.args = append(run.args, "--health.unix-socket", filepath.Join(dir, "health.sock"))
+								}
+							},
+							afterReady: func(t *testing.T, run *runtimeSubjectRun) {
+								data, err := os.ReadFile(run.healthURLFile)
+								require.NoError(t, err)
+								target, err := healthurl.Parse(strings.TrimSpace(string(data)))
+								require.NoError(t, err)
+								client, err := target.HTTPClient(2 * time.Second)
+								require.NoError(t, err)
+								defer client.CloseIdleConnections()
+								read := func(path string) map[string]any {
+									status, body := runtimeArtifactResponse(t, client, target.RequestURL(path))
+									require.Equal(t, http.StatusOK, status, body)
+									var payload map[string]any
+									require.NoError(t, json.Unmarshal([]byte(body), &payload))
+									require.Equal(t, float64(1), payload["schema_version"])
+									return payload
+								}
+								plain := read("/health")
+								_, hasComponents := plain["components"]
+								require.Equal(t, tc.want, hasComponents)
+								require.Equal(t, true, plain["live"])
+								require.Equal(t, true, plain["ready"])
+								detailed := read("/health?details=true")
+								components, ok := detailed["components"].(map[string]any)
+								require.True(t, ok)
+								for _, component := range []string{"mcp", "control-plane", "response-delivery", "queue", "dispatcher", "oauth", "harpoon"} {
+									require.Contains(t, components, component)
+								}
+								if run.subject.flavor == "full" {
+									require.Contains(t, components, "proxy")
+								} else {
+									require.NotContains(t, components, "proxy")
+									status, _ := runtimeArtifactResponse(t, client, target.RequestURL("/health/proxy"))
+									require.Equal(t, http.StatusNotFound, status)
+								}
+								if run.subject.flavor == "runtime" {
+									require.NotContains(t, components, "cloudflared")
+									status, _ := runtimeArtifactResponse(t, client, target.RequestURL("/health/cloudflared"))
+									require.Equal(t, http.StatusNotFound, status)
+								} else {
+									require.Contains(t, components, "cloudflared")
+									require.Equal(t, "disabled", read("/health/cloudflared")["status"])
+								}
+								require.NotContains(t, read("/health?details=false"), "components")
+								require.Equal(t, "mcp", read("/health/mcp")["component"])
+								require.Equal(t, "control-plane", read("/health/control-plane")["component"])
+								for _, path := range []string{"/health?details=1", "/health?details=true&details=false", "/health?unknown=true", "/health/mcp?details=true"} {
+									status, _ := runtimeArtifactResponse(t, client, target.RequestURL(path))
+									require.Equal(t, http.StatusBadRequest, status, path)
+								}
+							},
+						},
+					}
+				})
+				for _, flavor := range []string{"runtime", "runtime-cloudflared"} {
+					assertRuntimeParity(t, map[string]runtimeObservation{"full": observations["full"], flavor: observations[flavor]}, flavor)
+				}
+			})
+		}
+	}
+}
+
+// TestRuntimeCompatibilityMatchesFullClientSharedSurface launches the real
+// complete client and customer runtime through equivalent isolated profiles and
+// the same environment path. It compares only behavior that the runtime promises to
+// retain; /ui remains a deliberate full-client-only surface.
+func TestRuntimeCompatibilityMatchesFullClientSharedSurface(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCustomerSubject())
+	observations := runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+		profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+		return runtimeScenario{
+			name:          "shared-surface",
+			profilePath:   profilePath,
+			healthURLFile: healthURLFile,
+			pidFile:       pidFile,
+		}
+	})
+	assertRuntimeParity(t, observations, "runtime")
+}
+
+// TestRuntimeCloudflaredCompatibilityMatchesFullClientSharedSurface applies
+// the same profile configuration to the full client and approved companion
+// runtime while enabling the same deterministic bundled-cloudflared wrapper.
+func TestRuntimeCloudflaredCompatibilityMatchesFullClientSharedSurface(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(t, runtimeFullSubject(), runtimeCloudflaredSubject())
+	observations := runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+		profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+		return withRuntimeCloudflaredCompanion(t, runtimeScenario{
+			name:          "cloudflared-companion",
+			profilePath:   profilePath,
+			healthURLFile: healthURLFile,
+			pidFile:       pidFile,
+		})
+	})
+	assertRuntimeParity(t, observations, "runtime-cloudflared")
+}
+
+type runtimeParityTarget struct {
+	subject  runtimeSubject
+	decorate func(*testing.T, runtimeScenario) runtimeScenario
+}
+
+// withRuntimeCloudflaredCompanion layers the same deterministic companion
+// fixture over any shared runtime scenario. This keeps cloudflared parity on
+// the same Subject/Scenario/Observation path instead of maintaining a second
+// copy of the nontrivial corpus.
+func withRuntimeCloudflaredCompanion(t *testing.T, scenario runtimeScenario) runtimeScenario {
+	t.Helper()
+
+	cloudflaredPath := writeRuntimeArtifactCloudflaredWrapper(t)
+	markerDir := t.TempDir()
+	startedFile := filepath.Join(markerDir, "cloudflared.started")
+	exitFile := filepath.Join(markerDir, "cloudflared.exit")
+	signalFile := filepath.Join(markerDir, "cloudflared.signal")
+
+	options := &scenario.options
+	options.env = copyRuntimeEnvironment(options.env)
+	maps.Copy(options.env, map[string]string{
+		"CLOUDFLARED_PATH":                   cloudflaredPath,
+		"CLOUDFLARED_TUNNEL_TOKEN":           "runtime-artifact-cloudflared-token",
+		"GO_WANT_RUNTIME_CLOUDFLARED_HELPER": "1",
+		"RUNTIME_CLOUDFLARED_EXIT_FILE":      exitFile,
+		"RUNTIME_CLOUDFLARED_SIGNAL_FILE":    signalFile,
+		"RUNTIME_CLOUDFLARED_STARTED_FILE":   startedFile,
+		"RUNTIME_E2E_HELPER_BINARY":          os.Args[0],
+	})
+
+	if options.readinessSignals == nil {
+		options.readinessSignals = []string{
+			runtimeArtifactMCPReadySignal,
+			runtimeArtifactOAuthReadySignal,
+		}
+	} else {
+		options.readinessSignals = append([]string(nil), options.readinessSignals...)
+	}
+	options.readinessSignals = append(options.readinessSignals, runtimeArtifactCloudflaredReadySignal)
+
+	configure := options.configure
+	options.configure = func(t *testing.T, run *runtimeSubjectRun) {
+		if configure != nil {
+			configure(t, run)
+		}
+		_ = os.Remove(startedFile)
+		_ = os.Remove(exitFile)
+		_ = os.Remove(signalFile)
+	}
+	afterReady := options.afterReady
+	options.afterReady = func(t *testing.T, run *runtimeSubjectRun) {
+		if afterReady != nil {
+			afterReady(t, run)
+		}
+		_, err := os.Stat(startedFile)
+		require.NoError(t, err, "fake cloudflared startup marker should exist after readiness")
+	}
+	afterShutdown := options.afterShutdown
+	options.afterShutdown = func(t *testing.T, run *runtimeSubjectRun) {
+		if afterShutdown != nil {
+			afterShutdown(t, run)
+		}
+		_, err := os.Stat(signalFile)
+		require.NoError(t, err, "fake cloudflared should receive the host shutdown signal")
+	}
+
+	return scenario
+}
+
+// TestRuntimeCompatibilityParityScenarios is deliberately table driven: every
+// case runs both runtime flavors against the real full client through the same
+// Subject / Scenario / Observation harness, so adding a new customer contract
+// does not require another process runner or cloudflared-only corpus copy.
+func TestRuntimeCompatibilityParityScenarios(t *testing.T) {
+	runtimeSkipUnixSignals(t)
+	t.Parallel()
+
+	subjects := runtimeSubjectsWithBinaries(
+		t,
+		runtimeFullSubject(),
+		runtimeCustomerSubject(),
+		runtimeCloudflaredSubject(),
+	)
+	fullSubject := subjects[0]
+	targets := []runtimeParityTarget{
+		{subject: subjects[1]},
+		{subject: subjects[2], decorate: withRuntimeCloudflaredCompanion},
+	}
+	testCases := []struct {
+		name     string
+		scenario func(*testing.T) runtimeScenario
+		assert   func(*testing.T, map[string]runtimeObservation, string)
+	}{
+		{
+			name: "mixed_profile_environment_and_flags",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfileWithValues(
+					t,
+					"http://profile-control.invalid",
+					"http://profile-mcp.invalid",
+					"tunnel_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				)
+				return runtimeScenario{
+					name:          "mixed-sources",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						configure: func(_ *testing.T, run *runtimeSubjectRun) {
+							run.args = append(
+								run.args,
+								"--control-plane.base-url", run.fixture.controlPlane.BaseURL().String(),
+								"--control-plane.tunnel-id", runtimeArtifactTunnelID,
+								"--mcp.server-url", run.fixture.mcpServer.BaseURL().String(),
+							)
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "proxy",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				return runtimeScenario{
+					name:          "proxy",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						fixtureFactory: func(t *testing.T) runtimeFixture {
+							// Use TLS for MCP so the proxy exercises a real
+							// CONNECT tunnel; HTTP streamable responses remain
+							// unbuffered end-to-end and startup can become ready.
+							fixture := newRuntimeFixture(t, mockmcpserver.WithTLSServer())
+							proxy := mockproxy.New(
+								mockproxy.WithRoute(fixture.controlPlane.BaseURL().Host, fixture.controlPlane.BaseURL()),
+								mockproxy.WithRoute(fixture.mcpServer.BaseURL().Host, fixture.mcpServer.BaseURL()),
+							)
+							proxy.Start()
+							t.Cleanup(proxy.Close)
+							fixture.proxy = proxy
+							return fixture
+						},
+						configure: func(t *testing.T, run *runtimeSubjectRun) {
+							caPEM, err := run.fixture.mcpServer.TLSCertPEM()
+							require.NoError(t, err)
+							caPath := filepath.Join(t.TempDir(), run.subject.name+"-proxy-ca.pem")
+							require.NoError(t, os.WriteFile(caPath, caPEM, 0o600))
+							run.args = append(
+								run.args,
+								"--http-proxy", run.fixture.proxy.URL(),
+								"--ca-bundle", caPath,
+							)
+						},
+					},
+				}
+			},
+			assert: func(t *testing.T, observations map[string]runtimeObservation, runtimeName string) {
+				for _, subjectName := range []string{"full", runtimeName} {
+					require.NotEmptyf(t, observations[subjectName].shared.proxyHTTP, "%s proxy scenario should route through the proxy", subjectName)
+					require.Truef(t, runtimeProxySawRoute(observations[subjectName].shared.proxyHTTP, "control-plane"), "%s should proxy control-plane traffic", subjectName)
+					require.Truef(t, runtimeProxySawRoute(observations[subjectName].shared.proxyHTTP, "mcp"), "%s should proxy MCP traffic", subjectName)
+				}
+			},
+		},
+		{
+			name: "no_proxy",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				return runtimeScenario{
+					name:          "no-proxy",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						fixtureFactory: func(t *testing.T) runtimeFixture {
+							fixture := newRuntimeFixture(t)
+							proxy := mockproxy.New()
+							proxy.Start()
+							t.Cleanup(proxy.Close)
+							fixture.proxy = proxy
+							return fixture
+						},
+						configure: func(_ *testing.T, run *runtimeSubjectRun) {
+							run.env["HTTP_PROXY"] = run.fixture.proxy.URL()
+							run.env["http_proxy"] = run.fixture.proxy.URL()
+							run.env["HTTPS_PROXY"] = run.fixture.proxy.URL()
+							run.env["https_proxy"] = run.fixture.proxy.URL()
+							run.env["NO_PROXY"] = "127.0.0.1,localhost"
+							run.env["no_proxy"] = "127.0.0.1,localhost"
+						},
+					},
+				}
+			},
+			assert: func(t *testing.T, observations map[string]runtimeObservation, runtimeName string) {
+				require.Emptyf(t, observations[runtimeName].shared.proxyHTTP, "%s NO_PROXY should keep loopback fixtures direct", runtimeName)
+				for _, observation := range observations["full"].shared.proxyHTTP {
+					require.Equal(
+						t,
+						http.MethodConnect,
+						observation.method,
+						"full-only proxy health may probe the configured proxy, but shared NO_PROXY traffic must stay direct",
+					)
+				}
+			},
+		},
+		{
+			name: "tls_ca_bundle",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				return runtimeScenario{
+					name:          "tls-ca-bundle",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						fixtureFactory: func(t *testing.T) runtimeFixture {
+							return newRuntimeFixture(t, mockmcpserver.WithTLSServer())
+						},
+						configure: func(t *testing.T, run *runtimeSubjectRun) {
+							caPEM, err := run.fixture.mcpServer.TLSCertPEM()
+							require.NoError(t, err)
+							caPath := filepath.Join(t.TempDir(), run.subject.name+"-ca.pem")
+							require.NoError(t, os.WriteFile(caPath, caPEM, 0o600))
+							run.args = append(run.args, "--ca-bundle", caPath)
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "oauth_and_static_headers",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				return runtimeScenario{
+					name:          "oauth-headers",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						env: map[string]string{
+							"RUNTIME_CONTROL_HEADER":   "control-static-value",
+							"RUNTIME_MCP_HEADER":       "mcp-static-value",
+							"RUNTIME_DISCOVERY_HEADER": "discovery-static-value",
+						},
+						args: []string{
+							"--control-plane.extra-headers", "X-Control-Static: env:RUNTIME_CONTROL_HEADER",
+							"--mcp.extra-headers", "X-MCP-Static: env:RUNTIME_MCP_HEADER",
+							"--mcp.discovery-extra-headers", "X-Discovery-Static: env:RUNTIME_DISCOVERY_HEADER",
+						},
+						secrets: []string{
+							"control-static-value",
+							"mcp-static-value",
+							"discovery-static-value",
+						},
+					},
+				}
+			},
+			assert: func(t *testing.T, observations map[string]runtimeObservation, _ string) {
+				full := observations["full"].shared
+				require.True(t, runtimeHTTPHasControlHeader(full.controlPlaneHTTP, "control-static-value"))
+				require.True(t, runtimeHTTPHasMCPHeader(full.mcpHTTP, http.MethodPost, "mcp-static-value"))
+				require.True(t, runtimeHTTPHasDiscoveryHeader(full.mcpHTTP, "discovery-static-value"))
+			},
+		},
+		{
+			name: "transient_poll_failure_reconnect",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfile(t)
+				return runtimeScenario{
+					name:          "transient-poll",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						configure: func(_ *testing.T, run *runtimeSubjectRun) {
+							run.fixture.controlPlane.SetPollStatus(http.StatusServiceUnavailable)
+						},
+						afterStart: func(t *testing.T, run *runtimeSubjectRun) {
+							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+							defer cancel()
+							err := run.fixture.controlPlane.WaitForPollFailures(ctx, 1)
+							require.NoError(t, err, "runtime should receive an injected poll failure before recovery")
+							run.fixture.controlPlane.SetPollStatus(0)
+						},
+					},
+				}
+			},
+			assert: func(t *testing.T, observations map[string]runtimeObservation, runtimeName string) {
+				require.GreaterOrEqual(t, observations["full"].pollFailures, 1)
+				require.GreaterOrEqual(t, observations[runtimeName].pollFailures, 1)
+			},
+		},
+		{
+			name: "invalid_config_redaction",
+			scenario: func(t *testing.T) runtimeScenario {
+				profilePath, healthURLFile, pidFile := writeRuntimeCompatibilityProfileWithValues(
+					t,
+					"http://127.0.0.1:1",
+					"http://127.0.0.1:1",
+					runtimeArtifactTunnelID,
+				)
+				const secret = "runtime malformed secret"
+				return runtimeScenario{
+					name:          "invalid-config-redaction",
+					profilePath:   profilePath,
+					healthURLFile: healthURLFile,
+					pidFile:       pidFile,
+					options: runtimeRunOptions{
+						fixtureFactory:       func(*testing.T) runtimeFixture { return runtimeFixture{} },
+						env:                  map[string]string{"CONTROL_PLANE_API_KEY": secret},
+						expectStartupFailure: true,
+						failureContains:      "control plane API key is malformed",
+						secrets:              []string{secret},
+					},
+				}
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, target := range targets {
+				t.Run(target.subject.name, func(t *testing.T) {
+					t.Parallel()
+					subjects := []runtimeSubject{fullSubject, target.subject}
+					observations := runRuntimeScenario(t, subjects, func(t *testing.T) runtimeScenario {
+						scenario := testCase.scenario(t)
+						if target.decorate != nil {
+							scenario = target.decorate(t, scenario)
+						}
+						return scenario
+					})
+					assertRuntimeParity(t, observations, target.subject.name)
+					if testCase.assert != nil {
+						testCase.assert(t, observations, target.subject.name)
+					}
+				})
+			}
+		})
+	}
+}
+
+func runtimeProxySawRoute(observations []runtimeProxyObservation, route string) bool {
+	for _, observation := range observations {
+		if observation.route == route {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeHTTPHasControlHeader(observations []runtimeHTTPObservation, want string) bool {
+	for _, observation := range observations {
+		if observation.controlHeader == want {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeHTTPHasMCPHeader(observations []runtimeHTTPObservation, method, want string) bool {
+	for _, observation := range observations {
+		if observation.method == method && observation.mcpHeader == want {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeHTTPHasDiscoveryHeader(observations []runtimeHTTPObservation, want string) bool {
+	for _, observation := range observations {
+		if observation.path == "/.well-known/oauth-protected-resource" && observation.discoveryHeader == want {
+			return true
+		}
+	}
+	return false
+}

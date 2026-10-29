@@ -1,0 +1,924 @@
+# Flows
+
+Flows let you define multi-step workflows in YAML and run them as a single operation. They're powered by [`@db-lyon/flowkit`](https://github.com/db-lyon/flowkit) and are fully customizable - you can chain built-in tasks, run shell commands, override tasks with your own implementations, or compose tasks together.
+
+## Quick Start
+
+Create a `ue-mcp.yml` in your Unreal project root (next to the `.uproject`):
+
+```yaml
+ue-mcp:
+  version: 1
+
+flows:
+  build_and_check:
+    description: Build the project and verify the editor is connected
+    steps:
+      1:
+        task: project.build
+        options:
+          configuration: Development
+      2:
+        task: project.get_status
+```
+
+Run it from the AI:
+
+```
+flow(action="run", flowName="build_and_check")
+```
+
+That's it. The config is **hot-reloaded on every call** - edit the YAML and run again without restarting the MCP server.
+
+The response carries a `summary` line per step plus a `steps` array holding what each step answered, so an action called inside a flow returns the same data it returns when called directly.
+
+## Concepts
+
+### Tasks
+
+A task is a named unit of work. UE-MCP ships with **<!-- count:actions -->2114+<!-- /count --> built-in tasks** across <!-- count:tools -->30<!-- /count --> categories - every action available through the MCP tools is also a flow task.
+
+Tasks are defined in the `tasks:` section of your config:
+
+```yaml
+tasks:
+  project.build:
+    class_path: ue-mcp.bridge
+    group: project
+    description: "Build C++ project. Params: configuration?, platform?, clean?"
+    options:
+      method: build_project
+```
+
+The fields:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `class_path` | Yes | How the task is resolved - a registered name, a built-in class path, or a path to your own `.js`/`.ts` file |
+| `description` | No | Human-readable description |
+| `group` | No | Category for organization |
+| `options` | No | Default options passed to the task (can be overridden per-step) |
+
+You rarely need to define tasks yourself - the built-in defaults cover all <!-- count:actions -->2114+<!-- /count --> actions. You define tasks when you want to **override** or **add** custom ones.
+
+### Flows
+
+A flow is an ordered sequence of steps. Each step runs a task or a nested flow:
+
+```yaml
+flows:
+  setup_scene:
+    description: Create a basic lit scene
+    steps:
+      1:
+        task: level.place_actor
+        options:
+          className: DirectionalLight
+          location: { x: 0, y: 0, z: 500 }
+      2:
+        task: level.place_actor
+        options:
+          className: SkyAtmosphere
+      3:
+        task: level.place_actor
+        options:
+          className: ExponentialHeightFog
+```
+
+Steps execute in numeric order. If a step fails, the flow stops.
+
+### Step Types
+
+A step must have exactly one of `task` or `flow`:
+
+```yaml
+steps:
+  1:
+    task: asset.list                   # Run a task
+    options:
+      directory: /Game/
+  2:
+    flow: setup_scene                  # Run another flow (nested)
+  3:
+    task: shell                        # Run a shell command
+    options:
+      command: npm run build
+  4:
+    task: None                         # Skip marker (no-op)
+```
+
+### Option Merging
+
+Options are merged in two layers:
+
+1. **Task definition** - default options in the `tasks:` section
+2. **Step** - per-step overrides in the `flows:` section
+
+Step options win:
+
+```yaml
+tasks:
+  asset.list:
+    class_path: asset.list
+    options:
+      recursive: true        # default
+
+flows:
+  quick_scan:
+    description: List top-level game assets
+    steps:
+      1:
+        task: asset.list
+        options:
+          directory: /Game/
+          recursive: false    # overrides the default
+```
+
+## Built-in Tasks
+
+Every MCP action is registered as a task using its `category.action` name. Some examples:
+
+| Task | What it does |
+|------|-------------|
+| `project.get_status` | Check server mode and editor connection |
+| `project.build` | Build the C++ project |
+| `asset.list` | List assets in a directory |
+| `asset.search` | Search by name, class, or path |
+| `blueprint.read` | Read a blueprint's structure |
+| `blueprint.compile` | Compile a blueprint |
+| `level.place_actor` | Spawn an actor in the level |
+| `material.create` | Create a material asset |
+| `editor.execute_command` | Run a console command |
+| `editor.start_editor` | Launch the Unreal Editor |
+| `shell` | Run a shell command |
+
+See the full list by running `flow(action="list")` (the bundled defaults live in `src/flow/loader.ts`, compiled into `dist/`).
+
+### Task Types
+
+Built-in tasks fall into two categories:
+
+- **Bridge tasks** - forwarded to the C++ plugin over WebSocket. Defined with `class_path: ue-mcp.bridge` and a `method` option.
+- **Handler tasks** - executed locally in Node.js (filesystem operations like config parsing, asset directory scanning).
+
+The `shell` task is also built in - it runs a command via `child_process`:
+
+```yaml
+steps:
+  1:
+    task: shell
+    options:
+      command: npm run lint
+      cwd: /path/to/project      # optional, defaults to cwd
+      timeout: 300000             # optional, defaults to 5 minutes
+```
+
+## Runtime Parameters
+
+Hardcoding every option in YAML gets tedious. Pass `params` at call time to override step options for that run:
+
+```
+flow(action="run", flowName="beacon", params={
+  levelPath: "/Game/MyCustomLevel",
+  configuration: "Shipping"
+})
+```
+
+Runtime `params` merge into every step's options with **highest priority**:
+
+```
+taskDef.options  <  step.options  <  runtime params
+```
+
+So a step with `options: { levelPath: "/Game/Flows/Beacon" }` in the YAML will use `/Game/MyCustomLevel` if you pass `params: { levelPath: "/Game/MyCustomLevel" }` at runtime.
+
+Params apply to every step - steps that don't use a given key simply ignore it. This makes flows fully parameterizable without templating syntax.
+
+## Step References
+
+When one step needs the output of an earlier step, reference it with `${steps.<id>.<path>}`:
+
+```yaml
+flows:
+  build_and_open:
+    description: Build, then open the packaged artifact
+    steps:
+      1:
+        task: project.build
+        options:
+          configuration: Development
+      2:
+        task: asset.list
+        options:
+          directory: ${steps.1.outputDir}       # whole-value → raw type preserved
+      3:
+        task: editor.execute_command
+        options:
+          command: "echo built ${steps.project.build.version}"  # embedded → stringified
+```
+
+- **`<id>`** - step number (`1`) or task name (`project.build`). For task names that contain dots, the longest prefix that matches a step wins.
+- **`<path>`** - dot path into that step's `result.data`.
+- If a task name appears in multiple steps, references resolve to the **most recently completed** one.
+- If the whole option value is a single `${...}` reference, the raw value is substituted (objects and arrays round-trip). Embedded references inside a larger string are stringified.
+- References that can't be resolved fail the step.
+
+Precedence (highest wins):
+
+```
+taskDef.options  <  step.options  <  runtime params
+```
+
+References in any of those layers resolve at step-execution time against already-completed steps in the same flow. Nested flows have their own scope - a nested step cannot reference a step in the enclosing flow.
+
+## Flow-level Hooks
+
+A flow can attach steps that run around the main sequence, keyed by outcome:
+
+```yaml
+flows:
+  deploy:
+    description: Build and push the plugin
+    on_start:   [ { task: editor.execute_command, options: { command: "echo starting" } } ]
+    on_success: [ { task: editor.execute_command, options: { command: "echo done ${steps.build.version}" } } ]
+    on_failure: [ { task: editor.execute_command, options: { command: "echo failed: ${error.message}" } } ]
+    finally:    [ { task: project.get_status } ]
+    steps:
+      1: { task: project.build }
+      2: { task: asset.save }
+```
+
+- **`on_start`** - before the first step. Failure aborts the flow.
+- **`on_success`** - after all steps succeed.
+- **`on_failure`** - after any step fails. The `${error.message|name|stack|step}` namespace resolves inside this phase.
+- **`finally`** - after `on_success` / `on_failure`, regardless of outcome.
+
+Hook steps share the full execution model - same references, same option merging, same runtime params. Hook failures appear in `result.hookErrors` but don't change the primary success/failure outcome.
+
+## Per-step Retry
+
+A step can retry itself on failure:
+
+```yaml
+steps:
+  1:
+    task: project.build
+    retries: 2            # up to 3 total attempts
+    retryDelay: 1000      # ms between attempts
+    retryOn: "timeout"    # only retry when error message contains this substring
+```
+
+Omit `retryOn` to retry on any error. The actual attempt count surfaces on `result.steps[i].attempts`.
+
+## Expected Failures (`ignore_failure`)
+
+The fourth per-step option, beside `retries` / `retryDelay` / `retryOn`. A step declares that its own failure is expected and must not stop the run:
+
+```yaml
+steps:
+  1:
+    task: editor.stop_editor
+    ignore_failure: true    # nothing running is a failure, and this step expects it
+  2: { task: editor.build_project }
+  3: { task: editor.start_editor }
+```
+
+Stop, build, start is the case it exists for. `editor(stop_editor)` closed no editor when none was running, so it answers `success: false` with `alreadyStopped: true`, and that is the correct answer: the call did not do the thing. Whether that matters is the caller's question, and only the caller knows. So a step whose failure is expected marks itself, rather than the handler reporting a success for something it did not do. The same shape covers `editor(start_editor)` on an editor already up (`alreadyRunning`), and both halves of `editor(play_in_editor)`.
+
+This is not what the [flow-level hooks](#flow-level-hooks) do. `on_failure` fires once the FLOW has failed and `finally` after either outcome, which in both cases is after the run has already stopped, so they compensate and clean up but cannot keep a later step running. `ignore_failure` is per step, and it is the only thing that keeps step 2 running when step 1 fails.
+
+What it does, and does not do:
+
+- The step is still **recorded as failed**. It keeps `success: false`, its error message, and the handler's whole body under `steps[i].data`; the run response marks it `ignoredFailure: true` and prints it as `FAILED (ignored)`. It is not converted into a pass, and it is not skipped - it ran.
+- The run **continues**, and the flow's own outcome is unaffected: `result.success` stays true if nothing else fails.
+- `failedStep` names the step that **stopped** the run, so an ignored failure never appears there.
+- It applies **after** `retries` are exhausted, so a step can retry first and only then be absorbed.
+- It covers a `success: false` body, a thrown error, and a `when:` expression that throws. The runner reads it on main steps only.
+
+Use it for the step whose failure you predicted. A step that fails for a reason you did not predict should still stop the run, which is why this is per step and not a flow-level switch.
+
+## Rollback on Failure
+
+Mutating bridge handlers emit a `rollback: { method, payload }` record on success. When a flow sets `rollback_on_failure: true` (or the caller passes it) and a later step fails, the runner invokes the collected inverses **in reverse order**, best-effort, and reports the outcome in `result.rollback`:
+
+```yaml
+flows:
+  safe_scene:
+    description: Place pillars with automatic cleanup on failure
+    rollback_on_failure: true
+    steps:
+      1: { task: level.place_actor, options: { actorClass: StaticMeshActor, label: A } }
+      2: { task: level.place_actor, options: { actorClass: StaticMeshActor, label: B } }
+      3: { task: some_fragile_step }
+```
+
+If step 3 fails: the `delete_actor` inverses for B and A run, leaving the level as it was. Handlers without an inverse (`execute_command`, `shell`, some deletes) simply don't contribute records; their steps are left as-is when rollback runs.
+
+### What counts as a failed step
+
+A step fails when the call throws AND when the handler answers `{ success: false }` in its body. The bridge resolves a refusal like any other reply, so the verdict is read off the answer: a destructive action that reported its own failure stops the run, fires `on_failure`, and arms `rollback_on_failure`, instead of being walked past as a pass.
+
+A handler that did the work it was asked for reports `success: true` with a marker saying nothing changed - `alreadyExists`, `alreadyRemoved`, `existed` - because the thing the caller wanted exists and this call is why it is safe to ask twice. The editor lifecycle actions are the other case: `start_editor` on a running editor launched nothing and `stop_editor` on a stopped one closed nothing, so they fail, carrying `alreadyRunning` / `alreadyStopped` to say the failure was a no-op rather than a broken call. Absorb those at the step with [`ignore_failure`](#expected-failures-ignore_failure). See [docs/handler-conventions.md](handler-conventions.md).
+
+### The failing step's own inverse
+
+`rollback_on_failure` unwinds the steps before the failure **and** the failing step itself, and the failing step's own inverse goes **first**.
+
+A few handlers attach a rollback record to a `success: false` body on purpose, because the mutation partly applied: `asset(rename)` on a World that moved some external actor packages before the rename gave up, the hygiene fixer's already-applied moves, the lightmap UV builder's changed settings, the mesh fracturer's written pieces. The runner collects that record like any other and invokes the collection in reverse, so the partial write is undone before the steps around it unwind. That order is the point: undoing an earlier step while the half-applied change is still in place is what leaves the inconsistent state behind.
+
+Either way the record is reported on the step that emitted it:
+
+```
+steps[i].partialWriteRollback = {
+  record: { taskName, payload },        # the record the handler emitted
+  step: '{ task: "ue-mcp.bridge", options: { method: ..., ... } }',
+  replayed: true | false,
+  note: ...
+}
+```
+
+`replayed` is the whole question, and it is `rollback_on_failure` that answers it:
+
+- **Armed.** The runner already ran the undo, ahead of every other inverse. `rollback.attempted` counts it, and `rollback.errors` says whether it worked.
+- **Not armed.** Nothing replayed it. Run it as the step shown, or call the bridge method named in `record.payload.method` with the rest of the payload.
+
+The same call is appended to that step's `error.message` and printed under the step in the summary, because a message survives a summary line where a field does not. A task cannot see `rollback_on_failure`, so the message names both outcomes and the `replayed` flag says which one happened.
+
+A step carrying `ignore_failure: true` contributes its record on the same terms. The flag says the run may walk past that failure, not that what the step half-wrote should survive a rollback. Because an ignored step does not stop the run, a LATER real failure is what arms `rollback_on_failure`, and the unwind then covers the ignored step's partial write alongside the successful steps before it.
+
+A **nested** flow behaves the same way. Its records bubble to the parent, so arming rollback on the outer flow reaches a partial write made inside a child, and the child's own steps arrive on `steps[i].nestedSteps`, each reported exactly like a top-level step. The child's run error still carries the undo call in its text as well.
+
+The outermost flow with rollback armed is the one that invokes the inverses, including the ones a child handed up. A child does not also unwind them itself: the parent holds the full reverse order, and running each inverse at both levels would undo state the first pass had already restored. A nested flow whose parents asked for no rollback still unwinds its own, so `rollback_on_failure` on a child flow means what it says.
+
+Requires `@db-lyon/flowkit` 0.17.2 or newer. 0.17.1 unwound a failed child's records at both levels. Up to 0.17.0 the runner harvested an inverse only from a step that succeeded, so a failing step's record was discarded on every run and `replayed` was always `false`.
+
+Conventions for handlers - natural keys, the `onConflict: skip|update|error` option, and rollback record shape - live in [docs/handler-conventions.md](handler-conventions.md).
+
+## When the Editor Goes Away (`on_editor_loss`)
+
+An editor can crash, be closed or restart while a flow runs. Once it has dropped during a run, no further step starts until it is back (up to `editor_loss_timeout_seconds`, default 300). A step that failed while the editor dropped has an **unknown** outcome: when the editor returns, a read-only step is run again as its own verification, and any other step stays unknown. Then the flow's policy decides:
+
+```yaml
+flows:
+  bake_lighting:
+    on_editor_loss: resume           # resume (default) | rollback | fail
+    editor_loss_timeout_seconds: 600
+    steps: { ... }
+```
+
+| Policy | What happens to the step the editor dropped during |
+|---|---|
+| `resume` | The run carries on. The step is reported with `data.editorLoss.outcome: unknown`; read the state back before relying on it. |
+| `rollback` | The step fails and the run unwinds as [`rollback_on_failure`](#rollback-on-failure) does, unless the caller passed `rollback_on_failure` itself. With the [git snapshot](#git-snapshot-safety-net) on, it is restored while the editor is still away, so the editor never holds stale copies. |
+| `fail` | The step fails and the run stops. |
+
+A rollback step that hits a drop waits for the editor and runs once more. The run result carries `editorLoss`: each event with the step, its outcome, the cause (`crashed`, `closed`, `restarting`, `rebuild` or `unknown` under the daemon) and how long it waited, plus the completed steps whose results said they were unsaved when the editor went away, which a crash loses.
+
+To restart or rebuild on purpose, use the built-in tasks:
+
+```yaml
+steps:
+  1: { task: shell, options: { command: "git apply my-change.patch" } }
+  2: { task: editor.rebuild }        # stop, build, start; leaves the editor down if the build fails
+  3: { task: level.get_outliner }
+```
+
+`editor.restart` and `editor.rebuild` go through the daemon when it is serving, so the disconnect they cause is reported as `restarting` or `rebuild` rather than a crash.
+
+## Git Snapshot Safety Net
+
+Per-handler rollback covers in-memory state (selection, PIE, unsaved actors). For anything that touched disk (new `.uasset` files, modified `.ini` config, deleted packages), enable the opt-in git snapshot. On flow start the runner snapshots `Content/` and `Config/` into a shadow bare git repo, and on failure runs `git read-tree --reset -u` to restore, then asks the editor to reload affected packages.
+
+Enable it in `ue-mcp.yml`:
+
+```yaml
+git_snapshot:
+  enabled: true
+  paths: [Content, Config]          # defaults shown
+  snapshot_dir: .ue-mcp/snapshot.git # relative to project root
+  max_age_hours: 24                  # prune older snapshot refs on each run
+```
+
+The shadow repo is completely separate from any project-level git - your real history isn't touched. Snapshot failure doesn't fail the flow; handler-level rollbacks still apply. Restore outcomes surface in `result.snapshotRestore`.
+
+## Live Observation (SSE)
+
+Every flow run emits per-step lifecycle events that observers can subscribe to over a loopback HTTP Server-Sent Events stream. Use this for editor plugins that want a live "what's running" panel, dashboards, CI log streaming, or `curl --no-buffer` debugging.
+
+**Enable the HTTP server** in `ue-mcp.yml`:
+
+```yaml
+ue-mcp:
+  version: 1
+  http:
+    enabled: true
+    port: 7723   # default
+```
+
+The server prints its bearer token to stderr on startup (or honors `UE_MCP_HTTP_TOKEN`). All routes require it. In the default daemon mode the project's daemon serves it, so it stays up across MCP client restarts and stops with the daemon; in process, the server does.
+
+**Subscribe** to the event stream:
+
+```bash
+curl --no-buffer \
+  -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:7723/flows/events
+```
+
+Filter to a specific run with `?runId=<id>`. The runId is returned in the `flow(action="run")` response so clients can correlate.
+
+**Event types** (one JSON object per SSE `data:` line):
+
+| `type` | Fires when | Payload |
+|--------|-----------|---------|
+| `run_started` | Before any step | `runId`, `flowName`, `plan` (execution plan), `timestamp` |
+| `step_started` | Before each non-skipped step | `runId`, `flowName`, `step`, `timestamp` |
+| `step_completed` | After every step (including skipped) | `runId`, `flowName`, `step`, `result: { success, skipped, duration, attempts, error? }`, `timestamp` |
+| `step_failed` | When a step errors (in addition to `step_completed`) | `runId`, `flowName`, `step`, `error: { message, name }`, `timestamp` |
+| `run_completed` | After the whole flow finishes (including hook phases + rollback) | `runId`, `flowName`, `success`, `duration`, `stepCount`, `failedStep?`, `timestamp` |
+
+`step_completed` deliberately omits `result.data` because shell outputs and CSV rows can be large. The full data is in the `steps` array of the `flow.run` response. If you need live stdout from a long-running shell step, the `shell` task streams chunks through the task logger - that's a separate channel from the SSE event bus.
+
+Keepalive comment lines (`: keepalive <ts>`) fire every 30s during quiet periods so proxies and load balancers don't drop the connection.
+
+## Skipping Steps
+
+Pass step names or numbers in the `skip` array:
+
+```
+flow(action="run", flowName="setup_scene", skip=["2", "SkyAtmosphere"])
+```
+
+## Execution Plan
+
+Preview what a flow will do without running it:
+
+```
+flow(action="plan", flowName="setup_scene")
+```
+
+Returns each step with its task name, type, and skip status, the flow as declared under `definition`, and the flow's `inputs`. `GET /flows/<name>/plan` on the flow HTTP server, and `GET /v1/flows/<name>/plan` on the daemon, return the same body.
+
+### Inputs
+
+`inputs` lists the parameters a run may pass in `params`. It is derived from the steps, so a flow author writes nothing for it. Each step task's parameters come from its action's schema, overlaid field by field by the task's `options_schema` where one is declared. A task that is not an action and declares no schema falls back to the `Params:` clause of its description.
+
+A parameter is an input when at least one step that reads it leaves it unset. A step sets a parameter through its own `options`, its task definition's `options`, a nesting flow step's override map, an alias of the parameter, or the other side of a choice (`actorLabel OR actorPath`). A parameter every step sets is not an input. Routing parameters (`editor`, `timeoutMs`, `select`, `omit`) never are. Nested flows contribute their own inputs, and hook steps (`on_start`, `on_success`, `on_failure`, `finally`) count too.
+
+| Field | Meaning |
+|-------|---------|
+| `name` | The key to pass in `params`. |
+| `type` | The parameter's type. When the steps disagree it is an array of every type, and `conflict: true` is set. |
+| `conflict` | Present, and `true`, when two steps type the parameter differently or allow no common `enum` value. |
+| `description` | From the first step that describes it. |
+| `enum` | The values every step reading it allows. |
+| `default` | The first default a step declares. |
+| `required` | A step reading it requires it and no step declares a default. |
+| `steps` | The steps that read it: `path` (`3`, `2/1` inside step 2's nested flow, `on_start/1` for a hook step), `task`, and the `flow` the step is declared in. |
+
+Required inputs come first, then the rest in the order the run meets them.
+
+```json
+{
+  "inputs": [
+    {
+      "name": "target",
+      "type": "string",
+      "description": "Asset path of the Blueprint to test, or a description of it to search for.",
+      "required": true,
+      "steps": [{ "path": "1", "task": "playtest.gather", "flow": "playtest" }]
+    },
+    {
+      "name": "package_path",
+      "type": "string",
+      "description": "Content folder the script is saved in.",
+      "required": false,
+      "steps": [{ "path": "8", "task": "playtest.save", "flow": "playtest" }]
+    }
+  ]
+}
+```
+
+Run params merge into every step's options, so a parameter the flow sets everywhere can still be overridden by passing it. `inputs` lists what the flow leaves open, not everything a run could override.
+
+## Built-in Flows
+
+UE-MCP ships with these built-in flows, which you can run out of the box.
+
+| Flow | Steps | What it does |
+|------|-------|--------------|
+| `beacon` | 56 | YAML-authored shrine scene built step by step via individual tool calls. Useful as a reference for how a multi-step flow looks. |
+| `neon_shrine` | 19 | The full Neon Shrine demo, driven through the bridge's `demo.step` handler. Leaves the editor on `/Game/Demo/DemoLevel`. |
+| `playtest` | 8 | Drafts a PIE test script for a target with the flow model, has the editor check it, and saves it. See [Playtest](#playtest). |
+| `neon_shrine_cleanup` | 1 | Wipes the Neon Shrine demo content. Switches the editor to `/Game/MCP_Home` first so you don't get stranded on Untitled. |
+
+```
+flow(action="list")          # see every flow available (built-in + your overrides)
+flow(action="plan", flowName="<name>")
+flow(action="run", flowName="<name>")
+```
+
+### Niagara Fire
+
+Builds a fire Niagara system from scratch and verifies it emits - a 0-to-1, best-practice starting point rather than a demo. Creates an emitter and system, tunes continuous spawn rate, upward velocity, and an HDR orange colour, then runs the `niagara(action="validate")` verify gate as the final step so the run tells you whether the system actually emits (catching the empty-shell failure).
+
+```
+flow(action="run", flowName="niagara_fire")
+```
+
+Lands at `/Game/VFX/Fire/NS_Fire`. Override the name or location with runtime params:
+
+```
+flow(action="run", flowName="niagara_fire", params={ "name": "NS_Torch", "packagePath": "/Game/VFX/Torches" })
+```
+
+### Beacon
+
+A 56-step demo that builds a complete shrine scene from scratch - geometry, materials, lighting, atmosphere, and camera.
+
+```
+flow(action="run", flowName="beacon")
+```
+
+What it creates:
+
+| Steps | Category | What |
+|-------|----------|------|
+| 1–4 | level | New level, SkyAtmosphere, ExponentialHeightFog, SkyLight |
+| 5–7 | material | **M_Floor** - dark stone base color |
+| 8–16 | material | **M_Pillar** - brushed metallic (Metallic=1, Roughness=0.3) |
+| 17–19 | material | **M_Pedestal** - warm stone |
+| 20–28 | material | **M_Glow** - parameterized emissive (VectorParameter × 50 → EmissiveColor) |
+| 29 | level | Floor slab (scaled Cube with M_Floor) |
+| 30 | level | Center pedestal (Cylinder with M_Pedestal) |
+| 31 | level | Glowing orb (Sphere with M_Glow) |
+| 32–36 | level | 5 pillars in a pentagon (Cubes with M_Pillar) |
+| 37–39 | level | Sunset directional light |
+| 40–49 | level | 5 colored point lights at pillar tops (cyan, magenta, gold, green, violet) |
+| 50–51 | level | Center spotlight pointing down at orb |
+| 52–55 | level | Warm and cool fill lights |
+| 56 | editor | Viewport camera framing the scene |
+
+Preview the execution plan without running:
+
+```
+flow(action="plan", flowName="beacon")
+```
+
+The beacon flow is defined in `src/flow/loader.ts` (compiled into `dist/`). Users can override any of its steps by redefining the `beacon` flow in their project's `ue-mcp.yml`.
+
+### Neon Shrine
+
+A 19-step procedural scene driven through the bridge's `demo.step` handler. Each step invokes `demo(action="step", stepIndex=N)` for `N` in `1..19`. Output lands at `/Game/Demo/DemoLevel`. The matching `neon_shrine_cleanup` flow wipes the demo content and parks the editor on `/Game/MCP_Home` so you're not stranded on Untitled.
+
+```
+flow(action="run", flowName="neon_shrine")
+flow(action="run", flowName="neon_shrine_cleanup")
+```
+
+For a step-by-step walkthrough of what each demo step builds, see the [Neon Shrine Demo](neon-shrine-demo.md) page.
+
+### Playtest
+
+Drafts a [test script](pie-scripts.md) for a target and saves it once the editor accepts it.
+
+```
+flow(action="run", flowName="playtest", params={ "target": "/Game/Hero/BP_Hero", "context": "the jump lands on the ledge" })
+```
+
+| Param | |
+|---|---|
+| `target` | Required. An asset or class path, or a description; a description is looked up among the project's Blueprints by its words. |
+| `context` | What to test, in your words. |
+| `profile` | Observation profile asset path for the script. |
+| `name`, `package_path` | Where the script is saved. Default `TS_Playtest_<target>` under `/Game/PIEStudio/Scripts`. |
+
+| Step | Task | |
+|---|---|---|
+| 1 | `playtest.gather` | Reads the target Blueprint, the project's input mapping contexts, and `pie(script_values)`: the values PIE can watch. |
+| 2 | `playtest.draft` | An agent step with no tools and a token budget, answering in the script step schema. |
+| 3 | `playtest.check` | `pie(script_validate)` on the draft. A refusal's errors become the next prompt. |
+| 4 to 7 | `playtest.draft`, `playtest.check` | Two more rounds, each run only when the last draft was refused. |
+| 8 | `playtest.save` | `pie(script_create)` with the draft that passed. |
+
+When the third draft is still refused, the flow fails with its errors and nothing is saved.
+
+## Agent Steps
+
+A task with `class_path: agent` (multi-turn, with tools) or `agent_prompt` (one call) runs on a model. The model comes from, in order:
+
+1. A provider a daemon extension registered with `api.models.register(provider)` (extension API 2, feature `models.provider`).
+2. `ANTHROPIC_API_KEY`, with `UE_MCP_FLOW_MODEL` naming the model (default `claude-opus-5-5`) and `ANTHROPIC_BASE_URL` an alternative endpoint.
+
+With neither, the step fails with `No model is configured for flow agent steps.`
+
+```yaml
+tasks:
+  summarize:
+    class_path: agent_prompt
+    options:
+      system: You describe Unreal projects in two sentences.
+      maxTokens: 2000
+flows:
+  describe_project:
+    description: Describe the project.
+    steps:
+      1: { task: project.get_info }
+      2: { task: summarize, options: { prompt: "Describe this project: ${steps.1}" } }
+```
+
+A provider is the object flowkit's agent tasks call:
+
+```ts
+interface ModelProvider {
+  complete(req: ModelRequest): Promise<ModelResponse>;
+}
+// ModelRequest: { system?, prompt?, messages?, model?, maxTokens?, temperature?, stop?, schema?, tools?, toolChoice?, signal? }
+// ModelResponse: { text, parsed?, toolCalls?, finishReason?, usage?: { inputTokens?, outputTokens? }, model? }
+```
+
+---
+
+## Customization
+
+### Overriding a Built-in Task
+
+To change how a built-in task behaves, redefine it in your `ue-mcp.yml`. Your definition merges on top of the defaults (your fields win):
+
+```yaml
+tasks:
+  asset.list:
+    class_path: ./tasks/FilteredAssetList.js
+    description: Asset list with custom filtering
+```
+
+The built-in `asset.list` is now replaced by your class. The dynamic loader will import `./tasks/FilteredAssetList.js` from your project root.
+
+### Writing a Custom Task
+
+Create a file that exports a class extending `UeMcpTask`:
+
+```typescript
+// tasks/FilteredAssetList.ts
+import { UeMcpTask, type TaskResult } from 'ue-mcp/task';
+
+export default class FilteredAssetList extends UeMcpTask {
+  get taskName() {
+    return 'asset.filtered_list';
+  }
+
+  async execute(): Promise<TaskResult> {
+    // Call the original asset.list via the registry
+    const result = await this.call('asset.list', {
+      directory: (this.options as any).directory ?? '/Game/',
+      recursive: true,
+    });
+
+    if (result.success && result.data?.assets) {
+      const exclude = (this.options as any).excludePrefix ?? '/Game/Developers/';
+      result.data.assets = (result.data.assets as any[])
+        .filter(a => !a.path?.startsWith(exclude));
+    }
+
+    return result;
+  }
+}
+```
+
+Register it in your config:
+
+```yaml
+tasks:
+  asset.list:
+    class_path: ./tasks/FilteredAssetList
+    description: Asset list that filters out developer content
+    options:
+      excludePrefix: /Game/Developers/
+```
+
+Key points:
+
+- **Export as default** - the loader looks for a default export, or a named export matching the filename.
+- **Must extend `UeMcpTask`** - the registry validates this at load time.
+- **`this.options`** - receives the merged options (task defaults + step overrides).
+- **`this.ctx`** - the shared context, typed for you as `FlowContext`: `bridge` (editor WebSocket) and `project` (path resolution). `UeMcpTask` also exposes a `this.bridge` shortcut.
+- **`this.call(name, opts)`** - resolve and execute another task by name. The original built-in task is still in the registry even when you override it via YAML `class_path`.
+- **`this.resolve(name, opts)`** - like `call()` but returns the task instance without running it, in case you need to inspect or configure it first.
+
+### Extending a Bridge Task
+
+If your custom task needs to call the editor, `UeMcpTask` gives you `this.call(...)` for task composition and a typed `this.bridge` for raw bridge methods:
+
+```typescript
+// tasks/SafeBuild.ts
+import { UeMcpTask, type TaskResult } from 'ue-mcp/task';
+
+export default class SafeBuild extends UeMcpTask {
+  get taskName() {
+    return 'safe_build';
+  }
+
+  async execute(): Promise<TaskResult> {
+    // Check status first
+    const status = await this.call('project.get_status');
+    if (!status.success || !status.data?.connected) {
+      return {
+        success: false,
+        error: new Error('Editor not connected - cannot build'),
+      };
+    }
+
+    // Run the actual build
+    return this.call('project.build', {
+      configuration: (this.options as any).configuration ?? 'Development',
+    });
+  }
+}
+```
+
+```yaml
+tasks:
+  safe_build:
+    class_path: ./tasks/SafeBuild
+    description: Build with connection check
+
+flows:
+  safe_build_flow:
+    description: Safely build the project
+    steps:
+      1:
+        task: safe_build
+        options:
+          configuration: Shipping
+```
+
+### Composing Tasks
+
+A custom task can orchestrate multiple tasks:
+
+```typescript
+// tasks/FullSetup.ts
+import { UeMcpTask, type TaskResult } from 'ue-mcp/task';
+
+export default class FullSetup extends UeMcpTask {
+  get taskName() {
+    return 'full_setup';
+  }
+
+  async execute(): Promise<TaskResult> {
+    // Place a bunch of actors
+    const actors = [
+      { className: 'DirectionalLight', location: { x: 0, y: 0, z: 500 } },
+      { className: 'SkyAtmosphere' },
+      { className: 'ExponentialHeightFog' },
+      { className: 'SkyLight' },
+    ];
+
+    const placed = [];
+    for (const actor of actors) {
+      const result = await this.call('level.place_actor', actor);
+      if (!result.success) return result;
+      placed.push(result.data);
+    }
+
+    return {
+      success: true,
+      data: { placed, count: placed.length },
+    };
+  }
+}
+```
+
+### Wrapping a Task (Programmatic)
+
+If you're building on top of ue-mcp in code, the registry supports wrapping any registered task:
+
+```typescript
+import { buildFlowRegistry } from 'ue-mcp';
+
+const registry = buildFlowRegistry(tools);
+
+// Wrap asset.list with logging
+registry.wrap('asset.list', (Original) => {
+  return class extends Original {
+    get taskName() { return 'asset.list:logged'; }
+
+    async execute() {
+      console.log(`Listing assets with options:`, this.options);
+      const result = await super.execute();
+      console.log(`Found ${result.data?.assets?.length ?? 0} assets`);
+      return result;
+    }
+  };
+});
+```
+
+Multiple wraps compose - each layer sees the previously wrapped version as its parent:
+
+```typescript
+// First wrap adds logging
+registry.wrap('asset.list', (Original) => class extends Original { /* log */ });
+
+// Second wrap adds caching - it wraps the logged version
+registry.wrap('asset.list', (Original) => class extends Original { /* cache */ });
+```
+
+---
+
+## Config Layering
+
+Configuration is loaded with [`@db-lyon/flowkit`'s config loader](https://github.com/db-lyon/flowkit), which supports layered YAML files:
+
+| Layer | File | Purpose |
+|-------|------|---------|
+| 1 (base) | Built-in defaults | All <!-- count:actions -->2114+<!-- /count --> tasks, no flows |
+| 2 | `ue-mcp.yml` | Your project config |
+| 3 | `ue-mcp.{env}.yml` | Environment overlay (set `UE_MCP_ENV`) |
+| 4 | `ue-mcp.local.yml` | Local-only overrides (gitignore this) |
+
+Each layer deep-merges on top of the previous. Later layers win for scalar values; objects merge recursively.
+
+**Example:** keep your shared flows in `ue-mcp.yml` and machine-specific overrides in `ue-mcp.local.yml`:
+
+```yaml
+# ue-mcp.local.yml - not committed
+tasks:
+  shell:
+    options:
+      timeout: 600000    # slow machine, need longer builds
+```
+
+### Environment Overlays
+
+Set the `UE_MCP_ENV` environment variable to load an environment-specific layer:
+
+```bash
+UE_MCP_ENV=ci npx ue-mcp /path/to/project.uproject
+```
+
+This loads `ue-mcp.ci.yml` on top of `ue-mcp.yml`.
+
+## Hot Reload
+
+The config is **reloaded from disk on every flow call**. Edit `ue-mcp.yml`, save, and run the flow again - no server restart needed. This makes it easy to iterate on flow definitions.
+
+## Dynamic Class Loading
+
+When you set `class_path` to a file path (e.g., `./tasks/MyTask`), the registry resolves it relative to the current working directory. It tries these candidates in order:
+
+1. `{cwd}/tasks/MyTask.ts`
+2. `{cwd}/tasks/MyTask.js`
+3. `{cwd}/tasks/MyTask/index.ts`
+4. `{cwd}/tasks/MyTask/index.js`
+
+The loaded module must export a class that extends `UeMcpTask`, either as the default export or as a named export matching the filename.
+
+Dynamically loaded classes are cached - the file is only imported once per class path per session.
+
+## UeMcpTask Reference
+
+All custom tasks extend `UeMcpTask` from `ue-mcp/task`. It builds on the flow engine's base task, narrowing the context to ue-mcp's `FlowContext` and adding a `this.bridge` shortcut, so you import one symbol from `ue-mcp` and never touch the underlying runtime directly:
+
+```typescript
+abstract class UeMcpTask<TOpts = Record<string, unknown>> {
+  protected ctx: FlowContext;           // Shared context, typed: bridge, project, registry
+  protected options: TOpts;             // Merged options for this execution
+  protected logger: Logger;             // Scoped logger
+
+  protected get bridge(): IBridge;      // Shortcut for this.ctx.bridge
+
+  abstract get taskName(): string;      // Descriptive name for logging
+  abstract execute(): Promise<TaskResult>;  // Your task logic
+
+  protected validate(): void;           // Option validation (override, called before execute)
+
+  // Composition - resolve/run other tasks from within your task
+  protected resolve(taskName: string, options?: Record<string, unknown>): Promise<UeMcpTask>;
+  protected call(taskName: string, options?: Record<string, unknown>): Promise<TaskResult>;
+
+  // Lifecycle - called by the engine, not by you
+  run(): Promise<TaskResult>;           // validate → execute → catch errors → return result
+}
+```
+
+### TaskResult
+
+```typescript
+interface TaskResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: Error;
+  duration?: number;      // Set automatically by run()
+}
+```
+
+### TaskContext
+
+In ue-mcp, the context includes:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `bridge` | `IBridge` | WebSocket connection to the Unreal Editor |
+| `project` | `ProjectContext` | Path resolution, project info |
+| `registry` | `TaskRegistry` | Task registry for resolving other tasks |
+| `logger` | `Logger` | Structured logger |

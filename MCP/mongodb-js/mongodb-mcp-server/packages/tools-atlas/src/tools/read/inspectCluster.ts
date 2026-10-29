@@ -1,0 +1,69 @@
+import type { OperationType, ToolExecutionContext } from "@mongodb-js/mcp-types";
+import { type ToolArgs, type ToolResult, formatUntrustedData } from "@mongodb-js/mcp-core";
+import { z } from "zod";
+import { AtlasToolBase } from "../../atlasTool.js";
+import type { Cluster } from "../../helpers/cluster.js";
+import { inspectCluster } from "../../helpers/cluster.js";
+import { AtlasArgs } from "../../args.js";
+
+export const InspectClusterArgs = {
+    projectId: AtlasArgs.projectId().describe("Atlas project ID"),
+    clusterName: AtlasArgs.clusterName().describe("Atlas cluster name"),
+};
+
+const InspectClusterOutputSchema = {
+    name: z.string(),
+    instanceType: z.enum(["FREE", "DEDICATED", "FLEX"]),
+    instanceSize: z.string(),
+    provider: z.string().optional(),
+    region: z.string().optional(),
+    paused: z.boolean(),
+    state: z.string(),
+    mongoDBVersion: z.string(),
+    connectionStrings: z.record(z.string(), z.unknown()),
+};
+
+export class InspectClusterTool extends AtlasToolBase {
+    static toolName = "atlas-inspect-cluster";
+    public description = "Inspect metadata of a MongoDB Atlas cluster";
+    static operationType: OperationType = "read";
+    public argsShape(): typeof InspectClusterArgs {
+        return InspectClusterArgs;
+    }
+    public override outputSchema(): typeof InspectClusterOutputSchema {
+        return InspectClusterOutputSchema;
+    }
+
+    protected async execute(
+        { projectId, clusterName }: ToolArgs<ReturnType<typeof this.argsShape>>,
+        { request }: ToolExecutionContext
+    ): Promise<ToolResult<ReturnType<typeof this.outputSchema>>> {
+        const cluster = await inspectCluster({
+            apiClient: this.server.apiClient,
+            projectId,
+            clusterName,
+            request,
+        });
+
+        return this.formatOutput(cluster);
+    }
+
+    private formatOutput(formattedCluster: Cluster): ToolResult<typeof InspectClusterOutputSchema> {
+        const structuredContent = {
+            name: formattedCluster.name || "Unknown",
+            instanceType: formattedCluster.instanceType,
+            instanceSize: formattedCluster.instanceSize || "N/A",
+            provider: formattedCluster.provider,
+            region: formattedCluster.region,
+            paused: formattedCluster.paused ?? false,
+            state: formattedCluster.state || "UNKNOWN",
+            mongoDBVersion: formattedCluster.mongoDBVersion || "N/A",
+            connectionStrings: formattedCluster.connectionStrings || {},
+        };
+
+        return {
+            content: formatUntrustedData(this.server.config, "Cluster details:", JSON.stringify(structuredContent)),
+            structuredContent,
+        };
+    }
+}

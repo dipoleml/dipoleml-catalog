@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.microsoft.debugmcp",
+  "type": "mcp",
+  "name": "Debugmcp",
+  "slug": "debugmcp",
+  "vendor": "microsoft",
+  "description": "Gift your VS Code agent a real debugger: breakpoints, stepping, inspection.",
+  "version": "2.4.4",
+  "homepage": "https://github.com/microsoft/DebugMCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-debugging",
+    "breakpoints",
+    "copilot",
+    "cursor",
+    "debugger",
+    "model-context-protocol",
+    "vscode-extension"
+  ],
+  "tags": [
+    "ai-agent",
+    "ai-debugging",
+    "breakpoints",
+    "copilot",
+    "cursor",
+    "debugger",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "vscode-extension"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "microsoft",
+    "brandName": "microsoft",
+    "source": "https://github.com/microsoft.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "microsoft/DebugMCP",
+    "url": "https://github.com/microsoft/DebugMCP",
+    "commit": "d0b4a334a6a3d8d600c5aa75ec60d9de272af3c4",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 576,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "debugmcpextension"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "debugmcpextension"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.txt",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "ai-team-os",
+  "owner": {
+    "name": "CronusL-1141",
+    "url": "https://github.com/CronusL-1141"
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Shared AI team operating layer for Claude Code and Codex - persistent project context and accountable work through independent host adapters"
+  },
+  "plugins": [
+    {
+      "name": "ai-team-os",
+      "description": "Shared task wall, memory, reports, channels and Dashboard for Claude Code and Codex; Claude Code plugin installation and an independent Codex adapter",
+      "version": "1.16.0",
+      "category": "productivity",
+      "author": {
+        "name": "CronusL-1141"
+      },
+      "homepage": "https://github.com/CronusL-1141/AI-company",
+      "repository": "https://github.com/CronusL-1141/AI-company",
+      "license": "MIT",
+      "source": "./plugin"
+    }
+  ]
+}

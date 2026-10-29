@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atlas Projects Live View</title>
+    <link rel="stylesheet" href="styling/theme.css" />
+    <link rel="stylesheet" href="styling/base.css" />
+    <link rel="stylesheet" href="styling/layout.css" />
+    <link rel="stylesheet" href="styling/components.css" />
+    <!-- Mermaid JS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@latest/dist/mermaid.min.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="theme-switch-wrapper">
+          <label
+            class="theme-switch"
+            for="theme-checkbox"
+            aria-label="Toggle color theme"
+          >
+            <input type="checkbox" id="theme-checkbox" />
+            <div class="slider round"></div>
+          </label>
+          <span class="theme-label" id="theme-label-text">Toggle Theme</span>
+        </div>
+        <h1>Atlas Projects Live View</h1>
+      </header>
+
+      <main>
+        <section class="controls-section" aria-labelledby="controls-heading">
+          <h2 id="controls-heading" class="visually-hidden">
+            Project Controls
+          </h2>
+          <div class="controls-container">
+            <label for="project-select">Select a Project:</label>
+            <select
+              id="project-select"
+              aria-label="Select a project to view its details"
+            >
+              <option value="">Loading projects...</option>
+            </select>
+            <button id="refresh-button" type="button">Refresh Projects</button>
+          </div>
+        </section>
+
+        <section
+          id="project-details-container"
+          class="data-section hidden"
+          aria-labelledby="project-details-heading"
+        >
+          <h2 id="project-details-heading">Project Details</h2>
+          <div id="details-content" class="details-grid"></div>
+        </section>
+
+        <section
+          id="tasks-container"
+          class="data-section hidden"
+          aria-labelledby="tasks-heading"
+        >
+          <div class="section-header">
+            <h3 id="tasks-heading">Tasks</h3>
+            <div class="view-controls">
+              <button
+                class="view-toggle-button"
+                id="task-view-mode-toggle"
+                type="button"
+                aria-pressed="false"
+                aria-controls="tasks-content"
+              >
+                Compact View
+              </button>
+              <button
+                class="view-toggle-button"
+                id="task-flow-toggle"
+                type="button"
+                aria-pressed="false"
+                aria-controls="task-flow-container tasks-content"
+              >
+                View Task Flow
+              </button>
+            </div>
+          </div>
+          <div id="tasks-content" role="region" aria-live="polite"></div>
+          <div
+            id="task-flow-container"
+            class="hidden mermaid-container"
+            role="region"
+            aria-live="polite"
+          >
+            <!-- Mermaid chart will be rendered here -->
+          </div>
+        </section>
+
+        <section
+          id="project-task-board-container"
+          class="data-section hidden"
+          aria-labelledby="project-task-board-heading"
+        >
+          <h2 id="project-task-board-heading">Project Task Board</h2>
+          <div
+            id="project-task-board-content"
+            class="task-board-grid"
+            role="region"
+            aria-live="polite"
+          >
+            <!-- Task board columns will be rendered here -->
+          </div>
+        </section>
+
+        <section
+          id="knowledge-container"
+          class="data-section hidden"
+          aria-labelledby="knowledge-heading"
+        >
+          <div class="section-header">
+            <h3 id="knowledge-heading">Knowledge Items</h3>
+            <div class="view-controls">
+              <button
+                class="view-toggle-button"
+                id="knowledge-view-mode-toggle"
+                type="button"
+                aria-pressed="false"
+                aria-controls="knowledge-content"
+              >
+                Compact View
+              </button>
+            </div>
+          </div>
+          <div id="knowledge-content" role="region" aria-live="polite"></div>
+        </section>
+
+        <section
+          id="data-explorer-container"
+          class="data-section hidden"
+          aria-labelledby="data-explorer-heading"
+        >
+          <h2 id="data-explorer-heading">Data Explorer</h2>
+          <div class="controls-container">
+            <label for="node-label-select">Select Node Type:</label>
+            <select
+              id="node-label-select"
+              aria-label="Select a node type to explore"
+            >
+              <option value="">Loading node types...</option>
+            </select>
+            <button id="refresh-node-types-button" type="button">
+              Refresh Types
+            </button>
+          </div>
+          <div id="data-explorer-content" role="region" aria-live="polite">
+            <!-- Nodes of selected type will be rendered here -->
+          </div>
+          <div
+            id="data-explorer-details"
+            class="details-grid"
+            role="region"
+            aria-live="polite"
+          >
+            <!-- Details of a selected node will be rendered here -->
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div
+          id="error-message"
+          class="error hidden"
+          role="alert"
+          aria-live="assertive"
+        ></div>
+        <div id="connection-status">
+          Connection Status: <span id="neo4j-status">Not Connected</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Neo4j Browser Driver via CDN -->
+    <script src="https://unpkg.com/neo4j-driver@5/lib/browser/neo4j-web.min.js"></script>
+
+    <!-- 
+        Optional: User can manually provide credentials here if not included in prompt
+        These will be overridden by script.js if window.NEO4J_... variables are already set there.
+        <script>
+            // window.NEO4J_URI = "bolt://localhost:7687";
+            // window.NEO4J_USER = "neo4j";
+            // window.NEO4J_PASSWORD = "password2";
+        </script> 
+    -->
+    <script type="module" src="logic/main.js"></script>
+  </body>
+</html>

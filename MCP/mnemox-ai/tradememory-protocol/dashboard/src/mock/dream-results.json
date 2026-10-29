@@ -1,0 +1,41 @@
+[
+  {
+    "_disclaimer": "⚠️ Illustrative demo dataset. Synthetic trades generated for interface preview only - not a backtest, not live trading results. Account $100,000, risk $250/trade (1R).",
+    "id": "dream-001",
+    "timestamp": "2026-02-25T03:24:00+00:00",
+    "condition": "no_memory",
+    "trades": 120,
+    "pf": 1.04,
+    "pnl": 660.0,
+    "wr": 0.42,
+    "has_memory": false,
+    "memory_type": null,
+    "resonance_detected": false
+  },
+  {
+    "_disclaimer": "⚠️ Illustrative demo dataset. Synthetic trades generated for interface preview only - not a backtest, not live trading results. Account $100,000, risk $250/trade (1R).",
+    "id": "dream-002",
+    "timestamp": "2026-02-24T21:24:00+00:00",
+    "condition": "episodic_only",
+    "trades": 120,
+    "pf": 1.13,
+    "pnl": 2145.0,
+    "wr": 0.44,
+    "has_memory": true,
+    "memory_type": "episodic",
+    "resonance_detected": false
+  },
+  {
+    "_disclaimer": "⚠️ Illustrative demo dataset. Synthetic trades generated for interface preview only - not a backtest, not live trading results. Account $100,000, risk $250/trade (1R).",
+    "id": "dream-003",
+    "timestamp": "2026-02-24T15:24:00+00:00",
+    "condition": "full_recall",
+    "trades": 120,
+    "pf": 1.26,
+    "pnl": 4290.0,
+    "wr": 0.46,
+    "has_memory": true,
+    "memory_type": "episodic+semantic+affective",
+    "resonance_detected": true
+  }
+]

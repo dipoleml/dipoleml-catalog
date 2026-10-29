@@ -1,0 +1,431 @@
+"""ISO and template management tools for Proxmox MCP."""
+from typing import List, Dict, Optional, Any
+import json
+from urllib.parse import urlsplit
+from mcp.types import TextContent as Content
+from proxmox_mcp.tools.base import ProxmoxTool, InventoryList, completeness_content, _log_safe
+
+
+def _as_list(maybe: Any) -> List:
+    """Return list; unwrap {'data': list}; else []."""
+    if isinstance(maybe, list):
+        return maybe
+    if isinstance(maybe, dict):
+        data = maybe.get("data")
+        if isinstance(data, list):
+            return data
+    return []
+
+
+def _get(d: Any, key: str, default: Any = None) -> Any:
+    """dict.get with None guard."""
+    if isinstance(d, dict):
+        return d.get(key, default)
+    return default
+
+
+def _b2h(n: Any) -> str:
+    """bytes -> human readable."""
+    try:
+        n = float(n)
+    except Exception:
+        return "0 B"
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    i = 0
+    while n >= 1024.0 and i < len(units) - 1:
+        n /= 1024.0
+        i += 1
+    return f"{n:.2f} {units[i]}"
+
+
+class ISOTools(ProxmoxTool):
+    """ISO and template management tools."""
+
+    def _json_fmt(self, data: Any) -> List[Content]:
+        """Return raw JSON string."""
+        return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
+
+    def _err(self, action: str, e: Exception) -> List[Content]:
+        self._handle_error(action, e)
+
+    def _get_storage_content(
+        self, content_type: str, node: Optional[str] = None, storage: Optional[str] = None
+    ) -> List[Dict]:
+        """Get storage content filtered by type across nodes/storages."""
+        results = InventoryList()
+        try:
+            nodes = _as_list(self.proxmox.nodes.get())
+        except Exception as e:
+            self._handle_error("list nodes", e)
+
+        for n in nodes:
+            node_name = _get(n, "node")
+            if not node_name:
+                continue
+            if node and node_name != node:
+                continue
+
+            try:
+                storages = _as_list(self.proxmox.nodes(node_name).storage.get())
+            except Exception as node_error:
+                self.logger.warning(
+                    "Skipping node %s while listing storage content: %s",
+                    node_name,
+                    node_error,
+                )
+                results.warnings.append(_log_safe(node_name) + ": " + _log_safe(node_error))
+                continue
+            for s in storages:
+                storage_name = _get(s, "storage")
+                if not storage_name:
+                    continue
+                if storage and storage_name != storage:
+                    continue
+
+                # Check if storage supports this content type
+                content_types = _get(s, "content", "")
+                if content_type not in content_types:
+                    continue
+
+                try:
+                    content = _as_list(
+                        self.proxmox.nodes(node_name).storage(storage_name).content.get(
+                            content=content_type
+                        )
+                    )
+                    for item in content:
+                        item["_node"] = node_name
+                        item["_storage"] = storage_name
+                        results.append(item)
+                except Exception as error:
+                    results.warnings.append(_log_safe(storage_name) + ": " + _log_safe(error))
+
+        if not results and results.warnings:
+            raise RuntimeError("Storage content inventory is unavailable: " + "; ".join(results.warnings))
+        return results
+
+    def list_isos(
+        self,
+        node: Optional[str] = None,
+        storage: Optional[str] = None,
+    ) -> List[Content]:
+        """List available ISO images.
+
+        Parameters:
+            node: Filter by node (optional)
+            storage: Filter by storage pool (optional)
+
+        Returns:
+            List[Content] with ISO information
+        """
+        try:
+            isos = self._get_storage_content("iso", node, storage)
+
+            if not isos:
+                msg = "No ISO images found"
+                if node:
+                    msg += f" on node {node}"
+                if storage:
+                    msg += f" in storage {storage}"
+                return [Content(type="text", text=msg)]
+
+            lines = ["Available ISO Images", ""]
+
+            for iso in sorted(isos, key=lambda x: _get(x, "volid", "")):
+                volid = _get(iso, "volid", "unknown")
+                size = _get(iso, "size", 0)
+                node_name = _get(iso, "_node", "?")
+                storage_name = _get(iso, "_storage", "?")
+
+                # Extract filename from volid (format: storage:iso/filename.iso)
+                filename = volid.split("/")[-1] if "/" in volid else volid
+
+                lines.append(f"{filename}")
+                lines.append(f"     Size: {_b2h(size)}")
+                lines.append(f"     Storage: {storage_name} @ {node_name}")
+                lines.append(f"     Volume ID: {volid}")
+                lines.append("")
+
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(getattr(isos, "warnings", []))
+
+        except Exception as e:
+            return self._err("list ISOs", e)
+
+    def list_templates(
+        self,
+        node: Optional[str] = None,
+        storage: Optional[str] = None,
+    ) -> List[Content]:
+        """List available OS templates for containers.
+
+        Parameters:
+            node: Filter by node (optional)
+            storage: Filter by storage pool (optional)
+
+        Returns:
+            List[Content] with template information
+        """
+        try:
+            templates = self._get_storage_content("vztmpl", node, storage)
+
+            if not templates:
+                msg = "No OS templates found"
+                if node:
+                    msg += f" on node {node}"
+                if storage:
+                    msg += f" in storage {storage}"
+                return [Content(type="text", text=msg)]
+
+            lines = ["Available OS Templates", ""]
+
+            for tmpl in sorted(templates, key=lambda x: _get(x, "volid", "")):
+                volid = _get(tmpl, "volid", "unknown")
+                size = _get(tmpl, "size", 0)
+                node_name = _get(tmpl, "_node", "?")
+                storage_name = _get(tmpl, "_storage", "?")
+
+                # Extract filename from volid
+                filename = volid.split("/")[-1] if "/" in volid else volid
+
+                lines.append(f"{filename}")
+                lines.append(f"     Size: {_b2h(size)}")
+                lines.append(f"     Storage: {storage_name} @ {node_name}")
+                lines.append(f"     Volume ID: {volid}")
+                lines.append("")
+
+            lines.append("Use the Volume ID with create_container's ostemplate parameter.")
+
+            return [Content(type="text", text="\n".join(lines).rstrip())] + completeness_content(getattr(templates, "warnings", []))
+
+        except Exception as e:
+            return self._err("list templates", e)
+
+    def download_iso(
+        self,
+        node: str,
+        storage: str,
+        url: str,
+        filename: str,
+        checksum: Optional[str] = None,
+        checksum_algorithm: str = "sha256",
+    ) -> List[Content]:
+        """Download an ISO image from a URL to Proxmox storage.
+
+        Parameters:
+            node: Target node name
+            storage: Target storage pool
+            url: URL to download from
+            filename: Target filename (e.g., 'ubuntu-22.04.iso')
+            checksum: Optional checksum for verification
+            checksum_algorithm: Algorithm (sha256, sha512, md5)
+
+        Returns:
+            List[Content] with download result
+        """
+        try:
+            params: Dict[str, Any] = {
+                "url": url,
+                "filename": filename,
+                "content": "iso",
+            }
+
+            if checksum:
+                params["checksum"] = checksum
+                params["checksum-algorithm"] = checksum_algorithm
+
+            result = self.proxmox.nodes(node).storage(storage)("download-url").post(**params)
+            job = self._register_background_job(
+                tool_name="download_iso",
+                summary=f"Download ISO {filename} to {storage}@{node}",
+                node=node,
+                upid=result,
+                metadata={"storage": storage, "filename": filename, "url": url},
+                retry_spec={"kind": "iso.download", "params": {"node": node, "storage": storage, "request": params}},
+                retry_factory=lambda: self.proxmox.nodes(node).storage(storage)("download-url").post(**params),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+            )
+
+            lines = [
+                "ISO Download Started",
+                "",
+                f"  - Filename: {filename}",
+                f"  - URL: {url}",
+                f"  - Storage: {storage} @ {node}",
+            ]
+
+            if checksum:
+                lines.append(f"  - Checksum: {checksum_algorithm.upper()}")
+
+            lines.extend([
+                "",
+                f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
+                "",
+                "The download is running in the background.",
+                "Use list_isos to verify when complete.",
+            ])
+
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
+
+        except Exception as e:
+            return self._err(f"download ISO '{filename}'", e)
+
+    def download_template(
+        self,
+        node: str,
+        storage: str,
+        url: str,
+        filename: str,
+        checksum: Optional[str] = None,
+        checksum_algorithm: str = "sha256",
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Submit one server-side template download; never blindly resubmit it."""
+        from proxmoxer.core import ResourceException
+        from proxmox_mcp.security.resources import validate_segment
+        import re
+
+        # The target-aware registry checks approval; never send it to Proxmox.
+        _ = approval_token
+        validate_segment(node)
+        validate_segment(storage)
+        if (not isinstance(filename, str) or len(filename) > 255
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.tar\.(?:gz|xz|zst)", filename) is None):
+            raise ValueError("filename must be a safe LXC template archive name")
+        if (not isinstance(url, str) or not url.startswith("https://")
+                or any(char.isspace() or ord(char) < 32 or ord(char) == 127 or char == chr(92) for char in url)):
+            raise ValueError("url must be an HTTPS URL without whitespace or controls")
+        parsed_url = urlsplit(url)
+        if (not parsed_url.hostname or parsed_url.username is not None
+                or parsed_url.password is not None or "#" in url
+                or (parsed_url.port is not None and not 1 <= parsed_url.port <= 65535)):
+            raise ValueError("url must have a valid HTTPS host/port without credentials or fragments")
+        if not isinstance(checksum_algorithm, str) or checksum_algorithm not in {"sha256", "sha512", "md5"}:
+            raise ValueError("unsupported checksum algorithm")
+        if checksum is not None:
+            expected_length = {"sha256": 64, "sha512": 128, "md5": 32}[checksum_algorithm]
+            if (not isinstance(checksum, str) or len(checksum) != expected_length
+                    or re.fullmatch(r"[a-fA-F0-9]+", checksum) is None):
+                raise ValueError("checksum is not a valid digest for checksum_algorithm")
+
+        volume = f"{storage}:vztmpl/{filename}"
+        try:
+            pools = self.proxmox.nodes(node).storage.get()
+            if not isinstance(pools, list) or any(not isinstance(item, dict) for item in pools):
+                raise ValueError("Storage inventory is unavailable or malformed")
+            matches = [item for item in pools if item.get("storage") == storage]
+            if len(matches) != 1:
+                raise ValueError("Target storage is missing or ambiguous")
+            pool = matches[0]
+            for flag in ("active", "enabled"):
+                if type(pool.get(flag)) not in {bool, int} or pool[flag] != 1:
+                    raise ValueError("Target storage must be enabled and active")
+            content = pool.get("content")
+            if not isinstance(content, str) or "vztmpl" not in content.split(","):
+                raise ValueError("Target storage must support vztmpl content")
+            inventory = self.proxmox.nodes(node).storage(storage).content.get(content="vztmpl")
+            if (not isinstance(inventory, list) or any(
+                    not isinstance(item, dict) or not isinstance(item.get("volid"), str)
+                    for item in inventory)):
+                raise ValueError("Template inventory is unavailable or malformed")
+            if any(item["volid"] == volume for item in inventory):
+                raise ValueError("Template already exists; refusing to overwrite it")
+        except Exception as error:
+            return self._err("prepare template download", error)
+
+        params: Dict[str, Any] = {
+            "url": url, "filename": filename, "content": "vztmpl",
+            "verify-certificates": 1,
+        }
+        if checksum is not None:
+            params.update({"checksum": checksum, "checksum-algorithm": checksum_algorithm})
+
+        def uncertain() -> List[Content]:
+            return self._json_fmt({
+                "success": False, "status": "unknown", "code": "SUBMISSION_UNCERTAIN",
+                "retryable": False, "node": node, "storage": storage, "volume_id": volume,
+                "message": "Inspect Proxmox tasks and storage before another call; no automatic retry was made.",
+            })
+
+        try:
+            result = self.proxmox.nodes(node).storage(storage)("download-url").post(**params)
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                return self._err("download template", error)
+            return uncertain()
+        except Exception:
+            return uncertain()
+        if not isinstance(result, str) or not result.startswith(f"UPID:{node}:"):
+            return uncertain()
+
+        tracking_warning = None
+        job = None
+        try:
+            job = self._register_background_job(
+                tool_name="download_template",
+                summary=f"Download template {filename} to {storage}@{node}",
+                node=node, upid=result,
+                metadata={"storage": storage, "filename": filename},
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+            )
+        except Exception:
+            # The POST succeeded: retain the UPID even if local persistence fails.
+            tracking_warning = "Local job tracking failed; inspect the returned Proxmox task directly."
+        return self._json_fmt({
+            "success": True, "status": "submitted", "task_id": result,
+            "job_id": job["job_id"] if job else None, "tracking_warning": tracking_warning,
+            "node": node, "storage": storage, "filename": filename, "volume_id": volume,
+            "retryable": False,
+            "message": "Download submitted; poll the task and verify list_templates before using this volume. Storage preflight does not reserve space or the filename.",
+        })
+
+    def delete_iso(
+        self,
+        node: str,
+        storage: str,
+        filename: str,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Delete an ISO or template from storage.
+
+        Parameters:
+            node: Node name
+            storage: Storage pool name
+            filename: ISO/template filename or full volume ID
+
+        Returns:
+            List[Content] with deletion result
+        """
+        _ = approval_token
+        try:
+            from proxmox_mcp.security.resources import delete_volume, resolve_volume
+            volid = resolve_volume(self.proxmox, node, storage, filename, {"iso", "vztmpl"}, filename=True)
+
+            # Delete the content
+            result = self.proxmox.nodes(node).storage(storage).content(volid).delete()
+            job = self._register_background_job(
+                tool_name="delete_iso",
+                summary=f"Delete ISO/template {volid} from {storage}@{node}",
+                node=node,
+                upid=result,
+                metadata={"storage": storage, "volid": volid},
+                retry_spec={"kind": "iso.delete", "params": {"node": node, "storage": storage, "volid": volid}},
+                retry_factory=lambda: delete_volume(self.proxmox, node, storage, volid, {"iso", "vztmpl"}),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+            )
+
+            lines = [
+                "ISO/Template Deleted",
+                "",
+                f"  - Volume: {volid}",
+                f"  - Storage: {storage}",
+                f"  - Node: {node}",
+            ]
+
+            if result:
+                lines.extend(["", f"Task ID: {result}", f"Job ID: {job['job_id'] if job else 'n/a'}"])
+
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
+
+        except Exception as e:
+            return self._err(f"delete ISO/template '{filename}'", e)

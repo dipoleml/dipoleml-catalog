@@ -1,0 +1,40 @@
+{
+  "name": "mkeys",
+  "version": "0.2.0",
+  "description": "MyKeys — local-first credential vault for ZCode: manage passwords/keys for various systems, verify logins and issue temporary tokens for AI use, with per-purpose usage statistics.",
+  "description_i18n": {
+    "en": "MyKeys — local-first credential vault for ZCode: manage passwords/keys for various systems, verify logins and issue temporary tokens for AI use, with per-purpose usage statistics.",
+    "zh-CN": "MyKeys — 面向 ZCode 的本地优先凭据保险库：管理各系统的密码与密钥，验证登录并签发供 AI 使用的临时令牌，并按用途统计 AI 使用情况。"
+  },
+  "author": {
+    "name": "胜利因子",
+    "url": "https://www.aiputing.com/"
+  },
+  "homepage": "https://www.aiputing.com/",
+  "icon": "assets/icon.png",
+  "license": "MIT",
+  "keywords": [
+    "credentials",
+    "secrets",
+    "token",
+    "oauth",
+    "audit",
+    "mcp"
+  ],
+  "commands": "commands",
+  "skills": "skills",
+  "userConfig": {
+    "allowReveal": {
+      "title": "Allow raw secret reveal / 允许读取原始密钥",
+      "description": "When enabled, the reveal_secret tool can return decrypted raw field values (every read is audited). Keep disabled if the AI only needs temporary tokens.",
+      "type": "boolean",
+      "default": false
+    },
+    "allowPrivateEndpoints": {
+      "title": "Allow private network endpoints / 允许内网验证地址",
+      "description": "verify/token 端点默认只允许公网 http/https 地址（拒绝环回与私有网段，防 SSRF）。仅当你明确需要让 MyKeys 访问内网/本机服务时开启。",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

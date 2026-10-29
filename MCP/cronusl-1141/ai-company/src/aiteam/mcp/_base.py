@@ -1,0 +1,522 @@
+"""Shared infrastructure for AI Team OS MCP tools.
+
+Contains the HTTP helper, project/team resolvers, and global state
+that all tool modules depend on.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Callable
+from contextvars import ContextVar
+from functools import partial
+from typing import Any
+from uuid import uuid4
+from weakref import WeakKeyDictionary
+
+import anyio
+
+from aiteam.diagnostics import proxy_snapshot, record_event, response_snapshot, safe_url
+from aiteam.mcp._error_recovery import get_business_recovery, get_connection_recovery, get_http_recovery
+from aiteam.paths import api_port_file, cc_config_dir
+
+logger = logging.getLogger(__name__)
+
+def _port_file() -> str:
+    """The API's port file in the OS data directory (aiteam.paths); resolved per call.
+
+    Raises DataDirMissing (a FileNotFoundError) when there is no data directory.
+    """
+    return str(api_port_file())
+
+
+def _get_api_port() -> int:
+    """Read port from port file. Returns 8000 if file (or data directory) missing or invalid."""
+    try:
+        return int(open(_port_file()).read().strip())
+    except (FileNotFoundError, ValueError):
+        return 8000
+
+
+def _get_api_url() -> str:
+    """Use the HTTP request's listener, or retain stdio environment/port discovery."""
+    scope = _http_request_context.get()
+    if scope is not None:
+        if not scope.get("api_url"):
+            raise ValueError("HTTP MCP request has no verified local API address")
+        return scope["api_url"]
+    env_url = os.environ.get("AITEAM_API_URL")
+    if env_url:
+        return env_url
+    return f"http://localhost:{_get_api_port()}"
+
+
+# Same advice as /os-up: the API starts with the MCP server; never start another by hand.
+API_DOWN_HINT = (
+    "API 随 MCP 自动拉起，不需要手动启动：先调 os_health_check 确认，异常时调 os_restart_api；"
+    "MCP 工具也不可用时请用户重启 Claude Code 或 Codex。不要手动再起一个 uvicorn 实例"
+)
+
+# Module-level alias for backwards compatibility (used in _autostart import guard)
+API_URL = os.environ.get("AITEAM_API_URL", "http://localhost:8000")
+# Project directory for DB isolation — set by Claude Code environment
+PROJECT_DIR = os.environ.get("CLAUDE_PROJECT_DIR", "")
+
+# Process-level project ID — resolved once at startup from cwd → root_path match.
+# Safe because each CC session spawns its own MCP server subprocess.
+# Set by _init_session_project() after API is ready, before mcp.run().
+_session_project_id: str = ""
+_http_request_context: ContextVar[dict[str, str] | None] = ContextVar(
+    "aiteam_mcp_http_request_context", default=None,
+)
+
+# Waiting HTTP clients must not borrow the AnyIO permits FastAPI needs for sync
+# dependencies, or the asyncio executor used by some REST handlers. A separate
+# limiter lets AnyIO own worker lifetimes without changing either shared pool.
+_http_thread_limiters: WeakKeyDictionary[asyncio.AbstractEventLoop, anyio.CapacityLimiter] = WeakKeyDictionary()
+
+
+async def _run_http_sync(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    loop = asyncio.get_running_loop()
+    limiter = _http_thread_limiters.get(loop)
+    if limiter is None:
+        limiter = anyio.CapacityLimiter(32)
+        _http_thread_limiters[loop] = limiter
+    return await anyio.to_thread.run_sync(partial(fn, *args, **kwargs), limiter=limiter)
+
+
+def _current_project_id() -> str:
+    scope = _http_request_context.get()
+    return scope.get("project_id", "") if scope is not None else _session_project_id
+
+
+def _current_cwd() -> str:
+    scope = _http_request_context.get()
+    return scope.get("project_dir", "") if scope is not None else os.getcwd()
+
+
+# ============================================================
+# HTTP helper
+# ============================================================
+
+
+def _api_call(
+    method: str,
+    path: str,
+    data: dict[str, Any] | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Unified API call helper using urllib standard library.
+
+    Args:
+        method: HTTP method (GET / POST / PUT / DELETE)
+        path: API path, e.g., /api/teams
+        data: Request body data (used for POST/PUT only)
+        extra_headers: Additional headers to merge into the request
+            (e.g. {"X-Project-Id": "..."} for ecosystem project scoping).
+
+    Returns:
+        API response as a JSON dict
+    """
+    url = f"{_get_api_url()}{urllib.parse.quote(path, safe='/?&=%')}"
+    headers = {"Content-Type": "application/json"}
+    scope = _http_request_context.get()
+    project_dir = scope.get("project_dir", "") if scope is not None else PROJECT_DIR
+    if project_dir:
+        # HTTP headers must be ASCII/latin-1; percent-encode the path so
+        # non-ASCII characters (e.g. Chinese directory names) are safe.
+        # The API side decodes with urllib.parse.unquote before path matching.
+        headers["X-Project-Dir"] = urllib.parse.quote(project_dir, safe="/:.-_\\")
+    # Stage J: auto-inject session-resolved X-Project-Id (read once at startup
+    # via _init_session_project, no recursion risk). Subordinate to extra_headers
+    # so callers can still override (e.g. cross-project tools force a different id).
+    project_id = _current_project_id()
+    if project_id:
+        headers.setdefault("X-Project-Id", project_id)
+    # 归因 v1 §2.4：把当前 CC 会话 id 带给服务端，用来把记账动作里的 author 名解析
+    # 到**本会话域内**的那个 agent 行。没有它服务端只能全表按名字找 —— 而 name 在
+    # agents 表里不唯一（实测 "Leader" 一个名字 117 行、横跨 79 支队、时间跨度三周），
+    # 全表匹配必然跨时重名错绑。服务端拿不到这个头就直接不写边（宁可少一条）。
+    session_id = _cc_session_id()
+    if session_id:
+        headers.setdefault("X-CC-Session-Id", session_id)
+    if scope is None:
+        # A stdio server runs in its session's environment, so this is the session's
+        # config folder, whether or not a session id could be read; the API serves
+        # every session and reads this one's files there (aiteam.api.cc_config_scope).
+        # Percent-encoded like X-Project-Dir.
+        headers.setdefault("X-CC-Config-Dir", urllib.parse.quote(str(cc_config_dir()), safe="/:.-_\\"))
+    # HTTP MCP hosts (Codex) have no CC session id. Their MCP connection's session id
+    # tells one of their sessions from another; the reconcile lease keys its holder on it.
+    mcp_session_id = scope.get("mcp_session_id", "") if scope is not None else ""
+    if mcp_session_id:
+        headers.setdefault("X-Aiteam-Mcp-Session-Id", mcp_session_id)
+    if extra_headers:
+        headers.update(extra_headers)
+    request_id = uuid4().hex
+    headers["X-Aiteam-Request-Id"] = request_id
+
+    body_bytes = None
+    if data is not None:
+        body_bytes = json.dumps(data).encode("utf-8")
+
+    req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
+    started = time.monotonic()
+    context = {"request_id": request_id, "method": method, "url": safe_url(url)}
+    record_event("http.client.started", **context, proxy=proxy_snapshot(url))
+    transport: dict[str, Any] = {}
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            transport = response_snapshot(resp)
+            result = json.loads(resp.read().decode("utf-8"))
+        record_event("http.client.completed", **context, **transport,
+                     elapsed_ms=round((time.monotonic() - started) * 1000, 3))
+        return result
+    except urllib.error.HTTPError as e:
+        record_event("http.client.failed", **context, **response_snapshot(e), error_type=type(e).__name__,
+                     elapsed_ms=round((time.monotonic() - started) * 1000, 3))
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8")
+        except Exception:
+            pass
+        recovery_info = get_http_recovery(e.code)
+        # Upgrade category from business keywords if body carries more context
+        business_category = get_business_recovery(error_body)
+        result: dict[str, Any] = {
+            "success": False,
+            "error": f"HTTP {e.code}: {e.reason}",
+            "detail": error_body,
+            "_error_category": business_category or recovery_info.get("category", "unknown"),
+            "_recovery": recovery_info.get("recovery", ""),
+        }
+        return result
+    except urllib.error.URLError as e:
+        record_event("http.client.failed", **context, error_type=type(e).__name__,
+                     errno=getattr(e.reason, "errno", None),
+                     elapsed_ms=round((time.monotonic() - started) * 1000, 3))
+        reason_str = str(e.reason)
+        recovery_info = get_connection_recovery(reason_str)
+        return {
+            "success": False,
+            "error": f"无法连接到 AI Team OS API ({_get_api_url()}): {e.reason}",
+            "hint": API_DOWN_HINT,
+            "_error_category": recovery_info.get("category", "api_unavailable"),
+            "_recovery": recovery_info.get("recovery", ""),
+        }
+    except Exception as e:
+        record_event("http.client.failed", **context, **transport, error_type=type(e).__name__,
+                     errno=getattr(e, "errno", None),
+                     elapsed_ms=round((time.monotonic() - started) * 1000, 3))
+        recovery_info = get_connection_recovery(str(e))
+        return {
+            "success": False,
+            "error": f"请求失败: {e!s}",
+            "_error_category": recovery_info.get("category", "unknown"),
+            "_recovery": recovery_info.get("recovery", ""),
+        }
+
+
+# ============================================================
+# Resolvers
+# ============================================================
+
+
+_SESSION_TEAM_NAME_RE = re.compile(r"^session-[0-9a-fA-F]{8}$")
+_CC_REGISTERED_SESSION_ID_RE = re.compile(r"[\w.-]{1,100}", re.ASCII)
+
+# CC 登记里的 startedAt 由 CC 在自己启动之后写，不会早于父进程的启动时刻；早出
+# 这个容差，就是同号的已退出进程留下的旧文件。容差只为吸收时钟换算误差（Linux 上
+# psutil 的 create_time 由开机时刻推算，可能偏出一两秒）；一分钟内 PID 轮回到同号
+# 需要先耗尽整个 PID 空间，不在考虑之列。
+_CC_REGISTRY_START_SLACK_S = 60.0
+# 父进程号 → 该父进程登记里最近一次读到的有效会话 id，只在后续读取失败时顶用。
+_cc_registry_last_good: dict[int, str] = {}
+# 父进程号 → 该进程的启动时刻（epoch 秒），查不到为 None。进程的启动时刻不会变。
+_cc_parent_started_at: dict[int, float | None] = {}
+
+
+def _cc_session_id() -> str:
+    """当前 CC 会话 id。
+
+    CC 给每个 MCP server 子进程注入 CLAUDE_CODE_SESSION_ID，但那是 CC **进程启动时**
+    的会话 id：``claude --resume`` 续上旧对话后，hook 与 transcript 用的是被续上的
+    对话 id，子进程环境变量却定格不变（09-30 实测：MCP 环境变量 91ca1de1，hook 与
+    ``~/.claude/sessions/<CC pid>.json`` 都是 39c7d5a3）。CC 在那份登记里写当前对话
+    id、换对话时原地改写，所以先按父进程号读登记，读不到才退回环境变量。
+
+    只有环境变量已置位（宿主确是 CC）才去读登记：Codex 的 HTTP MCP 走上面的请求
+    上下文分支，stdio 启动的服务端没有这个变量，两条路都与改前逐字一致。
+    """
+    scope = _http_request_context.get()
+    if scope is not None:
+        return scope.get("session_id", "")
+    env_session_id = (
+        os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+        or os.environ.get("CLAUDE_SESSION_ID", "")
+    ).strip()
+    if not env_session_id:
+        return ""
+    return _cc_registered_session_id(os.getppid()) or env_session_id
+
+
+def _cc_registered_session_id(ppid: int) -> str:
+    """父进程 ``ppid`` 在 CC 会话登记里写的当前对话 id；用不了返回空串。
+
+    每次调用都重读，不按 mtime 缓存：文件只有几百字节，读一次是几十微秒，而每个
+    调用方紧接着就是一次本机 HTTP 往返；按 mtime 缓存会漏掉同一 mtime 刻度内的
+    等长改写（换的是等长 UUID），粗粒度 mtime 的文件系统上这个窗口有一两秒。
+
+    读取失败（文件不在、读到半截、校验不过）时沿用本父进程上次读到的有效值：父进程
+    还活着、登记过，失败只能是撞上了它改写文件的瞬间（实测 CC 每次状态切换都原地
+    改写这个文件，inode 不变，读到半截是真实可能），退回环境变量反而会换回启动时
+    那个一次性 id。
+    """
+    if ppid <= 1:
+        return ""
+    session_id = _read_cc_registry(ppid)
+    if session_id:
+        _cc_registry_last_good[ppid] = session_id
+        return session_id
+    return _cc_registry_last_good.get(ppid, "")
+
+
+def _read_cc_registry(ppid: int) -> str:
+    """读并校验 ``<CC 配置目录>/sessions/<ppid>.json``，返回其中的 sessionId 或空串。
+
+    只按父进程号精确定位，不按 cwd 或修改时间挑文件。校验三条：文件里的 pid 就是
+    父进程号；sessionId 能原样放进请求头；startedAt（有就查）不早于父进程的启动时刻，
+    防的是同号的已退出进程留下的旧文件。
+    """
+    try:
+        with open(cc_config_dir() / "sessions" / f"{ppid}.json", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError, RuntimeError):  # RuntimeError: Path.home() without a home
+        return ""
+    if not isinstance(data, dict) or type(data.get("pid")) is not int or data["pid"] != ppid:
+        return ""
+    session_id = data.get("sessionId")
+    if not isinstance(session_id, str) or not _CC_REGISTERED_SESSION_ID_RE.fullmatch(session_id):
+        return ""
+    started_ms = data.get("startedAt")
+    if isinstance(started_ms, (int, float)) and not isinstance(started_ms, bool):
+        parent_started_at = _process_started_at(ppid)
+        if parent_started_at is not None and started_ms / 1000 < parent_started_at - _CC_REGISTRY_START_SLACK_S:
+            return ""
+    return session_id
+
+
+def _process_started_at(pid: int) -> float | None:
+    """进程 ``pid`` 的启动时刻（epoch 秒），查不到返回 None；按进程号缓存。"""
+    if pid not in _cc_parent_started_at:
+        try:
+            import psutil
+
+            _cc_parent_started_at[pid] = psutil.Process(pid).create_time()
+        except Exception:  # noqa: BLE001 - a resolver must never raise
+            _cc_parent_started_at[pid] = None
+    return _cc_parent_started_at[pid]
+
+
+def _cc_session_id_resolver(ctx: Any = None) -> str | None:
+    """CC resolver: the conversation id of the CC process that spawned this server.
+
+    ``ctx`` is accepted and ignored - CC's session registry and environment are
+    all it needs (see :func:`_cc_session_id`). Returns None rather than "" when
+    unset, so the dispatcher can tell "not this harness" apart from "this
+    harness handed us an empty id".
+    """
+    return _cc_session_id() or None
+
+
+# 会话身份解析器表：按序试，首个非空即定。CC 排首位，因为它最便宜（两个环境变量，
+# 置位时再读一份几百字节的父进程登记，无进程扫描），不命中就立刻让位。
+#
+# 契约三条（填槽位的人必须照做）：
+#   1. 签名恒为 ``(ctx: Any = None) -> str | None``；用不上 ctx 的忽略它即可。
+#   2. 失败以返回 None 表达，**不得抛异常**——本表的分发是纯循环，一个解析器炸了
+#      会连坐所有 MCP 调用。
+#   3. 贵的解析器自己负责缓存，本表不代管。
+#
+# Codex 槽位本期不注册（P0-1 只留接口位）。填它时的判据来自 N1 阶段 A 实证：
+#   ① lsof(父进程) 取 sessions/*.jsonl：CLI exec 下唯一命中且确定；多线程宿主下
+#      父进程同时开着多份候选 → 歧义；一次性会话下 0 命中。
+#   ② rollout 尾部即本次调用："先写后发"成立（落盘早于服务端收到 3~91ms），是多
+#      线程下唯一能消歧的线索，但判别力必须来自**本次参数哈希**而非工具名——并发
+#      两条线程的尾部都会出现工具名。
+#   ③ 宿主 hook 侧记 (session_id, 父进程号) 反查：单进程入口唯一命中；多线程宿主下
+#      共用同一父进程 → 退化为集合；一次性会话下是唯一活口。时序上 SessionStart 晚
+#      于 MCP 握手，故只能在首次工具调用时刻用，不能在握手时预解析。
+# 结构性前提：MCP 服务端进程与会话线程严格 1:1（每起一个线程就 spawn 一个服务端
+# 进程），所以身份只需**首次调用惰性解析一次并缓存**，不必每次重算。三线索全失败
+# 一律显式降级返回 None，禁止按 cwd 猜。
+SESSION_ID_RESOLVERS: tuple[Callable[[Any], str | None], ...] = (
+    _cc_session_id_resolver,
+)
+
+
+def resolve_session_id(ctx: Any = None) -> str | None:
+    """当前会话 id —— 按 SESSION_ID_RESOLVERS 顺序试，首个非空即返。
+
+    全落空返回 None，调用方据此走"无会话域"分支；宁可少写一条边，也不拿猜出来的
+    id 去绑错行（同名 agent 跨队重名，绑错查不出来）。``ctx`` 透传给需要请求上下文
+    的 harness，CC 解析器忽略它。
+    """
+    for resolver in SESSION_ID_RESOLVERS:
+        session_id = resolver(ctx)
+        if session_id:
+            return session_id
+    return None
+
+
+def _team_owned_by_session(team: dict[str, Any], session_id: str) -> bool:
+    """该队是否属于本会话（判据同 hook_translator._team_owned_by_session）。
+
+    ① config.owner_session_id 命中（建队时盖的权威归属章）；
+    ② 老行兜底：容器队名编码了会话 id 前 8 位（``session-<sid8>``）。
+    """
+    if not session_id:
+        return False
+    owner = (team.get("config") or {}).get("owner_session_id")
+    if owner:
+        return owner == session_id
+    return str(team.get("name") or "") == f"session-{session_id[:8]}"
+
+
+def _is_workflow_team(team: dict[str, Any]) -> bool:
+    """workflow per-run 队：一次 Workflow 运行建一支，绝不能当"当前团队"用。"""
+    if (team.get("config") or {}).get("kind") == "workflow":
+        return True
+    return str(team.get("name") or "").startswith("workflow-")
+
+
+def _is_foreign_session_container(team: dict[str, Any], session_id: str) -> bool:
+    """别的会话的 session-<sid8> 容器队（本会话的已在档①里挑走）。"""
+    if (team.get("config") or {}).get("kind") == "session":
+        return not _team_owned_by_session(team, session_id)
+    return bool(_SESSION_TEAM_NAME_RE.match(str(team.get("name") or "")))
+
+
+def _team_recency_key(team: dict[str, Any]) -> str:
+    """按最近活动排序用的键（ISO 串可直接字典序比较）。"""
+    return str(team.get("updated_at") or team.get("created_at") or "")
+
+
+def _newest(teams: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(teams, key=_team_recency_key)
+
+
+def pick_active_team(teams: list[dict[str, Any]], session_id: str, project_id: str) -> dict | None:
+    """从活跃队里挑"当前团队"，三档优先级；全落空返回 None。
+
+    档①  本会话的 session 容器队（owner_session_id / session-<sid8> 命中）；
+    档②  本项目内既非 workflow-* per-run 队、也非他会话容器队的最新活跃队；
+    档③  本项目内最新活跃队（只剩 workflow 队时的兜底）。
+
+    旧实现直接取 ``active_teams[0]``：teams 列表按 created_at 倒序，而活跃队里
+    最新的通常是刚起的 workflow-* per-run 队 —— 于是会议 / 团队知识 / 活动查询
+    等一切"空参自动用活跃队"的工具全绑到了 workflow 队上（拿错对象）。
+
+    跨项目队一律不入选：宁可返回 None 让调用方显式报错，也不借别项目的队。
+    """
+    active = [
+        t for t in teams
+        if isinstance(t, dict) and t.get("id") and t.get("status") == "active"
+    ]
+    if not active:
+        return None
+
+    owned = [t for t in active if _team_owned_by_session(t, session_id)]
+    if owned:
+        return _newest(owned)
+
+    # 项目内（含 project_id 未标注的历史行）；项目未解析时不设限
+    in_scope = [
+        t for t in active
+        if not project_id or not t.get("project_id") or t.get("project_id") == project_id
+    ]
+    if not in_scope:
+        return None
+
+    plain = [
+        t for t in in_scope
+        if not _is_workflow_team(t) and not _is_foreign_session_container(t, session_id)
+    ]
+    if plain:
+        return _newest(plain)
+    return _newest(in_scope)
+
+
+def _resolve_team_id(team_id: str) -> str:
+    """空参时解析出"当前团队"id；解析不出返回空串。
+
+    优先级见 :func:`pick_active_team`。返回空串时调用方**必须**显式报错
+    （现有全部调用点都返回 ``{"success": False, "error": ...}``）——绝不允许
+    退回"随便挑一支活跃队"的静默猜测。
+
+    NOTE: This calls _api_call to get context. The context_resolve MCP tool
+    in tools/infra.py has the full implementation; this resolver uses a
+    lightweight version to avoid circular imports.
+    """
+    if team_id:
+        return team_id
+    try:
+        teams_data = _api_call("GET", "/api/teams")
+        rows = teams_data.get("data") or [] if isinstance(teams_data, dict) else []
+        picked = pick_active_team(rows, _cc_session_id(), _current_project_id())
+    except Exception:
+        logger.warning("Team resolution failed", exc_info=True)
+        return ""
+    if picked is None:
+        logger.info("No resolvable active team for this session/project")
+        return ""
+    return str(picked["id"])
+
+
+def _resolve_project_id(project_id: str) -> str:
+    """Resolve project_id: explicit param > session constant > empty.
+
+    _session_project_id is set once at startup from cwd matching.
+    No dynamic resolution = no recursion risk.
+    """
+    if project_id:
+        return project_id
+    return _current_project_id()
+
+
+# ============================================================
+# Session init
+# ============================================================
+
+
+def _init_session_project() -> None:
+    """Resolve project_id once from cwd at startup. No recursion possible."""
+    global _session_project_id
+    try:
+        projects = _api_call("GET", "/api/projects")
+        cwd = os.getcwd().replace("\\", "/").rstrip("/").lower()
+        # Longest-prefix match — multiple projects can match via prefix
+        # (e.g. C:/Users/TUF and C:/Users/TUF/Desktop/AI...); pick the most specific.
+        best_p = None
+        best_len = -1
+        for p in projects.get("data", []):
+            rp = (p.get("root_path") or "").replace("\\", "/").rstrip("/").lower()
+            if rp and (cwd == rp or cwd.startswith(rp + "/")) and len(rp) > best_len:
+                best_p = p
+                best_len = len(rp)
+        if best_p is not None:
+            _session_project_id = best_p["id"]
+            logger.info("Session project: %s (%s)", best_p.get("name"), best_p["id"][:8])
+            return
+        logger.info("No project match for cwd=%s", cwd)
+    except Exception as e:
+        logger.warning("Failed to resolve session project: %s", e)

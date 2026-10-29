@@ -1,0 +1,168 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.alisaitteke.photoshop-mcp",
+  "type": "mcp",
+  "name": "Photoshop MCP",
+  "slug": "photoshop-mcp",
+  "vendor": "alisaitteke",
+  "description": "MCP for Adobe Photoshop. 118 tools. Control from Cursor, DipoleML or custom LLMs.",
+  "version": "1.7.37",
+  "homepage": "https://github.com/alisaitteke/photoshop-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "adobe",
+    "ai-assistant",
+    "creative-automation",
+    "cursor",
+    "extendscript",
+    "firefly",
+    "generative-ai",
+    "graphic-design"
+  ],
+  "tags": [
+    "adobe",
+    "ai",
+    "ai-assistant",
+    "claude",
+    "creative-automation",
+    "cursor",
+    "extendscript",
+    "firefly",
+    "generative-ai",
+    "graphic-design",
+    "image-editing",
+    "macos",
+    "mcp",
+    "model-context-protocol",
+    "npm",
+    "photoshop",
+    "photoshop-scripting",
+    "typescript",
+    "vue",
+    "windows"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alisaitteke",
+    "brandName": "alisaitteke",
+    "source": "https://github.com/alisaitteke.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alisaitteke/photoshop-mcp",
+    "url": "https://github.com/alisaitteke/photoshop-mcp",
+    "commit": "ba36d8f2a28ecc56686568f3c0191e388336d498",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 760,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Photoshop MCP | MCP for Adobe Photoshop. 118 tools. Control from Cursor, Claude or custom LLMs.",
+        "after": "Photoshop MCP | MCP for Adobe Photoshop. 118 tools. Control from Cursor, DipoleML or custom LLMs.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Control Adobe Photoshop from Claude Code — 128 tools, recipes, generative AI.",
+        "after": "Control Adobe Photoshop from DipoleML — 128 tools, recipes, generative AI.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@alisaitteke/photoshop-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@alisaitteke/photoshop-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@alisaitteke/photoshop-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "@alisaitteke/photoshop-mcp"
+    ],
+    "env": [
+      "TYPESAFE_API_KEY"
+    ],
+    "credentials": [
+      "TYPESAFE_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

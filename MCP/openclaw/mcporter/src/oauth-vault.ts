@@ -1,0 +1,573 @@
+import crypto from 'node:crypto';
+import path from 'node:path';
+import type { OAuthClientInformationMixed, OAuthDiscoveryState, OAuthTokens } from '@modelcontextprotocol/client';
+import type { ServerDefinition } from './config.js';
+import { readJsonFile, withFileLock, writeJsonFile } from './fs-json.js';
+import {
+  VAULT_PASSWORD_ENV,
+  VAULT_SECRET_FIELDS,
+  VaultEncryptionError,
+  hasVaultEncryptionMarker,
+  isVaultSecretJwe,
+  openVaultSecret,
+  readPath,
+  readVaultEncryptionSettings,
+  sealVaultSecret,
+  vaultSecretKid,
+} from './oauth-vault-encryption.js';
+import { isStoredOAuthClientInformation, isStoredOAuthTokens } from './oauth-credential-validation.js';
+import {
+  sameOAuthClientGeneration,
+  sameOAuthClientValue,
+  sameOAuthTokenGeneration,
+  sameOAuthTokenValue,
+  withHiddenOAuthClientGeneration,
+  withHiddenOAuthTokenGeneration,
+  withOAuthClientGeneration,
+  withOAuthTokenGeneration,
+} from './oauth-token-generation.js';
+import { runtimeStateDir } from './runtime/environment.js';
+
+type VaultKey = string;
+
+export interface VaultEntry {
+  serverName: string;
+  serverUrl?: string;
+  tokens?: OAuthTokens;
+  clientInfo?: OAuthClientInformationMixed;
+  codeVerifier?: string;
+  state?: string;
+  discoveryState?: OAuthDiscoveryState;
+  authorizationServerUrl?: string;
+  resourceUrl?: string;
+  updatedAt: string;
+}
+
+interface VaultFile {
+  version: 1 | 2;
+  encryption?: { version: 1 };
+  entries: Record<VaultKey, VaultEntry>;
+  serverUrls?: Record<string, string>;
+}
+
+interface VaultReadState {
+  vault: VaultFile;
+  needsRepair: boolean;
+}
+
+export interface VaultRecoveryRead {
+  entry: VaultEntry | undefined;
+  tokenSnapshots: ReadonlyMap<string, OAuthTokens>;
+  clientSnapshots: ReadonlyMap<string, OAuthClientInformationMixed>;
+}
+
+interface SameUrlCredentials {
+  tokens?: OAuthTokens;
+  clientInfo?: OAuthClientInformationMixed;
+  sourceKeys: VaultKey[];
+}
+
+export function getOAuthVaultPath(): string {
+  return path.join(runtimeStateDir('data'), 'credentials.json');
+}
+
+// Which entries' sealed values a read needs opened: the definition's own
+// credentials (its key plus same-URL legacy rename candidates), or none for
+// operations that only delete or reconcile metadata.
+type VaultOpenScope = 'credentials' | 'none';
+
+async function readVaultState(
+  definition: ServerDefinition,
+  scope: VaultOpenScope = 'credentials'
+): Promise<VaultReadState> {
+  // Throws under a `required` policy without a password, even when no vault
+  // file exists yet: the policy is about this process, not the file.
+  const settings = readVaultEncryptionSettings(process.env, definition.oauthVaultEncryption);
+  try {
+    const existing = await readJsonFile<VaultFile>(getOAuthVaultPath());
+    if (hasVaultEncryptionMarker(existing?.encryption, getOAuthVaultPath()) && settings.password === undefined) {
+      throw new VaultEncryptionError(
+        'password_missing',
+        `The OAuth vault at ${getOAuthVaultPath()} requires ${VAULT_PASSWORD_ENV}, even when empty.`
+      );
+    }
+    if (
+      existing &&
+      (existing.version === 1 || existing.version === 2) &&
+      existing.entries &&
+      typeof existing.entries === 'object'
+    ) {
+      const vault = { ...existing, version: 2 } as VaultFile;
+      await openVaultSecrets(vault, definition, scope);
+      return { vault, needsRepair: existing.version !== 2 };
+    }
+    if (existing !== undefined) {
+      return { vault: emptyVault(), needsRepair: true };
+    }
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
+    return { vault: emptyVault(), needsRepair: true };
+  }
+  return { vault: emptyVault(), needsRepair: false };
+}
+
+async function readVault(definition: ServerDefinition, scope: VaultOpenScope = 'credentials'): Promise<VaultFile> {
+  return (await readVaultState(definition, scope)).vault;
+}
+
+function emptyVault(): VaultFile {
+  return { version: 2, entries: {} };
+}
+
+async function writeVault(contents: VaultFile, definition: ServerDefinition): Promise<void> {
+  const settings = readVaultEncryptionSettings(process.env, definition.oauthVaultEncryption);
+  await writeJsonFile(
+    getOAuthVaultPath(),
+    settings.password === undefined ? contents : await sealVaultSecrets(contents, settings.password)
+  );
+}
+
+function writePath(node: Record<string, unknown>, fieldPath: readonly string[], value: string): void {
+  let current = node;
+  for (const key of fieldPath.slice(0, -1)) current = current[key] as Record<string, unknown>;
+  current[fieldPath.at(-1) as string] = value;
+}
+
+// Opens the sealed values the caller needs, in place. Other entries keep their
+// ciphertext and are written back unchanged, so one value sealed under another
+// password cannot block every server. Without a password, any sealed value
+// anywhere is a typed error before any decryption; never a reset.
+async function openVaultSecrets(vault: VaultFile, definition: ServerDefinition, scope: VaultOpenScope): Promise<void> {
+  const settings = readVaultEncryptionSettings(process.env, definition.oauthVaultEncryption);
+  if (settings.password === undefined) {
+    for (const entry of Object.values(vault.entries)) {
+      if (
+        isVaultEntry(entry) &&
+        VAULT_SECRET_FIELDS.some((fieldPath) => isVaultSecretJwe(readPath(entry, fieldPath)))
+      ) {
+        throw new VaultEncryptionError(
+          'password_missing',
+          `The OAuth vault at ${getOAuthVaultPath()} holds encrypted values for '${entry.serverName}'; set ${VAULT_PASSWORD_ENV} to use it.`
+        );
+      }
+    }
+    return;
+  }
+  if (scope === 'none') return;
+  const exactKey = vaultKeyForDefinition(definition);
+  for (const key of new Set([exactKey, ...legacyOAuthRenameKeys(vault, definition, exactKey)])) {
+    const entry = vault.entries[key];
+    if (!isVaultEntry(entry)) continue;
+    for (const fieldPath of VAULT_SECRET_FIELDS) {
+      const value = readPath(entry, fieldPath);
+      if (!isVaultSecretJwe(value)) continue;
+      writePath(
+        entry as unknown as Record<string, unknown>,
+        fieldPath,
+        await openVaultSecret(value, vaultSecretKid(key, fieldPath), settings.password)
+      );
+    }
+  }
+}
+
+// Seals every plaintext secret string when a password is set. Values that are
+// still sealed (entries the read did not open) pass through byte-identical.
+async function sealVaultSecrets(vault: VaultFile, password: string): Promise<VaultFile> {
+  const out: VaultFile = { ...vault, encryption: { version: 1 }, entries: {} };
+  for (const [key, entry] of Object.entries(vault.entries)) {
+    if (!isVaultEntry(entry)) {
+      out.entries[key] = entry;
+      continue;
+    }
+    const copy = structuredClone(entry) as unknown as Record<string, unknown>;
+    for (const fieldPath of VAULT_SECRET_FIELDS) {
+      const value = readPath(copy, fieldPath);
+      if (typeof value === 'string' && value.length > 0 && !isVaultSecretJwe(value)) {
+        writePath(copy, fieldPath, await sealVaultSecret(value, vaultSecretKid(key, fieldPath), password));
+      }
+    }
+    out.entries[key] = copy as unknown as VaultEntry;
+  }
+  return out;
+}
+
+export function vaultKeyForDefinition(definition: ServerDefinition): VaultKey {
+  const descriptor = {
+    name: definition.name,
+    url: definition.command.kind === 'http' ? definition.command.url.toString() : null,
+    command:
+      definition.command.kind === 'stdio'
+        ? { command: definition.command.command, args: definition.command.args ?? [] }
+        : null,
+  };
+  const digest = crypto.hash('sha256', JSON.stringify(descriptor), 'hex').slice(0, 16);
+  return `${definition.name}|${digest}`;
+}
+
+// A configured name is the user's stable identity for an MCP server. Its URL
+// is therefore a trust boundary: changing it must retire every credential that
+// could otherwise become reachable again if the URL is later reverted.
+export async function reconcileVaultServerUrl(definition: ServerDefinition): Promise<void> {
+  if (definition.command.kind !== 'http') {
+    return;
+  }
+  const serverUrl = definition.command.url.toString();
+  await withFileLock(getOAuthVaultPath(), async () => {
+    const { vault, needsRepair } = await readVaultState(definition, 'none');
+    const serverUrls = stringRecord(vault.serverUrls);
+    const previousUrl = serverUrls[definition.name];
+    const namedEntryUrls = Object.values(vault.entries)
+      .filter((entry) => isVaultEntry(entry) && entry.serverName === definition.name)
+      .flatMap((entry) => (typeof entry.serverUrl === 'string' ? [entry.serverUrl] : []));
+    const urlChanged =
+      (previousUrl !== undefined && previousUrl !== serverUrl) || namedEntryUrls.some((url) => url !== serverUrl);
+
+    if (urlChanged) {
+      const invalidatedUrls = new Set([serverUrl, previousUrl, ...namedEntryUrls].filter((url) => url !== undefined));
+      for (const [key, entry] of Object.entries(vault.entries)) {
+        if (
+          isVaultEntry(entry) &&
+          (entry.serverName === definition.name ||
+            (isLegacyOAuthRenameCandidate(definition, entry) &&
+              entry.serverUrl !== undefined &&
+              invalidatedUrls.has(entry.serverUrl)))
+        ) {
+          delete vault.entries[key];
+        }
+      }
+    }
+
+    if (previousUrl === serverUrl && !urlChanged && !needsRepair) {
+      return;
+    }
+    vault.serverUrls = { ...serverUrls, [definition.name]: serverUrl };
+    await writeVault(vault, definition);
+  });
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  );
+}
+
+/**
+ * Every vault key whose credentials this definition can end up using: its own,
+ * plus any same-URL legacy `<name>-oauth` entry it inherits from.
+ *
+ * Refresh locking needs the whole set. A renamed definition and its legacy entry
+ * resolve to one shared refresh token (see resolveVaultEntry), so locking only
+ * the exact key would let them redeem that token concurrently and lose the
+ * family. Deliberately the broader rename-candidate set rather than the entry
+ * that inheritance would pick right now: over-locking costs a little
+ * serialization, under-locking costs the credential.
+ */
+export async function vaultCredentialKeys(definition: ServerDefinition): Promise<VaultKey[]> {
+  const key = vaultKeyForDefinition(definition);
+  if (definition.command.kind !== 'http') {
+    return [key];
+  }
+  const vault = await readVault(definition, 'none');
+  return [...new Set([key, ...legacyOAuthRenameKeys(vault, definition, key)])];
+}
+
+export async function loadVaultEntry(definition: ServerDefinition): Promise<VaultEntry | undefined> {
+  const vault = await readVault(definition);
+  return externalVaultEntry(resolveVaultEntry(vault, definition));
+}
+
+export async function loadVaultEntryForRecovery(definition: ServerDefinition): Promise<VaultRecoveryRead> {
+  const vault = await readVault(definition);
+  const key = vaultKeyForDefinition(definition);
+  const resolved = resolveVaultEntry(vault, definition);
+  const tokenSnapshots = new Map<string, OAuthTokens>();
+  const clientSnapshots = new Map<string, OAuthClientInformationMixed>();
+
+  // Snapshot only the effective rejected values and exact public-value
+  // duplicates. Unrelated same-URL registrations survive, while a duplicate
+  // cannot become the next fallback and replay credentials already rejected.
+  for (const targetKey of [key, ...legacyOAuthRenameKeys(vault, definition, key)]) {
+    const candidate = isVaultEntry(vault.entries[targetKey]) ? vault.entries[targetKey] : undefined;
+    if (candidate?.tokens && resolved?.tokens && sameOAuthTokenValue(candidate.tokens, resolved.tokens)) {
+      tokenSnapshots.set(targetKey, candidate.tokens);
+    }
+    if (
+      candidate?.clientInfo &&
+      resolved?.clientInfo &&
+      sameOAuthClientValue(candidate.clientInfo, resolved.clientInfo)
+    ) {
+      clientSnapshots.set(targetKey, candidate.clientInfo);
+    }
+  }
+  return {
+    entry: externalVaultEntry(resolved),
+    tokenSnapshots,
+    clientSnapshots,
+  };
+}
+
+function resolveVaultEntry(vault: VaultFile, definition: ServerDefinition): VaultEntry | undefined {
+  const key = vaultKeyForDefinition(definition);
+  const exact = isVaultEntry(vault.entries[key]) ? vault.entries[key] : undefined;
+  const fallback = findSameUrlCredentials(vault, definition, key, exact);
+  if (!fallback.tokens && !fallback.clientInfo) {
+    return exact;
+  }
+  if (!exact) {
+    return {
+      serverName: definition.name,
+      serverUrl: definition.command.kind === 'http' ? definition.command.url.toString() : undefined,
+      updatedAt: new Date().toISOString(),
+      tokens: fallback.tokens,
+      clientInfo: fallback.clientInfo,
+    };
+  }
+  return {
+    ...exact,
+    tokens: exact.tokens ?? fallback.tokens,
+    clientInfo: exact.clientInfo ?? (exact.tokens ? undefined : fallback.clientInfo),
+  };
+}
+
+function externalVaultEntry(entry: VaultEntry | undefined): VaultEntry | undefined {
+  if (!entry) {
+    return entry;
+  }
+  const { tokens, clientInfo, ...metadata } = entry;
+  return {
+    ...metadata,
+    ...(isStoredOAuthTokens(tokens) ? { tokens: withHiddenOAuthTokenGeneration(tokens) } : {}),
+    ...(isStoredOAuthClientInformation(clientInfo) ? { clientInfo: withHiddenOAuthClientGeneration(clientInfo) } : {}),
+  };
+}
+
+function findSameUrlCredentials(
+  vault: VaultFile,
+  definition: ServerDefinition,
+  exactKey: VaultKey,
+  exact: VaultEntry | undefined
+): SameUrlCredentials {
+  if (definition.command.kind !== 'http') {
+    return { sourceKeys: [] };
+  }
+  const serverUrl = definition.command.url.toString();
+  const candidates = Object.entries(vault.entries)
+    .filter(
+      ([key, entry]) =>
+        key !== exactKey &&
+        isVaultEntry(entry) &&
+        entry.serverUrl === serverUrl &&
+        isLegacyOAuthRenameCandidate(definition, entry) &&
+        (entry.tokens || entry.clientInfo)
+    )
+    .map(([key, entry]) => ({ key, entry }))
+    .toSorted((a, b) => Date.parse(b.entry.updatedAt) - Date.parse(a.entry.updatedAt));
+  const requiredClientId = definition.oauthClientId ?? clientIdFromEntry(exact);
+  if (requiredClientId) {
+    const tokenSource = candidates.find(
+      ({ entry }) => (entry.tokens || entry.clientInfo) && clientIdFromEntry(entry) === requiredClientId
+    );
+    return {
+      tokens: tokenSource?.entry.tokens,
+      clientInfo: exact?.clientInfo ? undefined : tokenSource?.entry.clientInfo,
+      sourceKeys: tokenSource ? [tokenSource.key] : [],
+    };
+  }
+
+  const source = candidates.find(({ entry }) => entry.clientInfo && clientIdFromEntry(entry));
+  return {
+    tokens: source?.entry.tokens,
+    clientInfo: source?.entry.clientInfo,
+    sourceKeys: source ? [source.key] : [],
+  };
+}
+
+function isLegacyOAuthRenameCandidate(definition: ServerDefinition, entry: VaultEntry): boolean {
+  return entry.serverName === `${definition.name}-oauth`;
+}
+
+function legacyOAuthRenameKeys(vault: VaultFile, definition: ServerDefinition, exactKey: VaultKey): VaultKey[] {
+  if (definition.command.kind !== 'http') {
+    return [];
+  }
+  const serverUrl = definition.command.url.toString();
+  return Object.entries(vault.entries)
+    .filter(
+      ([key, entry]) =>
+        key !== exactKey &&
+        isVaultEntry(entry) &&
+        entry.serverUrl === serverUrl &&
+        isLegacyOAuthRenameCandidate(definition, entry)
+    )
+    .map(([key]) => key);
+}
+
+function isVaultEntry(entry: unknown): entry is VaultEntry {
+  return Boolean(
+    entry &&
+    typeof entry === 'object' &&
+    typeof (entry as VaultEntry).serverName === 'string' &&
+    typeof (entry as VaultEntry).updatedAt === 'string'
+  );
+}
+
+function clientIdFromEntry(entry: VaultEntry | undefined): string | undefined {
+  const clientId = entry?.clientInfo?.client_id;
+  return typeof clientId === 'string' && clientId.length > 0 ? clientId : undefined;
+}
+
+export async function saveVaultEntry(definition: ServerDefinition, patch: Partial<VaultEntry>): Promise<void> {
+  await withFileLock(getOAuthVaultPath(), async () => {
+    const vault = await readVault(definition);
+    const key = vaultKeyForDefinition(definition);
+    const existing = isVaultEntry(vault.entries[key]) ? vault.entries[key] : undefined;
+    const fallback = findSameUrlCredentials(vault, definition, key, existing);
+    const current = existing ?? {
+      serverName: definition.name,
+      serverUrl: definition.command.kind === 'http' ? definition.command.url.toString() : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    vault.entries[key] = {
+      ...current,
+      ...patch,
+      ...(patch.tokens ? { tokens: withOAuthTokenGeneration(patch.tokens) } : {}),
+      clientInfo:
+        (patch.clientInfo ? withOAuthClientGeneration(patch.clientInfo) : undefined) ??
+        current.clientInfo ??
+        (patch.tokens && !current.tokens ? fallback.clientInfo : undefined),
+      updatedAt: new Date().toISOString(),
+    };
+    await writeVault(vault, definition);
+  });
+}
+
+function tokensMatch(tokens: OAuthTokens | undefined, expected: OAuthTokens | undefined): boolean {
+  return expected !== undefined && sameOAuthTokenGeneration(tokens, expected);
+}
+
+// Atomically clears the rejected token and, when supplied, only the dynamic
+// client registration that refresh used. A concurrent refresh generation or
+// interactive auth registration is left untouched under the vault write lock.
+//
+// readTokens() sources tokens from the exact entry, or — when the exact entry
+// has none — inherits them from a same-URL legacy rename entry (see
+// loadVaultEntry). Both are compare-and-cleared so a rejected refresh token can
+// never be reread and replayed from the inherited source. State and verifier
+// values are intentionally outside refresh recovery.
+export async function clearVaultTokensIfMatching(
+  definition: ServerDefinition,
+  expectedTokens?: OAuthTokens,
+  expectedClientInfo?: OAuthClientInformationMixed,
+  tokenSnapshots?: ReadonlyMap<string, OAuthTokens>,
+  clientSnapshots?: ReadonlyMap<string, OAuthClientInformationMixed>
+): Promise<void> {
+  const key = vaultKeyForDefinition(definition);
+  await withFileLock(getOAuthVaultPath(), async () => {
+    const { vault, needsRepair } = await readVaultState(definition);
+    const exact = isVaultEntry(vault.entries[key]) ? vault.entries[key] : undefined;
+    const fallbackKeys = findSameUrlCredentials(vault, definition, key, exact).sourceKeys;
+    const targetKeys =
+      tokenSnapshots || clientSnapshots
+        ? [...new Set([...(tokenSnapshots?.keys() ?? []), ...(clientSnapshots?.keys() ?? [])])]
+        : [key, ...fallbackKeys];
+    let mutated = false;
+    for (const targetKey of targetKeys) {
+      const entry = isVaultEntry(vault.entries[targetKey]) ? vault.entries[targetKey] : undefined;
+      if (!entry) {
+        continue;
+      }
+      const updated: VaultEntry = { ...entry };
+      let entryMutated = false;
+      const tokenSnapshot = tokenSnapshots ? tokenSnapshots.get(targetKey) : expectedTokens;
+      const clientSnapshot = clientSnapshots ? clientSnapshots.get(targetKey) : expectedClientInfo;
+      const ownTokensRejected = tokensMatch(entry.tokens, tokenSnapshot);
+      if (ownTokensRejected) {
+        delete updated.tokens;
+        entryMutated = true;
+      }
+      if (clientSnapshot && sameOAuthClientGeneration(updated.clientInfo, clientSnapshot)) {
+        delete updated.clientInfo;
+        entryMutated = true;
+      }
+      if (!entryMutated) {
+        continue;
+      }
+      updated.updatedAt = new Date().toISOString();
+      vault.entries[targetKey] = updated;
+      mutated = true;
+    }
+    if (mutated || needsRepair) {
+      await writeVault(vault, definition);
+    }
+  });
+}
+
+export async function clearVaultEntry(
+  definition: ServerDefinition,
+  scope: 'all' | 'tokens' | 'client' | 'verifier' | 'state' | 'discovery'
+): Promise<void> {
+  const key = vaultKeyForDefinition(definition);
+  await withFileLock(getOAuthVaultPath(), async () => {
+    // Deleting needs no plaintext, so a value this password cannot open can
+    // still be cleared: the documented recovery after a password change.
+    const { vault, needsRepair } = await readVaultState(definition, 'none');
+    const existing = isVaultEntry(vault.entries[key]) ? vault.entries[key] : undefined;
+    const fallback = findSameUrlCredentials(vault, definition, key, existing);
+    const inheritedKeys = scope === 'all' ? legacyOAuthRenameKeys(vault, definition, key) : fallback.sourceKeys;
+    if (!existing && inheritedKeys.length === 0) {
+      if (needsRepair) {
+        await writeVault(vault, definition);
+      }
+      return;
+    }
+    if (scope === 'all') {
+      delete vault.entries[key];
+    } else if (existing) {
+      const updated: VaultEntry = { ...existing };
+      if (scope === 'tokens') {
+        delete updated.tokens;
+      }
+      if (scope === 'client') {
+        delete updated.clientInfo;
+      }
+      if (scope === 'verifier') {
+        delete updated.codeVerifier;
+      }
+      if (scope === 'state') {
+        delete updated.state;
+      }
+      if (scope === 'discovery') {
+        delete updated.discoveryState;
+        delete updated.authorizationServerUrl;
+        delete updated.resourceUrl;
+      }
+      updated.updatedAt = new Date().toISOString();
+      vault.entries[key] = updated;
+    }
+    for (const fallbackKey of inheritedKeys) {
+      const inherited = vault.entries[fallbackKey];
+      if (!inherited) {
+        continue;
+      }
+      if (scope === 'all') {
+        delete vault.entries[fallbackKey];
+        continue;
+      }
+      const updated: VaultEntry = { ...inherited };
+      if (scope === 'tokens') {
+        delete updated.tokens;
+      }
+      if (scope === 'client') {
+        delete updated.clientInfo;
+      }
+      updated.updatedAt = new Date().toISOString();
+      vault.entries[fallbackKey] = updated;
+    }
+    await writeVault(vault, definition);
+  });
+}

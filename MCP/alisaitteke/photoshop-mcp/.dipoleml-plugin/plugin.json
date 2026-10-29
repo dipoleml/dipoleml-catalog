@@ -1,0 +1,16 @@
+{
+  "name": "photoshop-mcp",
+  "displayName": "Photoshop MCP",
+  "version": "1.7.37",
+  "description": "Control Adobe Photoshop from DipoleML — 128 tools, recipes, generative AI.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Alisaitteke"
+  },
+  "license": "MIT",
+  "homepage": "https://photoshop-mcp.com/",
+  "repository": "https://github.com/alisaitteke/photoshop-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

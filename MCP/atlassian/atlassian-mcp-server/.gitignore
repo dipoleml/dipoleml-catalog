@@ -1,0 +1,15 @@
+# MCP Registry signing key — retrieved from Keeper only when publishing.
+# Never commit this. See the "Publishing Changes to the MCP Registry" runbook.
+key.pem
+*.pem
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs
+*.log
+
+# Local Node.js validation dependencies
+node_modules/

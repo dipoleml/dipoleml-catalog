@@ -1,0 +1,81 @@
+/* ---------------- composer ---------------- */
+form{ position:relative; padding:var(--s3) var(--s4) var(--s4);
+      border-top:1px solid var(--line-1);
+      background:var(--raised);
+      box-shadow:0 -1px 0 var(--shade-2), 0 -12px 28px -12px var(--shade-2) }
+.composer{ display:flex; align-items:flex-end; gap:var(--s2);
+           background:var(--base); border:1px solid var(--line-2);
+           border-radius:var(--r-lg); padding:10px 10px 10px var(--s3);
+           box-shadow:var(--lip); transition:border-color 120ms ease-out }
+/* --fg-4 and not --line-3: this is the only signal a pointer user gets that the
+   box has the keyboard, and a border at 1.2:1 against the surface is not a
+   signal. #6b747d reads at 3.92:1 against the ground, over the 3:1 floor for a
+   non-text indicator, without inventing a token. */
+/* ⛔ ONE INDICATOR, ON THE CONTAINER, TWO PIXELS WIDE. The keyboard ring was
+   drawn on the textarea INSIDE this bordered box, and on a textarea
+   `:focus-visible` matches on every focus - a click included, because the
+   element takes keyboard input - so the page opened on two nested rectangles
+   and drew them again on every click into the box. The box is the control a
+   person sees, so the box says it has the keyboard: the border goes to
+   `--fg-4` and a 1px shadow doubles it to a 2px ring at 3.92:1 against the
+   ground, over the 3:1 floor for a focus indicator, with nothing moving. */
+.composer:focus-within{ border-color:var(--fg-4);
+                        box-shadow:var(--lip), 0 0 0 1px var(--fg-4) }
+/* `outline:none` on the field itself, because the ring belongs to the box
+   around it - see `.composer:focus-within` above. Not a blanket removal of the
+   focus signal: it is the one place on the page where the visible control and
+   the focusable element are two different boxes. */
+#i{ flex:1; background:transparent; border:0; outline:none; resize:none; color:var(--fg);
+    font:var(--t-body)/1.55 var(--sans); min-height:24px; max-height:200px;
+    overflow-y:hidden; padding:0; caret-color:var(--accent) }
+/* --fg-3 and not --fg-4: the placeholder is the only hint the composer gives,
+   so it is text that has to be read, and --fg-4 sits at 2.4:1 against 4.5:1.
+   This was the first rule to be moved and it stayed the only one for a while;
+   the other nine went the same way once somebody counted them. */
+#i::placeholder{ color:var(--fg-3) }
+/* ⛔ `currentColor` INHERITED THE PAGE'S INK ONTO THE ACCENT: the arrow
+   inside the only primary control on the page measured 1.71:1 against the
+   button it sits on, where a graphic that is a button's whole label wants
+   3:1. `--on-accent` was declared for exactly this and used nowhere; on the
+   accent it reads 8.6:1. */
+#go, #halt{ width:32px; height:32px; flex:none; border:0; border-radius:50%; display:grid;
+     place-items:center; cursor:pointer; background:var(--accent);
+     color:var(--on-accent);
+     box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+     transition:background 120ms ease-out, transform 80ms ease-out }
+/* ⛔ THE PRIMARY CONTROL HAD NO HOVER AT ALL: the one button the whole
+   page exists for gave the pointer no answer until it was already pressed.
+   Everything else on the page hovers. */
+#go:hover:not(:disabled){ background:var(--accent-hi) }
+#halt:hover{ background:var(--stop-hi) }
+#go:active, #halt:active{ transform:scale(.92); box-shadow:none }
+#go:disabled{ cursor:default }
+/* ⛔ QUEUE LOOKS DIFFERENT FROM SEND, on the button itself. While the agent
+   works, Enter queues the sentence for the next turn, and the only thing that
+   said so was a placeholder that vanished at the first keystroke: the button
+   looked exactly like Send. Outlined rather than filled - the same shape, held
+   back - and the hover rule below has to be this specific or the ordinary
+   hover fills it in again and undoes the signal. */
+#go[data-mode="queue"]:not(:disabled), #go[data-mode="replace"]:not(:disabled){
+     background:transparent; color:var(--accent);
+     box-shadow:inset 0 0 0 1.5px var(--accent) }
+#go[data-mode="queue"]:hover:not(:disabled), #go[data-mode="replace"]:hover:not(:disabled){
+     background:color-mix(in srgb, var(--accent) 14%, transparent) }
+/* #chip sits on `--hover`; the next rung up is `--top`. */
+#chip:hover{ background:var(--top) }
+/* Its own button, not a mode of the send button. As a mode it disappeared the
+   moment somebody typed, because the same control then meant "queue this for
+   the next turn" - and the loop has no turn ceiling, so this button is the only
+   thing that ends a run that will not converge. It follows the RUN. */
+#halt{ background:var(--stop) }
+#chip{ display:inline-flex; align-items:center; gap:6px; margin-bottom:var(--s2);
+       max-width:100%;
+       background:var(--hover); border:1px solid var(--line-2); color:var(--fg-2);
+       font-size:var(--t-label); padding:3px 9px; border-radius:var(--r-pill);
+       cursor:pointer }
+/* The queued sentence can be a paragraph. It gives way to the width there is
+   rather than to a character count guessed in advance - a `ch` is the width of
+   a zero, not of a letter, and this file is not the place to relearn that. */
+#chip .what{ min-width:0; overflow:hidden; text-overflow:ellipsis;
+             white-space:nowrap }
+

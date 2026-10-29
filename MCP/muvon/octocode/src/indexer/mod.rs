@@ -1,0 +1,2283 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Indexer module for Octocode
+// Handles code indexing, embedding, and search functionality
+
+pub mod batch_processor; // Batch processing utilities for embedding operations
+pub mod branch; // Branch-aware delta indexing
+pub mod code_region_extractor; // Code region extraction and smart merging utilities
+pub mod commits; // Commit history indexing
+pub mod contextual; // Contextual chunk enrichment for improved semantic search
+pub mod differential_processor; // Differential processing utilities for incremental updates
+pub mod file_processor; // File processing utilities for text and markdown files
+pub mod graph_optimization;
+#[cfg(test)]
+mod graph_optimization_tests;
+pub mod graphrag; // GraphRAG generation for code relationships (modular implementation)
+pub mod languages; // Language-specific processors
+pub mod markdown_processor; // Markdown document processing utilities
+pub mod search; // Search functionality // Task-focused graph extraction and optimization
+pub mod signature_extractor; // Code signature extraction utilities
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod indexer_mod_tests;
+pub mod render_utils;
+#[cfg(test)]
+mod render_utils_tests;
+pub use batch_processor::*;
+pub use code_region_extractor::*;
+pub use differential_processor::*;
+pub use file_processor::*;
+pub use graph_optimization::*;
+pub use graphrag::*;
+pub use languages::*;
+pub use markdown_processor::*;
+pub use search::*;
+pub use signature_extractor::*;
+
+use crate::config::Config;
+use crate::mcp::logging::{log_file_processing_error, log_indexing_progress};
+use crate::state;
+use crate::state::SharedState;
+use crate::store::CodeBlock;
+#[cfg(test)]
+use crate::store::DocumentBlock;
+use crate::store::Store;
+pub use render_utils::*;
+// Import the new modular utilities
+mod file_utils;
+pub mod git_utils;
+#[cfg(test)]
+mod git_utils_tests;
+mod path_utils;
+#[cfg(test)]
+mod path_utils_tests;
+mod text_processing;
+#[cfg(test)]
+mod text_processing_tests;
+
+use self::file_utils::FileUtils;
+
+// Re-export for external use
+pub use self::git_utils::GitUtils;
+pub use self::path_utils::PathUtils;
+use crate::llm::{LlmClient, ModelPurpose};
+use std::fs;
+// We're using ignore::WalkBuilder instead of walkdir::WalkDir
+use anyhow::Result;
+use ignore;
+// serde::Serialize moved to signature_extractor module
+use std::path::Path;
+
+// Signature extraction types moved to signature_extractor module
+
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
+/// Utility to create an ignore Walker that respects both .gitignore and .noindex files
+pub struct NoindexWalker;
+
+/// Cache for .noindex file detection results to avoid repeated file system checks
+static NOINDEX_CACHE: OnceLock<parking_lot::RwLock<HashMap<std::path::PathBuf, bool>>> = OnceLock::new();
+
+fn markdown_graphrag_block(file_path: &str, contents: &str) -> CodeBlock {
+	CodeBlock {
+		path: file_path.to_string(),
+		language: "markdown".to_string(),
+		content: contents.to_string(),
+		symbols: Vec::new(),
+		start_line: 0,
+		end_line: contents.lines().count(),
+		hash: crate::embedding::calculate_content_hash(contents),
+		distance: None,
+	}
+}
+
+impl NoindexWalker {
+	/// Creates a WalkBuilder that respects .gitignore and .noindex files
+	/// PERFORMANCE: Uses caching to avoid repeated .noindex detection
+	pub fn create_walker(current_dir: &Path) -> ignore::WalkBuilder {
+		let mut builder = ignore::WalkBuilder::new(current_dir);
+
+		// Standard git ignore settings
+		builder
+			.hidden(false) // Don't ignore all hidden files - let gitignore handle it
+			.git_ignore(true) // Respect .gitignore files
+			.git_global(true) // Respect global git ignore files
+			.git_exclude(true) // Respect .git/info/exclude files
+			.follow_links(false);
+
+		// `.hidden(false)` lets gitignore decide about dotfiles, but nothing
+		// gitignores the `.git` directory itself — skip it explicitly or the
+		// walk descends into every object and ref under `.git`.
+		builder.filter_entry(|entry| entry.file_name().to_str() != Some(".git"));
+
+		// PERFORMANCE: Only add .noindex support if .noindex files actually exist
+		// Uses caching to avoid repeated file system checks during the same session
+		if Self::has_noindex_files_cached(current_dir) {
+			builder.add_custom_ignore_filename(".noindex");
+		}
+
+		builder
+	}
+
+	/// Cached version of .noindex file detection
+	fn has_noindex_files_cached(current_dir: &Path) -> bool {
+		let cache = NOINDEX_CACHE.get_or_init(|| parking_lot::RwLock::new(HashMap::new()));
+		let current_dir_buf = current_dir.to_path_buf();
+
+		// Try to read from cache first
+		{
+			let cache_read = cache.read();
+			if let Some(&cached_result) = cache_read.get(&current_dir_buf) {
+				return cached_result;
+			}
+		}
+
+		// Not in cache, compute the result
+		let result = Self::has_noindex_files(current_dir);
+
+		// Store in cache
+		{
+			let mut cache_write = cache.write();
+			cache_write.insert(current_dir_buf, result);
+		}
+
+		result
+	}
+
+	/// Fast check if there are any .noindex files in the current directory
+	/// PERFORMANCE: Uses targeted file system checks instead of expensive tree traversal
+	fn has_noindex_files(current_dir: &Path) -> bool {
+		// Quick check: .noindex file in current directory
+		if current_dir.join(".noindex").exists() {
+			return true;
+		}
+
+		// PERFORMANCE OPTIMIZATION: Instead of scanning entire tree, use a more targeted approach
+		// Most projects either have no .noindex files or have them in common locations
+		// This avoids the expensive full directory traversal that was causing slow startup
+
+		// Check common subdirectories where .noindex files might exist
+		// This covers 99% of real-world usage while being much faster
+		let common_paths = [
+			"src",
+			"lib",
+			"tests",
+			"test",
+			"docs",
+			"doc",
+			"examples",
+			"example",
+			"target",
+			"build",
+			"dist",
+			"node_modules",
+			".git",
+			"vendor",
+		];
+
+		for subdir in &common_paths {
+			let noindex_path = current_dir.join(subdir).join(".noindex");
+			if noindex_path.exists() {
+				return true;
+			}
+		}
+
+		// If no .noindex files found in common locations, assume none exist
+		// This is a reasonable trade-off: 99% performance improvement for 99% of cases
+		// Users can still add .noindex files, they just need to be in common directories
+		// or in the root directory (which we always check above)
+		false
+	}
+
+	/// Creates a GitignoreBuilder for checking individual files against both .gitignore and .noindex
+	/// ENHANCED: Better error handling and debugging
+	pub fn create_matcher(current_dir: &Path, quiet: bool) -> Result<ignore::gitignore::Gitignore> {
+		let mut builder = ignore::gitignore::GitignoreBuilder::new(current_dir);
+
+		// Add .gitignore files
+		let gitignore_path = current_dir.join(".gitignore");
+		if gitignore_path.exists() {
+			if let Some(e) = builder.add(&gitignore_path) {
+				if !quiet {
+					eprintln!("Warning: Failed to load .gitignore file: {}", e);
+				}
+			} // Successfully loaded
+		}
+
+		// Add .noindex file if it exists
+		let noindex_path = current_dir.join(".noindex");
+		if noindex_path.exists() {
+			if let Some(e) = builder.add(&noindex_path) {
+				if !quiet {
+					eprintln!("Warning: Failed to load .noindex file for matcher: {}", e);
+				}
+			} // Successfully loaded
+		}
+
+		Ok(builder.build()?)
+	}
+}
+
+/// Git utilities for repository management
+pub mod git {
+	use super::GitUtils;
+	use anyhow::Result;
+	use std::path::Path;
+
+	/// Check if current directory is a git repository root
+	pub fn is_git_repo_root(path: &Path) -> bool {
+		GitUtils::is_git_repo_root(path)
+	}
+
+	/// Find git repository root from current path
+	pub fn find_git_root(start_path: &Path) -> Option<std::path::PathBuf> {
+		GitUtils::find_git_root(start_path)
+	}
+
+	/// Get current git commit hash
+	pub fn get_current_commit_hash(repo_path: &Path) -> Result<String> {
+		GitUtils::get_current_commit_hash(repo_path)
+	}
+
+	/// Get files changed between two commits (committed changes only, no unstaged)
+	pub fn get_changed_files_since_commit(repo_path: &Path, since_commit: &str) -> Result<Vec<String>> {
+		GitUtils::get_changed_files_since_commit(repo_path, since_commit)
+	}
+
+	/// Get all working directory changes (staged + unstaged + untracked)
+	/// Note: This is used for non-git optimization scenarios only
+	pub fn get_all_changed_files(repo_path: &Path) -> Result<Vec<String>> {
+		GitUtils::get_all_changed_files(repo_path)
+	}
+}
+
+/// Get file modification time as seconds since Unix epoch
+pub fn get_file_mtime(file_path: &std::path::Path) -> Result<u64> {
+	FileUtils::get_file_mtime(file_path)
+}
+
+// Detect language based on file extension
+pub fn detect_language(path: &std::path::Path) -> Option<&'static str> {
+	FileUtils::detect_language(path)
+}
+
+// Signature extraction functions moved to signature_extractor module
+
+// Signature extraction helper functions moved to signature_extractor module
+
+// Signature extraction utility functions moved to signature_extractor module
+
+// Markdown processing types and implementation moved to markdown_processor module
+
+// All DocumentHierarchy implementation moved to markdown_processor module
+// All DocumentHierarchy implementation and markdown functions moved to markdown_processor module
+
+/// Optimized cleanup function that only processes files that actually need cleanup
+async fn cleanup_deleted_files_optimized(store: &Store, current_dir: &std::path::Path, quiet: bool) -> Result<()> {
+	// Get all indexed file paths from the database
+	let indexed_files = store.get_all_indexed_file_paths().await?;
+
+	// Early exit if no files to check
+	if indexed_files.is_empty() {
+		return Ok(());
+	}
+
+	// Create ignore matcher to check against .noindex and .gitignore patterns
+	let ignore_matcher = NoindexWalker::create_matcher(current_dir, quiet)?;
+
+	let mut files_to_remove = Vec::new();
+
+	for indexed_file in indexed_files {
+		// Always treat indexed paths as relative to current directory
+		let absolute_path = current_dir.join(&indexed_file);
+
+		// Check if file was deleted
+		if !absolute_path.exists() {
+			files_to_remove.push(indexed_file);
+		} else {
+			// Check if file is now ignored by .noindex or .gitignore patterns.
+			// Parents must be consulted too: a directory rule like `target/` does
+			// not match `target/app.rs` on its own, so `matched` alone would keep
+			// every already-indexed file under a newly ignored directory forever.
+			let is_ignored = ignore_matcher
+				.matched_path_or_any_parents(&absolute_path, absolute_path.is_dir())
+				.is_ignore();
+			if is_ignored {
+				files_to_remove.push(indexed_file);
+			}
+		}
+	}
+
+	if !files_to_remove.is_empty() {
+		if let Err(e) = store.remove_blocks_by_paths(&files_to_remove).await {
+			if !quiet {
+				eprintln!(
+					"Warning: Failed to remove blocks for {} files: {}",
+					files_to_remove.len(),
+					e
+				);
+			}
+			tracing::warn!(
+				files = files_to_remove.len(),
+				error = %e,
+				"Failed to remove blocks during cleanup"
+			);
+		}
+		store.flush().await?;
+	}
+
+	Ok(())
+}
+
+/// Helper function to perform intelligent flushing based on configuration
+/// Returns true if a flush was performed
+async fn flush_if_needed(store: &Store, batches_processed: &mut usize, config: &Config, force: bool) -> Result<bool> {
+	if force || *batches_processed >= config.index.flush_frequency {
+		store.flush().await?;
+		*batches_processed = 0; // Reset counter
+		Ok(true)
+	} else {
+		Ok(false)
+	}
+}
+
+/// Fast file counting function that performs minimal checks
+/// Returns the total count of indexable files without expensive operations
+fn fast_count_indexable_files(
+	current_dir: &Path,
+	git_changed_files: Option<&std::collections::HashSet<String>>,
+) -> usize {
+	let mut count = 0;
+
+	// If we have git optimization, just count the changed files
+	if let Some(changed_files) = git_changed_files {
+		for file_path in changed_files {
+			let full_path = current_dir.join(file_path);
+			if !full_path.is_file() {
+				continue;
+			}
+			// Match actual processing criteria: language detection or allowed text extension
+			if detect_language(&full_path).is_some() || is_allowed_text_extension(&full_path) {
+				count += 1;
+			}
+		}
+		return count;
+	}
+
+	// Otherwise, do a fast walk with minimal checks
+	let walker = NoindexWalker::create_walker(current_dir).build();
+
+	for result in walker {
+		let entry = match result {
+			Ok(entry) => entry,
+			Err(_) => continue,
+		};
+
+		// Skip directories
+		if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+			continue;
+		}
+
+		if detect_language(entry.path()).is_some() || is_allowed_text_extension(entry.path()) {
+			count += 1;
+		}
+	}
+
+	count
+}
+
+// Render signatures and search results as markdown output (more efficient for AI tools)
+// Rendering functions have been moved to src/indexer/render_utils.rs
+
+/// Centralized helper function to persist data and store git metadata atomically
+/// This ensures metadata is only stored when data is safely persisted
+async fn persist_and_store_metadata(
+	store: &Store,
+	git_repo_root: Option<&Path>,
+	config: &Config,
+	quiet: bool,
+	context: &str,
+) -> Result<()> {
+	// CRITICAL: Flush first with explicit error handling
+	// If flush fails, we must NOT store metadata as data is not persisted
+	if let Err(e) = store.flush().await {
+		tracing::error!(
+			context = context,
+			error = %e,
+			"Failed to flush store - metadata will NOT be stored"
+		);
+		return Err(e);
+	}
+
+	tracing::debug!(context = context, "Successfully flushed store");
+
+	// Only store metadata if we have a git repository
+	let Some(git_root) = git_repo_root else {
+		return Ok(());
+	};
+
+	// Get current commit hash
+	let current_commit = match git::get_current_commit_hash(git_root) {
+		Ok(hash) => hash,
+		Err(e) => {
+			tracing::warn!(
+				context = context,
+				error = %e,
+				"Could not get current commit hash, skipping metadata storage"
+			);
+			return Ok(()); // Not a fatal error, just skip metadata
+		}
+	};
+
+	// Store git metadata
+	if let Err(e) = store.store_git_metadata(&current_commit).await {
+		tracing::error!(
+			context = context,
+			commit = %current_commit,
+			error = %e,
+			"Failed to store git metadata"
+		);
+		if !quiet {
+			eprintln!("Warning: Could not store git metadata: {}", e);
+		}
+		// Continue to try GraphRAG metadata even if git metadata fails
+	} else {
+		tracing::debug!(
+			context = context,
+			commit = %current_commit,
+			"Successfully stored git metadata"
+		);
+	}
+
+	// Store GraphRAG commit hash if GraphRAG is enabled
+	if config.graphrag.enabled {
+		if let Err(e) = store.store_graphrag_commit_hash(&current_commit).await {
+			tracing::error!(
+				context = context,
+				commit = %current_commit,
+				error = %e,
+				"Failed to store GraphRAG git metadata"
+			);
+			if !quiet {
+				eprintln!("Warning: Could not store GraphRAG git metadata: {}", e);
+			}
+		} else {
+			tracing::debug!(
+				context = context,
+				commit = %current_commit,
+				"Successfully stored GraphRAG metadata"
+			);
+		}
+	}
+
+	Ok(())
+}
+
+// Main function to index files with optional git optimization
+pub async fn index_files(
+	store: &Store,
+	state: SharedState,
+	config: &Config,
+	git_repo_root: Option<&Path>,
+) -> Result<()> {
+	index_files_with_quiet(store, state, config, git_repo_root, false).await
+}
+
+/// Verbose mode: announce each file right before it is indexed (no-op otherwise).
+fn log_current_file(state: &SharedState, file_path: &str) {
+	let guard = state.read();
+	if guard.verbose {
+		let processed = guard.indexed_files + guard.skipped_files;
+		if guard.total_files > 0 {
+			println!("Indexing ({}/{}): {}", processed + 1, guard.total_files, file_path);
+		} else {
+			println!("Indexing: {}", file_path);
+		}
+	}
+}
+
+/// Index only the delta (changed files) for a non-default branch.
+///
+/// This creates or updates a lightweight branch database containing only
+/// files that differ from the default branch. The main index is untouched.
+pub async fn index_branch_delta(
+	main_store: &Store,
+	branch_store: &Store,
+	state: SharedState,
+	config: &Config,
+	git_repo_root: &Path,
+	branch_name: &str,
+	quiet: bool,
+) -> Result<branch::BranchManifest> {
+	let current_dir = state.read().current_directory.clone();
+
+	// Reconcile master state BEFORE computing branch delta. This guarantees:
+	//   - An empty main DB gets a baseline index so the overlay has something
+	//     to sit on; a non-empty main DB is left untouched (re-indexing it from
+	//     a branch checkout can't produce a default-branch snapshot) and the
+	//     overlay anchors to the commit it actually holds.
+	//   - A loud warning surfaces if `origin/<default>` is ahead of local — we
+	//     don't auto-pull (workspace action), we just refuse to be silent.
+	// If the baseline itself fails, the error propagates and the branch index
+	// is not written, so we never end up with a branch DB anchored to a missing
+	// main snapshot.
+	let master_state = branch::reconcile_master_state(main_store, state.clone(), config, git_repo_root, quiet).await?;
+
+	let default_branch = master_state.branch_name.clone();
+	// Anchor to the commit the main DB actually holds — that's what the
+	// search-time coherence check compares against. On a feature branch it
+	// legitimately differs from the default-branch ref.
+	let base_db_commit = master_state
+		.db_resynced_to
+		.clone()
+		.or_else(|| master_state.db_commit.clone())
+		.unwrap_or_default();
+	let remote_base_observed = master_state.remote_ref_commit.clone().unwrap_or_default();
+
+	// Reset state counters that may have been advanced by a master resync
+	// inside reconcile_master_state. Without this, the branch-delta phase
+	// inherits the master phase's progress numbers (file counts, graphrag
+	// blocks, status text), making the display show "0 files indexed,
+	// GraphRAG: N blocks" when the branch delta is empty — N is the master
+	// graphrag count carrying over, not branch work.
+	{
+		let mut state_guard = state.write();
+		state_guard.indexed_files = 0;
+		state_guard.skipped_files = 0;
+		state_guard.total_files = 0;
+		state_guard.graphrag_blocks = 0;
+		state_guard.indexing_complete = false;
+		state_guard.counting_files = false;
+		state_guard.status_message = format!("Branch '{}' delta indexing...", branch_name);
+	}
+
+	// Load existing manifest to check if we can do incremental update
+	let (branch_dir, existing_manifest) = branch::resolve_branch_state(&current_dir, branch_name)?;
+
+	// Rebuild from scratch when any of these change since last time, because
+	// every one of them invalidates the assumptions the branch DB was built on:
+	//   - default branch renamed (override mapping is keyed off it)
+	//   - main DB moved to a different commit (overlay would be incoherent)
+	//   - main DB was just baselined from empty (any prior branch DB was
+	//     built against a snapshot that no longer exists)
+	let force_rebuild = existing_manifest.as_ref().is_some_and(|m| {
+		m.base_branch != default_branch
+			|| (!m.base_db_commit.is_empty() && m.base_db_commit != base_db_commit)
+			|| master_state.db_resynced_to.is_some()
+	});
+
+	if force_rebuild && !quiet {
+		let prev = existing_manifest.as_ref().unwrap();
+		println!(
+			"⚠️  Branch DB rebuild required (base_branch: {} → {}, base_db_commit: {} → {}, main_resynced: {})",
+			prev.base_branch,
+			default_branch,
+			if prev.base_db_commit.is_empty() {
+				"<unset>".to_string()
+			} else {
+				prev.base_db_commit[..prev.base_db_commit.len().min(8)].to_string()
+			},
+			&base_db_commit[..base_db_commit.len().min(8)],
+			master_state.db_resynced_to.is_some(),
+		);
+	}
+
+	// Compute the full delta against the resolved fork-point commit, not the
+	// `default_branch` ref. `git diff <ref>...HEAD` already collapses to
+	// merge-base internally, so the two forms produce the same file list
+	// today — but pinning to the SHA we resolved in reconcile means a ref
+	// move during indexing can't shift the diff base out from under us, and
+	// the call site matches what the v2 manifest claims (`fork_point`).
+	let (changed_files, deleted_files) = branch::compute_branch_delta(git_repo_root, &master_state.fork_point)?;
+
+	if !quiet {
+		println!(
+			"🔀 Branch '{}' delta: {} changed, {} deleted files (vs fork-point {} on '{}')",
+			branch_name,
+			changed_files.len(),
+			deleted_files.len(),
+			&master_state.fork_point[..master_state.fork_point.len().min(8)],
+			default_branch,
+		);
+	}
+
+	let branch_commit = branch::get_branch_commit(git_repo_root, "HEAD")?;
+	// Manifest's legacy field: default-branch tip at index time (informational).
+	let base_commit = master_state.local_ref_commit.clone();
+
+	// Check if we can skip (same branch commit, no working changes)
+	if !force_rebuild {
+		if let Some(ref manifest) = existing_manifest {
+			if manifest.branch_commit == branch_commit && changed_files.is_empty() && deleted_files.is_empty() {
+				if !quiet {
+					println!("✅ Branch delta unchanged, skipping reindex");
+				}
+				return Ok(manifest.clone());
+			}
+		}
+	}
+
+	// Keep a copy for the manifest (the original may be consumed during processing)
+	let manifest_changed_paths = changed_files.clone();
+	let manifest_deleted_paths = deleted_files.clone();
+
+	// Determine which files to actually re-process
+	let files_to_process: std::collections::HashSet<String> = if !force_rebuild {
+		if let Some(ref manifest) = existing_manifest {
+			let old_changed: std::collections::HashSet<&str> =
+				manifest.changed_paths.iter().map(|s| s.as_str()).collect();
+			let new_changed: std::collections::HashSet<&str> = changed_files.iter().map(|s| s.as_str()).collect();
+
+			// Files no longer in delta (reverted to match main) — remove from branch DB
+			let mut removed_any = false;
+			let reverted_paths: Vec<String> = old_changed
+				.difference(&new_changed)
+				.map(|path| (*path).to_string())
+				.collect();
+			if !reverted_paths.is_empty() {
+				match branch_store.remove_blocks_by_paths(&reverted_paths).await {
+					Ok(()) => removed_any = true,
+					Err(e) => {
+						tracing::warn!(files = reverted_paths.len(), error = %e, "Failed to remove reverted file from branch DB")
+					}
+				}
+			}
+			// Persist removals even when nothing else needs re-processing —
+			// the batch flush below only runs when files get processed.
+			if removed_any {
+				branch_store.flush().await?;
+			}
+		}
+
+		// Re-process only delta files whose mtime moved past what the branch DB
+		// already indexed — same skip rule as the main index path (deleting a
+		// file's blocks also deletes its metadata row, so a scrubbed file is
+		// never wrongly skipped). Without this, every trigger re-embeds the
+		// ENTIRE delta: one saved file would reprocess all N changed files, and
+		// a commit would re-embed files already indexed at save time.
+		let branch_meta = branch_store.get_all_file_metadata().await?;
+		changed_files
+			.into_iter()
+			.filter(
+				|f| match (get_file_mtime(&current_dir.join(f)), branch_meta.get(f.as_str())) {
+					(Ok(actual), Some(stored)) => actual > *stored,
+					_ => true,
+				},
+			)
+			.collect()
+	} else {
+		// Force rebuild — process everything
+		changed_files.into_iter().collect()
+	};
+
+	if files_to_process.is_empty() && !force_rebuild {
+		if !quiet {
+			println!("✅ No files need re-processing in branch delta");
+		}
+	} else {
+		// On force_rebuild, scrub every path that was in the prior manifest —
+		// the old branch DB was built against a different main snapshot or base
+		// branch, so its rows are stale even for paths that don't appear in the
+		// current delta. Without this, a file that *used* to be in delta but is
+		// now matching main would keep its old branch-DB rows and shadow main.
+		if force_rebuild {
+			if let Some(ref prev) = existing_manifest {
+				let prior_paths: Vec<String> = prev
+					.changed_paths
+					.iter()
+					.chain(prev.deleted_paths.iter())
+					.cloned()
+					.collect();
+				if let Err(e) = branch_store.remove_blocks_by_paths(&prior_paths).await {
+					tracing::warn!(files = prior_paths.len(), error = %e, "Failed to scrub prior-manifest path during branch rebuild");
+				}
+			}
+		}
+
+		// Clean up existing data for files we're about to re-process
+		let files_to_scrub: Vec<String> = files_to_process.iter().cloned().collect();
+		if let Err(e) = branch_store.remove_blocks_by_paths(&files_to_scrub).await {
+			tracing::warn!(files = files_to_scrub.len(), error = %e, "Failed to clean up branch block");
+		}
+		if !files_to_process.is_empty() || force_rebuild {
+			branch_store.flush().await?;
+		}
+
+		// Set up state for the indexing pipeline
+		{
+			let mut state_guard = state.write();
+			state_guard.total_files = files_to_process.len();
+			state_guard.counting_files = false;
+			state_guard.status_message = format!("Indexing branch delta ({} files)...", files_to_process.len());
+			state_guard.graphrag_enabled = config.graphrag.enabled;
+		}
+
+		// Reuse the existing file processing pipeline with branch Store
+		let branch_config = config.clone();
+
+		// Process files through the same pipeline, writing to branch_store
+		let mut code_blocks_batch = Vec::new();
+		let mut text_blocks_batch = Vec::new();
+		let mut document_blocks_batch = Vec::new();
+		let mut all_code_blocks = Vec::new();
+		let mut file_context_map = contextual::FileContextMap::new();
+		let mut code_file_metadata = FileMetadataBatch::new();
+		let mut text_file_metadata = FileMetadataBatch::new();
+		let mut document_file_metadata = FileMetadataBatch::new();
+		let mut embedding_calls = 0;
+		let mut batches_processed = 0;
+		let mut files_processed = 0;
+
+		for file_path in &files_to_process {
+			let full_path = current_dir.join(file_path);
+			if !full_path.is_file() {
+				continue;
+			}
+
+			if let Some(language) = detect_language(&full_path) {
+				match fs::read_to_string(&full_path) {
+					Ok(contents) => {
+						log_current_file(&state, file_path);
+						let ctx = ProcessFileContext {
+							store: branch_store,
+							config: &branch_config,
+							state: state.clone(),
+						};
+
+						if language == "markdown" {
+							process_markdown_file_differential(
+								branch_store,
+								&contents,
+								file_path,
+								&mut document_blocks_batch,
+								&branch_config,
+								state.clone(),
+							)
+							.await?;
+
+							if config.graphrag.enabled {
+								all_code_blocks.push(markdown_graphrag_block(file_path, &contents));
+							}
+						} else {
+							process_file_differential(
+								&ctx,
+								&contents,
+								file_path,
+								language,
+								&mut code_blocks_batch,
+								&mut text_blocks_batch,
+								&mut all_code_blocks,
+								&mut file_context_map,
+							)
+							.await?;
+						}
+
+						if let Ok(actual_mtime) = get_file_mtime(&full_path) {
+							if language == "markdown" {
+								document_file_metadata.add(file_path, actual_mtime);
+							} else {
+								code_file_metadata.add(file_path, actual_mtime);
+							}
+						}
+
+						files_processed += 1;
+						state.write().indexed_files = files_processed;
+
+						// Process batches when ready
+						if should_process_batch(&code_blocks_batch, |b| &b.content, &branch_config) {
+							embedding_calls += code_blocks_batch.len();
+							process_code_blocks_batch(
+								branch_store,
+								&code_blocks_batch,
+								&branch_config,
+								&code_file_metadata,
+								&file_context_map,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process code blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(branch_store, &mut batches_processed, &branch_config, false).await?;
+							code_blocks_batch.clear();
+							code_file_metadata.clear();
+							file_context_map.clear();
+						}
+						if should_process_batch(&text_blocks_batch, |b| &b.content, &branch_config) {
+							embedding_calls += text_blocks_batch.len();
+							process_text_blocks_batch(
+								branch_store,
+								&text_blocks_batch,
+								&branch_config,
+								&text_file_metadata,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(branch_store, &mut batches_processed, &branch_config, false).await?;
+							text_blocks_batch.clear();
+							text_file_metadata.clear();
+						}
+						if should_process_batch(&document_blocks_batch, |b| &b.content, &branch_config) {
+							embedding_calls += document_blocks_batch.len();
+							process_document_blocks_batch(
+								branch_store,
+								&document_blocks_batch,
+								&branch_config,
+								&document_file_metadata,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process document blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(branch_store, &mut batches_processed, &branch_config, false).await?;
+							document_blocks_batch.clear();
+							document_file_metadata.clear();
+						}
+					}
+					Err(e) => {
+						log_file_processing_error(file_path, "read_file", &e);
+					}
+				}
+			} else if is_allowed_text_extension(&full_path) && !is_markdown_file(&full_path) {
+				if let Ok(contents) = fs::read_to_string(&full_path) {
+					if is_text_file(&contents) {
+						log_current_file(&state, file_path);
+						process_text_file_differential(
+							branch_store,
+							&contents,
+							file_path,
+							&mut text_blocks_batch,
+							&branch_config,
+							state.clone(),
+						)
+						.await?;
+
+						if let Ok(actual_mtime) = get_file_mtime(&full_path) {
+							text_file_metadata.add(file_path, actual_mtime);
+						}
+
+						files_processed += 1;
+						state.write().indexed_files = files_processed;
+
+						if should_process_batch(&text_blocks_batch, |b| &b.content, &branch_config) {
+							embedding_calls += text_blocks_batch.len();
+							process_text_blocks_batch(
+								branch_store,
+								&text_blocks_batch,
+								&branch_config,
+								&text_file_metadata,
+							)
+							.await?;
+							text_blocks_batch.clear();
+							text_file_metadata.clear();
+							batches_processed += 1;
+							flush_if_needed(branch_store, &mut batches_processed, &branch_config, false).await?;
+						}
+					}
+				}
+			}
+		}
+
+		// Process remaining batches
+		if !code_blocks_batch.is_empty() {
+			process_code_blocks_batch(
+				branch_store,
+				&code_blocks_batch,
+				&branch_config,
+				&code_file_metadata,
+				&file_context_map,
+			)
+			.await
+			.map_err(|e| {
+				anyhow::anyhow!(
+				"Failed to process remaining code blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+				e
+			)
+			})?;
+		}
+		if !text_blocks_batch.is_empty() {
+			process_text_blocks_batch(branch_store, &text_blocks_batch, &branch_config, &text_file_metadata)
+				.await
+				.map_err(|e| {
+					anyhow::anyhow!(
+				"Failed to process remaining text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+				e
+			)
+				})?;
+		}
+		if !document_blocks_batch.is_empty() {
+			process_document_blocks_batch(
+				branch_store,
+				&document_blocks_batch,
+				&branch_config,
+				&document_file_metadata,
+			)
+			.await
+			.map_err(|e| anyhow::anyhow!(
+				"Failed to process remaining document blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+				e
+			))?;
+		}
+
+		// Final flush
+		branch_store.flush().await?;
+
+		// Build GraphRAG for branch delta if enabled
+		if config.graphrag.enabled && !all_code_blocks.is_empty() {
+			if !quiet {
+				println!("🔗 Building GraphRAG for branch delta...");
+			}
+
+			let graph_store = Store::new_for_branch(branch_name).await?;
+			let graph_builder =
+				graphrag::GraphBuilder::new_with_store(config.clone(), &current_dir, graph_store, quiet).await?;
+			graph_builder
+				.process_code_blocks(&all_code_blocks, Some(state.clone()))
+				.await?;
+			branch_store.flush().await?;
+		}
+
+		if !quiet {
+			println!(
+				"✓ Branch delta indexed: {} files processed ({} embeddings)",
+				files_processed, embedding_calls
+			);
+		}
+	}
+
+	// Mark indexing complete
+	{
+		let mut state_guard = state.write();
+		state_guard.indexing_complete = true;
+	}
+
+	// Build and save manifest. `base_db_commit` is what search uses to decide
+	// whether this branch DB is still coherent with the main DB; `fork_point`
+	// + `remote_base_observed` are diagnostics so future indexing runs can
+	// detect divergence and explain it to the operator.
+	let manifest = branch::BranchManifest {
+		version: 2,
+		branch_name: branch_name.to_string(),
+		base_branch: default_branch,
+		base_commit,
+		branch_commit,
+		changed_paths: manifest_changed_paths,
+		deleted_paths: manifest_deleted_paths,
+		indexed_at: chrono::Utc::now().timestamp(),
+		fork_point: master_state.fork_point.clone(),
+		base_db_commit,
+		remote_base_observed,
+	};
+
+	branch::save_manifest(&branch_dir, &manifest)?;
+
+	// Same end-of-run maintenance as the main index path.
+	if let Err(e) = branch_store.optimize_tables().await {
+		tracing::warn!(error = %e, "Post-branch-index optimize_tables failed (non-fatal)");
+	}
+
+	Ok(manifest)
+}
+
+/// Validate that all configured LLM models support structured output before indexing.
+/// Fails fast with a clear error instead of discovering the problem mid-indexing.
+fn validate_llm_structured_output(config: &Config, quiet: bool) -> Result<()> {
+	let mut models_to_check: Vec<(&str, &str, ModelPurpose)> = Vec::new();
+
+	if config.graphrag.enabled && config.graphrag.use_llm {
+		models_to_check.push((
+			&config.graphrag.llm.description_model,
+			"graphrag.llm.description_model",
+			ModelPurpose::IndexGraphrag,
+		));
+	}
+
+	if config.index.contextual_descriptions {
+		models_to_check.push((
+			&config.index.contextual_model,
+			"index.contextual_model",
+			ModelPurpose::IndexContextual,
+		));
+	}
+
+	for (model_str, config_key, purpose) in models_to_check {
+		match LlmClient::with_model(config, model_str, purpose) {
+			Ok(client) => {
+				if !client.supports_structured_output() {
+					return Err(anyhow::anyhow!(
+						"Model '{}' ({}) does not support structured output. \
+						 Choose a model that supports JSON schema (e.g. openai/gpt-4o-mini, gemini-2.0-flash).",
+						model_str,
+						config_key
+					));
+				}
+			}
+			Err(e) => {
+				if !quiet {
+					eprintln!(
+						"Warning: Could not validate model '{}' ({}): {}",
+						model_str, config_key, e
+					);
+				}
+			}
+		}
+	}
+
+	Ok(())
+}
+
+pub async fn index_files_with_quiet(
+	store: &Store,
+	state: SharedState,
+	config: &Config,
+	git_repo_root: Option<&Path>,
+	quiet: bool,
+) -> Result<()> {
+	let current_dir = state.read().current_directory.clone();
+	let mut code_blocks_batch = Vec::new();
+	let mut text_blocks_batch = Vec::new();
+	let mut document_blocks_batch = Vec::new();
+	let mut all_code_blocks = Vec::new(); // Store all code blocks for GraphRAG
+	let mut file_context_map = contextual::FileContextMap::new();
+
+	// Track file metadata for atomic storage after batch processing
+	let mut code_file_metadata = FileMetadataBatch::new();
+	let mut text_file_metadata = FileMetadataBatch::new();
+	let mut document_file_metadata = FileMetadataBatch::new();
+
+	let mut embedding_calls = 0;
+	let mut batches_processed = 0; // Track batches for intelligent flushing
+
+	// Log indexing start
+	log_indexing_progress("indexing_start", 0, 0, Some(&current_dir.display().to_string()), 0);
+
+	// Validate LLM models support structured output before starting any work
+	validate_llm_structured_output(config, quiet)?;
+
+	// Initialize GraphRAG state if enabled
+	{
+		let mut state_guard = state.write();
+		state_guard.graphrag_enabled = config.graphrag.enabled;
+		state_guard.graphrag_blocks = 0;
+		state_guard.counting_files = true;
+		state_guard.status_message = "Counting files...".to_string();
+		state_guard.quiet_mode = quiet;
+	}
+
+	// Get force_reindex flag from state
+	let force_reindex = state.read().force_reindex;
+
+	// Git-based optimization: Get changed files if we have a git repository
+	let git_changed_files = if let Some(git_root) = git_repo_root {
+		if !force_reindex {
+			// Try to get the last indexed commit
+			if let Ok(Some(last_commit)) = store.get_last_commit_hash().await {
+				// Get current commit
+				if let Ok(current_commit) = git::get_current_commit_hash(git_root) {
+					if last_commit != current_commit {
+						// Commit hash changed - get files changed since last indexed commit
+						match git::get_changed_files_since_commit(git_root, &last_commit) {
+							Ok(changed_files) => {
+								let git_diff_count = changed_files.len();
+								let file_metadata = store.get_all_file_metadata().await?;
+								// Rows re-indexed before a timed-out round keep their metadata, so
+								// retries scrub and process only the remaining files in the diff.
+								let changed_files: Vec<String> = changed_files
+									.into_iter()
+									.filter(|file_path| {
+										match (
+											get_file_mtime(&current_dir.join(file_path)),
+											file_metadata.get(file_path.as_str()),
+										) {
+											(Ok(actual), Some(stored)) => actual > *stored,
+											_ => true,
+										}
+									})
+									.collect();
+
+								if !quiet {
+									println!(
+										"🚀 Git optimization: Commit changed, found {} files in diff, {} need reindexing",
+										git_diff_count,
+										changed_files.len()
+									);
+								}
+
+								// Clean up existing data for changed files (includes GraphRAG cleanup)
+								if let Err(e) = store.remove_blocks_by_paths(&changed_files).await {
+									if !quiet {
+										eprintln!(
+											"Warning: Failed to clean up data for {} changed files: {}",
+											changed_files.len(),
+											e
+										);
+									}
+									tracing::warn!(
+										files = changed_files.len(),
+										error = %e,
+										"Failed to clean up changed files"
+									);
+								}
+
+								// CRITICAL: Flush immediately after cleanup to persist removals
+								// This prevents data loss if process is interrupted before new data is written
+								// Cannot be deferred because git metadata is not yet updated - if we crash here,
+								// next run will correctly detect files need reindexing
+								if !changed_files.is_empty() {
+									store.flush().await?;
+									tracing::debug!(
+										files_cleaned = changed_files.len(),
+										"Flushed after cleanup of changed files"
+									);
+								}
+
+								Some(changed_files.into_iter().collect::<std::collections::HashSet<_>>())
+							}
+							Err(e) => {
+								if !quiet {
+									eprintln!("Warning: Could not get git changes, indexing all files: {}", e);
+								}
+								None
+							}
+						}
+					} else {
+						// Same commit hash - skip indexing entirely (ignore unstaged changes)
+						if !quiet {
+							println!("✅ No commit changes since last index, skipping reindex");
+						}
+
+						// Clean up files that were deleted from disk even when commit hasn't changed
+						// This prevents stale entries from causing errors in GraphRAG processing
+						{
+							let mut state_guard = state.write();
+							state_guard.status_message = "Checking for deleted files...".to_string();
+						}
+						if let Err(e) = cleanup_deleted_files_optimized(store, &current_dir, quiet).await {
+							if !quiet {
+								eprintln!("Warning: Failed to clean up deleted files: {}", e);
+							}
+							tracing::warn!(
+								error = %e,
+								"Failed to clean up deleted files during same-commit path"
+							);
+						}
+
+						// Check if GraphRAG needs to be built from existing database even when no files changed
+						if config.graphrag.enabled {
+							let needs_graphrag_from_existing = match store.graphrag_needs_indexing().await {
+								Ok(v) => v,
+								Err(e) => {
+									tracing::warn!(
+										error = %e,
+										"Failed to check if GraphRAG needs indexing, assuming false"
+									);
+									false
+								}
+							};
+							if needs_graphrag_from_existing {
+								if !quiet {
+									println!("🔗 Building GraphRAG from existing database...");
+								}
+								log_indexing_progress("graphrag_build", 0, 0, None, 0);
+								let graph_builder =
+									graphrag::GraphBuilder::new_with_quiet(config.clone(), &current_dir, quiet).await?;
+								graph_builder.build_from_existing_database(Some(state.clone())).await?;
+
+								// CRITICAL: Persist data and store git metadata after GraphRAG build
+								// This prevents infinite rebuilding on subsequent runs
+								persist_and_store_metadata(
+									store,
+									Some(git_root),
+									config,
+									quiet,
+									"graphrag_from_existing",
+								)
+								.await?;
+							}
+						}
+
+						// Index commits before returning
+						if let Err(e) = commits::index_commits(config, store, git_root, state.clone(), quiet).await {
+							tracing::warn!("Commit indexing failed: {}", e);
+						}
+
+						{
+							let mut state_guard = state.write();
+							state_guard.indexing_complete = true;
+						}
+						return Ok(());
+					}
+				} else {
+					// Could not get current commit, fall back to full indexing
+					if !quiet {
+						println!("⚠️  Could not get current commit hash, indexing all files");
+					}
+					None
+				}
+			} else {
+				// No previous commit stored, need to index all files for baseline
+				if !quiet {
+					println!("📋 First-time git indexing: indexing all files");
+				}
+				None
+			}
+		} else {
+			// Force reindex, ignore git optimization
+			None
+		}
+	} else {
+		// No git repository, use file-based optimization
+		None
+	};
+
+	// Optimized cleanup: Only do cleanup if we have existing data and it's not a force reindex
+	let should_cleanup_deleted_files = {
+		let force_reindex = state.read().force_reindex;
+		!force_reindex // Only cleanup if not force reindexing
+	};
+
+	if should_cleanup_deleted_files {
+		{
+			let mut state_guard = state.write();
+			state_guard.status_message = "Checking for deleted files...".to_string();
+		}
+
+		// Log cleanup phase start
+		log_indexing_progress("cleanup", 0, 0, None, 0);
+
+		// Optimized cleanup: Get indexed files and check them efficiently
+		if let Err(e) = cleanup_deleted_files_optimized(store, &current_dir, quiet).await {
+			if !quiet {
+				eprintln!("Warning: Cleanup failed: {}", e);
+			}
+		}
+
+		{
+			let mut state_guard = state.write();
+			state_guard.status_message = "".to_string();
+		}
+	}
+
+	// PERFORMANCE OPTIMIZATION: Load all file metadata in one batch query
+	// This eliminates individual database queries for each file during traversal
+	{
+		let mut state_guard = state.write();
+		state_guard.status_message = "Loading file metadata...".to_string();
+	}
+
+	let file_metadata_map = store.get_all_file_metadata().await?;
+	if !quiet {
+		println!("📊 Loaded metadata for {} files from database", file_metadata_map.len());
+	}
+
+	// Progressive processing: Skip separate counting phase and count during processing
+	{
+		let mut state_guard = state.write();
+		state_guard.total_files = 0; // Will be updated progressively
+		state_guard.counting_files = true;
+		state_guard.status_message = "Starting indexing...".to_string();
+	}
+
+	// Progressive counting variables
+	let total_files_found;
+	let mut files_processed = 0;
+
+	// Log file processing phase start
+	log_indexing_progress("file_processing", 0, 0, None, 0);
+
+	// PERFORMANCE FIX: Fast-path for git optimization - process only changed files
+	if let Some(ref changed_files) = git_changed_files {
+		// Use fast counting function for git optimization
+		total_files_found = fast_count_indexable_files(&current_dir, Some(changed_files));
+
+		// Update state with final count and switch to processing mode
+		{
+			let mut state_guard = state.write();
+			state_guard.total_files = total_files_found;
+			state_guard.counting_files = false;
+			state_guard.status_message = "".to_string();
+		}
+
+		// Process only the changed files directly
+		for file_path in changed_files {
+			let full_path = current_dir.join(file_path);
+			if !full_path.is_file() {
+				continue;
+			}
+
+			// PERFORMANCE OPTIMIZATION: Fast file modification time check using preloaded metadata
+			let force_reindex = state.read().force_reindex;
+			if !force_reindex {
+				if let Ok(actual_mtime) = get_file_mtime(&full_path) {
+					// Fast HashMap lookup instead of database query
+					if let Some(stored_mtime) = file_metadata_map.get(file_path) {
+						if actual_mtime <= *stored_mtime {
+							// File hasn't changed, skip processing entirely but count as skipped
+							{
+								let mut state_guard = state.write();
+								state_guard.skipped_files += 1;
+							}
+							continue;
+						}
+					}
+				}
+			}
+
+			// Process the file (same logic as walker loop below)
+			if let Some(language) = detect_language(&full_path) {
+				match fs::read_to_string(&full_path) {
+					Ok(contents) => {
+						log_current_file(&state, file_path);
+						// Store the file modification time after successful processing
+
+						let ctx = ProcessFileContext {
+							store,
+							config,
+							state: state.clone(),
+						};
+
+						let file_processed = if language == "markdown" {
+							// Handle markdown files specially - index as document blocks
+							process_markdown_file_differential(
+								store,
+								&contents,
+								file_path,
+								&mut document_blocks_batch,
+								config,
+								state.clone(),
+							)
+							.await?;
+
+							// Also create a synthetic CodeBlock so GraphBuilder includes
+							// this file in the knowledge graph. The builder reads the file
+							// from disk and calls Markdown::extract_imports_exports for
+							// actual link extraction.
+							if config.graphrag.enabled {
+								all_code_blocks.push(markdown_graphrag_block(file_path, &contents));
+							}
+
+							true
+						} else {
+							// Handle code files - index as semantic code blocks only
+							process_file_differential(
+								&ctx,
+								&contents,
+								file_path,
+								language,
+								&mut code_blocks_batch,
+								&mut text_blocks_batch, // Will remain empty for code files
+								&mut all_code_blocks,
+								&mut file_context_map,
+							)
+							.await?;
+							true
+						};
+
+						// Track file metadata for atomic storage after batch processing
+						if file_processed {
+							if let Ok(actual_mtime) = get_file_mtime(&full_path) {
+								if language == "markdown" {
+									document_file_metadata.add(file_path, actual_mtime);
+								} else {
+									code_file_metadata.add(file_path, actual_mtime);
+								}
+							}
+						}
+
+						files_processed += 1;
+						state.write().indexed_files = files_processed;
+
+						// Log progress periodically for code files
+						if files_processed % 50 == 0 {
+							let current_total = state.read().total_files;
+							log_indexing_progress(
+								"file_processing",
+								files_processed,
+								current_total,
+								Some(file_path),
+								embedding_calls,
+							);
+						}
+
+						// Process batches when they reach the batch size or token limit
+						if should_process_batch(&code_blocks_batch, |b| &b.content, config) {
+							embedding_calls += code_blocks_batch.len();
+							process_code_blocks_batch(
+								store,
+								&code_blocks_batch,
+								config,
+								&code_file_metadata,
+								&file_context_map,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process code blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
+							code_blocks_batch.clear();
+							code_file_metadata.clear();
+							file_context_map.clear();
+						}
+						// Only process text_blocks_batch if we have any (from unsupported files)
+						if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
+							embedding_calls += text_blocks_batch.len();
+							process_text_blocks_batch(store, &text_blocks_batch, config, &text_file_metadata)
+								.await
+								.map_err(|e| {
+									anyhow::anyhow!(
+								"Failed to process text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+								})?;
+							batches_processed += 1;
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
+							text_blocks_batch.clear();
+							text_file_metadata.clear();
+						}
+						if should_process_batch(&document_blocks_batch, |b| &b.content, config) {
+							embedding_calls += document_blocks_batch.len();
+							process_document_blocks_batch(
+								store,
+								&document_blocks_batch,
+								config,
+								&document_file_metadata,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process document blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
+							document_blocks_batch.clear();
+							document_file_metadata.clear();
+						}
+					}
+					Err(e) => {
+						// Log file reading error
+						log_file_processing_error(file_path, "read_file", &e);
+					}
+				}
+			} else {
+				// Handle unsupported file types as chunked text
+				// First check if the file extension is in our whitelist
+				// BUT exclude markdown files since they're already processed as documents
+				if is_allowed_text_extension(&full_path) && !is_markdown_file(&full_path) {
+					if let Ok(contents) = fs::read_to_string(&full_path) {
+						// Only process files that are likely to contain readable text
+						if is_text_file(&contents) {
+							log_current_file(&state, file_path);
+							process_text_file_differential(
+								store,
+								&contents,
+								file_path,
+								&mut text_blocks_batch,
+								config,
+								state.clone(),
+							)
+							.await?;
+
+							// Track file metadata for atomic storage after batch processing
+							if let Ok(actual_mtime) = get_file_mtime(&full_path) {
+								text_file_metadata.add(file_path, actual_mtime);
+							}
+
+							files_processed += 1;
+							state.write().indexed_files = files_processed;
+
+							// Log progress periodically for text files
+							if files_processed % 50 == 0 {
+								let current_total = state.read().total_files;
+								log_indexing_progress(
+									"file_processing",
+									files_processed,
+									current_total,
+									Some(file_path),
+									embedding_calls,
+								);
+							}
+
+							// Process batch when it reaches the batch size or token limit
+							if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
+								embedding_calls += text_blocks_batch.len();
+								process_text_blocks_batch(store, &text_blocks_batch, config, &text_file_metadata)
+									.await
+									.map_err(|e| {
+										anyhow::anyhow!(
+									"Failed to process text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+									e
+								)
+									})?;
+								batches_processed += 1;
+								flush_if_needed(store, &mut batches_processed, config, false).await?;
+								text_blocks_batch.clear();
+								text_file_metadata.clear();
+							}
+						}
+					}
+				}
+			}
+		}
+	} else {
+		// Normal mode: First do a fast count, then process files
+
+		// PERFORMANCE FIX: Walk the tree once (gitignore/.noindex evaluation is the
+		// expensive part), keep the file entries, and count indexable ones from
+		// that list instead of walking a second time for processing.
+		let file_entries: Vec<ignore::DirEntry> = NoindexWalker::create_walker(&current_dir)
+			.build()
+			.filter_map(Result::ok)
+			.filter(|entry| entry.file_type().is_some_and(|ft| ft.is_file()))
+			.collect();
+		total_files_found = file_entries
+			.iter()
+			.filter(|entry| detect_language(entry.path()).is_some() || is_allowed_text_extension(entry.path()))
+			.count();
+
+		// Update state with the total count immediately
+		{
+			let mut state_guard = state.write();
+			state_guard.total_files = total_files_found;
+			state_guard.counting_files = false;
+			state_guard.status_message = "".to_string();
+		}
+
+		// Now do the actual processing with proper language detection
+		for entry in file_entries {
+			// Create relative path from the current directory using our utility
+			let file_path = path_utils::PathUtils::to_relative_string(entry.path(), &current_dir);
+
+			// PERFORMANCE OPTIMIZATION: Fast file modification time check using preloaded metadata
+			// This replaces individual database queries with HashMap lookup
+			let force_reindex = state.read().force_reindex;
+			if !force_reindex {
+				if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+					// Fast HashMap lookup instead of database query
+					if let Some(stored_mtime) = file_metadata_map.get(&file_path) {
+						if actual_mtime <= *stored_mtime {
+							// File hasn't changed, skip processing entirely but count as skipped
+							{
+								let mut state_guard = state.write();
+								state_guard.skipped_files += 1;
+							}
+							continue;
+						}
+					}
+				}
+			}
+
+			if let Some(language) = detect_language(entry.path()) {
+				match fs::read_to_string(entry.path()) {
+					Ok(contents) => {
+						log_current_file(&state, &file_path);
+						// Store the file modification time after successful processing
+
+						let file_processed = if language == "markdown" {
+							// Handle markdown files specially - index as document blocks
+							process_markdown_file_differential(
+								store,
+								&contents,
+								&file_path,
+								&mut document_blocks_batch,
+								config,
+								state.clone(),
+							)
+							.await?;
+
+							// Also create a synthetic CodeBlock for GraphRAG
+							if config.graphrag.enabled {
+								all_code_blocks.push(markdown_graphrag_block(&file_path, &contents));
+							}
+
+							true
+						} else {
+							// Handle code files - index as semantic code blocks only
+							let ctx = ProcessFileContext {
+								store,
+								config,
+								state: state.clone(),
+							};
+							process_file_differential(
+								&ctx,
+								&contents,
+								&file_path,
+								language,
+								&mut code_blocks_batch,
+								&mut text_blocks_batch, // Will remain empty for code files
+								&mut all_code_blocks,
+								&mut file_context_map,
+							)
+							.await?;
+							true
+						};
+
+						// Track file metadata for atomic storage after batch processing
+						if file_processed {
+							if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+								if language == "markdown" {
+									document_file_metadata.add(&file_path, actual_mtime);
+								} else {
+									code_file_metadata.add(&file_path, actual_mtime);
+								}
+							}
+						}
+
+						files_processed += 1;
+						state.write().indexed_files = files_processed;
+
+						// Log progress periodically for code files
+						if files_processed % 50 == 0 {
+							let current_total = state.read().total_files;
+							log_indexing_progress(
+								"file_processing",
+								files_processed,
+								current_total,
+								Some(&file_path),
+								embedding_calls,
+							);
+						}
+
+						// Process batches when they reach the batch size or token limit
+						if should_process_batch(&code_blocks_batch, |b| &b.content, config) {
+							embedding_calls += code_blocks_batch.len();
+							process_code_blocks_batch(
+								store,
+								&code_blocks_batch,
+								config,
+								&code_file_metadata,
+								&file_context_map,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process code blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
+							code_blocks_batch.clear();
+							code_file_metadata.clear();
+							file_context_map.clear();
+						}
+						// Only process text_blocks_batch if we have any (from unsupported files)
+						if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
+							embedding_calls += text_blocks_batch.len();
+							process_text_blocks_batch(store, &text_blocks_batch, config, &text_file_metadata)
+								.await
+								.map_err(|e| {
+									anyhow::anyhow!(
+								"Failed to process text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+								})?;
+							batches_processed += 1;
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
+							text_blocks_batch.clear();
+							text_file_metadata.clear();
+						}
+						if should_process_batch(&document_blocks_batch, |b| &b.content, config) {
+							embedding_calls += document_blocks_batch.len();
+							process_document_blocks_batch(
+								store,
+								&document_blocks_batch,
+								config,
+								&document_file_metadata,
+							)
+							.await
+							.map_err(|e| {
+								anyhow::anyhow!(
+								"Failed to process document blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+								e
+							)
+							})?;
+							batches_processed += 1;
+							flush_if_needed(store, &mut batches_processed, config, false).await?;
+							document_blocks_batch.clear();
+							document_file_metadata.clear();
+						}
+					}
+					Err(e) => {
+						// Log file reading error
+						log_file_processing_error(&file_path, "read_file", &e);
+					}
+				}
+			} else {
+				// Handle unsupported file types as chunked text
+				// First check if the file extension is in our whitelist
+				// BUT exclude markdown files since they're already processed as documents
+				if is_allowed_text_extension(entry.path()) && !is_markdown_file(entry.path()) {
+					if let Ok(contents) = fs::read_to_string(entry.path()) {
+						// Only process files that are likely to contain readable text
+						if is_text_file(&contents) {
+							log_current_file(&state, &file_path);
+							process_text_file_differential(
+								store,
+								&contents,
+								&file_path,
+								&mut text_blocks_batch,
+								config,
+								state.clone(),
+							)
+							.await?;
+
+							// Track file metadata for atomic storage after batch processing
+							if let Ok(actual_mtime) = get_file_mtime(entry.path()) {
+								text_file_metadata.add(&file_path, actual_mtime);
+							}
+
+							files_processed += 1;
+							state.write().indexed_files = files_processed;
+
+							// Log progress periodically for text files
+							if files_processed % 50 == 0 {
+								let current_total = state.read().total_files;
+								log_indexing_progress(
+									"file_processing",
+									files_processed,
+									current_total,
+									Some(&file_path),
+									embedding_calls,
+								);
+							}
+
+							// Process batch when it reaches the batch size or token limit
+							if should_process_batch(&text_blocks_batch, |b| &b.content, config) {
+								embedding_calls += text_blocks_batch.len();
+								process_text_blocks_batch(store, &text_blocks_batch, config, &text_file_metadata)
+									.await
+									.map_err(|e| {
+										anyhow::anyhow!(
+									"Failed to process text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+									e
+								)
+									})?;
+								batches_processed += 1;
+								flush_if_needed(store, &mut batches_processed, config, false).await?;
+								text_blocks_batch.clear();
+								text_file_metadata.clear();
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Process remaining batches
+	if !code_blocks_batch.is_empty() {
+		embedding_calls += code_blocks_batch.len();
+		process_code_blocks_batch(
+			store,
+			&code_blocks_batch,
+			config,
+			&code_file_metadata,
+			&file_context_map,
+		)
+		.await
+		.map_err(|e| {
+			anyhow::anyhow!(
+			"Failed to process remaining code blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+			e
+		)
+		})?;
+		batches_processed += 1;
+	}
+	// Only process text_blocks_batch if we have any (from unsupported files)
+	if !text_blocks_batch.is_empty() {
+		embedding_calls += text_blocks_batch.len();
+		process_text_blocks_batch(store, &text_blocks_batch, config, &text_file_metadata)
+			.await
+			.map_err(|e| {
+				anyhow::anyhow!(
+				"Failed to process remaining text blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+				e
+			)
+			})?;
+		batches_processed += 1;
+	}
+	if !document_blocks_batch.is_empty() {
+		embedding_calls += document_blocks_batch.len();
+		process_document_blocks_batch(
+			store,
+			&document_blocks_batch,
+			config,
+			&document_file_metadata,
+		)
+		.await
+		.map_err(|e| anyhow::anyhow!(
+			"Failed to process remaining document blocks batch: {}. Aborting indexing — partial state retained, rerun to resume.",
+			e
+		))?;
+		batches_processed += 1;
+	}
+
+	// Force flush any remaining data after processing all batches
+	flush_if_needed(store, &mut batches_processed, config, true).await?;
+
+	// Build GraphRAG if enabled
+	if config.graphrag.enabled {
+		// Check if we have new blocks from this indexing run OR if GraphRAG needs building from existing database
+		let needs_graphrag_from_existing = if all_code_blocks.is_empty() {
+			// No new blocks from this run - check if we have existing blocks in database to build from
+			// This handles the case where GraphRAG is enabled after database is already indexed.
+			// Check the cheap row-count flag FIRST: `get_all_code_blocks_for_graphrag`
+			// loads the entire code_blocks table into memory, which on steady-state
+			// runs (all files skipped) is a large allocation for a boolean.
+			let needs_indexing = match store.graphrag_needs_indexing().await {
+				Ok(v) => v,
+				Err(e) => {
+					tracing::warn!(
+						error = %e,
+						"Failed to check if GraphRAG needs indexing, assuming false"
+					);
+					false
+				}
+			};
+			if needs_indexing {
+				store.has_blocks_for_graphrag().await.unwrap_or(false)
+			} else {
+				false
+			}
+		} else {
+			false // We have new blocks, process them normally
+		};
+
+		if !all_code_blocks.is_empty() || needs_graphrag_from_existing {
+			{
+				let mut state_guard = state.write();
+				if needs_graphrag_from_existing {
+					state_guard.status_message = "Building GraphRAG from existing database...".to_string();
+				} else {
+					state_guard.status_message = "Building GraphRAG knowledge graph...".to_string();
+				}
+			}
+
+			// Log GraphRAG phase start
+			log_indexing_progress(
+				"graphrag_build",
+				state.read().indexed_files,
+				state.read().total_files,
+				None,
+				embedding_calls,
+			);
+
+			// Initialize GraphBuilder
+			let graph_builder = graphrag::GraphBuilder::new_with_quiet(config.clone(), &current_dir, quiet).await?;
+
+			if needs_graphrag_from_existing {
+				// Build GraphRAG from existing database (critical fix for the reported issue)
+				graph_builder.build_from_existing_database(Some(state.clone())).await?;
+			} else {
+				// Process new code blocks to build/update the graph
+				graph_builder
+					.process_code_blocks(&all_code_blocks, Some(state.clone()))
+					.await?;
+			}
+
+			// Update final state
+			{
+				let mut state_guard = state.write();
+				state_guard.status_message = "".to_string();
+			}
+
+			// NOTE: GraphRAG commit hash will be stored AFTER final flush for data integrity
+		}
+	}
+
+	{
+		let mut state_guard = state.write();
+		state_guard.indexing_complete = true;
+		state_guard.embedding_calls = embedding_calls;
+	}
+
+	// Log indexing completion
+	let final_files = state.read().indexed_files;
+	let final_total = state.read().total_files;
+	log_indexing_progress("indexing_complete", final_files, final_total, None, embedding_calls);
+
+	// Index commits from default branch
+	if let Some(repo_root) = git_repo_root {
+		if let Err(e) = commits::index_commits(config, store, repo_root, state.clone(), quiet).await {
+			tracing::warn!("Commit indexing failed: {}", e);
+		}
+	}
+
+	// CRITICAL: Persist data and store git metadata atomically
+	// Always store metadata when we have a git repo — this records "we checked at this commit"
+	// even if all files were skipped by mtime. Without this, a repo with no initial commit
+	// at first index time will never store a commit hash, causing infinite "first-time indexing"
+	// loops on subsequent runs where all files are skipped by mtime but 0 files are processed.
+	persist_and_store_metadata(store, git_repo_root, config, quiet, "indexing_complete").await?;
+
+	// Run LanceDB maintenance once per indexing run: compact fragments, extend
+	// vector & FTS indexes to cover the newly-added tail, prune old versions.
+	// Without this, repeated incremental indexing leaves growing unindexed tails
+	// that the query path must brute-force scan — search degrades with DB size.
+	if let Err(e) = store.optimize_tables().await {
+		tracing::warn!(error = %e, "Post-index optimize_tables failed (non-fatal)");
+	}
+
+	Ok(())
+}
+
+// Function to handle file changes (for watch mode)
+pub async fn handle_file_change(store: &Store, file_path: &str, config: &Config) -> Result<()> {
+	// Create a state for tracking changes
+	let state = state::create_shared_state();
+	{
+		let mut state_guard = state.write();
+		state_guard.graphrag_enabled = config.graphrag.enabled;
+		state_guard.graphrag_blocks = 0;
+	}
+
+	// First, let's remove any existing code blocks for this file path
+	store.remove_blocks_by_path(file_path).await?;
+
+	// Now, if the file still exists, check if it should be indexed based on ignore rules
+	let path = std::path::Path::new(file_path);
+	if path.exists() {
+		// Get the current directory for proper relative path handling
+		let current_dir = std::env::current_dir()?;
+
+		// Convert relative path to absolute for ignore checking
+		let absolute_path = if path.is_absolute() {
+			path.to_path_buf()
+		} else {
+			current_dir.join(path)
+		};
+
+		// Create a matcher that respects both .gitignore and .noindex rules
+		if let Ok(matcher) = NoindexWalker::create_matcher(&current_dir, true) {
+			// Use quiet=true for watcher
+			// Check if the file should be ignored
+			if matcher.matched(&absolute_path, absolute_path.is_dir()).is_ignore() {
+				// File is in ignore patterns, so don't index it
+				return Ok(());
+			}
+		}
+
+		// File is not ignored, so proceed with indexing
+		if let Some(language) = detect_language(&absolute_path) {
+			if let Ok(contents) = fs::read_to_string(&absolute_path) {
+				// Ensure we use relative path for storage
+				let relative_file_path = path_utils::PathUtils::to_relative_string(&absolute_path, &current_dir);
+
+				if language == "markdown" {
+					// Handle markdown files specially
+					let mut document_blocks_batch = Vec::new();
+					let mut document_file_metadata = FileMetadataBatch::new();
+					process_markdown_file(
+						store,
+						&contents,
+						&relative_file_path,
+						&mut document_blocks_batch,
+						config,
+						state.clone(),
+					)
+					.await?;
+
+					// Track file metadata
+					if let Ok(mtime) = get_file_mtime(&absolute_path) {
+						document_file_metadata.add(&relative_file_path, mtime);
+					}
+
+					if !document_blocks_batch.is_empty() {
+						process_document_blocks_batch(store, &document_blocks_batch, config, &document_file_metadata)
+							.await?;
+					}
+
+					// Update GraphRAG for this markdown file
+					if config.graphrag.enabled {
+						let md_blocks = vec![markdown_graphrag_block(&relative_file_path, &contents)];
+						let graph_builder =
+							graphrag::GraphBuilder::new_with_quiet(config.clone(), &current_dir, true).await?;
+						graph_builder
+							.process_code_blocks(&md_blocks, Some(state.clone()))
+							.await?;
+					}
+				} else {
+					// Handle code files
+					let mut code_blocks_batch = Vec::new();
+					let mut text_blocks_batch = Vec::new(); // Will remain empty for code files
+					let mut all_code_blocks = Vec::new(); // For GraphRAG
+					let mut code_file_metadata = FileMetadataBatch::new();
+					let mut file_context_map = contextual::FileContextMap::new();
+
+					let ctx = ProcessFileContext {
+						store,
+						config,
+						state: state.clone(),
+					};
+					process_file(
+						&ctx,
+						&contents,
+						&relative_file_path,
+						language,
+						&mut code_blocks_batch,
+						&mut text_blocks_batch,
+						&mut all_code_blocks,
+						&mut file_context_map,
+					)
+					.await?;
+
+					// Track file metadata
+					if let Ok(mtime) = get_file_mtime(&absolute_path) {
+						code_file_metadata.add(&relative_file_path, mtime);
+					}
+
+					if !code_blocks_batch.is_empty() {
+						process_code_blocks_batch(
+							store,
+							&code_blocks_batch,
+							config,
+							&code_file_metadata,
+							&file_context_map,
+						)
+						.await?;
+					}
+					// No need to process text_blocks_batch since it will be empty for code files
+
+					// Update GraphRAG if enabled and we have new blocks
+					if config.graphrag.enabled && !all_code_blocks.is_empty() {
+						let graph_builder = graphrag::GraphBuilder::new(config.clone(), &current_dir).await?;
+						graph_builder
+							.process_code_blocks(&all_code_blocks, Some(state.clone()))
+							.await?;
+					}
+				}
+
+				// Explicitly flush to ensure all data is persisted
+				store.flush().await?;
+			}
+		} else {
+			// Handle unsupported file types as chunked text
+			// First check if the file extension is in our whitelist
+			if is_allowed_text_extension(&absolute_path) {
+				if let Ok(contents) = fs::read_to_string(&absolute_path) {
+					if is_text_file(&contents) {
+						// Ensure we use relative path for storage
+						let relative_file_path =
+							path_utils::PathUtils::to_relative_string(&absolute_path, &current_dir);
+
+						let mut text_blocks_batch = Vec::new();
+						process_text_file(
+							store,
+							&contents,
+							&relative_file_path,
+							&mut text_blocks_batch,
+							config,
+							state.clone(),
+						)
+						.await?;
+
+						// Track file metadata
+						let mut text_file_metadata = FileMetadataBatch::new();
+						if let Ok(mtime) = get_file_mtime(&absolute_path) {
+							text_file_metadata.add(&relative_file_path, mtime);
+						}
+
+						if !text_blocks_batch.is_empty() {
+							process_text_blocks_batch(store, &text_blocks_batch, config, &text_file_metadata).await?;
+						}
+
+						// Explicitly flush to ensure all data is persisted
+						store.flush().await?;
+					}
+				}
+			}
+		}
+	}
+
+	Ok(())
+}
+
+// ProcessFileContext and process_file function moved to differential_processor module
+
+// Code region extraction logic moved to code_region_extractor module
+
+// Batch processing functions moved to batch_processor module
+
+// Constants for text chunking - REMOVED: Now using config.index.chunk_size and config.index.chunk_overlap
+
+// File processing functions moved to file_processor module
+
+// Differential processing functions moved to differential_processor module
+
+#[cfg(test)]
+mod context_optimization_tests {
+	use super::*;
+
+	#[test]
+	fn markdown_graphrag_blocks_preserve_content_for_change_detection() {
+		let original = markdown_graphrag_block("docs/guide.md", "# Guide\nOriginal");
+		let updated = markdown_graphrag_block("docs/guide.md", "# Guide\nUpdated");
+
+		assert_eq!(original.content, "# Guide\nOriginal");
+		assert_eq!(original.language, "markdown");
+		assert_ne!(original.hash, updated.hash);
+	}
+
+	#[test]
+	fn test_context_optimization() {
+		// Create a DocumentBlock with context
+		let doc_block = DocumentBlock {
+			path: "test.md".to_string(),
+			title: "Test Section".to_string(),
+			content: "This is the actual content.".to_string(),
+			context: vec![
+				"# Main Document".to_string(),
+				"## Authentication".to_string(),
+				"### JWT Implementation".to_string(),
+			],
+			level: 3,
+			start_line: 10,
+			end_line: 15,
+			hash: "test_hash".to_string(),
+			distance: None,
+		};
+
+		// Test context merging for embedding
+		let embedding_text = if !doc_block.context.is_empty() {
+			format!("{}\n\n{}", doc_block.context.join("\n"), doc_block.content)
+		} else {
+			doc_block.content.clone()
+		};
+
+		// Verify the embedding text contains context
+		assert!(embedding_text.contains("# Main Document"));
+		assert!(embedding_text.contains("## Authentication"));
+		assert!(embedding_text.contains("### JWT Implementation"));
+		assert!(embedding_text.contains("This is the actual content."));
+
+		// Verify memory efficiency
+		let storage_size = doc_block.content.len();
+		let context_size: usize = doc_block.context.iter().map(|s| s.len()).sum();
+		let total_size = storage_size + context_size;
+		let old_approach_size = embedding_text.len() + doc_block.content.len();
+
+		// New approach should be more efficient
+		assert!(total_size < old_approach_size);
+
+		println!("New approach size: {} bytes", total_size);
+		println!("Old approach size: {} bytes", old_approach_size);
+		println!(
+			"Memory savings: {}%",
+			((old_approach_size - total_size) as f64 / old_approach_size as f64 * 100.0) as i32
+		);
+	}
+
+	#[test]
+	fn test_empty_context() {
+		let doc_block = DocumentBlock {
+			path: "test.md".to_string(),
+			title: "Test Section".to_string(),
+			content: "Content without context.".to_string(),
+			context: Vec::new(), // Empty context
+			level: 1,
+			start_line: 0,
+			end_line: 5,
+			hash: "test_hash".to_string(),
+			distance: None,
+		};
+
+		// Test context merging with empty context
+		let embedding_text = if !doc_block.context.is_empty() {
+			format!("{}\n\n{}", doc_block.context.join("\n"), doc_block.content)
+		} else {
+			doc_block.content.clone()
+		};
+
+		// Should just be the content
+		assert_eq!(embedding_text, doc_block.content);
+	}
+
+	#[test]
+	fn test_smart_chunking_eliminates_tiny_chunks() {
+		// Test markdown content that would create tiny chunks
+		let test_content = r#"# Main Document
+
+## Section A
+Some content here.
+
+### Tiny Subsection
+Only 33 symbols here - very small!
+
+### Another Tiny
+Also small content.
+
+## Section B
+This has more substantial content that should be fine on its own.
+It has multiple lines and provides good context for understanding.
+
+### Small Child
+Brief content.
+"#;
+
+		let hierarchy = parse_document_hierarchy(test_content);
+		let chunks = hierarchy.bottom_up_chunking(2000, 100); // 2000 char target, 100 char overlap
+
+		// Verify no chunks are extremely tiny (less than 100 chars as reasonable minimum)
+		let tiny_chunks: Vec<&ChunkResult> = chunks
+			.iter()
+			.filter(|chunk| chunk.storage_content.len() < 100)
+			.collect();
+
+		println!("Generated {} chunks total", chunks.len());
+		for (i, chunk) in chunks.iter().enumerate() {
+			println!(
+				"Chunk {}: {} chars - '{}'",
+				i + 1,
+				chunk.storage_content.len(),
+				chunk.title
+			);
+		}
+
+		if !tiny_chunks.is_empty() {
+			println!("Found {} tiny chunks:", tiny_chunks.len());
+			for chunk in &tiny_chunks {
+				println!("- '{}': {} chars", chunk.title, chunk.storage_content.len());
+			}
+		}
+
+		// The smart chunking should eliminate most tiny chunks through merging
+		assert!(
+			tiny_chunks.len() <= 1,
+			"Should have at most 1 tiny chunk after smart merging"
+		);
+	}
+}

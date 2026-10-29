@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.getsentry.mobilebuildmcp",
+  "type": "mcp",
+  "name": "Mobilebuildmcp",
+  "slug": "mobilebuildmcp",
+  "vendor": "getsentry",
+  "description": "A Model Context Protocol (MCP) server and CLI that provides tools for agent use when working on iOS and macOS projects.",
+  "version": "2.7.1",
+  "homepage": "https://github.com/getsentry/MobileBuildMCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol",
+    "model-context-protocol-servers",
+    "tag-non-production",
+    "xcode",
+    "xcodebuild"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "model-context-protocol-servers",
+    "tag-non-production",
+    "xcode",
+    "xcodebuild"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "getsentry",
+    "brandName": "getsentry",
+    "source": "https://github.com/getsentry.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "getsentry/MobileBuildMCP",
+    "url": "https://github.com/getsentry/MobileBuildMCP",
+    "commit": "2998ac77ebbca59544e88a27f34bfb830db9d924",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6512,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:29Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "transport": "http",
+      "command": "sentry"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "../../build/cli.js",
+        "mcp"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mobilebuildmcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mobilebuildmcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mobilebuildmcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

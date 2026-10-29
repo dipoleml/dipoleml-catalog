@@ -1,0 +1,23 @@
+Build a landing page with this exact visual language.
+COLORS:
+  #000000
+  #3139fb
+  #fffcec
+  #ffffff
+  #fffadd
+  #2702c2
+  #696969
+FONTS: [object Object], [object Object], [object Object], [object Object]
+SPACING: 2, 32, 37, 48, 64, 72, 80, 90
+RADIUS: 4, 8, 22
+SHADOWS: rgba(0, 0, 0, 0.25) 0px 2px 8px 0px | rgba(0, 0, 0, 0.1) 0px 5px 5px 0px
+MATERIAL LANGUAGE: flat
+VOICE: Tone: friendly · Headings: Title Case · CTA verbs: [object Object]
+SECTIONS (in order):
+- testimonial — heading: "Arc is the Chrome  replacement I've been  waiting for."
+- sidebar
+- testimonial
+- testimonial
+- footer
+- sidebar
+Use Tailwind. Match these tokens exactly. Keep the material language consistent.

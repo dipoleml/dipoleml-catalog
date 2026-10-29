@@ -1,0 +1,16 @@
+{
+  "name": "oh-my-cassette",
+  "displayName": "Oh My Cassette",
+  "version": "0.6.0",
+  "description": "Edit video with the Cassette agent from DipoleML: import local media, send editing turns, undo or revert them, export.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cassette Editor"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Cassette-Editor/oh-my-cassette",
+  "repository": "https://github.com/Cassette-Editor/oh-my-cassette",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

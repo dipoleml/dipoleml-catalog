@@ -1,0 +1,197 @@
+import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types'
+import OpenAPIClientAxios from 'openapi-client-axios'
+import type { AxiosInstance } from 'axios'
+import { Headers } from './polyfill-headers'
+import { isFileUploadParameter } from '../openapi/file-upload'
+
+export type HttpClientConfig = {
+  baseUrl: string
+  headers?: Record<string, string>
+}
+
+export type HttpClientResponse<T = any> = {
+  data: T
+  status: number
+  headers: Headers
+}
+
+export class HttpClientError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public data: any,
+    public headers?: Headers,
+  ) {
+    super(`${status} ${message}`)
+    this.name = 'HttpClientError'
+  }
+}
+
+export class HttpClient {
+  private api: Promise<AxiosInstance>
+  private client: OpenAPIClientAxios
+  private config: HttpClientConfig
+  private openApiSpec: OpenAPIV3.Document | OpenAPIV3_1.Document
+
+  constructor(config: HttpClientConfig, openApiSpec: OpenAPIV3.Document | OpenAPIV3_1.Document) {
+    this.config = config
+    this.openApiSpec = openApiSpec
+    // @ts-expect-error
+    this.client = new (OpenAPIClientAxios.default ?? OpenAPIClientAxios)({
+      definition: openApiSpec,
+      axiosConfigDefaults: {
+        baseURL: config.baseUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'notion-mcp-server',
+          ...config.headers,
+        },
+      },
+    })
+    this.api = this.client.init()
+  }
+
+  /**
+   * Resolve a possibly-$ref'd parameter to its inline definition.
+   * Only local refs (e.g. `#/components/parameters/notionVersion`) are supported.
+   */
+  private resolveParameter(
+    param: OpenAPIV3.ParameterObject | OpenAPIV3.ReferenceObject,
+  ): OpenAPIV3.ParameterObject | null {
+    if (!('$ref' in param)) {
+      return param as OpenAPIV3.ParameterObject
+    }
+    const ref = param.$ref
+    if (!ref.startsWith('#/')) {
+      return null
+    }
+    let node: any = this.openApiSpec
+    for (const segment of ref.slice(2).split('/')) {
+      node = node?.[segment]
+      if (node === undefined) return null
+    }
+    return node && node.name ? (node as OpenAPIV3.ParameterObject) : null
+  }
+
+  /**
+   * Build the server-managed header parameters declared on an operation.
+   *
+   * Header parameters (currently `Notion-Version`) are not exposed as tool
+   * inputs; their value comes from the operation's header-parameter `default`
+   * in the OpenAPI spec. This lets each endpoint pin the API version it needs —
+   * e.g. the page-markdown endpoints require `2026-03-11` while the rest of the
+   * API stays on `2025-09-03`. A header the caller configured globally (via
+   * HttpClientConfig.headers) takes precedence and is left untouched.
+   */
+  private buildDefaultHeaders(operation: OpenAPIV3.OperationObject): Record<string, string> {
+    const configured = new Set(Object.keys(this.config.headers ?? {}).map((key) => key.toLowerCase()))
+    const headers: Record<string, string> = {}
+    for (const param of operation.parameters ?? []) {
+      const resolved = this.resolveParameter(param)
+      if (!resolved || resolved.in !== 'header' || configured.has(resolved.name.toLowerCase())) {
+        continue
+      }
+      const schema = resolved.schema as OpenAPIV3.SchemaObject | undefined
+      if (schema && schema.default !== undefined) {
+        headers[resolved.name] = String(schema.default)
+      }
+    }
+    return headers
+  }
+
+  /**
+   * Execute an OpenAPI operation
+   */
+  async executeOperation<T = any>(
+    operation: OpenAPIV3.OperationObject & { method: string; path: string },
+    params: Record<string, any> = {},
+  ): Promise<HttpClientResponse<T>> {
+    const api = await this.api
+    const operationId = operation.operationId
+    if (!operationId) {
+      throw new Error('Operation ID is required')
+    }
+
+    // Adding an upload endpoint to the spec must not grant tools local filesystem access.
+    // Uploads require an explicit file-access policy before they can be supported.
+    if (isFileUploadParameter(operation).length > 0) {
+      throw new Error('File uploads are not supported: local file access is disabled')
+    }
+
+    // Separate parameters based on their location
+    const urlParameters: Record<string, any> = {}
+    const bodyParams: Record<string, any> = { ...params }
+
+    // Extract path and query parameters based on operation definition
+    if (operation.parameters) {
+      for (const param of operation.parameters) {
+        if ('name' in param && param.name && param.in) {
+          if (param.in === 'path' || param.in === 'query') {
+            if (params[param.name] !== undefined) {
+              urlParameters[param.name] = params[param.name]
+              delete bodyParams[param.name]
+            }
+          }
+        }
+      }
+    }
+
+    // Add all parameters as url parameters if there is no requestBody defined
+    if (!operation.requestBody) {
+      for (const key in bodyParams) {
+        if (bodyParams[key] !== undefined) {
+          urlParameters[key] = bodyParams[key]
+          delete bodyParams[key]
+        }
+      }
+    }
+
+    const operationFn = (api as any)[operationId]
+    if (!operationFn) {
+      throw new Error(`Operation ${operationId} not found`)
+    }
+
+    try {
+      const hasBody = Object.keys(bodyParams).length > 0
+      const headers = { ...(hasBody ? { 'Content-Type': 'application/json' } : { 'Content-Type': null }) }
+      const requestConfig = {
+        headers: {
+          ...this.buildDefaultHeaders(operation),
+          ...headers,
+        },
+      }
+
+      // first argument is url parameters, second is body parameters
+      const response = await operationFn(urlParameters, hasBody ? bodyParams : undefined, requestConfig)
+
+      // Convert axios headers to Headers object
+      const responseHeaders = new Headers()
+      Object.entries(response.headers).forEach(([key, value]) => {
+        if (value) responseHeaders.append(key, value.toString())
+      })
+
+      return {
+        data: response.data,
+        status: response.status,
+        headers: responseHeaders,
+      }
+    } catch (error: any) {
+      if (error.response) {
+        // Only log errors in non-test environments to keep test output clean
+        if (process.env.NODE_ENV !== 'test') {
+          console.error('Error in http client', {
+            status: error.response.status,
+            statusText: error.response.statusText,
+          })
+        }
+        const headers = new Headers()
+        Object.entries(error.response.headers).forEach(([key, value]) => {
+          if (value) headers.append(key, value.toString())
+        })
+
+        throw new HttpClientError(error.response.statusText || 'Request failed', error.response.status, error.response.data, headers)
+      }
+      throw error
+    }
+  }
+}

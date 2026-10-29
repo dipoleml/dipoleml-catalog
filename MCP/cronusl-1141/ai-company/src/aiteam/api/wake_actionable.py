@@ -1,0 +1,305 @@
+"""Wake actionable predicate — the single source of truth for "is there work in
+flight the Leader should react to".
+
+唤醒体系 v2（docs/wake-loop-v2-design.md §7.1/§7.2）的判据基石。事件 watcher 轮询它、
+turn-end guard 停机时查它，二者共用同一判据，对"有无活在飞"永不打架。判据集中在
+Python（可单测），bash watcher 只当哑轮询器（零 SQL）。
+
+设计原则（对齐 session_probe.py）：纯只读、防御式——每个子信号独立 try 包裹，任何失败
+一律降级为 0/空，绝不抛出、绝不 500。宁可少报（下一 /loop tick 兜底）不可让 watcher/guard
+因端点异常而失联。
+
+数据键映射（照数据实际归属，不臆造）：
+- agents 按 team_id（Leader 会话团队，子 agent 挂其下）
+- workflow_runs 按 session_id（WorkflowRun.session_id = 启动的 Leader 会话；run 自带
+  workflow-<id> 团队 ≠ Leader 团队，故绝不能按 team_id 过滤 runs）
+- task_memos / briefings 按 project_id（从 team 解析）
+
+时间口径：全系统统一 UTC（见 aiteam/clock.py）。watermark 返回
+``utc_now().isoformat()``，即带 ``+00:00`` 偏移的自描述串；watcher 原样回传形成
+单调水位，since 侧解析回 aware-UTC 后与库值直接比较——两端不再各自约定，串自己
+带着口径走。
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from datetime import datetime
+from typing import Any
+
+from aiteam.clock import ensure_utc, parse_utc, utc_now
+from aiteam.types import AgentStatus
+
+logger = logging.getLogger(__name__)
+
+# workflow_runs 的终态集合（design §7.2）：这些是 actionable 的（尤其后三者需补救）。
+TERMINAL_RUN_STATUSES = frozenset({"completed", "interrupted", "killed", "failed"})
+# 活跃态：仍在飞，属良性（benign），不触发唤醒，只作 guard 的"有无活在飞"计量。
+LIVE_RUN_STATUSES = frozenset({"planned", "running"})
+
+# reasons 列表上限，防响应膨胀
+_MAX_REASONS = 12
+
+# 可作为唤醒触发的四类信号。计数**永远全部返回**，这里只决定哪些参与 actionable
+# 判定——把"发生了什么"和"我要为什么醒"分开，前者是观测，后者是武装者的声明。
+SIGNAL_NAMES: frozenset[str] = frozenset({"agents", "runs", "memos", "mentions"})
+
+
+def parse_signals(raw: str | None) -> frozenset[str]:
+    """解析 signals 参数；空/无法解析一律退回全集。
+
+    降级方向是刻意的：**拼错信号名退回"全都要"，绝不退成"一个都不要"**。少醒一次
+    是把消息丢在库里（本功能存在的全部理由），多醒一次只是噪音——两种代价不对称，
+    所以拿不准时取更吵的那个。有效集合会随响应返回，武装者能自己看出拼错了没有。
+    """
+    if not raw:
+        return SIGNAL_NAMES
+    picked = {part.strip().lower() for part in raw.split(",")} & SIGNAL_NAMES
+    return frozenset(picked) if picked else SIGNAL_NAMES
+
+# task_memo_add 的默认 author。Leader 多数 memo 不显式署名，走的就是这个值，所以
+# 只排除 reader 本身治不了自唤醒的常见形态。子 agent 若也用默认值署名，其 memo 会
+# 被一并排除——那是署名侧的错标，修在署名侧；判据这里宁可少醒一次，也不能让
+# "写字的人被自己写的字叫醒并因此卸岗"这条常态继续成立。
+_DEFAULT_MEMO_AUTHOR = "leader"
+
+
+def _self_author_aliases(reader: str) -> frozenset[str]:
+    """唤醒者"自己"的全部 memo 署名形态；reader 为空时返回空集（不猜）。"""
+    if not reader:
+        return frozenset()
+    return frozenset({reader, _DEFAULT_MEMO_AUTHOR})
+
+
+def parse_since(raw: str | None) -> datetime | None:
+    """把 since 查询参数解析为 aware-UTC datetime；无法解析返回 None（=不设下界）。
+
+    容错接受：带 'Z'、带时区偏移、或不带偏移的 ISO8601。不带偏移者按 UTC 读，
+    与 watermark 的发出口径一致。
+
+    还原一种**沉默且后果严重**的传输损坏：query string 里 '+' 是空格的编码，所以
+    未经编码的 "…T06:23:42+00:00" 到服务端会变成 "…T06:23:42 00:00"，解析失败
+    → None → 不设下界 → **统计全部历史**。表现不是报错，而是"一切都是新事件"：
+    实测 os-watch.sh 因此每轮都判 actionable、一起来就退出唤醒，从没真正守望过
+    （since 声称是 2 秒前，却报出 1513 条新 memo）。
+
+    调用方本该自己编码，这里仍兜一层：受损形态唯一（偏移前的空格只可能来自 '+'），
+    还原无歧义，而漏掉它的代价是整个唤醒体系静默失灵。
+    """
+    if raw and " " in raw:
+        # 只还原"时间与偏移之间的那个空格"，不动 "YYYY-MM-DD HH:MM:SS" 这种合法分隔
+        repaired = re.sub(r"(?<=\d) (?=\d{2}:\d{2}$)", "+", raw.strip())
+        if repaired != raw:
+            got = parse_utc(repaired)
+            if got is not None:
+                return got
+    return parse_utc(raw)
+
+
+def _after(ts: datetime | None, since: datetime | None) -> bool:
+    """ts 是否严格晚于 since；since 为 None 视为无下界（一律计入）。ts 缺失则不计入。"""
+    if ts is None:
+        return False
+    if since is None:
+        return True
+    try:
+        return ensure_utc(ts) > ensure_utc(since)
+    except (TypeError, ValueError):
+        return False
+
+
+async def _resolve_project_id(repo: Any, team_id: str, project_id: str) -> str:
+    """project_id 缺省时从 team 解析。失败返回空串（memo/briefing 信号将降级为 0）。"""
+    if project_id:
+        return project_id
+    if not team_id:
+        return ""
+    try:
+        team = await repo.get_team(team_id)
+        return (team.project_id or "") if team else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _agent_signals(
+    repo: Any, team_id: str, session_id: str, since: datetime | None
+) -> tuple[int, int, list[str]]:
+    """返回 (busy_agents, finished_agents_since, reasons)。
+
+    finished_agents_since 是近似：AgentModel 无"状态变更时间戳"，故以
+    status ∈ {waiting, offline} 且 last_active_at > since 近似"刚从 busy 收工"。
+    这是次要信号——子 agent 完成通常会写 task_memo，由 new_memos_since 强兜底。
+    """
+    reasons: list[str] = []
+    try:
+        agents = []
+        if team_id:
+            agents = await repo.list_agents(team_id)
+        elif session_id:
+            agents = await repo.find_agents_by_session(session_id)
+        busy = 0
+        finished = 0
+        for a in agents:
+            status = getattr(a, "status", None)
+            if status == AgentStatus.BUSY:
+                busy += 1
+            elif status in (AgentStatus.WAITING, AgentStatus.OFFLINE):
+                if _after(getattr(a, "last_active_at", None), since):
+                    finished += 1
+                    if len(reasons) < _MAX_REASONS:
+                        reasons.append(f"agent '{getattr(a, 'name', '?')}' 收工（待接力）")
+        return busy, finished, reasons
+    except Exception:  # noqa: BLE001 — probe failure must not break the endpoint
+        logger.warning("wake_actionable: agent signal failed", exc_info=True)
+        return 0, 0, reasons
+
+
+async def _run_signals(
+    repo: Any, session_id: str, project_id: str, since: datetime | None
+) -> tuple[int, int, list[str]]:
+    """返回 (live_runs, terminal_runs_since, reasons)，按 session_id 归属过滤。"""
+    reasons: list[str] = []
+    try:
+        runs = await repo.list_workflow_runs(project_id=project_id, limit=50)
+        live = 0
+        terminal = 0
+        for r in runs:
+            # 只认这个 Leader 会话启动的 run（session_id 为空则不按会话收窄）
+            if session_id and getattr(r, "session_id", None) not in (session_id, None):
+                continue
+            status = getattr(r, "status", "")
+            if status in LIVE_RUN_STATUSES:
+                live += 1
+            elif status in TERMINAL_RUN_STATUSES:
+                if _after(getattr(r, "updated_at", None), since):
+                    terminal += 1
+                    if len(reasons) < _MAX_REASONS:
+                        wf = getattr(r, "wf_id", "?")
+                        reasons.append(f"run {wf} → {status}")
+        return live, terminal, reasons
+    except Exception:  # noqa: BLE001
+        logger.warning("wake_actionable: run signal failed", exc_info=True)
+        return 0, 0, reasons
+
+
+async def _memo_count(
+    repo: Any, project_id: str, since: datetime | None, reader: str = ""
+) -> int:
+    """since 之后新增的有效 task_memo 数（subagent 报进展/总结），排除唤醒者自己写的。
+
+    排除的理由是这个信号的语义本身：它计的是"子 agent 报了进展"，而 Leader 不是子
+    agent。不排除就会自唤醒——真机复现过：watcher 武装期间 Leader 写了一条 memo，
+    下一轮即判 actionable（new_mentions_since=0 / new_memos_since=1，理由却印着
+    "子 agent 报进展"），watcher 随即退出并清掉 armed 标记。代价不只是烧掉一个唤醒
+    周期：watcher 退出就等于卸岗，此后真有人叫你也没人接——而卸岗这件事是静默的。
+
+    只在调用方显式传 reader 时排除，与 _new_mentions 同一原则：没自报身份就不替它
+    猜谁是"自己"，宁可多醒一次也不误删别人的信号。
+    """
+    if not project_id:
+        return 0
+    try:
+        exclude = _self_author_aliases(reader)
+        return int(
+            await repo.count_valid_task_memos_since(project_id, since, exclude_authors=exclude)
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("wake_actionable: memo signal failed", exc_info=True)
+        return 0
+
+
+async def _new_mentions(
+    repo: Any, reader: str, project_id: str, since: datetime | None
+) -> int:
+    """since 之后新到达的、点名 reader 的信道消息数（跨 harness 有人叫你）。
+
+    reader 缺省时恒为 0：唤醒者没自报身份就不能替它判断谁在叫它，宁可不唤醒。
+    用"新到达"而非"当前未读"是刻意的，理由见 repository.count_new_mentions_since。
+    """
+    if not reader or not project_id:
+        return 0
+    try:
+        return int(await repo.count_new_mentions_since(reader, project_id, since))
+    except Exception:  # noqa: BLE001
+        logger.warning("wake_actionable: mention signal failed", exc_info=True)
+        return 0
+
+
+async def _pending_briefings(repo: Any, project_id: str) -> int:
+    """待决简报数——面向用户的信号，仅展示，不触发 Leader 自身唤醒（design §7.2）。"""
+    try:
+        briefings = await repo.list_briefings(status="pending", project_id=project_id)
+        return len(briefings)
+    except Exception:  # noqa: BLE001
+        logger.warning("wake_actionable: briefing signal failed", exc_info=True)
+        return 0
+
+
+async def compute_actionable(
+    repo: Any,
+    session_id: str = "",
+    team_id: str = "",
+    project_id: str = "",
+    since_raw: str | None = None,
+    reader: str = "",
+    signals_raw: str | None = None,
+) -> dict:
+    """计算唤醒判据。绝不抛出：任何内部失败降级为保守值。
+
+    actionable = finished_agents_since>0 OR terminal_runs_since>0 OR new_memos_since>0
+                 OR new_mentions_since>0
+    （briefings 不计入触发；busy_agents/live_runs 供 guard 判"有无活在飞"）。
+
+    new_mentions_since 是跨 harness 通信的唤醒信号：对端在信道里点名叫你，而你正
+    在等用户开口——没有这一项，那条消息要躺到下次有人跟你说话才被看见（实测躺过
+    半小时）。仅在调用方显式传 reader 时参与判定：没自报身份就不替它猜谁在叫它。
+    """
+    since = parse_since(since_raw)
+    # watermark 必须在**任何扫描之前**取。放在返回时取会开一个漏报窗口：扫描结束后、
+    # watermark 生成前落库的消息，created_at 早于 watermark 却没被这一轮扫到，而调用方
+    # 拿 watermark 当下一轮的 since —— 那条消息从此永远查不到。真库复现过：扫描后趁
+    # briefings 阶段插一条，连查两轮 actionable 均 false。
+    # 先取的代价是同一条消息可能被相邻两轮各报一次；重复唤醒是噪音，漏报是消息丢失。
+    watermark = utc_now().isoformat()
+    resolved_project = await _resolve_project_id(repo, team_id, project_id)
+
+    busy_agents, finished_agents, agent_reasons = await _agent_signals(
+        repo, team_id, session_id, since
+    )
+    live_runs, terminal_runs, run_reasons = await _run_signals(
+        repo, session_id, resolved_project, since
+    )
+    new_memos = await _memo_count(repo, resolved_project, since, reader)
+    new_mentions = await _new_mentions(repo, reader, resolved_project, since)
+    pending_briefings = await _pending_briefings(repo, resolved_project)
+
+    reasons = agent_reasons + run_reasons
+    if new_memos > 0:
+        reasons.append(f"{new_memos} 条新 task_memo（子 agent 报进展）")
+    if new_mentions > 0:
+        reasons.append(f"{new_mentions} 条信道消息点名 {reader}（对端在等你）")
+
+    # 计数照报，只有参与判定的那几类才决定 actionable
+    signals = parse_signals(signals_raw)
+    actionable = (
+        ("agents" in signals and finished_agents > 0)
+        or ("runs" in signals and terminal_runs > 0)
+        or ("memos" in signals and new_memos > 0)
+        or ("mentions" in signals and new_mentions > 0)
+    )
+
+    return {
+        "actionable": actionable,
+        "signals": sorted(signals),
+        "reasons": reasons[:_MAX_REASONS],
+        "busy_agents": busy_agents,
+        "live_runs": live_runs,
+        "terminal_runs_since": terminal_runs,
+        "finished_agents_since": finished_agents,
+        "new_memos_since": new_memos,
+        "new_mentions_since": new_mentions,
+        "pending_briefings": pending_briefings,
+        "project_id": resolved_project,
+        "watermark": watermark,
+    }

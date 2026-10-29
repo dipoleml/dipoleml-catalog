@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.hi-godot.godot-ai",
+  "type": "mcp",
+  "name": "Godot Ai",
+  "slug": "godot-ai",
+  "vendor": "hi-godot",
+  "description": "Production-grade MCP server and AI tools for the Godot engine. A Snap to install. Totally free and fun.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/hi-godot/godot-ai",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "game-development",
+    "godot",
+    "godot-plugin"
+  ],
+  "tags": [
+    "ai",
+    "game-development",
+    "godot",
+    "godot-plugin",
+    "mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "hi-godot",
+    "brandName": "hi-godot",
+    "source": "https://github.com/hi-godot.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:03Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "hi-godot/godot-ai",
+    "url": "https://github.com/hi-godot/godot-ai",
+    "commit": "a799acfa49cd9510738b7976355aae85cf7577b9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3262,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "godot-ai"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

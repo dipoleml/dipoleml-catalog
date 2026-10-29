@@ -1,0 +1,110 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "token-savior-recall"
+version = "4.24.0"
+description = "Optimized MCP server for AI coding agents. Structural codebase navigation + persistent memory engine — 97.9% accuracy at −80% tokens on tsbench."
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Mibay"},
+]
+keywords = ["mcp", "codebase", "indexer", "code-navigation", "structural-analysis", "c", "glsl", "python", "typescript", "go", "rust", "shell", "php"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+# Every requirement carries an upper bound on the next incompatible major.
+# Without one, an upstream release breaks existing installs with no commit
+# on our side; bumping a bound is a deliberate act, made here.
+dependencies = [
+    "mcp>=1.25,<3",
+    "PyYAML>=6.0,<7",
+    "tree-sitter>=0.25,<0.26",
+    "tree-sitter-java>=0.23,<0.24",
+    "tree-sitter-ruby>=0.23,<0.24",
+    "watchfiles>=0.20,<2",
+]
+
+[project.optional-dependencies]
+# Conserve pour compatibilite : `pip install "token-savior-recall[mcp]"`
+# est publie dans le README et sur PyPI depuis la v2. `mcp` est
+# desormais une dependance de base, cet extra ne fait plus rien.
+mcp = ["mcp>=1.25,<3"]
+# ruff is pinned, not floated, so preflight and CI always agree on the rule
+# set. Moving this pin is a deliberate act: bump it together with whatever
+# cleanup the new defaults demand, in the same commit. The 0.15.9 -> 0.16.0
+# bump is the worked example (PLW1510, RUF100, UP017, I001 et al. turned on
+# by default; see [tool.ruff.lint] for the three rules we opted back out of).
+dev = ["build>=1.2,<2", "pytest>=8.0,<9", "ruff==0.16.0"]
+benchmark = ["aiohttp>=3.9,<4"]
+# onnxruntime < 1.30 : mesure du 07/10/2026, meme code, meme fastembed, le banc
+# code_retrieval passe de MRR@10 0,6708 (1.28) a 0,6317 (1.30). Lever le
+# plafond quand le banc le tolere, pas avant.
+memory-vector = ["sqlite-vec>=0.1,<2", "fastembed>=0.4,<2", "onnxruntime>=1.16,<1.30"]
+
+[project.scripts]
+ts = "token_savior.cli:main"
+token-savior = "token_savior.server:main_sync"
+token-savior-dashboard = "token_savior.dashboard:main"
+token-savior-bench = "benchmarks.run_benchmarks:main"
+
+[project.urls]
+Homepage = "https://github.com/Mibayy/token-savior"
+Repository = "https://github.com/Mibayy/token-savior"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/token_savior"]
+
+# Include the hooks/ directory inside the wheel under token_savior/hooks/ so
+# `ts init` can locate the bundled JSON configs and shell scripts after a
+# vanilla `pip install token-savior-recall` (no editable / source checkout).
+[tool.hatch.build.targets.wheel.force-include]
+"hooks" = "token_savior/hooks"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `python -m pytest` prepends the CWD to sys.path, bare `pytest` does not.
+# Tests importing `from scripts import ...` therefore passed locally and
+# failed in CI. Make the import path explicit so both agree.
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Ruff 0.16 widened the default rule set well beyond the old E/F baseline
+# (bandit `S`, `BLE`, `B`, `C4`, `DTZ`, `PERF`, `SIM`, ... are now on by
+# default). Nearly all of it is a real upgrade and the tree was cleaned to
+# satisfy it. These three are the deliberate exception:
+#
+#   BLE001  blind-except
+#   S110    try-except-pass
+#   S112    try-except-continue
+#
+# They flag ~275 sites that are load-bearing isolation boundaries, not
+# defects. An MCP server must never let an optional subsystem — telemetry,
+# embeddings, sqlite-vec, the watcher, a best-effort close()/kill() — take
+# down the agent's session; several of these handlers already carry comments
+# saying exactly that ("Silent — telemetry must never break dispatch").
+# Narrowing them to concrete exception types would be a behaviour change at
+# every site, with no defect behind it and a real risk of surfacing crashes
+# the broad catch currently absorbs. Suppressed by policy, not by fatigue.
+ignore = ["BLE001", "S110", "S112"]
+
+# RUF021 is not in the default set. A ruff 0.16 fix once merged two elif
+# branches into `A and B and C or D and E and F` — correct by precedence,
+# unreadable in review. Parenthesising mixed and/or chains is now mandatory.
+extend-select = ["RUF021"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

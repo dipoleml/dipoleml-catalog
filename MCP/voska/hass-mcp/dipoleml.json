@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.voska.hass-mcp",
+  "type": "mcp",
+  "name": "Hass MCP",
+  "slug": "hass-mcp",
+  "vendor": "voska",
+  "description": "Control and query Home Assistant from DipoleML and other LLMs — a Model Context Protocol (MCP) server.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/voska/hass-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "home-assistant",
+    "home-automation",
+    "homeassistant",
+    "model-context-protocol",
+    "smart-home"
+  ],
+  "tags": [
+    "ai",
+    "anthropic",
+    "claude",
+    "home-assistant",
+    "home-automation",
+    "homeassistant",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "python",
+    "smart-home"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "voska",
+    "brandName": "voska",
+    "source": "https://github.com/voska.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "voska/hass-mcp",
+    "url": "https://github.com/voska/hass-mcp",
+    "commit": "bff845329fdb4b3a72bbf2e2fba14984515f281a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 351,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Hass MCP | Control and query Home Assistant from Claude and other LLMs — a Model Context Protocol (MCP) server.",
+        "after": "Hass MCP | Control and query Home Assistant from DipoleML and other LLMs — a Model Context Protocol (MCP) server.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "hass-mcp"
+    ],
+    "env": [
+      "HA_URL",
+      "HA_TOKEN",
+      "YOUR_LONG_LIVED_TOKEN",
+      "MCP_PORT"
+    ],
+    "credentials": [
+      "HA_TOKEN",
+      "YOUR_LONG_LIVED_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "environments",
+  "title": "Manage environments",
+  "description": "Manage environments: list/get/create/delete/verify_app (get includes dragonfly/keydb/clickhouse DBs missing from API; when the project has exactly one environment, get may omit name; verify_app proves application_uuid is bound to environment `name` of project_uuid using only exact endpoints, a pre-mutation guard)",
+  "annotations": {
+    "destructiveHint": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "list",
+          "get",
+          "create",
+          "delete",
+          "verify_app"
+        ]
+      },
+      "project_uuid": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "application_uuid": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action",
+      "project_uuid"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": {}
+  }
+}

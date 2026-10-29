@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.robthepcguy.dipoleml-patent-creator",
+  "type": "mcp",
+  "name": "DipoleML Patent Creator",
+  "slug": "dipoleml-patent-creator",
+  "vendor": "robthepcguy",
+  "description": "USPTO patent creation system with MCP server + DipoleML plugin. Hybrid RAG search over   MPEP/USC/CFR, BigQuery access to 76M+ patents, automated 35 USC 112 compliance checks, prior   art search, diagram generation. GPU-accelerated with skills and autonomous agents.",
+  "version": "1.1.6",
+  "homepage": "https://github.com/RobThePCGuy/Claude-Patent-Creator",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "bigquery",
+    "claude-code-plugin",
+    "faiss",
+    "mpep",
+    "patent",
+    "patent-drafting",
+    "patent-search",
+    "rag"
+  ],
+  "tags": [
+    "bigquery",
+    "claude-code",
+    "claude-code-plugin",
+    "faiss",
+    "mcp-server",
+    "mpep",
+    "patent",
+    "patent-drafting",
+    "patent-search",
+    "rag",
+    "uspto"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "robthepcguy",
+    "brandName": "robthepcguy",
+    "source": "https://github.com/RobThePCGuy.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:34Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "RobThePCGuy/Claude-Patent-Creator",
+    "url": "https://github.com/RobThePCGuy/Claude-Patent-Creator",
+    "commit": "f855527c61ee578b24f77cae99ef91eea80cafc6",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 206,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Patent Creator | USPTO patent creation system with MCP server + Claude Code plugin. Hybrid RAG search over   MPEP/USC/CFR, BigQuery access to 76M+ patents, automated 35 USC 112 compliance checks, prior   art search, diagram generation. GPU-accelerated with skills and autonomous agents.",
+        "after": "DipoleML Patent Creator | USPTO patent creation system with MCP server + DipoleML plugin. Hybrid RAG search over   MPEP/USC/CFR, BigQuery access to 76M+ patents, automated 35 USC 112 compliance checks, prior   art search, diagram generation. GPU-accelerated with skills and autonomous agents.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Complete self-contained patent creation system - NO MCP server required. Uses Claude Code skills, agents, commands, and hooks.",
+        "after": "Complete self-contained patent creation system - NO MCP server required. Uses DipoleML skills, agents, commands, and hooks.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-patent-creator",
+        "after": "dipoleml-patent-creator",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "claude-patent-creator"
+    ],
+    "env": [
+      "EPO_OPS_KEY",
+      "EPO_OPS_SECRET",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "EPO_OPS_KEY",
+      "EPO_OPS_SECRET",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

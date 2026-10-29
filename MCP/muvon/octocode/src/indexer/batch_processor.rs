@@ -1,0 +1,279 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Batch processing utilities for embedding operations
+//!
+//! This module handles the efficient processing of code, text, and document blocks
+//! in batches for embedding generation and storage.
+
+use crate::config::Config;
+use crate::embedding::count_tokens;
+use crate::indexer::contextual::{build_enriched_embedding_input, generate_contextual_descriptions, FileContextMap};
+use crate::mcp::logging::log_performance_metrics;
+use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
+use anyhow::Result;
+use std::collections::HashMap;
+
+/// Tracks file metadata for atomic storage after batch persistence
+/// This ensures file metadata is only stored AFTER blocks are successfully persisted
+#[cfg(test)]
+#[path = "batch_processor_tests.rs"]
+mod batch_processor_tests;
+
+#[derive(Default)]
+pub struct FileMetadataBatch {
+	/// Map of file path -> modification time
+	pending_files: HashMap<String, u64>,
+}
+
+impl FileMetadataBatch {
+	/// Create a new empty batch
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	/// Add a file's metadata to the pending batch
+	pub fn add(&mut self, file_path: &str, mtime: u64) {
+		self.pending_files.insert(file_path.to_string(), mtime);
+	}
+
+	/// Merge another batch into this one
+	pub fn extend(&mut self, other: &FileMetadataBatch) {
+		self.pending_files.extend(other.pending_files.clone());
+	}
+
+	/// Check if empty
+	pub fn is_empty(&self) -> bool {
+		self.pending_files.is_empty()
+	}
+
+	/// Clear all pending metadata
+	pub fn clear(&mut self) {
+		self.pending_files.clear();
+	}
+
+	/// Persist all pending file metadata to the store
+	/// This should only be called AFTER blocks are successfully stored
+	pub async fn persist(&self, store: &Store) -> Result<()> {
+		let entries = self
+			.pending_files
+			.iter()
+			.map(|(file_path, mtime)| (file_path.clone(), *mtime))
+			.collect::<Vec<_>>();
+		store.store_file_metadata_batch(&entries).await
+	}
+}
+
+/// Process a batch of code blocks for embedding and storage
+/// Also stores file metadata atomically after successful block storage
+pub async fn process_code_blocks_batch(
+	store: &Store,
+	blocks: &[CodeBlock],
+	config: &Config,
+	file_metadata: &FileMetadataBatch,
+	file_context: &FileContextMap,
+) -> Result<()> {
+	let start_time = std::time::Instant::now();
+
+	// Step 1: Generate LLM contextual descriptions if enabled
+	let descriptions = if config.index.contextual_descriptions {
+		generate_contextual_descriptions(blocks, config, file_context).await?
+	} else {
+		HashMap::new()
+	};
+
+	// Step 2: Build enriched embedding input
+	// Always prepends structural context (file path, language, symbols).
+	// Optionally prepends LLM-generated natural language description.
+	let contents: Vec<String> = blocks
+		.iter()
+		.enumerate()
+		.map(|(i, block)| build_enriched_embedding_input(block, descriptions.get(&i).map(|s| s.as_str())))
+		.collect();
+
+	// Generate embeddings with Document input type for indexing (asymmetric retrieval)
+	let embeddings = crate::embedding::generate_embeddings_batch(
+		&contents,
+		true,
+		config,
+		crate::embedding::types::InputType::Document,
+	)
+	.await?;
+
+	// Store enriched contents in the `content` column so BM25/FTS sees the same
+	// signal as the dense vector ("Contextual BM25" half of Anthropic's recipe).
+	// The cross-encoder reranker, which scores on the stored content, also gets
+	// the enriched text for free. Move the enriched strings out of `contents`
+	// instead of cloning them (and skip cloning the block's old content).
+	let enriched_blocks: Vec<CodeBlock> = blocks
+		.iter()
+		.zip(contents)
+		.map(|(b, enriched)| CodeBlock {
+			path: b.path.clone(),
+			language: b.language.clone(),
+			content: enriched,
+			symbols: b.symbols.clone(),
+			start_line: b.start_line,
+			end_line: b.end_line,
+			hash: b.hash.clone(),
+			distance: b.distance,
+		})
+		.collect();
+	store.store_code_blocks(&enriched_blocks, &embeddings).await?;
+
+	// CRITICAL: Store file metadata AFTER successful block storage
+	// This ensures atomicity - if blocks are stored, metadata is stored
+	file_metadata.persist(store).await?;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+	log_performance_metrics("code_blocks_batch", duration_ms, blocks.len(), None);
+
+	Ok(())
+}
+
+/// Process a batch of text blocks for embedding and storage
+/// Also stores file metadata atomically after successful block storage
+pub async fn process_text_blocks_batch(
+	store: &Store,
+	blocks: &[TextBlock],
+	config: &Config,
+	file_metadata: &FileMetadataBatch,
+) -> Result<()> {
+	let start_time = std::time::Instant::now();
+	// Prepend file path context for text blocks (structural enrichment)
+	let contents: Vec<String> = blocks
+		.iter()
+		.map(|b| format!("# File: {}\n\n{}", b.path, b.content))
+		.collect();
+	let embeddings = crate::embedding::generate_embeddings_batch(
+		&contents,
+		false,
+		config,
+		crate::embedding::types::InputType::Document,
+	)
+	.await?;
+	// Store enriched content so BM25 sees the file-path prefix too.
+	// Move the enriched strings out of `contents` instead of cloning.
+	let enriched_blocks: Vec<TextBlock> = blocks
+		.iter()
+		.zip(contents)
+		.map(|(b, enriched)| TextBlock {
+			path: b.path.clone(),
+			language: b.language.clone(),
+			content: enriched,
+			start_line: b.start_line,
+			end_line: b.end_line,
+			hash: b.hash.clone(),
+			distance: b.distance,
+		})
+		.collect();
+	store.store_text_blocks(&enriched_blocks, &embeddings).await?;
+
+	// CRITICAL: Store file metadata AFTER successful block storage
+	file_metadata.persist(store).await?;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+	log_performance_metrics("text_blocks_batch", duration_ms, blocks.len(), None);
+
+	Ok(())
+}
+
+/// Process a batch of document blocks for embedding and storage
+/// Also stores file metadata atomically after successful block storage
+pub async fn process_document_blocks_batch(
+	store: &Store,
+	blocks: &[DocumentBlock],
+	config: &Config,
+	file_metadata: &FileMetadataBatch,
+) -> Result<()> {
+	let start_time = std::time::Instant::now();
+	let contents: Vec<String> = blocks
+		.iter()
+		.map(|b| {
+			let mut parts = Vec::new();
+			// Always prepend file path for structural context
+			parts.push(format!("# File: {}", b.path));
+			if !b.context.is_empty() {
+				parts.push(b.context.join("\n"));
+			}
+			parts.push(String::new());
+			parts.push(b.content.clone());
+			parts.join("\n")
+		})
+		.collect();
+	let embeddings = crate::embedding::generate_embeddings_batch(
+		&contents,
+		false,
+		config,
+		crate::embedding::types::InputType::Document,
+	)
+	.await?;
+	// Store enriched content so BM25 sees the file-path + section context too.
+	// Move the enriched strings out of `contents` instead of cloning.
+	let enriched_blocks: Vec<DocumentBlock> = blocks
+		.iter()
+		.zip(contents)
+		.map(|(b, enriched)| DocumentBlock {
+			path: b.path.clone(),
+			title: b.title.clone(),
+			content: enriched,
+			context: b.context.clone(),
+			level: b.level,
+			start_line: b.start_line,
+			end_line: b.end_line,
+			hash: b.hash.clone(),
+			distance: b.distance,
+		})
+		.collect();
+	store.store_document_blocks(&enriched_blocks, &embeddings).await?;
+
+	// CRITICAL: Store file metadata AFTER successful block storage
+	file_metadata.persist(store).await?;
+
+	let duration_ms = start_time.elapsed().as_millis() as u64;
+	log_performance_metrics("document_blocks_batch", duration_ms, blocks.len(), None);
+
+	Ok(())
+}
+
+/// Check if a batch should be processed based on size and token limits
+pub fn should_process_batch<T>(batch: &[T], get_content: impl Fn(&T) -> &str, config: &Config) -> bool {
+	if batch.is_empty() {
+		return false;
+	}
+
+	// Check size limit
+	if batch.len() >= config.index.embeddings_batch_size {
+		return true;
+	}
+
+	// Check token limit. This runs after every processed file, so avoid BPE work
+	// where possible: every token spans at least one byte, so a batch whose total
+	// byte length is under the limit cannot reach it in tokens either.
+	let limit = config.index.embeddings_max_tokens_per_batch;
+	let total_bytes: usize = batch.iter().map(|item| get_content(item).len()).sum();
+	if total_bytes < limit {
+		return false;
+	}
+
+	// Exact count, stopping as soon as the limit is reached.
+	let mut total_tokens = 0usize;
+	for item in batch {
+		total_tokens += count_tokens(get_content(item));
+		if total_tokens >= limit {
+			return true;
+		}
+	}
+	false
+}

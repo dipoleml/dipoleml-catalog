@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/**
+ * claw-orchestrator MCP server
+ *
+ * Exposes the orchestrator's tool surface over the Model Context Protocol
+ * (stdio transport). Drop into any MCP-compatible host (Hermes Agent, Claude
+ * Desktop, Cursor, Cline, Continue, Zed, Windsurf, Goose, …) by adding it
+ * to that host's MCP server config.
+ *
+ * Implementation: feed `plugin.register()` a capturing PluginAPI shim, then
+ * translate each captured tool into MCP `tools/list` + `tools/call`. This
+ * keeps a single tool definition site (`src/index.ts`) shared between the
+ * OpenClaw plugin entry and the MCP entry — no schema drift between them.
+ *
+ * Stdout is reserved for the MCP protocol — every log line goes to stderr.
+ *
+ * Environment variables read at startup:
+ *   CLAWO_MCP_TOOLS         comma-separated allowlist of tool names. Unlisted
+ *                            tools are not exposed. Useful when the host has a
+ *                            tight tool budget (default: expose everything).
+ *   CLAWO_NO_EMBEDDED_SERVER set automatically; suppresses the plugin's HTTP
+ *                            control-plane (port 18796) which is dead weight
+ *                            for MCP-only deployments.
+ */
+import { createRequire } from 'node:module';
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+
+import { TOOL_ANNOTATIONS } from '../src/mcp-annotations.js';
+
+// The plugin lazily starts EmbeddedServer on first tool call unless this is
+// set. Set before importing so the env is seen on the very first invocation.
+process.env.CLAWO_NO_EMBEDDED_SERVER ??= '1';
+
+const { default: plugin } = await import('../src/index.js');
+
+/**
+ * What `plugin.register()` hands back. Since the plugin entry normalises every
+ * handler into OpenClaw's `AgentToolResult`, `execute` resolves to text content
+ * blocks plus the original structured payload in `details`.
+ */
+type AgentToolResult = {
+  content: Array<{ type: string; text?: string }>;
+  details: unknown;
+};
+
+type ToolDef = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute: (toolCallId: string, params: Record<string, unknown>) => Promise<AgentToolResult>;
+};
+
+const log = {
+  info: (...args: unknown[]) => console.error('[clawo-mcp]', ...args),
+  warn: (...args: unknown[]) => console.error('[clawo-mcp]', ...args),
+  error: (...args: unknown[]) => console.error('[clawo-mcp]', ...args),
+};
+
+const captured: ToolDef[] = [];
+
+const shim = {
+  pluginConfig: {},
+  logger: log,
+  registerTool: (def: ToolDef) => {
+    captured.push(def);
+  },
+  on: () => {},
+  registerHttpRoute: () => {},
+  registerService: () => {},
+};
+
+plugin.register(shim as unknown as Parameters<typeof plugin.register>[0]);
+
+const allowlist = (process.env.CLAWO_MCP_TOOLS ?? '').trim();
+const allowed = allowlist
+  ? new Set(
+      allowlist
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+  : null;
+
+const tools = allowed ? captured.filter((t) => allowed.has(t.name)) : captured;
+
+if (allowed && tools.length === 0) {
+  log.warn(`CLAWO_MCP_TOOLS filter matched 0 tools. Captured: ${captured.map((t) => t.name).join(', ')}`);
+}
+
+/**
+ * The version reported to the MCP host.
+ *
+ * `npm_package_version` is only set for a process npm itself started, and an MCP
+ * host spawns this binary directly — so that variable is never present here and
+ * the literal fallback was what every host had been told since it was written.
+ * Read the package's own manifest instead, the way `bin/cli.ts` does.
+ */
+function pkgVersion(): string {
+  try {
+    // From dist/bin/mcp-server.js, package.json sits two levels up.
+    const pkg = createRequire(import.meta.url)('../../package.json') as { version?: string };
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const PKG_VERSION = pkgVersion();
+
+const server = new Server({ name: 'claw-orchestrator', version: PKG_VERSION }, { capabilities: { tools: {} } });
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.parameters as { type: 'object'; properties?: Record<string, unknown>; required?: string[] },
+    ...(TOOL_ANNOTATIONS[t.name] ? { annotations: TOOL_ANNOTATIONS[t.name] } : {}),
+  })),
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  const tool = tools.find((t) => t.name === req.params.name);
+  if (!tool) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Unknown tool: ${req.params.name}` }],
+    };
+  }
+  try {
+    const result = await tool.execute(`mcp-${Date.now()}`, (req.params.arguments ?? {}) as Record<string, unknown>);
+    // The plugin entry already formatted the payload as MCP-shaped text blocks,
+    // so hand them straight over. Stringifying `result` here instead would ship
+    // the data twice — once escaped inside `content[0].text`, once again under
+    // `details` — which is what this line did before the results were normalised.
+    return { content: result.content };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      isError: true,
+      content: [{ type: 'text', text: msg }],
+    };
+  }
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+
+log.info(`mcp server ready — exposing ${tools.length} of ${captured.length} tools over stdio`);

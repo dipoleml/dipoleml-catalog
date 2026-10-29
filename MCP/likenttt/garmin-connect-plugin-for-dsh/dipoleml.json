@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.likenttt.garmin-connect-plugin-for-dsh",
+  "type": "mcp",
+  "name": "Garmin Connect Plugin for Dsh",
+  "slug": "garmin-connect-plugin-for-dsh",
+  "vendor": "likenttt",
+  "description": "A TypeScript-based Garmin Connect plugin and MCP server with secure browser-based MFA, built for DeepSeek Harness and designed to work with other AI agents.",
+  "version": "0.1.20",
+  "homepage": "https://github.com/Likenttt/garmin-connect-plugin-for-dsh",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "deepseek-harness",
+    "deepseek-harness-plugin",
+    "dsh-plugin",
+    "workbuddy",
+    "zcode-plugin"
+  ],
+  "tags": [
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "deepseek-harness",
+    "deepseek-harness-plugin",
+    "dsh-plugin",
+    "workbuddy",
+    "zcode-plugin"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "likenttt",
+    "brandName": "likenttt",
+    "source": "https://github.com/Likenttt.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Likenttt/garmin-connect-plugin-for-dsh",
+    "url": "https://github.com/Likenttt/garmin-connect-plugin-for-dsh",
+    "commit": "355d383a1d16ba307ff56dbbc47feb505c07f69d",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 50,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:11Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "dsh-plugin-garmin-connect"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "dsh-plugin-garmin-connect"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "dsh-plugin-garmin-connect"
+    ],
+    "env": [
+      "TEST_REPORT",
+      "GARMIN_PERSONAL_API_KEY_FILE",
+      "GARMIN_PERSONAL_API_KEY",
+      "GARMIN_SESSION_TOKEN",
+      "GARMIN_SESSION_TOKEN_FILE"
+    ],
+    "credentials": [
+      "GARMIN_PERSONAL_API_KEY_FILE",
+      "GARMIN_PERSONAL_API_KEY",
+      "GARMIN_SESSION_TOKEN",
+      "GARMIN_SESSION_TOKEN_FILE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

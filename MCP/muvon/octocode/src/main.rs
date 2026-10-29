@@ -1,0 +1,219 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Octocode - Intelligent Code Indexer and Graph Builder
+// Copyright (c) 2025 Muvon Un Limited
+
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
+
+use octocode::config::Config;
+use octocode::store::Store;
+
+mod commands;
+
+#[derive(Parser)]
+#[command(name = "octocode")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(about = "Octocode is a smart code indexer and search tool")]
+struct OctocodeArgs {
+	#[command(subcommand)]
+	command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+	/// Index the current directory's codebase
+	Index(commands::IndexArgs),
+
+	/// Search the codebase with a natural language query
+	Search(commands::SearchArgs),
+
+	/// View file signatures (functions, methods, etc.)
+	View(commands::ViewArgs),
+
+	/// Watch for changes in the codebase and reindex automatically
+	Watch(commands::WatchArgs),
+
+	/// Generate a default configuration file
+	Config(commands::ConfigArgs),
+
+	/// Structural code search using AST patterns (ast-grep syntax)
+	Grep(commands::GrepArgs),
+
+	/// Query and explore the code relationship graph (GraphRAG)
+	#[command(name = "graphrag")]
+	GraphRAG(commands::GraphRAGArgs),
+
+	/// Start MCP (Model Context Protocol) server
+	Mcp(commands::McpArgs),
+
+	/// Show index statistics and health
+	Stats(commands::StatsArgs),
+
+	/// Explain code using indexed context and AI
+	Explain(commands::ExplainArgs),
+
+	/// Analyze code changes with AI-powered behavioral summary
+	Diff(commands::DiffArgs),
+
+	/// Clear database tables (useful for debugging)
+	Clear(commands::ClearArgs),
+
+	/// Manage branch delta indexes (list, info, delete, prune)
+	Branch(commands::BranchArgs),
+
+	/// Generate and create git commit with AI assistance
+	Commit(commands::CommitArgs),
+
+	/// Review staged changes for best practices and potential issues
+	Review(commands::ReviewArgs),
+
+	/// Create a new release with AI-powered version calculation and changelog generation
+	Release(commands::ReleaseArgs),
+
+	/// Format code according to .editorconfig rules
+	Format(commands::FormatArgs),
+
+	/// View MCP server logs
+	Logs(commands::LogsArgs),
+
+	/// Model management and discovery commands
+	Models {
+		#[command(subcommand)]
+		command: commands::ModelsCommand,
+	},
+
+	/// Export the current directory's dataset to a portable archive
+	Export(commands::ExportArgs),
+
+	/// Import a dataset archive into the current directory
+	Import(commands::ImportArgs),
+
+	/// Generate shell completion scripts
+	Completion {
+		/// The shell to generate completion for
+		#[arg(value_enum)]
+		shell: Shell,
+	},
+}
+
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+	dotenvy::dotenv().ok();
+	let args = OctocodeArgs::parse();
+
+	// Load configuration - ensure .octocode directory exists
+	let config = Config::load()?;
+
+	// Handle the config command separately
+	if let Commands::Config(config_args) = &args.command {
+		return commands::config::execute(config_args, config);
+	}
+
+	// Handle the MCP command separately (doesn't need store)
+	if let Commands::Mcp(mcp_args) = &args.command {
+		return commands::mcp::run(mcp_args.clone()).await;
+	}
+
+	// Handle the Commit command separately (doesn't need store)
+	if let Commands::Commit(commit_args) = &args.command {
+		return commands::commit::execute(&config, commit_args).await;
+	}
+
+	// Handle the Review command separately (doesn't need store)
+	if let Commands::Review(review_args) = &args.command {
+		return commands::review::execute(&config, review_args).await;
+	}
+
+	// Handle the Release command separately (doesn't need store)
+	if let Commands::Release(release_args) = &args.command {
+		return commands::release::execute(&config, release_args).await;
+	}
+
+	// Handle the Branch command separately (doesn't need store)
+	if let Commands::Branch(branch_args) = &args.command {
+		return commands::branch::execute(branch_args).await;
+	}
+
+	// Handle the Grep command separately (doesn't need store)
+	if let Commands::Grep(grep_args) = &args.command {
+		return commands::grep::execute(grep_args).await;
+	}
+
+	// Handle the Format command separately (doesn't need store)
+	if let Commands::Format(format_args) = &args.command {
+		return commands::format::execute(format_args).await;
+	}
+
+	// Handle the Logs command separately (doesn't need store)
+	if let Commands::Logs(logs_args) = &args.command {
+		return commands::logs::execute(logs_args).await;
+	}
+
+	// Handle the Models command separately (doesn't need store)
+	if let Commands::Models { command } = &args.command {
+		return commands::models::execute_models_command(command.clone()).await;
+	}
+
+	// Handle the Export command separately (operates on storage files directly)
+	if let Commands::Export(export_args) = &args.command {
+		return commands::export::execute(export_args).await;
+	}
+
+	// Handle the Import command separately (operates on storage files directly)
+	if let Commands::Import(import_args) = &args.command {
+		return commands::import::execute(import_args).await;
+	}
+
+	// Handle the Completion command separately (doesn't need store)
+	if let Commands::Completion { shell } = &args.command {
+		let mut app = OctocodeArgs::command();
+		let name = app.get_name().to_string();
+		generate(*shell, &mut app, name, &mut std::io::stdout());
+		return Ok(());
+	}
+
+	// Initialize the store
+	let store = Store::new().await?;
+	store.initialize_collections().await?;
+
+	// Execute the appropriate command
+	match &args.command {
+		Commands::Index(index_args) => commands::index::execute(&store, &config, index_args).await?,
+		Commands::Search(search_args) => commands::search::execute(&store, search_args, &config).await?,
+		Commands::View(view_args) => commands::view::execute(view_args).await?,
+		Commands::Watch(watch_args) => commands::watch::execute(&store, &config, watch_args).await?,
+		Commands::GraphRAG(graphrag_args) => commands::graphrag::execute(&store, graphrag_args, &config).await?,
+		Commands::Stats(stats_args) => commands::stats::execute(&store, stats_args, &config).await?,
+		Commands::Explain(explain_args) => commands::explain::execute(&store, explain_args, &config).await?,
+		Commands::Diff(diff_args) => commands::diff::execute(&store, diff_args, &config).await?,
+		Commands::Clear(clear_args) => commands::clear::execute(&store, clear_args).await?,
+		Commands::Branch(_) => unreachable!(),         // Already handled above
+		Commands::Config(_) => unreachable!(),         // Already handled above
+		Commands::Mcp(_) => unreachable!(),            // Already handled above
+		Commands::Commit(_) => unreachable!(),         // Already handled above
+		Commands::Review(_) => unreachable!(),         // Already handled above
+		Commands::Release(_) => unreachable!(),        // Already handled above
+		Commands::Grep(_) => unreachable!(),           // Already handled above
+		Commands::Format(_) => unreachable!(),         // Already handled above
+		Commands::Logs(_) => unreachable!(),           // Already handled above
+		Commands::Models { .. } => unreachable!(),     // Already handled above
+		Commands::Export(_) => unreachable!(),         // Already handled above
+		Commands::Import(_) => unreachable!(),         // Already handled above
+		Commands::Completion { .. } => unreachable!(), // Already handled above
+	};
+
+	Ok(())
+}

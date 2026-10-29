@@ -1,0 +1,15 @@
+{
+  "skill": "init",
+  "should_trigger": [
+    "Set up the Elixir/Phoenix plugin for this project",
+    "Initialize the plugin and install auto-activation rules",
+    "Configure the plugin in CLAUDE.md",
+    "First time setting up the plugin here",
+    "Reinstall the plugin with the latest configuration"
+  ],
+  "should_not_trigger": [
+    "Show me all the plugin commands available (help or intro)",
+    "Implement a user authentication system with the plugin (plan or quick)",
+    "Check my code for N+1 queries (n1-check or perf)"
+  ]
+}

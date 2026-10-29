@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.andrea9293.mcp-documentation-server",
+  "type": "mcp",
+  "name": "MCP Documentation Server",
+  "slug": "mcp-documentation-server",
+  "vendor": "andrea9293",
+  "description": "MCP Documentation Server - Bridge the AI Knowledge Gap.  ✨ Features: Document management • Gemini integration • AI-powered semantic search • File uploads • Smart chunking • Multilingual support • Zero-setup  🎯 Perfect for: New frameworks • API docs • Internal guides ",
+  "version": "1.15.3",
+  "homepage": "https://github.com/andrea9293/mcp-documentation-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "documents",
+    "gemini",
+    "knowledge-base",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "documents",
+    "gemini",
+    "knowledge-base",
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "andrea9293",
+    "brandName": "andrea9293",
+    "source": "https://github.com/andrea9293.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "andrea9293/mcp-documentation-server",
+    "url": "https://github.com/andrea9293/mcp-documentation-server",
+    "commit": "9a75899000ad0e77ba30ef28f471c7ae8d71fafb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 343,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@andrea9293/mcp-documentation-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@andrea9293/mcp-documentation-server"
+    ],
+    "env": [
+      "GEMINI_API_KEY",
+      "WEB_HOST",
+      "WEB_PORT"
+    ],
+    "credentials": [
+      "GEMINI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

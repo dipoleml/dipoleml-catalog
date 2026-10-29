@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.argoproj-labs.mcp-for-argocd",
+  "type": "mcp",
+  "name": "MCP for Argocd",
+  "slug": "mcp-for-argocd",
+  "vendor": "argoproj-labs",
+  "description": "An implementation of Model Context Protocol (MCP) server for Argo CD.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/argoproj-labs/mcp-for-argocd",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "argocd",
+    "argocd-mcp",
+    "continuous-delivery",
+    "continuous-deployment",
+    "devops",
+    "gitops",
+    "kubernetes",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai",
+    "argocd",
+    "argocd-mcp",
+    "continuous-delivery",
+    "continuous-deployment",
+    "devops",
+    "gitops",
+    "kubernetes",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "model-context-protocol-servers"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "argoproj-labs",
+    "brandName": "argoproj-labs",
+    "source": "https://github.com/argoproj-labs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:41Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "argoproj-labs/mcp-for-argocd",
+    "url": "https://github.com/argoproj-labs/mcp-for-argocd",
+    "commit": "fbaae3ae31d22d6f4a3fe96fe9fa1a034ce44daa",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 599,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "argocd-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "argocd-mcp"
+    ],
+    "env": [
+      "ARGOCD_BASE_URL",
+      "ARGOCD_API_TOKEN",
+      "ARGOCD_TOKEN_REGISTRY_PATH",
+      "MCP_AUTH_TOKEN"
+    ],
+    "credentials": [
+      "ARGOCD_API_TOKEN",
+      "ARGOCD_TOKEN_REGISTRY_PATH",
+      "MCP_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

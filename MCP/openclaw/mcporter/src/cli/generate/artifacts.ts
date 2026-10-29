@@ -1,0 +1,424 @@
+import { execFile } from 'node:child_process';
+import fsSync from 'node:fs';
+import fs from 'node:fs/promises';
+import { builtinModules, createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { RolldownPlugin } from 'rolldown';
+import { MCPORTER_VERSION } from '../../version.js';
+import { toAsciiSlug } from '../ascii-slug.js';
+import { markExecutable, safeCopyFile } from './fs-helpers.js';
+import { verifyBunAvailable } from './runtime.js';
+
+const localRequire = createRequire(import.meta.url);
+const packageRoot = fileURLToPath(new URL('../../..', import.meta.url));
+// Generated CLIs import commander/mcporter, but end-users run mcporter from directories
+// that often lack node_modules. Pre-resolve those deps to this package so bundling works
+// even in empty temp dirs (fixes #1).
+const BUNDLED_DEPENDENCIES = ['commander', 'mcporter', 'jsonc-parser'] as const;
+const dependencyAliasPlugin = createLocalDependencyAliasPlugin([...BUNDLED_DEPENDENCIES]);
+const NODE_BUILTIN_SPECIFIERS = new Set(builtinModules.flatMap((specifier) => [specifier, `node:${specifier}`]));
+
+export async function bundleOutput({
+  sourcePath,
+  targetPath,
+  runtimeKind,
+  minify,
+  bundler,
+}: {
+  sourcePath: string;
+  targetPath: string;
+  runtimeKind: 'node' | 'bun';
+  minify: boolean;
+  bundler: 'rolldown' | 'bun';
+}): Promise<string> {
+  if (bundler === 'bun') {
+    return await bundleWithBun({ sourcePath, targetPath, runtimeKind, minify });
+  }
+  return await bundleWithRolldown({ sourcePath, targetPath, runtimeKind, minify });
+}
+
+async function bundleWithRolldown({
+  sourcePath,
+  targetPath,
+  runtimeKind,
+  minify,
+}: {
+  sourcePath: string;
+  targetPath: string;
+  runtimeKind: 'node' | 'bun';
+  minify: boolean;
+}): Promise<string> {
+  let rolldownImpl: (typeof import('rolldown'))['rolldown'];
+  try {
+    ({ rolldown: rolldownImpl } = await import('rolldown'));
+  } catch (error) {
+    const message =
+      'Rolldown bundling is unavailable in this build of mcporter; rerun with --bundler bun or install mcporter via npm (Node.js) to use the Rolldown bundler.';
+    if (error instanceof Error) {
+      error.message = `${message}\n\n${error.message}`;
+      throw error;
+    }
+    throw new Error(message, { cause: error });
+  }
+  const absTarget = path.resolve(targetPath);
+  await fs.mkdir(path.dirname(absTarget), { recursive: true });
+  const plugins = dependencyAliasPlugin ? [dependencyAliasPlugin] : undefined;
+  const bundle = await rolldownImpl({
+    input: sourcePath,
+    treeshake: false,
+    plugins,
+    onLog(level, log, handler) {
+      if (typeof (log as { code?: string }).code === 'string' && (log as { code?: string }).code === 'EVAL') {
+        return;
+      }
+      if (isExpectedNodeBuiltinWarning(log)) {
+        return;
+      }
+      handler(level, log);
+    },
+  });
+  const format = outputFormatForTarget(absTarget, runtimeKind);
+  await bundle.write({
+    file: absTarget,
+    format,
+    codeSplitting: false,
+    sourcemap: false,
+    minify,
+    ...(format === 'esm' ? { banner: buildEsmRequireBanner() } : {}),
+  });
+  await markExecutable(absTarget);
+  return absTarget;
+}
+
+function isExpectedNodeBuiltinWarning(log: unknown): boolean {
+  const record = log as { code?: string; message?: string };
+  if (record.code !== 'UNRESOLVED_IMPORT' || typeof record.message !== 'string') {
+    return false;
+  }
+  const match = record.message.match(/Could not resolve ['"]([^'"]+)['"]/);
+  return Boolean(match?.[1] && NODE_BUILTIN_SPECIFIERS.has(match[1]));
+}
+
+function buildEsmRequireBanner(): string {
+  return [
+    'import { createRequire as __mcporterCreateRequire } from "node:module";',
+    'const require = __mcporterCreateRequire(import.meta.url);',
+  ].join('\n');
+}
+
+function outputFormatForTarget(targetPath: string, runtimeKind: 'node' | 'bun'): 'cjs' | 'esm' {
+  const extension = path.extname(targetPath).toLowerCase();
+  if (extension === '.mjs') {
+    return 'esm';
+  }
+  if (extension === '.cjs') {
+    return 'cjs';
+  }
+  return runtimeKind === 'bun' ? 'esm' : 'cjs';
+}
+
+async function bundleWithBun({
+  sourcePath,
+  targetPath,
+  runtimeKind,
+  minify,
+}: {
+  sourcePath: string;
+  targetPath: string;
+  runtimeKind: 'node' | 'bun';
+  minify: boolean;
+}): Promise<string> {
+  const bunBin = await verifyBunAvailable();
+  const absTarget = path.resolve(targetPath);
+  await fs.mkdir(path.dirname(absTarget), { recursive: true });
+  const tmpRoot = path.join(packageRoot, 'tmp');
+  await fs.mkdir(tmpRoot, { recursive: true });
+  const stagingDir = await fs.mkdtemp(path.join(tmpRoot, 'bundle-'));
+  const stagingEntry = path.join(stagingDir, path.basename(sourcePath));
+  // Copy the template into the package tree so Bun sees our node_modules deps even when the
+  // CLI runs from an empty working directory.
+  await safeCopyFile(sourcePath, stagingEntry);
+  await ensureBundlerDeps(stagingDir);
+  try {
+    const args = ['build', stagingEntry, '--outfile', absTarget, '--target', runtimeKind === 'bun' ? 'bun' : 'node'];
+    if (minify) {
+      args.push('--minify');
+    }
+    await new Promise<void>((resolve, reject) => {
+      execFile(bunBin, args, { cwd: stagingDir, env: process.env, windowsHide: true }, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  } finally {
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+  }
+  await markExecutable(absTarget);
+  return absTarget;
+}
+
+export async function compileBundleWithBun(bundlePath: string, outputPath: string): Promise<void> {
+  const bunBin = await verifyBunAvailable();
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      bunBin,
+      ['build', bundlePath, '--compile', '--outfile', outputPath],
+      { cwd: process.cwd(), env: process.env, windowsHide: true },
+      (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+
+  await markExecutable(outputPath);
+}
+
+export function resolveBundleTarget({
+  bundle,
+  compile,
+  outputPath,
+}: {
+  bundle?: boolean | string;
+  compile?: boolean | string;
+  outputPath: string;
+}): string {
+  if (typeof bundle === 'string') {
+    return bundle;
+  }
+  if (bundle) {
+    throw new Error('--bundle requires an explicit output path when used with --compile.');
+  }
+  if (typeof compile === 'string') {
+    const ext = path.extname(compile);
+    // Normalize both arms: rebuilding through path.join only when an extension was
+    // present used to return a platform-native path for `dist/custom.bin` and the
+    // caller's verbatim string for `dist/custom`, so the same flag produced two
+    // separator styles on Windows.
+    const base = path.join(path.dirname(compile), path.basename(compile, ext));
+    return `${base}.js`;
+  }
+  if (compile) {
+    const tmpDir = path.join(process.cwd(), 'tmp', 'mcporter-cli-bundles');
+    const baseName = path.basename(outputPath, path.extname(outputPath)) || 'bundle';
+    return path.join(tmpDir, `${baseName}-${Date.now()}.bundle.js`);
+  }
+  throw new Error('--compile requires an explicit bundle target.');
+}
+
+export function computeCompileTarget(
+  compileOption: boolean | string | undefined,
+  _bundlePath: string,
+  serverName: string
+): string {
+  if (typeof compileOption === 'string') {
+    return compileOption;
+  }
+  const baseName = sanitizeFileName(serverName) || 'mcporter-cli';
+  return resolveUniquePath(process.cwd(), baseName);
+}
+
+function createLocalDependencyAliasPlugin(specifiers: string[]): RolldownPlugin | undefined {
+  const resolvedEntries = specifiers
+    .map((specifier) => ({ specifier, path: resolveLocalDependency(specifier) }))
+    .filter((entry): entry is { specifier: string; path: string } => Boolean(entry.path));
+  if (resolvedEntries.length === 0) {
+    return undefined;
+  }
+  return {
+    name: 'mcporter-local-deps',
+    resolveId(source) {
+      const match = resolvedEntries.find((entry) => entry.specifier === source);
+      if (match) {
+        return match.path;
+      }
+      return null;
+    },
+  };
+}
+
+function resolveLocalDependency(specifier: string): string | undefined {
+  try {
+    if (specifier === 'jsonc-parser') {
+      const pkgJsonPath = localRequire.resolve('jsonc-parser/package.json');
+      const pkgDir = path.dirname(pkgJsonPath);
+      try {
+        const pkg = JSON.parse(fsSync.readFileSync(pkgJsonPath, 'utf8')) as { module?: string };
+        if (pkg.module) {
+          const esmEntry = path.join(pkgDir, pkg.module);
+          if (fsSync.existsSync(esmEntry)) {
+            return esmEntry;
+          }
+        }
+      } catch {
+        // Fall back to Node's resolution below if we can't parse or locate the module entry.
+      }
+    }
+    return localRequire.resolve(specifier);
+  } catch {
+    if (specifier === 'mcporter') {
+      // During development or unpublished builds there may not be an installed entry,
+      // so fall back to the files inside the repo that represent the published surface.
+      const fallbacks = [
+        path.join(packageRoot, 'dist', 'index.js'),
+        path.join(packageRoot, 'dist', 'index.mjs'),
+        path.join(packageRoot, 'src', 'index.ts'),
+        path.join(packageRoot, 'src', 'index.js'),
+      ];
+      for (const candidate of fallbacks) {
+        if (fsSync.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+async function ensureBundlerDeps(stagingDir: string): Promise<void> {
+  const nodeModulesDir = path.join(stagingDir, 'node_modules');
+  await fs.mkdir(nodeModulesDir, { recursive: true });
+  await Promise.all(
+    BUNDLED_DEPENDENCIES.map(async (specifier) => {
+      const sourceDir = resolveDependencyDirectory(specifier);
+      if (!sourceDir) {
+        return;
+      }
+      const target = path.join(nodeModulesDir, specifier);
+      await linkOrCopyDependency(sourceDir, target);
+    })
+  );
+  const missing = await findMissingBundlerDeps(stagingDir);
+  if (missing.length > 0) {
+    await installPublishedBundlerDeps(stagingDir);
+  }
+}
+
+async function findMissingBundlerDeps(stagingDir: string): Promise<string[]> {
+  const missing: string[] = [];
+  for (const specifier of BUNDLED_DEPENDENCIES) {
+    const pkgPath = path.join(stagingDir, 'node_modules', specifier, 'package.json');
+    try {
+      await fs.access(pkgPath);
+    } catch {
+      missing.push(specifier);
+    }
+  }
+  return missing;
+}
+
+async function installPublishedBundlerDeps(stagingDir: string): Promise<void> {
+  const installSpec = process.env.MCPORTER_BUNDLER_DEP_PACKAGE ?? MCPORTER_VERSION;
+  if (installSpec === '0.0.0-dev') {
+    throw new Error(
+      'Unable to resolve generated-CLI bundler dependencies from this standalone mcporter binary. Install mcporter via npm/Homebrew or publish the matching mcporter package before using --compile.'
+    );
+  }
+  await fs.writeFile(
+    path.join(stagingDir, 'package.json'),
+    JSON.stringify({ private: true, type: 'module', dependencies: { mcporter: installSpec } }, null, 2),
+    'utf8'
+  );
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      'npm',
+      ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--min-release-age=0'],
+      { cwd: stagingDir, env: process.env, windowsHide: true },
+      (error) => {
+        if (error) {
+          reject(
+            new Error(
+              `Unable to install ${formatMcporterInstallSpec(installSpec)} dependencies needed for Bun compilation from this standalone binary. Install mcporter via npm/Homebrew, or ensure npm can reach the registry.\n\n${error.message}`
+            )
+          );
+          return;
+        }
+        resolve();
+      }
+    );
+  });
+}
+
+function formatMcporterInstallSpec(installSpec: string): string {
+  if (installSpec === MCPORTER_VERSION) {
+    return `mcporter@${MCPORTER_VERSION}`;
+  }
+  return `mcporter from ${installSpec}`;
+}
+
+function resolveDependencyDirectory(specifier: (typeof BUNDLED_DEPENDENCIES)[number]): string | undefined {
+  if (specifier === 'mcporter') {
+    return packageRoot;
+  }
+  try {
+    const entryPath = localRequire.resolve(specifier);
+    let candidate = path.dirname(entryPath);
+    while (candidate !== path.dirname(candidate)) {
+      if (fsSync.existsSync(path.join(candidate, 'package.json'))) {
+        return candidate;
+      }
+      candidate = path.dirname(candidate);
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+async function linkOrCopyDependency(sourceDir: string, targetDir: string): Promise<void> {
+  try {
+    await fs.symlink(sourceDir, targetDir, 'dir');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') {
+      return;
+    }
+    if (code === 'ENOENT') {
+      return;
+    }
+    if (code === 'EPERM' || code === 'EACCES') {
+      await fs.cp(sourceDir, targetDir, { recursive: true });
+      return;
+    }
+    throw error;
+  }
+}
+
+function sanitizeFileName(input: string): string {
+  return toAsciiSlug(input);
+}
+
+function resolveUniquePath(directory: string, baseName: string): string {
+  let attempt = path.join(directory, baseName);
+  let suffix = 1;
+  while (fsSync.existsSync(attempt)) {
+    attempt = path.join(directory, `${baseName}-${suffix}`);
+    suffix += 1;
+  }
+  return attempt;
+}
+
+// Kept off the package export map: these hooks let tests drive platform-specific
+// filesystem and subprocess failures that cannot be induced portably through the CLI.
+export const artifactsTestHooks = {
+  buildEsmRequireBanner,
+  createLocalDependencyAliasPlugin,
+  ensureBundlerDeps,
+  findMissingBundlerDeps,
+  formatMcporterInstallSpec,
+  installPublishedBundlerDeps,
+  isExpectedNodeBuiltinWarning,
+  linkOrCopyDependency,
+  outputFormatForTarget,
+  resolveDependencyDirectory,
+  resolveLocalDependency,
+  resolveUniquePath,
+  sanitizeFileName,
+};

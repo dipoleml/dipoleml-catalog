@@ -1,0 +1,634 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.Core.DataModel;
+using Sbroenne.ExcelMcp.Core.Models;
+using Excel = Microsoft.Office.Interop.Excel;
+
+namespace Sbroenne.ExcelMcp.Core.Commands;
+
+/// <summary>
+/// Private helper methods for DataModel commands
+/// </summary>
+public partial class DataModelCommands
+{
+    private const string GeneralMeasureFormat = "General";
+    private const string CurrencyMeasureFormat = "Currency";
+    private const string DecimalMeasureFormat = "Decimal";
+    private const string PercentageMeasureFormat = "Percentage";
+    private const string WholeNumberMeasureFormat = "WholeNumber";
+
+    internal static Action<object>? RelationshipReferenceAcquiredForTests { get; set; }
+
+    private static readonly Dictionary<string, Func<Excel.Model, object>> MeasureFormatFactories =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            [GeneralMeasureFormat] = static model => model.ModelFormatGeneral,
+            [CurrencyMeasureFormat] = static model => model.ModelFormatCurrency,
+            [DecimalMeasureFormat] = static model => model.ModelFormatDecimalNumber,
+            [PercentageMeasureFormat] = static model => model.ModelFormatPercentageNumber,
+            [WholeNumberMeasureFormat] = static model => model.ModelFormatWholeNumber
+        };
+
+    private static DataModelColumnInfo CreateColumnInfo(object column)
+    {
+        var typedColumn = (Excel.ModelTableColumn)column;
+
+        int dataTypeValue = typedColumn.DataType;
+        return new DataModelColumnInfo
+        {
+            Name = typedColumn.Name ?? string.Empty,
+            DataType = dataTypeValue.ToString(CultureInfo.InvariantCulture),
+            DataTypeValue = dataTypeValue,
+            DataTypeName = GetModelColumnDataTypeName(dataTypeValue),
+            IsCalculated = null
+        };
+    }
+
+    internal static string GetModelColumnDataTypeName(int dataTypeValue)
+        // ModelTableColumn returns OLE DB type codes at runtime, not XlParameterDataType values.
+        => dataTypeValue switch
+        {
+            5 => "DOUBLE",
+            7 => "DATE",
+            11 => "BOOLEAN",
+            20 => "BIGINT",
+            130 => "WCHAR",
+            _ => $"Unknown ({dataTypeValue.ToString(CultureInfo.InvariantCulture)})"
+        };
+
+    private static DataModelAdoDiagnostics CollectAdoDiagnostics(ADODB._Connection? adoConnection)
+    {
+        if (adoConnection == null)
+        {
+            return new DataModelAdoDiagnostics();
+        }
+
+        var connectionString = TryGetAdoConnectionString(adoConnection);
+        return new DataModelAdoDiagnostics
+        {
+            ConnectionString = connectionString,
+            ProviderName = DataModelAdoDiagnostics.ExtractProviderName(connectionString)
+        };
+    }
+
+    private static string? TryGetAdoConnectionString(ADODB._Connection adoConnection)
+    {
+        try
+        {
+            return adoConnection.ConnectionString;
+        }
+        catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads each measure's stored formula from the Data Model engine catalog.
+    /// </summary>
+    /// <remarks>
+    /// <c>ModelMeasure.Formula</c> returns the formula converted to the Windows number format;
+    /// after a workbook is reopened on a decimal-comma computer it reports <c>1.5</c> as <c>1,5</c>.
+    /// The engine catalog holds the DAX the model actually evaluates. Returns null when the
+    /// catalog cannot be read so callers can fall back to <c>ModelMeasure.Formula</c>.
+    /// </remarks>
+    private static Dictionary<string, string>? TryReadStoredMeasureFormulas(Excel.Model model)
+    {
+        Excel.WorkbookConnection? dataModelConn = null;
+        Excel.ModelConnection? modelConn = null;
+        ADODB._Connection? adoConnection = null;
+        ADODB._Recordset? recordset = null;
+        ADODB.Fields? fields = null;
+        ADODB.Field? nameField = null;
+        ADODB.Field? expressionField = null;
+        Exception? operationFailure = null;
+        try
+        {
+            dataModelConn = model.DataModelConnection;
+            modelConn = dataModelConn?.ModelConnection;
+            adoConnection = modelConn is null ? null : ComUtilities.ReadAdoConnection(modelConn);
+            if (adoConnection == null)
+            {
+                return null;
+            }
+
+            recordset = adoConnection.Execute(
+                "SELECT [MEASURE_NAME], [EXPRESSION] FROM $SYSTEM.MDSCHEMA_MEASURES",
+                out _, (int)ADODB.ExecuteOptionEnum.adOptionUnspecified);
+            fields = recordset.Fields;
+            nameField = fields[0];
+            expressionField = fields[1];
+
+            var formulas = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            while (!recordset.EOF)
+            {
+                object? nameValue = nameField.Value;
+                object? expressionValue = expressionField.Value;
+                string? name = nameValue is null or DBNull ? null : Convert.ToString(nameValue, CultureInfo.InvariantCulture);
+                string? expression = expressionValue is null or DBNull ? null : Convert.ToString(expressionValue, CultureInfo.InvariantCulture);
+                if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(expression))
+                {
+                    formulas.TryAdd(name, expression);
+                }
+
+                recordset.MoveNext();
+            }
+
+            return formulas;
+        }
+        catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+        {
+            return null;
+        }
+        catch (Exception exception)
+        {
+            operationFailure = exception;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                CloseRecordset(recordset, operationFailure);
+            }
+            finally
+            {
+                ComUtilities.Release(ref expressionField);
+                ComUtilities.Release(ref nameField);
+                ComUtilities.Release(ref fields);
+                ComUtilities.Release(ref recordset);
+                ComUtilities.Release(ref adoConnection);
+                ComUtilities.Release(ref modelConn);
+                ComUtilities.Release(ref dataModelConn);
+            }
+        }
+    }
+
+    private static void CloseRecordset(ADODB._Recordset? recordset, Exception? operationFailure)
+    {
+        try
+        {
+            if (recordset is not null &&
+                (recordset.State & (int)ADODB.ObjectStateEnum.adStateOpen) != 0)
+            {
+                recordset.Close();
+            }
+        }
+        catch (Exception cleanupFailure) when (operationFailure is not null)
+        {
+            var failures = new AggregateException("Data Model operation and closing its recordset both failed.",
+                operationFailure, cleanupFailure);
+            if (operationFailure is OperationCanceledException canceled)
+                throw new OperationCanceledException(canceled.Message, failures, canceled.CancellationToken);
+            throw failures;
+        }
+    }
+
+    /// <summary>
+    /// Gets the table name that contains a specific measure
+    /// </summary>
+    /// <param name="model">Model COM object</param>
+    /// <param name="measureName">Measure name to find</param>
+    /// <returns>Table name if found, null otherwise</returns>
+    private static string? GetMeasureTableName(Excel.Model model, string measureName)
+    {
+        Excel.ModelMeasures? measures = null;
+        try
+        {
+            // Get measures collection from MODEL (not from table!)
+            // All measures are at model level with AssociatedTable property
+            // Reference: https://learn.microsoft.com/en-us/office/vba/api/excel.model.modelmeasures
+            measures = model.ModelMeasures;
+
+            for (int m = 1; m <= measures.Count; m++)
+            {
+                Excel.ModelMeasure? measure = null;
+                try
+                {
+                    measure = measures.Item(m);
+                    string name = measure.Name?.ToString() ?? "";
+                    if (name.Equals(measureName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Get the associated table name
+                        Excel.ModelTable? associatedTable = null;
+                        try
+                        {
+                            associatedTable = measure.AssociatedTable;
+                            return associatedTable?.Name?.ToString() ?? string.Empty;
+                        }
+                        finally
+                        {
+                            ComUtilities.Release(ref associatedTable);
+                        }
+                    }
+                }
+                finally
+                {
+                    ComUtilities.Release(ref measure);
+                }
+            }
+        }
+        finally
+        {
+            ComUtilities.Release(ref measures);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Finds a column in a model table by name (case-insensitive)
+    /// </summary>
+    /// <param name="table">Table COM object</param>
+    /// <param name="columnName">Column name to find</param>
+    /// <returns>Column COM object or null if not found</returns>
+    private static Excel.ModelTableColumn? FindModelTableColumn(Excel.ModelTable table, string columnName)
+    {
+        Excel.ModelTableColumns? columns = null;
+        try
+        {
+            columns = table.ModelTableColumns;
+            int count = columns.Count;
+
+            for (int i = 1; i <= count; i++)
+            {
+                Excel.ModelTableColumn? column = null;
+                try
+                {
+                    column = columns.Item(i);
+                    string currentName = column.Name?.ToString() ?? "";
+
+                    if (currentName.Equals(columnName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Found match - don't release, caller will use it
+                        var foundColumn = column;
+                        column = null;  // Prevent release in finally
+                        return foundColumn;
+                    }
+                }
+                finally
+                {
+                    // Only release if we didn't return it
+                    if (column != null)
+                    {
+                        ComUtilities.Release(ref column);
+                    }
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            ComUtilities.Release(ref columns);
+        }
+    }
+
+    /// <summary>
+    /// Validates a measure format before entering Excel COM.
+    /// </summary>
+    /// <param name="formatType">Format type to validate</param>
+    private static void ValidateMeasureFormatType(string? formatType)
+    {
+        if (string.IsNullOrEmpty(formatType))
+        {
+            return;
+        }
+
+        if (MeasureFormatFactories.ContainsKey(formatType))
+        {
+            return;
+        }
+
+        throw UnknownMeasureFormatType(formatType);
+    }
+
+    /// <summary>
+    /// Gets the appropriate format object from the model for measure creation
+    /// </summary>
+    /// <param name="model">Model COM object</param>
+    /// <param name="formatType">Format type (General, Currency, Decimal, Percentage, WholeNumber)</param>
+    /// <returns>The requested FormatInformation COM object; an omitted format uses General</returns>
+    private static object GetFormatObject(Excel.Model model, string? formatType)
+    {
+        // CRITICAL FIX: FormatInformation parameter is REQUIRED by Excel COM API
+        // Microsoft docs state it's required, but behavior is inconsistent:
+        // - Fresh Data Model files: Accept Type.Missing (works)
+        // - Reopened Data Model files: Require actual format object (fails with Type.Missing)
+        // Solution: Always return a format object - use ModelFormatGeneral as default
+        // See: docs/KNOWN-ISSUES.md for investigation details
+
+        var requestedFormat = string.IsNullOrEmpty(formatType) ? GeneralMeasureFormat : formatType;
+        if (!MeasureFormatFactories.TryGetValue(requestedFormat, out var createFormat))
+        {
+            throw UnknownMeasureFormatType(requestedFormat);
+        }
+
+        return createFormat(model)
+            ?? throw new InvalidOperationException($"Excel did not provide the requested measure format '{requestedFormat}'.");
+    }
+
+    private static ArgumentException UnknownMeasureFormatType(string formatType) =>
+        new(
+            $"Unknown measure format type: '{formatType}'. Valid values: {string.Join(", ", MeasureFormatFactories.Keys)}.",
+            nameof(formatType));
+
+    /// <summary>
+    /// Extracts format information from a ModelFormat* COM object as a structured object.
+    /// FormatInformation returns one of: ModelFormatGeneral, ModelFormatCurrency,
+    /// ModelFormatDecimalNumber, ModelFormatPercentageNumber, ModelFormatWholeNumber,
+    /// ModelFormatScientificNumber, ModelFormatBoolean, ModelFormatDate.
+    /// These don't have a FormatString property - they have type-specific properties like DecimalPlaces, Symbol.
+    /// </summary>
+    /// <param name="formatInfo">The FormatInformation COM object from a ModelMeasure</param>
+    /// <returns>Structured format info with Type, Symbol, DecimalPlaces, UseThousandSeparator as applicable</returns>
+    private static MeasureFormatInfo GetFormatInfo(object formatInfo) =>
+        formatInfo switch
+        {
+            Excel.ModelFormatWholeNumber whole => new MeasureFormatInfo
+            {
+                Type = WholeNumberMeasureFormat,
+                DecimalPlaces = 0,
+                UseThousandSeparator = whole.UseThousandSeparator
+            },
+            Excel.ModelFormatCurrency currency => new MeasureFormatInfo
+            {
+                Type = CurrencyMeasureFormat,
+                Symbol = currency.Symbol,
+                DecimalPlaces = currency.DecimalPlaces
+            },
+            Excel.ModelFormatDecimalNumber number => new MeasureFormatInfo
+            {
+                Type = DecimalMeasureFormat,
+                DecimalPlaces = number.DecimalPlaces,
+                UseThousandSeparator = number.UseThousandSeparator
+            },
+            Excel.ModelFormatPercentageNumber percentage => new MeasureFormatInfo
+            {
+                Type = PercentageMeasureFormat,
+                DecimalPlaces = percentage.DecimalPlaces,
+                UseThousandSeparator = percentage.UseThousandSeparator
+            },
+            Excel.ModelFormatScientificNumber => new MeasureFormatInfo { Type = "Scientific" },
+            Excel.ModelFormatBoolean => new MeasureFormatInfo { Type = "Boolean" },
+            Excel.ModelFormatDate => new MeasureFormatInfo { Type = "Date" },
+            Excel.ModelFormatGeneral => new MeasureFormatInfo { Type = GeneralMeasureFormat },
+            _ => throw new InvalidOperationException("Excel returned an unrecognized measure format; its metadata cannot be read.")
+        };
+
+    /// <summary>
+    /// Finds a relationship between two tables by column names
+    /// </summary>
+    /// <param name="model">Model COM object</param>
+    /// <param name="fromTable">From table name</param>
+    /// <param name="fromColumn">From column name</param>
+    /// <param name="toTable">To table name</param>
+    /// <param name="toColumn">To column name</param>
+    /// <returns>Relationship COM object or null if not found</returns>
+    private static Excel.ModelRelationship? FindRelationship(Excel.Model model, string fromTable, string fromColumn, string toTable, string toColumn)
+    {
+        Excel.ModelRelationships? relationships = null;
+        try
+        {
+            relationships = model.ModelRelationships;
+            int count = relationships.Count;
+
+            for (int i = 1; i <= count; i++)
+            {
+                Excel.ModelRelationship? relationship = null;
+                try
+                {
+                    relationship = relationships.Item(i);
+
+                    var details = ReadRelationshipInfo(relationship);
+
+                    // Match all four components (case-insensitive)
+                    if (details.FromTable.Equals(fromTable, StringComparison.OrdinalIgnoreCase) &&
+                        details.FromColumn.Equals(fromColumn, StringComparison.OrdinalIgnoreCase) &&
+                        details.ToTable.Equals(toTable, StringComparison.OrdinalIgnoreCase) &&
+                        details.ToColumn.Equals(toColumn, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Found match - don't release, caller will use it
+                        var foundRelationship = relationship;
+                        relationship = null;  // Prevent release in finally
+                        return foundRelationship;
+                    }
+                }
+                finally
+                {
+                    // Only release if we didn't return it
+                    if (relationship != null)
+                    {
+                        ComUtilities.Release(ref relationship);
+                    }
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            ComUtilities.Release(ref relationships);
+        }
+    }
+
+    /// <summary>
+    /// Checks if the Data Model has any tables
+    /// NOTE: Every workbook has a Model object, but it may be empty
+    /// </summary>
+    private static bool HasDataModelTables(Excel.Workbook workbook)
+    {
+        Excel.Model? model = null;
+        Excel.ModelTables? modelTables = null;
+        try
+        {
+            model = workbook.Model;
+            if (model == null) return false;
+
+            modelTables = model.ModelTables;
+            return modelTables != null && modelTables.Count > 0;
+        }
+        finally
+        {
+            ComUtilities.Release(ref modelTables);
+            ComUtilities.Release(ref model);
+        }
+    }
+
+    /// <summary>
+    /// Finds a table in the Data Model by name
+    /// </summary>
+    private static Excel.ModelTable? FindModelTable(Excel.Model model, string tableName)
+    {
+        Excel.ModelTables? modelTables = null;
+        try
+        {
+            modelTables = model.ModelTables;
+            for (int i = 1; i <= modelTables.Count; i++)
+            {
+                Excel.ModelTable? table = null;
+                try
+                {
+                    table = modelTables.Item(i);
+                    string name = table.Name?.ToString() ?? "";
+                    if (name.Equals(tableName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var result = table;
+                        table = null; // Don't release - returning it
+                        return result;
+                    }
+                }
+                finally
+                {
+                    ComUtilities.Release(ref table);
+                }
+            }
+        }
+        finally
+        {
+            ComUtilities.Release(ref modelTables);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Finds a DAX measure by name in the Data Model
+    /// </summary>
+    private static Excel.ModelMeasure? FindModelMeasure(Excel.Model model, string measureName)
+    {
+        Excel.ModelMeasures? measures = null;
+        try
+        {
+            // Get measures collection from MODEL (not from table!)
+            // All measures are at model level with AssociatedTable property
+            // Reference: https://learn.microsoft.com/en-us/office/vba/api/excel.model.modelmeasures
+            measures = model.ModelMeasures;
+            int count = measures.Count;
+
+            for (int i = 1; i <= count; i++)
+            {
+                Excel.ModelMeasure? measure = null;
+                try
+                {
+                    measure = measures.Item(i);
+                    string name = measure.Name?.ToString() ?? "";
+                    if (name.Equals(measureName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Found match - don't release, caller will use it
+                        var result = measure;
+                        measure = null; // Prevent release in finally
+                        return result;
+                    }
+                }
+                finally
+                {
+                    // Only release if we didn't return it
+                    if (measure != null)
+                    {
+                        ComUtilities.Release(ref measure);
+                    }
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            ComUtilities.Release(ref measures);
+        }
+    }
+
+    /// <summary>
+    /// Safely iterates through all tables in the Data Model
+    /// </summary>
+    private static void ForEachTable(Excel.Model model, Action<Excel.ModelTable, int> action)
+    {
+        Excel.ModelTables? modelTables = null;
+        try
+        {
+            modelTables = model.ModelTables;
+            int count = modelTables.Count;
+
+            for (int i = 1; i <= count; i++)
+            {
+                Excel.ModelTable? table = null;
+                try
+                {
+                    table = modelTables.Item(i);
+                    action(table, i);
+                }
+                finally
+                {
+                    ComUtilities.Release(ref table);
+                }
+            }
+        }
+        finally
+        {
+            ComUtilities.Release(ref modelTables);
+        }
+    }
+
+    /// <summary>
+    /// Safely iterates through all measures in the Data Model
+    /// </summary>
+    private static void ForEachMeasure(Excel.Model model, Action<Excel.ModelMeasure, int> action)
+    {
+        Excel.ModelMeasures? measures = null;
+        try
+        {
+            // Get measures collection from MODEL (not from table!)
+            measures = model.ModelMeasures;
+            int count = measures.Count;
+
+            for (int i = 1; i <= count; i++)
+            {
+                Excel.ModelMeasure? measure = null;
+                try
+                {
+                    measure = measures.Item(i);
+                    action(measure, i);
+                }
+                finally
+                {
+                    ComUtilities.Release(ref measure);
+                }
+            }
+        }
+        finally
+        {
+            ComUtilities.Release(ref measures);
+        }
+    }
+
+    /// <summary>
+    /// Safely iterates through all relationships in the Data Model
+    /// </summary>
+    private static void ForEachRelationship(Excel.Model model, Action<Excel.ModelRelationship, int> action)
+    {
+        Excel.ModelRelationships? relationships = null;
+        try
+        {
+            relationships = model.ModelRelationships;
+            int count = relationships.Count;
+
+            for (int i = 1; i <= count; i++)
+            {
+                Excel.ModelRelationship? relationship = null;
+                try
+                {
+                    relationship = relationships.Item(i);
+                    action(relationship, i);
+                }
+                finally
+                {
+                    ComUtilities.Release(ref relationship);
+                }
+            }
+        }
+        finally
+        {
+            ComUtilities.Release(ref relationships);
+        }
+    }
+}

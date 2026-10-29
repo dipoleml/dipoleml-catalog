@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ifuryst.rednote-mcp",
+  "type": "mcp",
+  "name": "Rednote MCP",
+  "slug": "rednote-mcp",
+  "vendor": "ifuryst",
+  "description": "🚀MCP server for accessing RedNote(XiaoHongShu, xhs).",
+  "version": "0.2.3",
+  "homepage": "https://github.com/iFurySt/RedNote-MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "rednote",
+    "rednote-mcp",
+    "xhs",
+    "xhs-mcp"
+  ],
+  "tags": [
+    "ai",
+    "mcp",
+    "mcp-server",
+    "rednote",
+    "rednote-mcp",
+    "xhs",
+    "xhs-mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "xiaohongshu",
+    "brandName": "xiaohongshu",
+    "source": "https://cdn.simpleicons.org/xiaohongshu",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:04Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "iFurySt/RedNote-MCP",
+    "url": "https://github.com/iFurySt/RedNote-MCP",
+    "commit": "74bf739a3db5c5b8e86fc8323ede09038cd89f48",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1126,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "rednote-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=16"
+    ],
+    "packages": [
+      "rednote-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

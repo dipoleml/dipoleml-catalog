@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.jerhadf.linear-mcp-server",
+  "type": "mcp",
+  "name": "Linear MCP Server",
+  "slug": "linear-mcp-server",
+  "vendor": "jerhadf",
+  "description": "A server that integrates Linear's project management system with the Model Context Protocol (MCP) to allow LLMs to interact with Linear.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/jerhadf/linear-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "linear",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "anthropic",
+    "linear",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "linear",
+    "brandName": "linear",
+    "source": "https://cdn.simpleicons.org/linear",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:07Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "jerhadf/linear-mcp-server",
+    "url": "https://github.com/jerhadf/linear-mcp-server",
+    "commit": "5e2cb621c52762618eb015b4a8d6bf884021b29e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 346,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "linear-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "linear-mcp-server"
+    ],
+    "env": [
+      "IMPORTANT",
+      "LINEAR_API_KEY"
+    ],
+    "credentials": [
+      "LINEAR_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

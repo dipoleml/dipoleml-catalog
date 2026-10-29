@@ -1,0 +1,30 @@
+# GitHub Pages configuration for https://apify.github.io/mcpc/
+#
+# Served content (everything else is excluded):
+#   /                    → README.md (project homepage)
+#   /client-metadata.json → OAuth CIMD document
+#   /client-logo.svg     → Client logo for OAuth consent screens
+#   /LICENSE             → Terms of service (referenced by CIMD tos_uri)
+#   /CHANGELOG.md        → Release history
+#   /docs/               → Additional documentation, examples, images
+#
+# Jekyll has no include-only mode, so we exclude everything that
+# shouldn't be published. node_modules/ is excluded by default.
+
+theme: jekyll-theme-cayman
+
+exclude:
+  - AGENTS.md
+  - CONTRIBUTING.md
+  - _config.yml
+  - bin/
+  - dist/
+  - jest.config.js
+  - package.json
+  - package-lock.json
+  - renovate.json
+  - scripts/
+  - src/
+  - test/
+  - tsconfig.json
+  - tsconfig.test.json

@@ -1,0 +1,331 @@
+import { parseCliArgs } from "./cli-boolean-flags.js";
+import { deprecatedEnvInputFromSources, type DeprecatedEnvInput } from "./deprecated-env.js";
+import {
+  readPersonalAccessTokenFile,
+  resolvePersonalAccessToken,
+} from "./personal-access-token.js";
+import { parseToolProfile } from "./tools/tool-profile.js";
+import { parseCompactToolAllowlist } from "./utils/compact-tool-allowlist.js";
+import { createLogger, flushStartupLogs } from "./utils/logger.js";
+
+// Parse CLI arguments before anything else
+export const cliArgs: Record<string, string> = parseCliArgs(process.argv.slice(2));
+
+// Helper function to get config value (CLI args take precedence over env vars)
+export function getConfig(cliKey: string, envKey: string): string | undefined;
+export function getConfig(cliKey: string, envKey: string, defaultValue: string): string;
+export function getConfig(
+  cliKey: string,
+  envKey: string,
+  defaultValue?: string
+): string | undefined {
+  return cliArgs[cliKey] || process.env[envKey] || defaultValue;
+}
+
+// ---------------------------------------------------------------------------
+// Authentication
+// ---------------------------------------------------------------------------
+
+function warnIgnoredPersonalAccessTokenFile(message: string): void {
+  const startupLogger = createLogger();
+  startupLogger.warn(message);
+  flushStartupLogs(startupLogger);
+}
+
+// Read once at module load. Later auth checks use this constant and do not reopen the file.
+export const GITLAB_PERSONAL_ACCESS_TOKEN = resolvePersonalAccessToken({
+  cliToken: cliArgs.token,
+  envToken: process.env.GITLAB_PERSONAL_ACCESS_TOKEN,
+  filePath: process.env.GITLAB_PERSONAL_ACCESS_TOKEN_FILE,
+  readFile: readPersonalAccessTokenFile,
+  warn: warnIgnoredPersonalAccessTokenFile,
+});
+export const GITLAB_JOB_TOKEN = getConfig("job-token", "GITLAB_JOB_TOKEN");
+export const GITLAB_AUTH_COOKIE_PATH = getConfig("cookie-path", "GITLAB_AUTH_COOKIE_PATH");
+export const USE_OAUTH = getConfig("use-oauth", "GITLAB_USE_OAUTH") === "true";
+export const IS_OLD = getConfig("is-old", "GITLAB_IS_OLD") === "true";
+
+// ---------------------------------------------------------------------------
+// Behavior flags
+// ---------------------------------------------------------------------------
+
+export const GITLAB_READ_ONLY_MODE = getConfig("read-only", "GITLAB_READ_ONLY_MODE") === "true";
+
+// Optional response masking. Disabled by default so existing deployments keep
+// the exact original response behavior unless explicitly opted in.
+export const GITLAB_MASKING_ENABLED =
+  getConfig("masking-enabled", "GITLAB_MASKING_ENABLED") === "true";
+export const GITLAB_MASKING_CONFIG = getConfig("masking-config", "GITLAB_MASKING_CONFIG");
+/** Server-owned policy groups and project bindings for managed response masking. */
+export const GITLAB_MASKING_POLICY_FILE = getConfig(
+  "masking-policy-file",
+  "GITLAB_MASKING_POLICY_FILE"
+);
+export const GITLAB_MASKING_WORKSPACE_DIR = getConfig(
+  "masking-workspace-dir",
+  "GITLAB_MASKING_WORKSPACE_DIR"
+);
+/** Directory that download_attachment saves files under (default .gitlab-mcp-downloads). */
+export const GITLAB_DOWNLOAD_DIR = getConfig("download-dir", "GITLAB_DOWNLOAD_DIR");
+
+export type GitLabPermissionMode = "readonly" | "modify" | "full";
+const PERMISSION_MODES: readonly GitLabPermissionMode[] = ["readonly", "modify", "full"];
+export const GITLAB_PERMISSION_MODE_RAW = getConfig("permission-mode", "GITLAB_PERMISSION_MODE");
+export const GITLAB_PERMISSION_MODE: GitLabPermissionMode = (() => {
+  const raw = GITLAB_PERMISSION_MODE_RAW;
+  if (raw !== undefined && !PERMISSION_MODES.includes(raw as GitLabPermissionMode)) {
+    throw new Error(
+      `Invalid GITLAB_PERMISSION_MODE: "${raw}". Expected one of: ${PERMISSION_MODES.join(", ")}`
+    );
+  }
+  // Legacy GITLAB_READ_ONLY_MODE=true always wins (most restrictive)
+  if (GITLAB_READ_ONLY_MODE) {
+    return "readonly";
+  }
+  return (raw as GitLabPermissionMode | undefined) ?? "full";
+})();
+export const USE_GITLAB_WIKI_RAW = getConfig("use-wiki", "USE_GITLAB_WIKI");
+export const USE_GITLAB_WIKI = USE_GITLAB_WIKI_RAW === "true";
+export const USE_MILESTONE_RAW = getConfig("use-milestone", "USE_MILESTONE");
+export const USE_MILESTONE = USE_MILESTONE_RAW === "true";
+export const USE_PIPELINE_RAW = getConfig("use-pipeline", "USE_PIPELINE");
+export const USE_PIPELINE = USE_PIPELINE_RAW === "true";
+export const GITLAB_DISABLE_VERSION_CHECK =
+  getConfig("disable-version-check", "GITLAB_DISABLE_VERSION_CHECK") === "true";
+/** https registry the startup version check queries instead of registry.npmjs.org. */
+export const GITLAB_VERSION_CHECK_REGISTRY = process.env.GITLAB_VERSION_CHECK_REGISTRY;
+
+// ---------------------------------------------------------------------------
+// Tool filtering
+// ---------------------------------------------------------------------------
+
+export const GITLAB_TOOLSETS_RAW = getConfig("toolsets", "GITLAB_TOOLSETS");
+export const GITLAB_TOOLS_RAW = getConfig("tools", "GITLAB_TOOLS");
+export const GITLAB_TOOL_PROFILE = parseToolProfile(
+  getConfig("tool-profile", "GITLAB_TOOL_PROFILE")
+);
+
+// Tool policy: comma-separated tool names
+// approve = exposed but requires confirmation; hidden = not exposed at all
+export const GITLAB_TOOL_POLICY_APPROVE_RAW = getConfig(
+  "tool-policy-approve",
+  "GITLAB_TOOL_POLICY_APPROVE"
+);
+export const GITLAB_TOOL_POLICY_HIDDEN_RAW = getConfig(
+  "tool-policy-hidden",
+  "GITLAB_TOOL_POLICY_HIDDEN"
+);
+
+// ---------------------------------------------------------------------------
+// Transport
+// ---------------------------------------------------------------------------
+
+export const SSE = getConfig("sse", "SSE") === "true";
+export const STREAMABLE_HTTP = getConfig("streamable-http", "STREAMABLE_HTTP") === "true";
+export const REMOTE_AUTHORIZATION = getConfig("remote-auth", "REMOTE_AUTHORIZATION") === "true";
+export const GITLAB_MCP_OAUTH = getConfig("mcp-oauth", "GITLAB_MCP_OAUTH") === "true";
+export const GITLAB_MCP_REQUEST_BODY_LIMIT =
+  process.env.GITLAB_MCP_REQUEST_BODY_LIMIT?.trim() || "10mb";
+export const GITLAB_ALLOW_UNAUTHENTICATED_TOOL_DISCOVERY =
+  getConfig(
+    "allow-unauthenticated-tool-discovery",
+    "GITLAB_ALLOW_UNAUTHENTICATED_TOOL_DISCOVERY"
+  ) === "true";
+export const MCP_TRUST_PROXY = getConfig("mcp-trust-proxy", "MCP_TRUST_PROXY") === "true";
+
+// ---------------------------------------------------------------------------
+// OAuth / MCP OAuth
+// ---------------------------------------------------------------------------
+
+export const MCP_SERVER_URL = getConfig("mcp-server-url", "MCP_SERVER_URL");
+export const GITLAB_OAUTH_APP_ID = getConfig("oauth-app-id", "GITLAB_OAUTH_APP_ID");
+export const GITLAB_OAUTH_SCOPES_RAW = getConfig("oauth-scopes", "GITLAB_OAUTH_SCOPES");
+export const GITLAB_OAUTH_SCOPES = GITLAB_OAUTH_SCOPES_RAW
+  ? GITLAB_OAUTH_SCOPES_RAW.split(",")
+      .map(s => s.trim())
+      .filter(Boolean)
+  : undefined;
+export const GITLAB_OAUTH_CALLBACK_PROXY =
+  getConfig("oauth-callback-proxy", "GITLAB_OAUTH_CALLBACK_PROXY") === "true";
+/** Callback proxy mode: client redirect URIs allowed to register (comma-separated). */
+export const GITLAB_OAUTH_ALLOWED_REDIRECT_URIS_RAW = getConfig(
+  "oauth-allowed-redirect-uris",
+  "GITLAB_OAUTH_ALLOWED_REDIRECT_URIS"
+);
+/** @deprecated Use GITLAB_OAUTH_ALLOWED_GROUPS_RAW instead. Will be removed in v3.0.0. */
+export const GITLAB_ALLOWED_GROUPS_RAW = getConfig("allowed-groups", "GITLAB_ALLOWED_GROUPS");
+export const GITLAB_OAUTH_ALLOWED_GROUPS_RAW = getConfig(
+  "oauth-allowed-groups",
+  "GITLAB_OAUTH_ALLOWED_GROUPS"
+);
+export const GITLAB_OAUTH_ALLOWED_GROUPS = (() => {
+  const newVar = GITLAB_OAUTH_ALLOWED_GROUPS_RAW;
+  const oldVar = GITLAB_ALLOWED_GROUPS_RAW;
+  const raw = newVar ?? oldVar;
+  if (!raw) return undefined;
+  const groups = raw
+    .split(",")
+    .map(g => g.trim())
+    .filter(Boolean);
+  return groups.length > 0 ? groups : undefined;
+})();
+/**
+ * MCP OAuth proxy: reject the refresh_token grant (invalid_grant) and omit
+ * refresh_token from issued tokens, so clients must redo the browser
+ * authorization once the GitLab access token expires.
+ */
+export const OAUTH_DISABLE_REFRESH_TOKEN =
+  getConfig("oauth-disable-refresh-token", "OAUTH_DISABLE_REFRESH_TOKEN") === "true";
+export const ENABLE_DYNAMIC_API_URL =
+  getConfig("enable-dynamic-api-url", "ENABLE_DYNAMIC_API_URL") === "true";
+export const ENABLE_DYNAMIC_PROJECT_SCOPE =
+  getConfig("enable-dynamic-project-scope", "ENABLE_DYNAMIC_PROJECT_SCOPE") === "true";
+export const ENABLE_STRICT_PROJECT_SCOPE =
+  getConfig("enable-strict-project-scope", "ENABLE_STRICT_PROJECT_SCOPE") === "true";
+
+// ---------------------------------------------------------------------------
+// Stateless mode (multi-pod safe OAuth / session encoding)
+// ---------------------------------------------------------------------------
+
+/** Master switch — when true, opaque OAuth values carry the state instead of
+ * an in-memory per-pod cache. Requires OAUTH_STATELESS_SECRET. */
+export const OAUTH_STATELESS_MODE =
+  getConfig("oauth-stateless-mode", "OAUTH_STATELESS_MODE") === "true";
+
+/**
+ * Per-surface TTLs (seconds). Defaults apply when the env var is unset.
+ *
+ * Both the parsed raw value AND the fallback are validated as finite
+ * positive integers. Without the fallback guard, a caller that computes
+ * its fallback from another (unvalidated) env var could smuggle `NaN`
+ * through here — e.g. `parseInt(SESSION_TIMEOUT_SECONDS, 10)` returns
+ * NaN when the operator sets `SESSION_TIMEOUT_SECONDS=not-a-number`.
+ * That NaN would silently disable TTL checks downstream (see `checkIat`
+ * in stateless/codec.ts: `ttlSec > 0` is false for NaN), breaking the
+ * documented inactivity timeout for sealed sids and OAuth proxy values.
+ *
+ * `safeFallback` picks the supplied fallback only when it is itself a
+ * valid positive integer; otherwise it falls back to `safeFallback`,
+ * which must itself be a valid positive integer. In dev/test a bad
+ * `safeFallback` throws eagerly rather than returning NaN, so bugs
+ * introduced by a future caller show up at module-load time with a
+ * clear stack trace instead of silent TTL suppression at runtime.
+ */
+function _intEnv(
+  name: string,
+  cliKey: string,
+  fallback: number,
+  safeFallback: number = fallback
+): number {
+  // Guard the guard: if *both* fallback and safeFallback are invalid, we
+  // have no last-resort positive value — refuse at load time rather than
+  // return NaN and silently disable TTL checks downstream.
+  if (!(Number.isFinite(safeFallback) && safeFallback > 0)) {
+    throw new Error(
+      `_intEnv(${name}): safeFallback must be a finite positive integer ` +
+        `(got ${safeFallback}). Fix the caller in config.ts.`
+    );
+  }
+  const safe = Number.isFinite(fallback) && fallback > 0 ? fallback : safeFallback;
+  const raw = getConfig(cliKey, name);
+  if (!raw) return safe;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : safe;
+}
+
+export const OAUTH_STATELESS_CLIENT_TTL_SECONDS = _intEnv(
+  "OAUTH_STATELESS_CLIENT_TTL_SECONDS",
+  "oauth-stateless-client-ttl",
+  86_400
+);
+export const OAUTH_STATELESS_PENDING_TTL_SECONDS = _intEnv(
+  "OAUTH_STATELESS_PENDING_TTL_SECONDS",
+  "oauth-stateless-pending-ttl",
+  600
+);
+export const OAUTH_STATELESS_STORED_TTL_SECONDS = _intEnv(
+  "OAUTH_STATELESS_STORED_TTL_SECONDS",
+  "oauth-stateless-stored-ttl",
+  120
+);
+
+// ---------------------------------------------------------------------------
+// Session / server settings
+// ---------------------------------------------------------------------------
+
+/** Default inactivity window for in-memory session state (seconds). */
+const _SESSION_TIMEOUT_DEFAULT = 3600;
+
+/**
+ * Sanitized session timeout. Invalid values (non-numeric, zero, negative,
+ * NaN) fall back to _SESSION_TIMEOUT_DEFAULT so downstream consumers —
+ * notably the stateless codec's TTL check — always see a finite positive
+ * number. A silent NaN here would disable the inactivity timeout for
+ * sealed Mcp-Session-Id values.
+ */
+export const SESSION_TIMEOUT_SECONDS = _intEnv(
+  "SESSION_TIMEOUT_SECONDS",
+  "session-timeout",
+  _SESSION_TIMEOUT_DEFAULT
+);
+
+/**
+ * Defaults to SESSION_TIMEOUT_SECONDS when unset. Both the direct env/CLI
+ * value and the fallback are validated inside _intEnv, so a broken
+ * SESSION_TIMEOUT_SECONDS cannot poison this value. Declared in the
+ * session-settings section so the SESSION_TIMEOUT_SECONDS reference is
+ * guaranteed to be initialized; logically it belongs to the stateless
+ * mode above.
+ */
+export const OAUTH_STATELESS_SESSION_TTL_SECONDS = _intEnv(
+  "OAUTH_STATELESS_SESSION_TTL_SECONDS",
+  "oauth-stateless-session-ttl",
+  SESSION_TIMEOUT_SECONDS,
+  _SESSION_TIMEOUT_DEFAULT
+);
+
+export const HOST = getConfig("host", "HOST") || "127.0.0.1";
+
+/** Default HTTP port for the MCP server. */
+const _PORT_DEFAULT = 3002;
+export const PORT = _intEnv("PORT", "port", _PORT_DEFAULT);
+
+/** When true, oversized MCP tool replies are replaced with a preview plus a CLI replay command. */
+export const GITLAB_MCP_COMPACT_RESULTS =
+  getConfig("compact-results", "GITLAB_MCP_COMPACT_RESULTS") === "true";
+export const GITLAB_MCP_COMPACT_TOOL_NAMES = parseCompactToolAllowlist(
+  getConfig("compact-tools", "GITLAB_MCP_COMPACT_TOOLS")
+);
+export const GITLAB_MCP_COMPACT_RESULT_CHARS = _intEnv(
+  "GITLAB_MCP_COMPACT_RESULT_CHARS",
+  "compact-result-chars",
+  4000
+);
+/** When true, list_* tools and mr_discussions treat an omitted `summary` argument as true. Explicit `summary: false` still wins. */
+export const GITLAB_MCP_LIST_SUMMARY_DEFAULT =
+  getConfig("list-summary-default", "GITLAB_MCP_LIST_SUMMARY_DEFAULT") === "true";
+
+// ---------------------------------------------------------------------------
+// Proxy configuration
+// ---------------------------------------------------------------------------
+
+export const HTTP_PROXY = getConfig("http-proxy", "HTTP_PROXY");
+export const HTTPS_PROXY = getConfig("https-proxy", "HTTPS_PROXY");
+export const NO_PROXY = getConfig("no-proxy", "NO_PROXY");
+export const NODE_TLS_REJECT_UNAUTHORIZED = getConfig(
+  "tls-reject-unauthorized",
+  "NODE_TLS_REJECT_UNAUTHORIZED"
+);
+export const GITLAB_CA_CERT_PATH = getConfig("ca-cert-path", "GITLAB_CA_CERT_PATH");
+
+/**
+ * Snapshot of deprecated settings for startup warnings.
+ * CLI flags win over env vars, matching getConfig, so the warning can name
+ * the flag the user actually passed.
+ */
+export function buildDeprecatedEnvInput(): DeprecatedEnvInput {
+  return deprecatedEnvInputFromSources(cliArgs, process.env);
+}
+
+const _poolMaxSizeRaw = getConfig("pool-max-size", "GITLAB_POOL_MAX_SIZE");
+export const GITLAB_POOL_MAX_SIZE = _poolMaxSizeRaw ? Number.parseInt(_poolMaxSizeRaw, 10) : 100;

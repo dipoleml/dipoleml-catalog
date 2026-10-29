@@ -1,0 +1,324 @@
+{
+  "pageIntent": {
+    "type": "landing",
+    "confidence": 0.51,
+    "path": "/",
+    "title": "Apple",
+    "description": "Discover the innovative world of Apple and shop everything iPhone, iPad, Apple Watch, Mac, and Apple TV, plus explore accessories, entertainment, and expert device support.",
+    "signals": [
+      {
+        "kind": "dom",
+        "type": "pricing",
+        "weight": 0.6,
+        "detail": "currency+card-grid"
+      },
+      {
+        "kind": "url",
+        "type": "landing",
+        "weight": 0.45,
+        "detail": "root-path"
+      },
+      {
+        "kind": "shape",
+        "type": "landing",
+        "weight": 0.3,
+        "detail": "features+hero+footer"
+      }
+    ],
+    "alternates": [
+      {
+        "type": "pricing",
+        "score": 0.6
+      }
+    ],
+    "needsSmart": true
+  },
+  "sectionRoles": {
+    "sections": [
+      {
+        "index": 0,
+        "tag": "aside",
+        "role": "sidebar",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 70
+        },
+        "buttonCount": 2,
+        "cardCount": 6,
+        "slots": {
+          "ctaCount": 2,
+          "lede": "Choose another country or region to see content specific to your location and shop online.\nUnited Arab Emirates\nContinue"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 1,
+        "tag": "aside",
+        "role": "sidebar",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {},
+        "needsSmart": true
+      },
+      {
+        "index": 2,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 70,
+          "w": 1280,
+          "h": 44
+        },
+        "buttonCount": 39,
+        "cardCount": 236,
+        "slots": {
+          "heading": "",
+          "subheadings": [
+            "",
+            "",
+            "",
+            ""
+          ],
+          "ctaCount": 39,
+          "lede": "Apple\nStore\nMac\niPad\niPhone\nWatch\nVision\nAirPods\nTV & Home\nEntertainment\nAccessories\nSupport\n0\n+"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 3,
+        "tag": "main",
+        "role": "steps",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": "Accessibility",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 4959
+        },
+        "buttonCount": 32,
+        "cardCount": 30,
+        "slots": {
+          "heading": "Accessibility",
+          "subheadings": [
+            "iPhone",
+            "MacBook Neo",
+            "WWDC 26",
+            "Apple Card"
+          ],
+          "ctaCount": 32
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 4,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.85,
+        "heading": "Accessibility",
+        "bounds": {
+          "x": 0,
+          "y": 114,
+          "w": 1280,
+          "h": 2100
+        },
+        "buttonCount": 5,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Accessibility",
+          "subheadings": [
+            "iPhone",
+            "MacBook Neo"
+          ],
+          "ctaCount": 5
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 5,
+        "tag": "section",
+        "role": "cta",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": "WWDC 26",
+        "bounds": {
+          "x": 0,
+          "y": 2226,
+          "w": 1280,
+          "h": 1764
+        },
+        "buttonCount": 8,
+        "cardCount": 0,
+        "slots": {
+          "heading": "WWDC 26",
+          "subheadings": [
+            "Apple Card",
+            "Apple for College",
+            "iPad Air",
+            "Apple Watch Series 11"
+          ],
+          "ctaCount": 8
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 6,
+        "tag": "section",
+        "role": "gallery",
+        "subrole": null,
+        "confidence": 0.7,
+        "heading": "Endless entertainment.",
+        "bounds": {
+          "x": 0,
+          "y": 4002,
+          "w": 1280,
+          "h": 957
+        },
+        "buttonCount": 19,
+        "cardCount": 30,
+        "slots": {
+          "heading": "Endless entertainment.",
+          "ctaCount": 19,
+          "lede": "Endless entertainment.\nItem 1\nItem 2\nItem 3\nItem 4\nItem 5\nItem 6\nItem 7\nItem 8\nItem 9\nStream now"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 7,
+        "tag": "footer",
+        "role": "footer",
+        "subrole": null,
+        "confidence": 0.95,
+        "heading": "Apple Footer",
+        "bounds": {
+          "x": 0,
+          "y": 4959,
+          "w": 1280,
+          "h": 1395.65625
+        },
+        "buttonCount": 11,
+        "cardCount": 72,
+        "slots": {
+          "heading": "Apple Footer",
+          "subheadings": [
+            "Shop and Learn",
+            "Apple Wallet",
+            "Account",
+            "Entertainment"
+          ],
+          "ctaCount": 11
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 8,
+        "tag": "section",
+        "role": "pricing-table",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 150,
+          "y": 4959,
+          "w": 980,
+          "h": 809.75
+        },
+        "buttonCount": 0,
+        "cardCount": 4,
+        "slots": {},
+        "needsSmart": false
+      },
+      {
+        "index": 9,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": "Shop and Learn",
+        "bounds": {
+          "x": 150,
+          "y": 5768.75,
+          "w": 980,
+          "h": 459.90625
+        },
+        "buttonCount": 11,
+        "cardCount": 63,
+        "slots": {
+          "heading": "Shop and Learn",
+          "subheadings": [
+            "Apple Wallet",
+            "Account",
+            "Entertainment",
+            "Apple Store"
+          ],
+          "ctaCount": 11
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 10,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 150,
+          "y": 6228.65625,
+          "w": 980,
+          "h": 126
+        },
+        "buttonCount": 0,
+        "cardCount": 5,
+        "slots": {
+          "lede": "More ways to shop: Find an Apple Store or other retailer near you. Or call 1-800-MY-APPLE (1-800-692-7753).\nCopyright © 2026 Apple Inc. All rights reserved.\nPrivacy Policy Terms of Use Sales and Refunds Legal Site Map\nUnited States"
+        },
+        "needsSmart": true
+      }
+    ],
+    "counts": {
+      "sidebar": 2,
+      "nav": 2,
+      "steps": 1,
+      "hero": 1,
+      "cta": 1,
+      "gallery": 1,
+      "footer": 1,
+      "pricing-table": 1,
+      "content": 1
+    },
+    "readingOrder": [
+      "sidebar",
+      "sidebar",
+      "steps",
+      "nav",
+      "hero",
+      "cta",
+      "gallery",
+      "footer",
+      "pricing-table",
+      "nav",
+      "content"
+    ]
+  }
+}

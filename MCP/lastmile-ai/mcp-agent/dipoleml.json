@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.lastmile-ai.mcp-agent",
+  "type": "mcp",
+  "name": "MCP Agent",
+  "slug": "mcp-agent",
+  "vendor": "lastmile-ai",
+  "description": "Build effective agents using Model Context Protocol and simple workflow patterns",
+  "version": "0.0.0",
+  "homepage": "https://github.com/lastmile-ai/mcp-agent",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "llms",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "agents",
+    "ai",
+    "ai-agents",
+    "llm",
+    "llms",
+    "mcp",
+    "model-context-protocol",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lastmile-ai",
+    "brandName": "lastmile-ai",
+    "source": "https://github.com/lastmile-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:12Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lastmile-ai/mcp-agent",
+    "url": "https://github.com/lastmile-ai/mcp-agent",
+    "commit": "f62d849350816588b1c6294e7914bbe4d8b84072",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 8566,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-agent"
+    ],
+    "env": [
+      "OPENAI_API_KEY",
+      "GITHUB_CLIENT_SECRET"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY",
+      "GITHUB_CLIENT_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

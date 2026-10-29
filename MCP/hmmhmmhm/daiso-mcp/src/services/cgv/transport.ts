@@ -1,0 +1,136 @@
+/**
+ * CGV 전송 계층
+ *
+ * 서명 헤더를 생성하고 직접 호출합니다. 유료 대체 경로는 사용하지 않습니다.
+ */
+
+import { createTimeoutController } from '../../utils/http.js';
+import { requestDirectRoute } from '../../utils/directRoutes.js';
+import { routeOperation, type RouteKey } from '../../utils/routeHealth.js';
+import {
+  hasCgvRelay,
+  requestCgvRelay,
+  CGV_RELAY_ROUTES,
+  cgvRelayBody,
+  validateCgvRelay,
+  type CgvTransportOptions,
+} from './relayTransport.js';
+import { CGV_API, cgvRequestUrl } from './api.js';
+import { CgvUpstreamUnavailableError } from './errors.js';
+
+function toBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  if (typeof btoa === 'function') {
+    return btoa(binary);
+  }
+
+  throw new Error('Base64 인코딩을 지원하지 않는 런타임입니다.');
+}
+
+async function createSignature(
+  pathname: string,
+  bodyText: string,
+  timestamp: string,
+): Promise<string> {
+  const payload = `${timestamp}|${pathname}|${bodyText}`;
+  const encoder = new TextEncoder();
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(CGV_API.SIGNING_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+
+  const signed = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  return toBase64(new Uint8Array(signed));
+}
+
+export async function createCgvHeaders(path: string): Promise<Record<string, string>> {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  return {
+    ...(path === CGV_API.TIMETABLE_BY_SITE_PATH ? {
+      Origin: 'https://cgv.co.kr',
+      Referer: 'https://cgv.co.kr/cnm/movieBook/cinema',
+      'Sec-Fetch-Site': 'same-origin',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Dest': 'empty',
+    } : {}),
+    Accept: 'application/json',
+    'Accept-Language': 'ko-KR',
+    // 실제 직접 요청에서 허용된 브라우저 헤더를 유지합니다.
+    'User-Agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    'X-TIMESTAMP': timestamp,
+    'X-SIGNATURE': await createSignature(path, '', timestamp),
+  };
+}
+
+async function parseJsonResponse<TResponse>(response: Response): Promise<TResponse> {
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text) as TResponse;
+  } catch {
+    throw new Error(text.slice(0, 120) || 'CGV API 응답 파싱 실패');
+  }
+}
+
+export async function requestCgv<TResponse>(
+  path: string,
+  searchParams: URLSearchParams,
+  timeout = 15000,
+  _zyteApiKey?: string,
+  options: CgvTransportOptions = {},
+): Promise<TResponse> {
+  if (hasCgvRelay(options)) {
+    validateCgvRelay(path, options);
+    const key = `cgv-${CGV_RELAY_ROUTES[path]}` as RouteKey;
+    return routeOperation(
+      key,
+      timeout,
+      (ms) => requestDirectRoute<TResponse>(key, cgvRelayBody(path, searchParams), ms),
+      (ms) => requestCgvRelay<TResponse>(path, searchParams, options, ms),
+    );
+  }
+  const url = cgvRequestUrl(path);
+  url.search = searchParams.toString();
+  const headers = await createCgvHeaders(path);
+  const { controller, timeoutId } = createTimeoutController(timeout);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+
+    if (response.ok) {
+      return await parseJsonResponse<TResponse>(response);
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      throw new CgvUpstreamUnavailableError(response.status);
+    }
+
+    throw new Error(`CGV API 호출 실패: ${response.status}`);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('CGV API 요청 시간 초과');
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}

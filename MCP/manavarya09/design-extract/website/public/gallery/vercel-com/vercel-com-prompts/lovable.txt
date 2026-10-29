@@ -1,0 +1,22 @@
+Clone the design language of this landing page and build a fresh equivalent.
+Visual feel: material-you. Tone: neutral · Headings: Title Case · CTA verbs: [object Object], [object Object], [object Object], [object Object], [object Object], [object Object]
+Primary palette: #171717, #ebebeb, #4d4d4d, #ffffff, #666666.
+Typography: [object Object], [object Object].
+Corner radius vocabulary: 2, 5, 8, 16, 32, 50.
+Shadow vocabulary: rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(255, 255, 255) 0px 0px 0px 2px, rgb(0, 114, 245) 0px 0px 0px 4px | rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(235, 235, 235) 0px 0px 0px 1px | rgb(235, 235, 235) 0px 0px 0px 1px.
+Page structure:
+- feature-grid
+- feature-grid — heading: "Build and deploy on the AI Cloud."
+- hero — heading: "Build and deploy on the AI Cloud."
+- hero — heading: "Build and deploy on the AI Cloud."
+- feature-grid
+- feature-grid — heading: "Your product, delivered."
+- feature-grid — heading: "Framework-Defined Infrastructure"
+- feature-grid
+- feature-grid — heading: "Deploy once, deliver everywhere."
+- cta — heading: "Fluid Compute"
+- feature-grid — heading: "AI Gateway"
+- feature-grid — heading: "Deploy your first app in seconds."
+- feature-grid — heading: "Start Deploying"
+- footer — heading: "GET STARTED"
+- sidebar

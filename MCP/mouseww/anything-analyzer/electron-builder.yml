@@ -1,0 +1,45 @@
+appId: com.anything.analyzer
+productName: Anything Analyzer
+directories:
+  buildResources: resources
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # 开发期 agent 配置不进安装包（发布用的技能库由下方 extraResources 分发）
+  - '!.agents/*'
+# 内置技能库（reverse-skill 精选子集）：随安装包分发到 <app>/resources/skills/，
+# 运行时由 src/main/ai/skill-tools.ts 的 getSkillLibraryRoot() 读取。
+extraResources:
+  - from: resources/skills
+    to: skills
+    filter:
+      - '**/*'
+publish:
+  provider: github
+  owner: Mouseww
+  repo: anything-analyzer
+win:
+  target:
+    - nsis
+  artifactName: "Anything-Analyzer-Setup-${version}.${ext}"
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  type: distribution
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  target:
+    - dmg
+    - zip
+  artifactName: "Anything-Analyzer-${version}-${arch}.${ext}"
+linux:
+  target:
+    - AppImage
+  artifactName: "Anything-Analyzer-${version}.${ext}"

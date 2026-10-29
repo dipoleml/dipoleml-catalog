@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.playcanvas.editor-mcp-server",
+  "type": "mcp",
+  "name": "Editor MCP Server",
+  "slug": "editor-mcp-server",
+  "vendor": "playcanvas",
+  "description": "MCP Server for AI automation of the PlayCanvas Editor",
+  "version": "0.7.1",
+  "homepage": "https://github.com/playcanvas/editor-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "playcanvas",
+    "plugin",
+    "vibe-coding",
+    "webgl"
+  ],
+  "tags": [
+    "claude",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "mcp",
+    "mcp-server",
+    "playcanvas",
+    "plugin",
+    "typescript",
+    "vibe-coding",
+    "webgl",
+    "webgpu",
+    "webxr"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "playcanvas",
+    "brandName": "playcanvas",
+    "source": "https://cdn.simpleicons.org/playcanvas",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:29Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "playcanvas/editor-mcp-server",
+    "url": "https://github.com/playcanvas/editor-mcp-server",
+    "commit": "b19fa062e8379afac70575a95c032392633afa87",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 149,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playcanvas/editor-mcp-server"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "cli.mjs"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.18.0"
+    ],
+    "packages": [
+      "@playcanvas/editor-mcp-server"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

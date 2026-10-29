@@ -1,0 +1,3167 @@
+"""Setup diagnostics command — checks environment, dependencies, and index state.
+
+Exit codes (verified against this module's ``ctx.exit`` sites — there are
+exactly two and both are ``ctx.exit(2)``):
+  0  All checks passed, OR only advisory checks failed.
+  2  At least one blocking check failed. Also returned by ``--strict`` on an
+     advisory failure, because ``--strict`` promotes advisory to blocking.
+
+There is no exit 1. This docstring said "1  One or more checks failed", which
+described an older implementation: advisory-only failures were deliberately
+made exit 0 (a fresh-install user reading a hard-failure code for a cache-age
+warning concludes roam is broken — see the comment above the exit decision).
+The code moved and this sentence did not, so a CI author writing
+``if rc == 1: echo advisory`` against it would never see that branch fire.
+
+Note that 2 collides with Click's usage-error code, so a doctor run with
+perfectly valid arguments still exits 2 on a blocking environment failure.
+
+Output formats: text (default) and ``--json``. SARIF is deliberately NOT
+emitted because doctor checks are environment-scoped (Python version,
+dependency availability, cache age) rather than file-located code
+findings. SARIF requires locations[]; doctor has no source coordinates
+to populate. See W1085 / W1144 for the audit + design rationale.
+"""
+
+from __future__ import annotations
+
+import json as _json
+import re
+import shutil
+import sys
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+import click
+
+from roam.capability import roam_capability
+from roam.output.formatter import echo_text_warnings, json_envelope, to_json
+
+# How old ``.git/index.lock`` must be before it is called stale.
+#
+# git holds this lock for the duration of an index write -- milliseconds in the
+# ordinary case. Anything still holding it after a minute is not writing, it is
+# abandoned. The threshold is deliberately generous because the two errors cost
+# very different amounts: an abandoned lock is PERMANENT, so reporting it one
+# run later costs nothing, while a live lock reported as stale costs a failed
+# run every single time any tooling touches git in parallel.
+#
+# Measured 2026-08-07: `roam doctor` reported "stale ... (0 min old)" under
+# pytest-xdist, exited 2 on that one blocking check, took a CI lane red on 1 of
+# 4 Python versions at the same commit, and blocked a release. Three of four
+# lanes passed the identical tree.
+_INDEX_LOCK_STALE_SECONDS = 60.0
+
+# W156 — doctor is the first detector migrating an "environment" namespace
+# onto the central findings registry (after clones / dead / complexity).
+# HYBRID model: only BLOCKING check failures persist; advisory failures
+# are by-design ephemeral environment diagnostics (cache age, cloud
+# sync, dev/install drift) that would pollute the registry without
+# being actionable to anyone but the local developer. The detector
+# version stamp lets a consumer spot rows produced under an older
+# blocking-vs-advisory partition; bump it when the partition shifts.
+DOCTOR_DETECTOR_VERSION: str = "1.1.0"  # W1510 added "Search index sync" (advisory)
+
+# Mapping check name -> env.<sub-kind> for the registry finding_id_str.
+# Names that don't fit a specific kind default to ``env.blocking``.
+_DOCTOR_CHECK_SUBKIND: dict[str, str] = {
+    "Python version": "env.python_version",
+    "tree-sitter": "env.missing_language_pack",
+    "tree-sitter-language-pack": "env.missing_language_pack",
+    "git executable": "env.missing_git",
+    "networkx": "env.missing_dependency",
+    "Cache permissions": "env.cache_permissions",
+    "CLI command registry": "env.command_registry_drift",
+    "Required tables": "env.missing_schema_table",
+    "SQLite operational": "env.sqlite_integrity_failure",
+    "CI workflow drift": "env.ci_workflow_drift",
+}
+
+
+def _doctor_finding_id(check_name: str, sub_kind: str) -> str:
+    """Stable, deterministic finding id for one blocking doctor failure.
+
+    The (check_name, sub_kind) pair is enough to re-identify the same
+    environment finding across runs — check names are stable strings
+    defined in this module. Re-running ``roam doctor --persist`` on
+    the same input upserts the existing row rather than duplicating.
+    """
+    from roam.db.findings import make_finding_id
+
+    return make_finding_id("doctor", sub_kind, check_name, sub_kind)
+
+
+def _emit_doctor_findings(conn, results: list[dict], source_version: str) -> None:
+    """Mirror BLOCKING check failures into the findings registry.
+
+    HYBRID filter (W156): advisory failures are filtered out — they're
+    ephemeral environment diagnostics (cache age, cloud sync, dev /
+    install drift) with no permanent codebase-level meaning. Only
+    blocking failures are persisted; passed checks are also skipped
+    (W145/W146 precedent — the registry documents problems, not
+    successes).
+
+    ``results`` is the list of check-result dicts produced by the
+    doctor pipeline: ``{"name", "passed", "detail", ...}``. The dict
+    shape is the contract — emit doesn't peek at private keys.
+
+    Wrapped by the caller in a defensive try/except so a pre-W89 DB
+    (without the ``findings`` table) silently no-ops rather than
+    crashing the standard doctor command.
+    """
+    # Local import keeps the cost out of the no-persist path —
+    # callers without ``--persist`` never reach here.
+    from roam.db.findings import (
+        CONFIDENCE_STATIC_ANALYSIS,
+        FindingRecord,
+        emit_finding,
+    )
+
+    for r in results:
+        if r.get("passed"):
+            continue
+        name = r.get("name") or ""
+        # HYBRID filter — advisory failures are NOT persisted.
+        if name in _ADVISORY_CHECK_NAMES:
+            continue
+        sub_kind = _DOCTOR_CHECK_SUBKIND.get(name, "env.blocking")
+        finding_id = _doctor_finding_id(name, sub_kind)
+        detail = r.get("detail") or ""
+        evidence = {
+            "check_name": name,
+            "sub_kind": sub_kind,
+            "detail": detail,
+            "passed": False,
+        }
+        claim = f"Doctor blocking-failure: {name} — {detail}"
+        emit_finding(
+            conn,
+            FindingRecord(
+                finding_id_str=finding_id,
+                subject_kind="environment",
+                subject_id=None,
+                claim=claim,
+                evidence_json=_json.dumps(evidence, sort_keys=True),
+                confidence=CONFIDENCE_STATIC_ANALYSIS,
+                source_detector="doctor",
+                source_version=source_version,
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Individual check functions
+# ---------------------------------------------------------------------------
+
+
+def _check_python_version() -> dict:
+    """Python >= 3.10 required."""
+    vi = sys.version_info
+    version_str = f"{vi.major}.{vi.minor}.{vi.micro}"
+    passed = (vi.major, vi.minor) >= (3, 10)
+    return {
+        "name": "Python version",
+        "passed": passed,
+        "detail": f"Python {version_str} (>= 3.10 required)",
+    }
+
+
+def _pkg_version(pkg_name: str) -> str:
+    """Resolve an installed package version from distribution metadata."""
+    import importlib.metadata as _md
+
+    try:
+        return _md.version(pkg_name)
+    except _md.PackageNotFoundError:
+        return "unknown"
+
+
+def _check_tree_sitter() -> dict:
+    """tree-sitter package importable."""
+    try:
+        import tree_sitter  # noqa: F401
+
+        version = _pkg_version("tree-sitter")
+        return {
+            "name": "tree-sitter",
+            "passed": True,
+            "detail": f"tree-sitter {version}",
+        }
+    except ImportError as exc:
+        return {
+            "name": "tree-sitter",
+            "passed": False,
+            "detail": f"not installed: {exc}",
+        }
+
+
+def _check_tree_sitter_language_pack() -> dict:
+    """tree-sitter-language-pack importable."""
+    try:
+        import tree_sitter_language_pack  # noqa: F401
+
+        version = _pkg_version("tree-sitter-language-pack")
+        return {
+            "name": "tree-sitter-language-pack",
+            "passed": True,
+            "detail": f"tree-sitter-language-pack {version}",
+        }
+    except ImportError as exc:
+        return {
+            "name": "tree-sitter-language-pack",
+            "passed": False,
+            "detail": f"not installed: {exc}",
+        }
+
+
+def _check_git() -> dict:
+    """git executable available on PATH."""
+    git_path = shutil.which("git")
+    if git_path is None:
+        return {
+            "name": "git executable",
+            "passed": False,
+            "detail": "git not found on PATH",
+        }
+    # Get version string
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
+        version_line = result.stdout.strip() if result.returncode == 0 else ""
+        # "git version 2.43.0" -> "2.43.0"
+        version = version_line.replace("git version", "").strip() or "unknown"
+    except (subprocess.SubprocessError, OSError):
+        version = "unknown"
+    return {
+        "name": "git executable",
+        "passed": True,
+        "detail": f"git {version}",
+    }
+
+
+def _check_git_repo_health() -> dict:
+    """Repo-level git misconfiguration that makes git MISREPORT the worktree.
+
+    Distinct from ``_check_git``, which only proves the binary exists. These
+    are settings that leave git working perfectly while answering about the
+    wrong tree -- the worst failure mode available, because every downstream
+    tool (including roam) then indexes, diffs, or reports on something other
+    than the directory the user is standing in.
+
+    All four were observed together on 2026-07-19 when an interrupted
+    integration flow crashed mid-run and left different residue in each of
+    three repositories:
+
+    * ``core.bare=true`` on a checkout that still has its files. ``git status``
+      refuses with "this operation must be run in a work tree", so the tree
+      looks empty/absent rather than misconfigured, and uncommitted work
+      appears to have been lost.
+    * ``core.worktree`` pointing at a DIFFERENT directory -- typically a
+      sibling release worktree. Every status/diff/commit then silently
+      operates on that other tree. This one is the most dangerous: it does not
+      error, it lies. Observed reporting 24 modified files and two untracked
+      files that did not exist on disk.
+    * ``core.worktree`` holding a path this platform cannot resolve (a WSL
+      ``/mnt/...`` path read by Windows git, or vice versa). One bad line in a
+      shared config propagates to every linked worktree at once.
+    * A stale ``index.lock`` from a process killed mid-write, which blocks all
+      future writes until removed by hand.
+
+    Git itself never reports any of these as a problem, and no standard tool
+    checks for them, so they are invisible until something downstream behaves
+    inexplicably. Cheap to detect, so worth checking on every doctor run.
+    """
+    import subprocess
+
+    def _git(*args: str) -> tuple[int, str]:
+        try:
+            proc = subprocess.run(
+                ["git", *args],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+        except (subprocess.SubprocessError, OSError) as exc:
+            return 1, str(exc)
+        return proc.returncode, proc.stdout.strip()
+
+    cwd = Path.cwd()
+    dot_git = cwd / ".git"
+    problems: list[str] = []
+
+    rc, _ = _git("rev-parse", "--git-dir")
+    if rc != 0:
+        if not dot_git.exists():
+            return {
+                "name": "git repo health",
+                "passed": True,
+                "detail": "not inside a git repository",
+                "_state": "not_applicable",
+            }
+        # A .git exists but git refuses to operate: that IS the finding. Read
+        # the config directly, since every porcelain command is unusable here.
+        _, raw = _git("config", "--file", str(dot_git / "config"), "--get", "core.worktree")
+        hint = f" (core.worktree={raw!r})" if raw else ""
+        return {
+            "name": "git repo health",
+            "passed": False,
+            "detail": (
+                f"{dot_git} exists but git cannot operate in this directory{hint} -- typically a "
+                "core.worktree path written by another OS (e.g. a WSL /mnt path read by Windows git). "
+                "Every git command here fails until it is unset"
+            ),
+        }
+
+    # --- core.bare on a populated checkout ---------------------------------
+    _, bare = _git("config", "--get", "core.bare")
+    if bare.strip().lower() == "true":
+        visible = [p for p in cwd.iterdir() if p.name != ".git"] if cwd.is_dir() else []
+        if visible:
+            problems.append(
+                f"core.bare=true but {len(visible)} entries exist here -- git will refuse "
+                "worktree operations and the tree will look absent (fix: git config --local core.bare false)"
+            )
+
+    # --- core.worktree pointing elsewhere / nowhere ------------------------
+    _, worktree = _git("config", "--get", "core.worktree")
+    if worktree:
+        wt = Path(worktree)
+        if not wt.exists():
+            problems.append(
+                f"core.worktree={worktree!r} does not exist on this platform -- a path written by "
+                "another OS (e.g. a WSL /mnt path used by Windows git) makes every git command fail here"
+            )
+        elif dot_git.is_dir():
+            # Compare against the directory that OWNS this .git, never against
+            # `rev-parse --show-toplevel`: git derives toplevel FROM
+            # core.worktree, so those two always agree and the check would
+            # silently pass on the exact misconfiguration it exists to catch.
+            # A main repo (.git is a real directory) should have core.worktree
+            # unset, or equal to its own directory. Linked worktrees keep it in
+            # .git/worktrees/<name>/config.worktree and have .git as a FILE, so
+            # they are correctly excluded here.
+            try:
+                same = wt.resolve() == cwd.resolve()
+            except OSError:
+                same = False
+            if not same:
+                problems.append(
+                    f"core.worktree={worktree!r} but this repository lives at {cwd} -- git is reporting on a "
+                    "DIFFERENT tree, so status/diff/commit here silently act on the other one"
+                )
+
+    # --- stale index.lock --------------------------------------------------
+    rc_dir, git_dir = _git("rev-parse", "--git-dir")
+    if rc_dir == 0 and git_dir:
+        lock = Path(git_dir) / "index.lock"
+        if lock.exists():
+            # AGE is the finding, not presence. git holds index.lock for the
+            # duration of every normal index write, so a lock created moments
+            # ago is a LIVE writer. Reporting it as "a git process was killed
+            # mid-write" asserts a cause that was never measured -- presence
+            # was measured, death was inferred.
+            #
+            # An UNREADABLE age still reports (W607-BE, unchanged): a failed
+            # stat cannot prove the lock is live, and a lock that cannot be
+            # shown live is treated as blocking.
+            try:
+                age_seconds: float | None = time.time() - lock.stat().st_mtime
+            except OSError as exc:
+                from roam.observability import log_swallowed
+
+                log_swallowed("doctor:git_repo_health:index_lock_stat", exc)
+                age_seconds = None
+            if age_seconds is None:
+                problems.append(
+                    f"{lock} present and its age could not be read -- a live writer cannot be "
+                    "distinguished from a lock left by a killed process, so it is reported "
+                    "rather than assumed benign"
+                )
+            elif age_seconds >= _INDEX_LOCK_STALE_SECONDS:
+                problems.append(
+                    f"stale {lock} present ({max(0, int(age_seconds / 60))} min old) -- a git "
+                    "process was killed mid-write and all future writes will fail until it "
+                    "is removed"
+                )
+
+    # --- detached HEAD holding unreachable commits -------------------------
+    rc_sym, _ = _git("symbolic-ref", "-q", "HEAD")
+    if rc_sym != 0:
+        rc_head, head = _git("rev-parse", "HEAD")
+        if rc_head == 0 and head:
+            rc_c, containing = _git("branch", "-a", "--contains", head)
+            # `git branch --contains` lists the detached HEAD itself as a
+            # pseudo-entry, "* (HEAD detached at abc1234)". Counting that as a
+            # containing branch makes the check pass on exactly the case it
+            # exists to catch, so drop parenthesised pseudo-refs and keep only
+            # real branch names.
+            real_branches = [
+                line.lstrip("* ").strip()
+                for line in containing.splitlines()
+                if line.strip() and not line.lstrip("* ").startswith("(")
+            ]
+            if rc_c == 0 and not real_branches:
+                problems.append(
+                    f"detached HEAD at {head[:8]} is not contained by any branch -- these commits are "
+                    "reachable only from HEAD and will be garbage-collected (fix: git branch <name> HEAD)"
+                )
+
+    if problems:
+        return {
+            "name": "git repo health",
+            "passed": False,
+            "detail": "; ".join(problems),
+        }
+    return {
+        "name": "git repo health",
+        "passed": True,
+        "detail": "worktree config consistent, no stale lock, no unreachable HEAD",
+    }
+
+
+def _check_ci_environment_parity() -> dict:
+    """Does this environment resemble the one CI actually tests?
+
+    "It passes locally" is only evidence when local and CI agree. When they
+    diverge silently, a green local run is worse than no run, because it is
+    believed.
+
+    Both divergences checked here were paid for on 2026-07-26. The full suite
+    passed locally, exit 0, on the exact commit whose CI was failing, and four
+    CI round-trips were spent discovering defects one at a time that no local
+    run could reproduce:
+
+    * The interpreter was 3.14 while CI tested 3.10-3.13, so version-specific
+      behaviour was never exercised locally.
+    * ``roam`` on PATH resolved to a stale global install rather than this
+      working tree, so tests shelling out to it exercised a previous release --
+      passing locally while failing on CI, where the console script is only in
+      an unexported ``.venv/bin``.
+
+    The second is the more dangerous: it does not error, it silently tests the
+    wrong code. Neither is visible without deliberately looking, and no standard
+    tool reports either.
+
+    Advisory by nature: running a newer interpreter is often deliberate. The
+    point is that the divergence be KNOWN, not that it be forbidden.
+    """
+    import re
+
+    findings: list[str] = []
+
+    # --- interpreter vs the versions CI declares -------------------------
+    running = f"{sys.version_info[0]}.{sys.version_info[1]}"
+    declared: set[str] = set()
+    workflows = Path(".github") / "workflows"
+    if workflows.is_dir():
+        for wf in sorted(workflows.glob("*.y*ml")):
+            try:
+                text = wf.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            # `python-version: ["3.10", "3.11"]` — matrix list form only; a
+            # single scalar version is usually a lint/docs lane, not the test
+            # matrix, so it would produce false divergence.
+            for block in re.findall(r"python-version:\s*\[([^\]]+)\]", text):
+                declared.update(re.findall(r"[0-9]+\.[0-9]+", block))
+
+    if not declared:
+        return {
+            "name": "CI environment parity",
+            "passed": True,
+            "detail": "no CI python-version matrix found to compare against",
+            "_state": "not_applicable",
+        }
+
+    if running not in declared:
+        findings.append(
+            f"running Python {running} but CI tests {', '.join(sorted(declared))} — "
+            "a green local suite here does not predict CI"
+        )
+
+    # --- does `roam` on PATH belong to THIS interpreter? ------------------
+    from roam.runtime.launcher import inspect_launcher
+
+    launcher = inspect_launcher(shutil.which("roam"), sys.executable)
+    if launcher["state"] == "different_interpreter":
+        findings.append(
+            f"`roam` on PATH is {launcher['path']}, not the one for this interpreter "
+            f"({sys.executable}); its binding names {launcher['interpreter']}"
+        )
+    elif launcher["state"] != "matched":
+        findings.append(f"`roam` launcher is {launcher['state']}: {launcher['evidence']}")
+
+    if findings:
+        return {
+            "name": "CI environment parity",
+            "passed": False,
+            "detail": "; ".join(findings),
+            "launcher": launcher,
+        }
+    return {
+        "name": "CI environment parity",
+        "passed": True,
+        "detail": f"Python {running} is in the CI matrix; `roam` resolves to this interpreter",
+        "launcher": launcher,
+    }
+
+
+def _load_pyproject_toml(path: Path) -> dict | None:
+    """Parse ``pyproject.toml`` via stdlib ``tomllib`` (3.11+) or the ``tomli``
+    backport (3.10 floor).
+
+    Returns ``None`` on any failure -- missing parser, unreadable file,
+    malformed TOML -- so callers treat an unparseable pyproject as
+    "nothing to compare against" (advisory pass) rather than crashing
+    the doctor pipeline over a decoration problem in someone's TOML.
+    """
+    try:
+        import tomllib  # type: ignore[import-not-found]
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[import-not-found]
+        except ImportError:
+            return None
+    try:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+
+def _own_pyproject_project_table(expected_name: str) -> tuple[dict, str] | tuple[None, str]:
+    """Locate + parse ``./pyproject.toml`` IF it declares ``expected_name``.
+
+    Shared gate for the two "declared-vs-installed" checks below. Both
+    only mean anything when the doctor is run from inside the checkout
+    that produced the running install (dev / editable workflow) -- a
+    user running ``roam doctor`` inside an unrelated project has an
+    unrelated ``pyproject.toml`` at ``cwd``, and comparing against that
+    would be noise, not signal.
+
+    Returns ``(project_table, "")`` on a usable match, or
+    ``(None, <not_applicable reason>)`` otherwise.
+    """
+    pyproject = Path.cwd() / "pyproject.toml"
+    if not pyproject.is_file():
+        return None, "no pyproject.toml here to compare against"
+    data = _load_pyproject_toml(pyproject)
+    if data is None:
+        return None, "pyproject.toml present but unparseable here (no tomllib/tomli, or malformed) -- skipped"
+    project = data.get("project", {}) or {}
+    name = project.get("name")
+    if name != expected_name:
+        return None, f"pyproject.toml here declares project {name!r}, not {expected_name!r} -- skipped"
+    return project, ""
+
+
+def _check_dependency_versions() -> dict:
+    """Installed package versions vs the specifiers pyproject.toml declares.
+
+    The source (pyproject.toml) is the ground truth for what a package
+    version is ALLOWED to be; the environment (site-packages) is what it
+    ACTUALLY is. They silently diverge whenever a dependency bound is
+    tightened/loosened without everyone re-running ``pip install -e .`` --
+    pip never re-resolves an already-satisfied-at-install-time package on
+    its own.
+
+    Paid for on 2026-07-26: the venv held
+    ``tree-sitter-language-pack==1.6.2`` against pyproject's declared
+    ``>=1.13.3,<1.14``. The old pack's ``has_language()`` returned False
+    for every grammar, so every file parsed to zero symbols and ~18 tests
+    failed -- but only on some branches, because the venv itself didn't
+    change between them. That asymmetry impersonated a broken merge and
+    cost a three-revision bisect before the actual cause (a stale venv,
+    not a code defect) was found. ``pip install -e .`` alone doesn't
+    catch this either: pip treats an already-installed package as
+    satisfied unless the specifier is violated at RESOLVE time, so a
+    tightened lower bound on an already-installed package is silently
+    ignored.
+
+    Cheap by construction: only the packages pyproject.toml actually
+    declares are looked up (via ``importlib.metadata.version``), never a
+    walk of the whole environment.
+
+    Advisory: a stale dependency degrades roam's own behaviour (as it did
+    here) rather than making the ``doctor`` command itself unable to run,
+    and reinstalling is a known, cheap fix once surfaced.
+    """
+    project, na_reason = _own_pyproject_project_table("roam-code")
+    if project is None:
+        return {
+            "name": "Dependency versions",
+            "passed": True,
+            "detail": na_reason,
+            "_state": "not_applicable",
+        }
+
+    try:
+        import importlib.metadata as _md
+
+        from packaging.requirements import InvalidRequirement, Requirement
+        from packaging.specifiers import InvalidSpecifier
+    except ImportError:
+        return {
+            "name": "Dependency versions",
+            "passed": True,
+            "detail": "`packaging` not importable -- cannot verify declared specifiers, skipped",
+            "_state": "not_applicable",
+        }
+
+    requirement_strings: list[str] = list(project.get("dependencies", []) or [])
+    optional = project.get("optional-dependencies", {}) or {}
+    for group in optional.values():
+        if isinstance(group, list):
+            requirement_strings.extend(group)
+
+    violations: list[str] = []
+    checked = 0
+    for raw in requirement_strings:
+        if not isinstance(raw, str):
+            continue
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            continue
+        if req.marker is not None:
+            # Environment markers (e.g. ``; python_version < '3.11'``) mean
+            # the requirement legitimately does not apply here -- a missing
+            # or mismatched package under a false marker is not a violation.
+            try:
+                if not req.marker.evaluate():
+                    continue
+            except Exception:  # noqa: BLE001 — malformed marker, not our bug to surface
+                continue
+        if not req.specifier:
+            continue
+        try:
+            installed = _md.version(req.name)
+        except _md.PackageNotFoundError:
+            continue
+        checked += 1
+        try:
+            if not req.specifier.contains(installed, prereleases=True):
+                violations.append(f"{req.name} installed={installed} declared={req.specifier}")
+        except InvalidSpecifier:
+            continue
+
+    if violations:
+        return {
+            "name": "Dependency versions",
+            "passed": False,
+            "detail": (
+                f"{len(violations)} installed package(s) violate the specifier pyproject.toml "
+                "declares: " + "; ".join(violations) + " -- `pip install -e .` to reconcile "
+                "(pip does not re-resolve an already-satisfied package on its own)"
+            ),
+        }
+    return {
+        "name": "Dependency versions",
+        "passed": True,
+        "detail": f"{checked} declared dependenc{'y' if checked == 1 else 'ies'} installed match pyproject.toml",
+    }
+
+
+def _check_installed_version_drift() -> dict:
+    """Installed distribution metadata version vs the version pyproject.toml declares.
+
+    An editable install's ``dist-info/METADATA`` is written once, at
+    install time, from whatever pyproject.toml said THEN. Bump the
+    version in pyproject.toml afterward (a routine release-prep step) and
+    every consumer of installed metadata -- ``importlib.metadata.version``,
+    ``--version``, SBOM/evidence emitters -- keeps reporting the OLD
+    number until the package is reinstalled. Observed on a sibling project
+    (compile-code) 2026-07-26: site-packages held
+    ``compile_code-0.1.0.dist-info`` from an editable install that predated
+    the 0.2.0 bump, so ``--version`` lied while the checked-out code was
+    already correct.
+
+    Advisory: the running code is unaffected (this is metadata-only
+    drift), and the fix is a one-line reinstall once surfaced.
+    """
+    project, na_reason = _own_pyproject_project_table("roam-code")
+    if project is None:
+        return {
+            "name": "Installed version",
+            "passed": True,
+            "detail": na_reason,
+            "_state": "not_applicable",
+        }
+
+    declared_version = project.get("version")
+    if not declared_version:
+        return {
+            "name": "Installed version",
+            "passed": True,
+            "detail": "pyproject.toml here has no static [project.version] to compare against -- skipped",
+            "_state": "not_applicable",
+        }
+
+    import importlib.metadata as _md
+
+    try:
+        installed_version = _md.version("roam-code")
+    except _md.PackageNotFoundError:
+        return {
+            "name": "Installed version",
+            "passed": True,
+            "detail": "roam-code not found in installed distribution metadata -- skipped",
+            "_state": "not_applicable",
+        }
+
+    if installed_version != declared_version:
+        return {
+            "name": "Installed version",
+            "passed": False,
+            "detail": (
+                f"installed distribution metadata reports roam-code {installed_version} but "
+                f"pyproject.toml here declares {declared_version} -- `--version` and anything else "
+                "reading installed metadata will report the wrong number until reinstalled "
+                "(`pip install -e .`)"
+            ),
+        }
+    return {
+        "name": "Installed version",
+        "passed": True,
+        "detail": f"installed distribution metadata matches pyproject.toml ({installed_version})",
+    }
+
+
+def _check_networkx() -> dict:
+    """networkx importable."""
+    try:
+        import networkx
+
+        version = getattr(networkx, "__version__", "unknown")
+        return {
+            "name": "networkx",
+            "passed": True,
+            "detail": f"networkx {version}",
+        }
+    except ImportError as exc:
+        return {
+            "name": "networkx",
+            "passed": False,
+            "detail": f"not installed: {exc}",
+        }
+
+
+def _check_index_exists() -> dict:
+    """Index DB file exists at the expected path."""
+    try:
+        from roam.db.connection import get_db_path
+
+        db_path = get_db_path()
+    except Exception as exc:
+        return {
+            "name": "Index exists",
+            "passed": False,
+            "detail": f"could not determine DB path: {exc}",
+        }
+
+    exists = db_path.exists()
+    return {
+        "name": "Index exists",
+        "passed": exists,
+        "detail": str(db_path) if exists else f"not found: {db_path} (run `roam init`)",
+        "_db_path": str(db_path) if exists else None,
+    }
+
+
+def _check_index_freshness(db_path_str: str | None) -> dict:
+    """Index mtime <= 24 hours old."""
+    if db_path_str is None:
+        return {
+            "name": "Index freshness",
+            "passed": False,
+            "detail": "index does not exist (run `roam init`)",
+        }
+    db_path = Path(db_path_str)
+    if not db_path.exists():
+        return {
+            "name": "Index freshness",
+            "passed": False,
+            "detail": "index does not exist (run `roam init`)",
+        }
+
+    age_s = time.time() - db_path.stat().st_mtime
+    age_h = age_s / 3600.0
+    stale = age_h > 24.0
+
+    if age_s < 60:
+        age_str = f"{int(age_s)} second{'s' if int(age_s) != 1 else ''} ago"
+    elif age_s < 3600:
+        age_m = int(age_s / 60)
+        age_str = f"{age_m} minute{'s' if age_m != 1 else ''} ago"
+    elif age_s < 86400:
+        age_h_int = int(age_h)
+        age_str = f"{age_h_int} hour{'s' if age_h_int != 1 else ''} ago"
+    else:
+        age_d = int(age_h / 24)
+        age_str = f"{age_d} day{'s' if age_d != 1 else ''} ago"
+
+    return {
+        "name": "Index freshness",
+        "passed": not stale,
+        "detail": (f"fresh ({age_str})" if not stale else f"stale ({age_str}, run `roam index` to refresh)"),
+        "_age_s": round(age_s, 1),
+    }
+
+
+def _check_search_index_sync(db_path_str: str | None) -> dict:
+    """Does ``symbol_fts`` actually cover ``symbols``? (W1510)
+
+    A desynchronised FTS index reports no error — it just returns worse
+    results, because the search JOIN silently drops any symbol without an
+    FTS row. Row COUNTS cannot detect it: an in-place edit CASCADE-deletes
+    and re-inserts a file's symbols under new ids, keeping the count
+    identical while replacing every rowid. This compares the rowid sets.
+
+    Unverifiable (no index, no FTS5, unreadable DB) reads as ``no_data``,
+    never as a pass on the merits.
+    """
+    name = "Search index sync"
+    if db_path_str is None or not Path(db_path_str).exists():
+        return {
+            "name": name,
+            "passed": True,
+            "detail": "index does not exist — FTS coverage UNKNOWN (run `roam init`)",
+            "_state": "no_data",
+        }
+    try:
+        from roam.db.connection import open_db
+        from roam.search.index_embeddings import fts_sync_state
+
+        with open_db(readonly=True) as conn:
+            state = fts_sync_state(conn)
+    except Exception as exc:  # noqa: BLE001 — a doctor check must never crash the run
+        return {
+            "name": name,
+            "passed": True,
+            "detail": f"could not verify FTS coverage: {type(exc).__name__}: {exc}",
+            "_state": "no_data",
+        }
+
+    if not state["verified"]:
+        return {
+            "name": name,
+            "passed": True,
+            "detail": f"FTS coverage UNKNOWN ({state['reason']}) — lexical search may be degraded",
+            "_state": "no_data",
+        }
+    if state["in_sync"]:
+        return {
+            "name": name,
+            "passed": True,
+            "detail": f"{state['symbols']} symbols fully covered by symbol_fts",
+            "_fts_sync": state,
+        }
+    total = state["symbols"] or 1
+    pct = 100.0 * state["missing_from_fts"] / total
+    return {
+        "name": name,
+        "passed": False,
+        "detail": (
+            f"symbol_fts is out of sync: {state['missing_from_fts']} symbols "
+            f"({pct:.1f}%) are unreachable by lexical search and "
+            f"{state['orphan_fts_rows']} orphan FTS rows hold pre-edit text — "
+            f"run `roam index --force` to repair"
+        ),
+        "_fts_sync": state,
+    }
+
+
+def _check_sqlite(db_path_str: str | None) -> dict:
+    """SQLite can open and query the index DB."""
+    if db_path_str is None:
+        return {
+            "name": "SQLite operational",
+            "passed": False,
+            "detail": "index does not exist (run `roam init`)",
+        }
+    db_path = Path(db_path_str)
+    if not db_path.exists():
+        return {
+            "name": "SQLite operational",
+            "passed": False,
+            "detail": "index does not exist (run `roam init`)",
+        }
+
+    try:
+        import sqlite3
+        from contextlib import closing
+
+        # URI escaping handles spaces, # and % without interpreting file names
+        # as connection options. Read-only mode also prevents create-on-race.
+        with closing(sqlite3.connect(db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as conn:
+            rows = conn.execute("PRAGMA integrity_check").fetchall()
+        if rows == [("ok",)]:
+            return {
+                "name": "SQLite operational",
+                "passed": True,
+                "detail": "SQLite operational",
+            }
+        errors = [str(row[0]) for row in rows] or ["integrity_check returned no result"]
+        # Keep actionable evidence bounded; never hide that evidence was cut.
+        bounded = [error[:500] for error in errors[:20]]
+        truncated = len(errors) > 20 or any(len(error) > 500 for error in errors)
+        return {
+            "name": "SQLite operational",
+            "passed": False,
+            "detail": "SQLite integrity check failed: " + "; ".join(bounded[:3]),
+            "integrity_errors": bounded,
+            "integrity_errors_truncated": truncated,
+        }
+    except Exception as exc:
+        return {
+            "name": "SQLite operational",
+            "passed": False,
+            "detail": f"SQLite error: {exc}",
+        }
+
+
+def _check_command_registry() -> dict:
+    """Every CLI subcommand declared in roam.cli._COMMANDS must import.
+
+    Catches the round-4 #16 class of bug — a documented command silently
+    removed or renamed leaves the registry mismatch undetected until an
+    agent calls it. Doctor runs the lazy-import for every entry up front.
+    """
+    # break the static cycle (cli ↔ cmd_doctor) by loading
+    # ``roam.cli`` via importlib at runtime. This is the only static
+    # edge that connected back to cli; the doctor's safety check still
+    # verifies every registered command imports.
+    try:
+        import importlib
+
+        cli_mod = importlib.import_module("roam.cli")
+        # Effective surface, not the shipped literal: a plugin command that
+        # fails to import is exactly the breakage doctor exists to report.
+        _COMMANDS = cli_mod._effective_commands()
+    except Exception as exc:
+        return {
+            "name": "CLI command registry",
+            "passed": False,
+            "detail": f"could not load roam.cli: {exc}",
+        }
+
+    failures: list[str] = []
+    for cmd_name, target in _COMMANDS.items():
+        try:
+            module_name, attr = target
+            mod = __import__(module_name, fromlist=[attr])
+            if not hasattr(mod, attr):
+                failures.append(f"{cmd_name}->{module_name}:{attr} (missing attr)")
+        except Exception as exc:
+            failures.append(f"{cmd_name}: {type(exc).__name__}: {exc}")
+    if failures:
+        sample = "; ".join(failures[:3])
+        more = f" (+{len(failures) - 3} more)" if len(failures) > 3 else ""
+        return {
+            "name": "CLI command registry",
+            "passed": False,
+            "detail": f"{len(failures)} command(s) fail to import: {sample}{more}",
+        }
+    # W420: headline count must be plugin-invariant (AST-sourced) even
+    # though the integrity-check loop above iterates the runtime
+    # ``_COMMANDS`` dict (which is the right surface for import-test
+    # integrity, including plugin-registered commands). Promoting the
+    # runtime count into the user-visible detail string drifts the
+    # same way ``cmd_surface.command_count`` did before W420.
+    from roam.surface_counts import cli_commands as _cli_commands_ast  # noqa: PLC0415
+
+    return {
+        "name": "CLI command registry",
+        "passed": True,
+        "detail": f"{len(_cli_commands_ast())} CLI commands import cleanly",
+    }
+
+
+def _check_mcp_registry() -> dict:
+    """MCP server registers tools without crashing.
+
+    Round 4 #15: a tool listed in the declared tool set but not actually
+    implemented gives agents `No such tool` errors. We import the server
+    module and count registered tools so a registry mismatch surfaces
+    here, not at agent call-time.
+    """
+    try:
+        from roam import mcp_server  # noqa: PLC0415 — heavy import, only at doctor time
+    except Exception as exc:
+        return {
+            "name": "MCP tool registry",
+            "passed": False,
+            "detail": f"mcp_server import failed: {type(exc).__name__}: {exc}",
+        }
+
+    declared = getattr(mcp_server, "_REGISTERED_TOOLS", [])
+    if not declared:
+        return {
+            "name": "MCP tool registry",
+            "passed": False,
+            "detail": "no tools registered (FastMCP missing or registration broken)",
+        }
+    # Preset awareness — a fresh import only registers the tools allowed
+    # by the active preset (default "core"). Without naming the preset
+    # in the doctor output a user sees "36 MCP tools registered" and
+    # wonders why the docs claim 122. v12.12.5: report the active
+    # preset and the full-preset ceiling so the count makes sense.
+    import os as _os
+    import re as _re
+
+    preset = _os.environ.get("ROAM_MCP_PRESET", "core")
+    full_count = 0
+    try:
+        from roam.surface_counts import mcp_surface_counts
+
+        full_count = int(mcp_surface_counts().get("registered_tools") or 0)
+    except Exception as _exc:  # noqa: BLE001 -- surface_counts import or coercion may fail in minimal envs; fall back to AST scan
+        # Fallback: count @_tool decorators in the module source. The
+        # surface_counts helper isn't importable in some minimal envs.
+        try:
+            module_path = Path(getattr(mcp_server, "__file__", ""))
+            text = module_path.read_text(encoding="utf-8") if module_path.is_file() else ""
+            full_count = len(_re.findall(r"^@_tool\(\s*name=", text, _re.MULTILINE))
+        except OSError:
+            full_count = 0
+    # W420 dual-source: report runtime-active AND AST-shipped counts
+    # side-by-side so the operator can see plugin-loading / preset state
+    # at a glance. Single-source would hide one axis of drift.
+    if full_count:
+        detail = f"{len(declared)} active / {full_count} shipped MCP tools registered ({preset} preset)"
+    else:
+        detail = f"{len(declared)} active MCP tools registered ({preset} preset)"
+    return {
+        "name": "MCP tool registry",
+        "passed": True,
+        "detail": detail,
+    }
+
+
+def _check_plugin_discovery() -> dict:
+    """Plugin discovery completed without errors.
+
+    A user-installed plugin that fails to import would silently disappear
+    from the surface; this check surfaces ``get_plugin_errors`` so the
+    failure is loud during ``roam doctor``.
+    """
+    try:
+        from roam.plugins import discover_plugins, get_plugin_errors
+    except Exception as exc:
+        return {
+            "name": "Plugin discovery",
+            "passed": False,
+            "detail": f"plugins module import failed: {type(exc).__name__}: {exc}",
+        }
+    try:
+        discover_plugins()
+        errors = get_plugin_errors()
+    except Exception as exc:
+        return {
+            "name": "Plugin discovery",
+            "passed": False,
+            "detail": f"discovery raised: {type(exc).__name__}: {exc}",
+        }
+    if errors:
+        first = errors[0]
+        more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
+        return {
+            "name": "Plugin discovery",
+            "passed": False,
+            "detail": f"{first}{more}",
+        }
+    return {
+        "name": "Plugin discovery",
+        "passed": True,
+        "detail": "no errors during plugin discovery",
+    }
+
+
+def _check_required_tables() -> dict:
+    """Required tables are present in the index.
+
+    A failed mid-migration would leave the DB without expected tables.
+    Surfacing it here is faster than discovering it via a downstream
+    "no such table" sqlite error mid-command.
+    """
+    try:
+        from roam.db.connection import db_exists, open_db
+    except Exception as exc:
+        return {
+            "name": "Required tables",
+            "passed": False,
+            "detail": f"connection module import failed: {type(exc).__name__}: {exc}",
+        }
+    if not db_exists():
+        return {
+            "name": "Required tables",
+            "passed": True,
+            "detail": "no index — table check skipped",
+        }
+    required = {"files", "symbols", "edges", "git_commits", "file_stats"}
+    try:
+        with open_db(readonly=True) as conn:
+            rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            present = {r[0] for r in rows}
+    except Exception as exc:
+        return {
+            "name": "Required tables",
+            "passed": False,
+            "detail": f"could not list tables: {type(exc).__name__}: {exc}",
+        }
+    missing = required - present
+    if missing:
+        return {
+            "name": "Required tables",
+            "passed": False,
+            "detail": f"missing tables: {', '.join(sorted(missing))}; run `roam reset` to rebuild.",
+        }
+    return {
+        "name": "Required tables",
+        "passed": True,
+        "detail": f"all {len(required)} required tables present",
+    }
+
+
+def _check_corpus_content() -> dict:
+    """Verify the indexer extracted symbols from the corpus.
+
+    W836 fix — an empty graph means either the corpus is genuinely empty
+    OR the indexer is broken. Either way, doctor should disclose this
+    instead of silently passing. Without this check the env-only pipeline
+    emits "all N checks passed" against a clean env + empty corpus,
+    masking the most actionable symptom (W835/W836 finding).
+
+    States:
+      no_index    - DB doesn't exist (skipped, advisory pass)
+      empty       - DB exists but 0 symbols indexed (advisory fail)
+      populated   - at least one symbol present (pass)
+      error       - could not query symbols table
+    """
+    try:
+        from roam.db.connection import db_exists, open_db
+    except (ImportError, AttributeError) as exc:
+        return {
+            "name": "Corpus content",
+            "passed": False,
+            "detail": f"connection module import failed: {type(exc).__name__}: {exc}",
+        }
+
+    if not db_exists():
+        return {
+            "name": "Corpus content",
+            "passed": True,
+            "detail": "no index - corpus check skipped (run `roam init`)",
+            "_state": "no_index",
+        }
+
+    import sqlite3 as _sqlite3
+
+    try:
+        with open_db(readonly=True) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
+    except _sqlite3.Error as exc:
+        return {
+            "name": "Corpus content",
+            "passed": False,
+            "detail": f"could not query symbols: {exc}",
+            "_state": "error",
+        }
+
+    count = int(count or 0)
+    if count == 0:
+        # Pattern 2: always-emit. Empty corpus is a real signal — disclose
+        # it, do not silently pass. Advisory failure keeps this from
+        # blocking CI for legitimately empty repos.
+        #
+        # W1502 — but "empty" was two-valued and could not tell a docs-only
+        # repo from an indexer that understood nothing. Both rendered as the
+        # same advisory line, so `roam doctor` could not confirm or refute
+        # the very failure it was being run to diagnose. Delegate to the
+        # shared classifier that ``init`` and ``index`` use, so the three
+        # commands cannot drift apart on what a zero means.
+        try:
+            from roam.index.corpus_state import STATE_FAILED, classify_project
+
+            verdict = classify_project()
+            return {
+                "name": "Corpus content",
+                "passed": False,
+                "detail": f"{verdict.state}: {verdict.detail}"
+                + (f" — {verdict.remediation}" if verdict.remediation else ""),
+                "_state": "empty",
+                "_corpus_state": verdict.state,
+                "_corpus_reason": verdict.reason,
+                "_blocking": verdict.state == STATE_FAILED,
+                "_symbol_count": 0,
+            }
+        except Exception as exc:  # noqa: BLE001 — fall back to the flat disclosure
+            from roam.observability import log_swallowed
+
+            log_swallowed("cmd_doctor:corpus_state", exc)
+        return {
+            "name": "Corpus content",
+            "passed": False,
+            "detail": "corpus empty (0 symbols indexed) - run `roam index --force` if unexpected",
+            "_state": "empty",
+            "_symbol_count": 0,
+        }
+    return {
+        "name": "Corpus content",
+        "passed": True,
+        "detail": f"{count} symbols indexed",
+        "_state": "populated",
+        "_symbol_count": count,
+    }
+
+
+def _check_stale_math_signal_column() -> dict:
+    """Detect a stale ``math_signals.loop_eq_with_dependent_write`` column.
+
+    Migration #51 (USER_VERSION 12 -> 13, W36.4) added the
+    ``loop_eq_with_dependent_write`` column to ``math_signals`` with
+    ``DEFAULT 0``. Repos indexed before that migration landed have the
+    column populated with zeros across every row — meaning ``roam algo``
+    correctly reports zero false-positives but ALSO zero true-positives
+    for the new dependent-write predicate.
+
+    The fix is ``roam index --force`` to re-run the signal extractor.
+
+    Advisory only: a stale-but-present column is informational, never
+    blocking — the user is still getting correct (just incomplete)
+    results.
+
+    States:
+      no_index   — DB doesn't exist (skipped)
+      no_table   — math_signals table missing (older schema; skipped)
+      no_column  — column not present (pre-USER_VERSION-13 DB; skipped —
+                   migration will add it on next open)
+      empty      — math_signals table is empty (fresh project; skipped)
+      stale      — column exists, table non-empty, but all rows are 0
+      populated  — at least one row has a non-zero value (healthy)
+    """
+    try:
+        from roam.db.connection import db_exists, open_db
+    except (ImportError, AttributeError) as exc:
+        return {
+            "name": "Stale math_signals column",
+            "passed": False,
+            "detail": f"connection module import failed: {type(exc).__name__}: {exc}",
+        }
+
+    if not db_exists():
+        return {
+            "name": "Stale math_signals column",
+            "passed": True,
+            "detail": "no index - stale-signal check skipped",
+            "_state": "no_index",
+        }
+
+    import sqlite3 as _sqlite3
+
+    try:
+        with open_db(readonly=True) as conn:
+            # Does math_signals exist?
+            row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='math_signals'").fetchone()
+            if row is None:
+                return {
+                    "name": "Stale math_signals column",
+                    "passed": True,
+                    "detail": "math_signals table absent - older schema, skipped",
+                    "_state": "no_table",
+                }
+            # Does the column exist? PRAGMA table_info returns (cid, name, ...)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(math_signals)").fetchall()}
+            if "loop_eq_with_dependent_write" not in cols:
+                return {
+                    "name": "Stale math_signals column",
+                    "passed": True,
+                    "detail": (
+                        "loop_eq_with_dependent_write column not present - "
+                        "pre-migration-#51 DB, will populate on next open"
+                    ),
+                    "_state": "no_column",
+                }
+            # Is the table populated at all? Use COUNT + SUM in one query.
+            row = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(loop_eq_with_dependent_write), 0) FROM math_signals"
+            ).fetchone()
+    except _sqlite3.Error as exc:
+        return {
+            "name": "Stale math_signals column",
+            "passed": False,
+            "detail": f"could not probe math_signals: {type(exc).__name__}: {exc}",
+        }
+
+    total_rows = int(row[0] or 0)
+    nonzero_sum = int(row[1] or 0)
+
+    if total_rows == 0:
+        return {
+            "name": "Stale math_signals column",
+            "passed": True,
+            "detail": "math_signals empty - fresh project, skipped",
+            "_state": "empty",
+            "_row_count": 0,
+        }
+
+    if nonzero_sum == 0:
+        return {
+            "name": "Stale math_signals column",
+            "passed": False,
+            "detail": (
+                f"ADVISORY: no dependent-write loop signals across {total_rows} rows. "
+                f"This may mean no matching loops, or an index created before the signal was added. "
+                f"Run `roam index --force` to refresh; a zero count alone does not prove stale data."
+            ),
+            "_state": "stale",
+            "_row_count": total_rows,
+        }
+
+    return {
+        "name": "Stale math_signals column",
+        "passed": True,
+        "detail": (
+            f"loop_eq_with_dependent_write populated ({nonzero_sum} non-zero value(s) across {total_rows} rows)"
+        ),
+        "_state": "populated",
+        "_row_count": total_rows,
+    }
+
+
+def _format_age(seconds: float) -> str:
+    """Format an age in seconds as a human-readable string."""
+    seconds = max(0.0, float(seconds))
+    if seconds < 60:
+        n = int(seconds)
+        return f"{n} second{'s' if n != 1 else ''}"
+    if seconds < 3600:
+        n = int(seconds / 60)
+        return f"{n} minute{'s' if n != 1 else ''}"
+    if seconds < 86400:
+        n = int(seconds / 3600)
+        return f"{n} hour{'s' if n != 1 else ''}"
+    n = int(seconds / 86400)
+    return f"{n} day{'s' if n != 1 else ''}"
+
+
+def _check_index_manifest() -> dict:
+    """Surface manifest age + drift hints from the most recent index run.
+
+    Drift between the recorded parser / grammar / roam version and what's
+    currently installed means the index was built with a different
+    toolchain — agents should ``roam index --force`` before trusting it.
+    """
+    try:
+        from roam.db.connection import db_exists, find_project_root, open_db
+        from roam.index.manifest import collect_manifest, latest_manifest, manifest_diff
+    except Exception as exc:
+        return {
+            "name": "Index manifest",
+            "passed": False,
+            "detail": f"manifest module import failed: {type(exc).__name__}: {exc}",
+        }
+
+    if not db_exists():
+        return {
+            "name": "Index manifest",
+            "passed": True,
+            "detail": "no index — manifest check skipped",
+        }
+
+    try:
+        with open_db(readonly=True) as conn:
+            prev = latest_manifest(conn)
+    except Exception as exc:
+        return {
+            "name": "Index manifest",
+            "passed": False,
+            "detail": f"could not read manifest: {type(exc).__name__}: {exc}",
+        }
+
+    if prev is None:
+        return {
+            "name": "Index manifest",
+            "passed": False,
+            "detail": "no manifest recorded — run `roam index --force` to refresh",
+        }
+
+    # Build a "current state" manifest and diff it. conn=None makes the
+    # schema_version come from the running code's constant, which is the
+    # right reference when checking for drift.
+    project_root = find_project_root()
+    current = collect_manifest(project_root, profile=prev.get("index_profile") or "all", conn=None)
+
+    drift = manifest_diff(prev, current)
+
+    age_s = max(0, int(time.time()) - int(prev.get("indexed_at") or 0))
+    base = (
+        f"index built {_format_age(age_s)} ago with roam-code "
+        f"{prev.get('roam_version')}, schema v{prev.get('schema_version')}"
+    )
+
+    hints: list[str] = []
+    parser_drift = "parser_versions" in drift or "grammar_versions" in drift
+    if parser_drift or "schema_version" in drift or "roam_version" in drift:
+        hints.append("WARN: parser version drift since last index — run `roam index --force`")
+
+    if "git_head" in drift:
+        old_head = drift["git_head"][0]
+        new_head = drift["git_head"][1]
+        if old_head and new_head:
+            hints.append(f"INFO: index was built at commit {old_head[:7]}; current HEAD is {new_head[:7]}")
+        elif new_head and not old_head:
+            hints.append(f"INFO: current HEAD is {new_head[:7]}; index has no recorded commit")
+        elif old_head and not new_head:
+            hints.append(f"INFO: index was built at commit {old_head[:7]}; no git HEAD detectable now")
+
+    if "git_dirty_hash" in drift:
+        old_dirty, new_dirty = drift["git_dirty_hash"]
+        if old_dirty is None and new_dirty is not None:
+            hints.append("INFO: index was built on a clean tree; working tree now has uncommitted changes")
+        elif old_dirty is not None and new_dirty is None:
+            hints.append("INFO: index was built on a dirty tree; working tree is clean now")
+        else:
+            hints.append("INFO: working-tree dirty-hash differs from index time — uncommitted state has changed")
+
+    if "config_hash" in drift:
+        hints.append("WARN: roam config or .roamignore changed since last index — run `roam index --force`")
+
+    if hints:
+        detail = base + "; " + "; ".join(hints)
+        passed = not (parser_drift or "schema_version" in drift or "roam_version" in drift or "config_hash" in drift)
+    else:
+        detail = base
+        passed = True
+
+    return {
+        "name": "Index manifest",
+        "passed": passed,
+        "detail": detail,
+        "_drift_fields": sorted(drift.keys()),
+    }
+
+
+def _check_index_manifest_history() -> dict:
+    """Compare the two most recent manifest rows for structural drift.
+
+    Complements ``_check_index_manifest`` (which diffs the latest row
+    against the current environment). This check answers a different
+    question: "did the last two recorded index runs produce a different
+    toolchain / config / git state?" — i.e. is the index history itself
+    moving around between runs?
+
+    States:
+      no_history     — 0 or 1 manifest rows recorded (advisory pass)
+      stable         — 2+ rows, no fields differ between the latest two
+      drift_detected — 2+ rows, one or more drift fields differ
+
+    The drift fields are the ones manifest.manifest_diff already
+    considers significant (roam_version, schema_version, parser/grammar
+    versions, config_hash, git_head, git_dirty_hash, enabled_extras,
+    index_profile). We surface the field names and counts; the per-field
+    old/new values stay in the `_drift` private payload so JSON
+    consumers that want them can opt in.
+    """
+    import json  # local — keeps doctor's import surface lazy
+
+    try:
+        from roam.db.connection import db_exists, open_db
+        from roam.index.manifest import _DRIFT_FIELDS, manifest_diff
+    except Exception as exc:
+        return {
+            "name": "Index manifest history",
+            "passed": False,
+            "detail": f"manifest module import failed: {type(exc).__name__}: {exc}",
+        }
+
+    if not db_exists():
+        return {
+            "name": "Index manifest history",
+            "passed": True,
+            "detail": "no index — manifest history skipped",
+            "_state": "no_history",
+        }
+
+    # Pull the two most recent manifest rows (latest first). Stay inside a
+    # single read-only connection so the check is cheap even on large DBs.
+    def _decode_row(row) -> dict:
+        # Decode the same fields latest_manifest() decodes, so the diff
+        # function sees the same shape on both sides.
+        parser_versions_raw = row[3] or "{}"
+        grammar_versions_raw = row[4]
+        enabled_extras_raw = row[8] or "[]"
+        try:
+            parser_versions = json.loads(parser_versions_raw)
+        except (TypeError, ValueError):
+            parser_versions = {}
+        try:
+            grammar_versions = json.loads(grammar_versions_raw) if grammar_versions_raw else None
+        except (TypeError, ValueError):
+            grammar_versions = None
+        try:
+            enabled_extras = json.loads(enabled_extras_raw)
+        except (TypeError, ValueError):
+            enabled_extras = []
+        return {
+            "indexed_at": row[0],
+            "roam_version": row[1],
+            "schema_version": row[2],
+            "parser_versions": parser_versions,
+            "grammar_versions": grammar_versions,
+            "config_hash": row[5],
+            "git_head": row[6],
+            "git_dirty_hash": row[7],
+            "enabled_extras": enabled_extras,
+            "index_profile": row[9],
+        }
+
+    try:
+        with open_db(readonly=True) as conn:
+            rows = conn.execute(
+                """
+                SELECT indexed_at, roam_version, schema_version,
+                       parser_versions, grammar_versions, config_hash,
+                       git_head, git_dirty_hash, enabled_extras,
+                       index_profile
+                  FROM index_manifest
+              ORDER BY indexed_at DESC, id DESC
+                 LIMIT 2
+                """
+            ).fetchall()
+    except Exception as exc:
+        return {
+            "name": "Index manifest history",
+            "passed": False,
+            "detail": f"could not read manifest history: {type(exc).__name__}: {exc}",
+        }
+
+    row_count = len(rows)
+    if row_count < 2:
+        return {
+            "name": "Index manifest history",
+            "passed": True,
+            "detail": (
+                "manifest seeded — no prior run to diff against" if row_count == 1 else "no manifest rows recorded yet"
+            ),
+            "_state": "no_history",
+            "_row_count": row_count,
+        }
+
+    current = _decode_row(rows[0])
+    previous = _decode_row(rows[1])
+    drift = manifest_diff(previous, current)
+
+    if not drift:
+        return {
+            "name": "Index manifest history",
+            "passed": True,
+            "detail": "last two index runs are structurally identical",
+            "_state": "stable",
+            "_row_count": row_count,
+        }
+
+    # Drift detected — surface field names + a short summary. Old/new
+    # values stay in the private payload so the human-facing detail stays
+    # readable.
+    fields_sorted = sorted(drift.keys())
+    # Preserve docstring order for the first few fields when possible
+    # (roam_version, schema_version, parser_versions, ...) so the most
+    # important drift surfaces first.
+    ordered = [f for f in _DRIFT_FIELDS if f in drift]
+    extra = [f for f in fields_sorted if f not in ordered]
+    headline_fields = ordered + extra
+    detail = f"{len(drift)} field(s) drifted between the last two index runs: {', '.join(headline_fields)}"
+    return {
+        "name": "Index manifest history",
+        "passed": False,
+        "detail": detail,
+        "_state": "drift_detected",
+        "_row_count": row_count,
+        "_drift_fields": fields_sorted,
+        "_drift": {k: list(v) for k, v in drift.items()},
+    }
+
+
+def _check_index_step_failures() -> dict:
+    """Surface per-sub-step failures recorded in the latest manifest.
+
+    ROADMAP A8 / W82: ``Indexer`` runs ~12 best-effort sub-steps that
+    each guard themselves with try/except (clustering, taint analysis,
+    git stats, etc.). Without a per-step record, the index can ship
+    "complete" while a key step silently failed — agents then consume
+    stale data thinking it's fresh.
+
+    The indexer now writes a JSON map into ``index_manifest.steps_status``
+    on every run. This check reads that map and emits an advisory
+    failure when ANY step has a ``failed:*`` status, naming the failing
+    steps so the user knows what to retry.
+
+    States:
+      no_index      — DB not present (advisory pass)
+      no_data       — manifest exists but no per-step record (legacy row
+                      or import-only check); advisory pass
+      all_ok        — every recorded step ran cleanly
+      failures      — at least one step is ``failed:*`` — advisory FAIL
+                      with the failing-step names + a retry hint
+    """
+    try:
+        from roam.db.connection import db_exists, open_db
+        from roam.index.manifest import latest_manifest
+    except Exception as exc:
+        return {
+            "name": "Index step manifest",
+            "passed": False,
+            "detail": f"manifest module import failed: {type(exc).__name__}: {exc}",
+        }
+
+    if not db_exists():
+        return {
+            "name": "Index step manifest",
+            "passed": True,
+            "detail": "no index — step manifest check skipped",
+            "_state": "no_index",
+        }
+
+    try:
+        with open_db(readonly=True) as conn:
+            prev = latest_manifest(conn)
+    except Exception as exc:
+        return {
+            "name": "Index step manifest",
+            "passed": False,
+            "detail": f"could not read manifest: {type(exc).__name__}: {exc}",
+        }
+
+    if prev is None:
+        return {
+            "name": "Index step manifest",
+            "passed": True,
+            "detail": "no manifest recorded — run `roam index` to capture per-step status",
+            "_state": "no_data",
+        }
+
+    steps_status = prev.get("steps_status") or {}
+    if not steps_status:
+        return {
+            "name": "Index step manifest",
+            "passed": True,
+            "detail": "no per-step data recorded (legacy manifest row)",
+            "_state": "no_data",
+        }
+
+    failures: list[tuple[str, str, str]] = []  # (step, error_class, excerpt)
+    skipped: list[str] = []
+    ok_count = 0
+    for step, entry in steps_status.items():
+        if not isinstance(entry, dict):
+            # Defensive: tolerate the older string-only shape if a
+            # mixed-vintage row sneaks in.
+            status_str = str(entry)
+            if status_str.startswith("failed:"):
+                failures.append((step, status_str.split(":", 1)[1], ""))
+            elif status_str.startswith("skipped:"):
+                skipped.append(step)
+            else:
+                ok_count += 1
+            continue
+        status = str(entry.get("status") or "")
+        if status.startswith("failed:"):
+            err_class = status.split(":", 1)[1]
+            excerpt = str(entry.get("error_excerpt") or "")
+            failures.append((step, err_class, excerpt))
+        elif status.startswith("skipped:"):
+            skipped.append(step)
+        else:
+            ok_count += 1
+
+    total = len(steps_status)
+    if not failures:
+        suffix = f" ({len(skipped)} skipped)" if skipped else ""
+        return {
+            "name": "Index step manifest",
+            "passed": True,
+            "detail": f"all {ok_count}/{total} recorded sub-steps succeeded{suffix}",
+            "_state": "all_ok",
+            "_steps_total": total,
+            "_steps_ok": ok_count,
+            "_steps_skipped": len(skipped),
+        }
+
+    # Surface up to the first 3 failing steps in the human-readable
+    # detail so we name what failed without a wall of text.
+    head = failures[:3]
+    head_text = "; ".join(
+        f"{step}: {err_class}" + (f" ({excerpt[:80]})" if excerpt else "") for step, err_class, excerpt in head
+    )
+    remainder = f"; +{len(failures) - len(head)} more" if len(failures) > len(head) else ""
+    fail_names = ", ".join(step for step, _, _ in failures)
+    detail = (
+        f"{len(failures)}/{total} sub-step(s) failed in the last index run "
+        f"({fail_names}). Your index is missing data because these steps "
+        f"failed: {head_text}{remainder}. Run `roam index --force` to retry."
+    )
+    return {
+        "name": "Index step manifest",
+        "passed": False,
+        "detail": detail,
+        "_state": "failures",
+        "_steps_total": total,
+        "_steps_failed": len(failures),
+        "_steps_skipped": len(skipped),
+        "_failed_steps": [{"step": s, "error_class": ec, "error_excerpt": ex} for s, ec, ex in failures],
+    }
+
+
+def _check_phase_timings() -> dict:
+    """Surface per-phase wall-clock from the latest index run (W408).
+
+    The indexer (W408) records the 7 user-facing phases' wallclock into
+    ``index_manifest.notes`` under the ``phase_timings`` key. This check
+    reads them back so ``roam doctor --json`` exposes the data without
+    needing a separate ``roam indexer-perf`` command. The W395-followup
+    sprint can rank optimization candidates against the real numbers
+    rather than the predicted 30-50% speedup that turned out to be ~5%.
+
+    Always-advisory: a slow phase isn't broken — it's diagnostic. The
+    check never blocks, but the ``_phase_timings`` private payload + the
+    structured envelope let downstream tooling lint specific phases.
+
+    States:
+      no_index       — DB doesn't exist (advisory pass)
+      no_data        — manifest exists but ``notes`` has no ``phase_timings``
+                       (legacy row from before this wave) — advisory pass
+      ok             — timings present; surface seconds per phase + total
+    """
+    import json as _json
+
+    try:
+        from roam.db.connection import db_exists, open_db
+        from roam.index.manifest import latest_manifest
+    except Exception as exc:
+        return {
+            "name": "Phase timings",
+            "passed": True,
+            "detail": f"manifest module import failed: {type(exc).__name__}: {exc}",
+            "_state": "no_data",
+        }
+
+    if not db_exists():
+        return {
+            "name": "Phase timings",
+            "passed": True,
+            "detail": "no index — phase-timing check skipped",
+            "_state": "no_index",
+        }
+
+    try:
+        with open_db(readonly=True) as conn:
+            prev = latest_manifest(conn)
+    except Exception as exc:
+        return {
+            "name": "Phase timings",
+            "passed": True,
+            "detail": f"could not read manifest: {type(exc).__name__}: {exc}",
+            "_state": "no_data",
+        }
+
+    if prev is None:
+        return {
+            "name": "Phase timings",
+            "passed": True,
+            "detail": "no manifest recorded — run `roam index` to capture phase timings",
+            "_state": "no_data",
+        }
+
+    notes_raw = prev.get("notes") or ""
+    if not notes_raw:
+        return {
+            "name": "Phase timings",
+            "passed": True,
+            "detail": "no phase-timing data recorded (legacy manifest row)",
+            "_state": "no_data",
+        }
+
+    try:
+        notes_obj = _json.loads(notes_raw)
+        if not isinstance(notes_obj, dict):
+            notes_obj = {}
+    except (TypeError, ValueError):
+        notes_obj = {}
+
+    phase_timings = notes_obj.get("phase_timings") or {}
+    if not isinstance(phase_timings, dict) or not phase_timings:
+        return {
+            "name": "Phase timings",
+            "passed": True,
+            "detail": "no phase-timing data recorded (legacy manifest row)",
+            "_state": "no_data",
+        }
+
+    # Normalise to (phase, seconds) tuples in the canonical order. Any
+    # extra keys the indexer added in a future revision come after the
+    # known set, preserving discoverability without breaking the order.
+    canonical_order = (
+        "discover",
+        "parse_extract",
+        "resolve",
+        "graph_metrics",
+        "git_analysis",
+        "effects_taint",
+        "health_load",
+        "search_indexes",
+    )
+    ordered: list[tuple[str, float]] = []
+    seen: set[str] = set()
+    for k in canonical_order:
+        if k in phase_timings:
+            ordered.append((k, float(phase_timings[k])))
+            seen.add(k)
+    for k, v in phase_timings.items():
+        if k not in seen:
+            try:
+                ordered.append((k, float(v)))
+            except (TypeError, ValueError):
+                continue
+    total = round(sum(s for _, s in ordered), 3)
+    # Human detail: name the slowest phase + total. LAW 4 anchor: terminal
+    # token "seconds" — included in tests/test_law4_lint.py's anchor set.
+    slowest_phase, slowest_seconds = max(ordered, key=lambda p: p[1])
+    detail = (
+        f"index ran {total:.3f} seconds across {len(ordered)} phases; "
+        f"slowest phase '{slowest_phase}' took {slowest_seconds:.3f} seconds"
+    )
+    return {
+        "name": "Phase timings",
+        "passed": True,
+        "detail": detail,
+        "_state": "ok",
+        "_phase_timings": {k: round(s, 3) for k, s in ordered},
+        "_total_seconds": total,
+        "_slowest_phase": slowest_phase,
+        "_slowest_seconds": round(slowest_seconds, 3),
+    }
+
+
+def _check_installed_binary_matches_source() -> dict:
+    """Detect a stale ``roam`` binary that doesn't point at this source tree.
+
+    A common foot-gun across multiple agent recheck rounds (W7.3, W13.5):
+    the local repo's source has new commands but the installed ``roam``
+    binary on PATH was built from an older checkout. Agents then see
+    ``No such command`` errors at run-time.
+
+    States:
+      fresh         — imported roam module and on-PATH ``roam`` binary
+                      point at the same site-packages / source tree
+      stale_install — paths diverge (likely: editable import shadows a
+                      uv-installed binary, or vice-versa)
+      no_binary     — ``shutil.which("roam")`` returns None — likely a
+                      bare ``python -m roam`` invocation, not actionable
+
+    Advisory only — the running command obviously imported just fine,
+    so this can't be blocking. It exists to surface the staleness so
+    the user can refresh the binary before the next shell invocation.
+    """
+    try:
+        import roam  # noqa: PLC0415 — local import keeps doctor's surface lazy
+    except Exception as exc:
+        return {
+            "name": "Installed binary",
+            "passed": False,
+            "detail": f"could not import roam: {type(exc).__name__}: {exc}",
+            "_state": "import_failed",
+        }
+
+    import_path_str = getattr(roam, "__file__", None)
+    if not import_path_str:
+        return {
+            "name": "Installed binary",
+            "passed": True,
+            "detail": "roam module has no __file__ — namespace package or frozen build",
+            "_state": "no_file",
+        }
+    import_path = Path(import_path_str).resolve()
+    # ``roam/__init__.py`` -> the package dir is its parent.
+    import_pkg_dir = import_path.parent
+
+    binary_path_str = shutil.which("roam")
+    if binary_path_str is None:
+        return {
+            "name": "Installed binary",
+            "passed": True,
+            "detail": "no `roam` binary on PATH — running via `python -m roam` or similar",
+            "_state": "no_binary",
+            "_import_path": str(import_pkg_dir),
+        }
+
+    # Resolve the binary's installed-package location. Two robust signals:
+    # 1) shebang of the wrapper script (Unix), 2) ``roam`` exe living in
+    # a Scripts/ or bin/ sibling of a site-packages/roam/ dir (Windows).
+    # We don't try to execute the binary — that's slow and racey — we
+    # only need the *location* it would run from.
+    binary_path = Path(binary_path_str).resolve()
+
+    # Search upward from the binary for a sibling site-packages/roam (or
+    # Lib/site-packages/roam on Windows uv tool installs) and treat that
+    # as the binary's effective source tree.
+    binary_pkg_dir: Path | None = None
+    for parent in binary_path.parents:
+        for candidate in (
+            parent / "site-packages" / "roam",
+            parent / "Lib" / "site-packages" / "roam",
+            parent / "lib" / "site-packages" / "roam",
+        ):
+            if candidate.is_dir():
+                binary_pkg_dir = candidate.resolve()
+                break
+        if binary_pkg_dir is not None:
+            break
+
+    if binary_pkg_dir is None:
+        # We can't resolve where the binary points; report the binary
+        # path and treat it as advisory pass (insufficient evidence to
+        # claim staleness).
+        return {
+            "name": "Installed binary",
+            "passed": True,
+            "detail": (
+                f"`roam` binary at {binary_path} — could not locate its "
+                f"site-packages/roam to compare against import {import_pkg_dir}"
+            ),
+            "_state": "unknown",
+            "_import_path": str(import_pkg_dir),
+            "_binary_path": str(binary_path),
+        }
+
+    if binary_pkg_dir == import_pkg_dir:
+        return {
+            "name": "Installed binary",
+            "passed": True,
+            "detail": f"`roam` binary and import share source tree at {import_pkg_dir}",
+            "_state": "fresh",
+            "_import_path": str(import_pkg_dir),
+            "_binary_path": str(binary_path),
+        }
+
+    return {
+        "name": "Installed binary",
+        "passed": False,
+        "detail": (
+            f"`roam` binary points at {binary_pkg_dir} but the running "
+            f"import is from {import_pkg_dir}. "
+            "Run `pip install -e .` or `uv tool install -e .` to refresh the binary."
+        ),
+        "_state": "stale_install",
+        "_import_path": str(import_pkg_dir),
+        "_binary_pkg_dir": str(binary_pkg_dir),
+        "_binary_path": str(binary_path),
+    }
+
+
+def _check_mcp_backpressure() -> dict:
+    """MCP backpressure module loads with sensible limits.
+
+    Round 4 / P: the bounded-semaphore guard wraps every MCP tool. If
+    the limits are pathological (zero or negative) every call would
+    return BUSY — surface that configuration error here.
+    """
+    try:
+        from roam.mcp_extras import concurrency
+    except Exception as exc:
+        return {
+            "name": "MCP backpressure",
+            "passed": False,
+            "detail": f"concurrency module import failed: {type(exc).__name__}: {exc}",
+        }
+    snapshot = concurrency.metrics()
+    limit = snapshot.get("max_concurrent", 0)
+    if limit < 1:
+        return {
+            "name": "MCP backpressure",
+            "passed": False,
+            "detail": f"max_concurrent={limit} (set ROAM_MCP_MAX_CONCURRENT to a positive integer)",
+        }
+    per_tool_count = len(snapshot.get("per_tool_limits", {}))
+    return {
+        "name": "MCP backpressure",
+        "passed": True,
+        "detail": f"max_concurrent={limit}, {per_tool_count} per-tool override(s) active",
+    }
+
+
+_CLOUD_PATH_MARKERS = (
+    "OneDrive",
+    "Dropbox",
+    "iCloudDrive",
+    "iCloud Drive",
+    "Google Drive",
+    "Google Drive File Stream",
+    "GoogleDrive",
+    "Box Sync",
+    "pCloud",
+)
+
+
+def _check_cloud_sync() -> dict:
+    """Warn if the project lives under a cloud-sync folder.
+
+    Cloud-synced folders (OneDrive, Dropbox, iCloud, Google Drive) re-upload the
+    SQLite index file on every write, which can corrupt the DB during a long
+    index run, and slow `roam` calls considerably. Excluding `.roam/` from sync
+    fixes both.
+    """
+    project_root = str(Path.cwd().resolve())
+    matched = next((m for m in _CLOUD_PATH_MARKERS if m in project_root), None)
+    if matched is None:
+        return {
+            "name": "Cloud sync",
+            "passed": True,
+            "detail": "project not under a known cloud-sync folder",
+        }
+    return {
+        "name": "Cloud sync",
+        "passed": False,
+        "detail": (
+            f"project root contains '{matched}' — exclude .roam/ from sync to "
+            "avoid index corruption during long indexing runs and to reduce "
+            "per-command latency."
+        ),
+    }
+
+
+def _check_cache_permissions() -> dict:
+    """`.roam/` and `.pytest_cache/` must be writable; locks here cause silent failures."""
+    project_root = Path.cwd()
+    issues: list[str] = []
+    for sub in (".roam", ".pytest_cache"):
+        d = project_root / sub
+        if not d.exists():
+            continue
+        # Try to create a tiny probe file.
+        probe = d / ".roam-probe"
+        try:
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except (OSError, PermissionError) as exc:
+            issues.append(f"{sub}/: {type(exc).__name__}")
+    if issues:
+        return {
+            "name": "Cache permissions",
+            "passed": False,
+            "detail": "not writable: " + ", ".join(issues),
+        }
+    return {
+        "name": "Cache permissions",
+        "passed": True,
+        "detail": "all probed cache dirs writable",
+    }
+
+
+def _check_optional_extras() -> dict:
+    """Probe optional extras: semantic search, file watcher, MCP server."""
+    extras: dict[str, str] = {}
+    for mod, label in (
+        ("onnxruntime", "semantic-search ONNX runtime"),
+        ("watchdog", "file watcher"),
+        ("fastmcp", "MCP server"),
+        ("scipy", "spectral analysis"),
+    ):
+        try:
+            __import__(mod)
+            extras[mod] = "installed"
+        except ImportError:
+            extras[mod] = "missing (optional)"
+    missing = [m for m, s in extras.items() if "missing" in s]
+    detail_parts = [f"{m}={s.split()[0]}" for m, s in extras.items()]
+    return {
+        # Always pass — these are optional. Report status for visibility.
+        "name": "Optional extras",
+        "passed": True,
+        "detail": ", ".join(detail_parts)
+        + (f" ({len(missing)} missing — features degrade gracefully)" if missing else ""),
+    }
+
+
+# W482 — emitted-workflow drift detection (follow-up to W471 SLSA SRC-L3).
+#
+# When ``roam ci-setup --write`` (and ``--with-slsa-l3``) emit GitHub
+# Actions YAML, those files are then committed by the user. If a future
+# release ships an updated template (e.g. cosign-installer@v3 → v4, or a
+# new permission added), the live workflow silently drifts. This check
+# diffs every live workflow under ``.github/workflows/`` against the
+# canonical bundled template and surfaces the diff to the user.
+#
+# Registry of (template_file_name_under_templates_ci, live_workflow_path
+# relative to project root). Sourced from cmd_ci_setup so the truth stays
+# single-sourced — adding a new GitHub template to ci-setup automatically
+# extends doctor's drift check.
+def _github_template_registry() -> list[tuple[str, str]]:
+    """Return [(template_filename, live_workflow_path)] for GitHub templates.
+
+    Only GitHub-Actions templates are checked: non-GitHub platforms
+    (GitLab, Azure, Jenkins, Bitbucket) live OUTSIDE ``.github/workflows/``
+    and have a different surface area; the drift question for those is
+    distinct enough to warrant its own future check rather than mixing it
+    in here. Drive-by W-task suggestion below.
+    """
+    return [
+        # W471 — SLSA SRC-L3 auto-trigger workflow.
+        ("slsa-src-l3.yml", ".github/workflows/roam-slsa-src-l3.yml"),
+        # Pre-existing agent-review drop-in.
+        ("agent-review.yml", ".github/workflows/agent-review.yml"),
+        # W391 — roam SARIF + CodeQL co-deploy sample. Live filename is
+        # documented in the template header ("Copy this file to
+        # .github/workflows/security.yml"); drift advisory only fires once
+        # the user has actually committed the sample under that path.
+        ("roam-sarif-with-codeql.yml", ".github/workflows/security.yml"),
+    ]
+
+
+_CiSetupDriftContract = tuple[
+    str,
+    Callable[[], str],
+    Callable[[str, dict[str, str]], str],
+    Callable[[], Path],
+]
+
+
+class _CiSetupDriftContractUnavailable(Exception):
+    """Raised when doctor cannot load ci-setup's drift comparison contract."""
+
+
+def _load_ci_setup_drift_contract() -> _CiSetupDriftContract:
+    """Load ci-setup's drift helpers without hiding import-time bugs."""
+    try:
+        from roam.commands import cmd_ci_setup
+    except ModuleNotFoundError as exc:
+        if exc.name == "roam.commands.cmd_ci_setup":
+            raise _CiSetupDriftContractUnavailable("roam.commands.cmd_ci_setup is unavailable") from exc
+        raise
+
+    required = ("_GITHUB_TEMPLATE", "_get_python_version", "_substitute_vars", "_templates_dir")
+    missing = [name for name in required if not hasattr(cmd_ci_setup, name)]
+    if missing:
+        raise _CiSetupDriftContractUnavailable(
+            "roam.commands.cmd_ci_setup missing drift helpers: " + ", ".join(missing)
+        )
+
+    return (
+        cmd_ci_setup._GITHUB_TEMPLATE,
+        cmd_ci_setup._get_python_version,
+        cmd_ci_setup._substitute_vars,
+        cmd_ci_setup._templates_dir,
+    )
+
+
+def _normalize_workflow_yaml(text: str) -> str:
+    """Strip comments + trailing whitespace + collapse blank-line runs.
+
+    Diff stability for the W482 drift check requires ignoring purely
+    cosmetic differences: in-file comments (which often contain dates or
+    URLs the user customised), trailing whitespace, and runs of blank
+    lines. We do NOT parse YAML here — a full ruamel.yaml round-trip
+    would normalize too aggressively (reorder keys, drop comments
+    semantically meaningful to the workflow). Line-by-line strip is the
+    right intermediate fidelity.
+    """
+    out: list[str] = []
+    prev_blank = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        # Strip whole-line comments (# at column 0 or after leading whitespace).
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        if not line:
+            if prev_blank:
+                continue
+            prev_blank = True
+        else:
+            prev_blank = False
+        out.append(line)
+    # Trim leading + trailing blank lines.
+    start = 0
+    while start < len(out) and not out[start]:
+        start += 1
+    out = out[start:]
+    while out and not out[-1]:
+        out.pop()
+    return "\n".join(out) + "\n"
+
+
+# Match `python-version:` value lines in a GitHub-Actions YAML.
+# Accepts single-quoted, double-quoted, or unquoted scalar values. We
+# anchor on lstrip to avoid grabbing comment-embedded mentions.
+_PYTHON_VERSION_LINE_RE = re.compile(
+    r"""^\s*python-version\s*:\s*['"]?([^\s'"#]+)['"]?\s*(?:\#.*)?$""",
+    re.MULTILINE,
+)
+
+
+def _extract_python_version_from_workflow(text: str) -> str | None:
+    """Return the first ``python-version:`` value in a workflow YAML.
+
+    Drive-by fix for W515 — without this, drift compare uses the default
+    ``3.12`` and any user who emitted with ``--python-version 3.11``
+    gets a FALSE drift report on every ``roam doctor`` run. By feeding
+    the live file's own pin back as the substitution variable, we only
+    flag drift on *real* structural divergence.
+
+    Returns ``None`` when no ``python-version:`` line is present (e.g.
+    a template that doesn't take a python-version pin).
+    """
+    match = _PYTHON_VERSION_LINE_RE.search(text)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _build_ci_drift_pairs(
+    github_template: str,
+    templates_dir: Path,
+) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """Return template/live pairs and any missing-bundled-template labels.
+
+    The returned ``pairs`` are ``(label, raw_template_text, live_rel_path)``.
+    A registered template whose bundled file is absent is still represented
+    by a pair with empty template text so the caller can record it as
+    ``template_missing`` without a second lookup pass.
+    """
+    pairs: list[tuple[str, str, str]] = [
+        # (label, raw_template_text, live_path_relative)
+        ("roam.yml", github_template, ".github/workflows/roam.yml"),
+    ]
+    template_missing: list[str] = []
+    for template_filename, live_rel in _github_template_registry():
+        template_path = templates_dir / template_filename
+        if not template_path.exists():
+            # Packaging error — record but don't fail the check; the
+            # "Required tables" / installer-level checks cover this.
+            pairs.append((template_filename, "", live_rel))
+            template_missing.append(template_filename)
+            continue
+        pairs.append(
+            (
+                template_filename,
+                template_path.read_text(encoding="utf-8"),
+                live_rel,
+            )
+        )
+    return pairs, template_missing
+
+
+def _compare_one_ci_pair(
+    label: str,
+    raw_template: str,
+    live_rel: str,
+    default_python_version: str,
+    project_root: Path,
+    substitute_vars: Callable[[str, dict[str, str]], str],
+) -> tuple[dict | None, bool]:
+    """Compare one bundled template against its live workflow.
+
+    Returns ``(record, checked)``. ``record`` is ``None`` when the live
+    workflow matches the template; otherwise it carries the drift, missing,
+    or unreadable state. ``checked`` is ``True`` when a live file was
+    examined (it existed and was readable).
+    """
+    live_path = project_root / live_rel
+    if not live_path.exists():
+        return (
+            {
+                "template": label,
+                "live_path": live_rel,
+                "state": "not_emitted",
+            },
+            False,
+        )
+
+    try:
+        live_text = live_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return (
+            {
+                "template": label,
+                "live_path": live_rel,
+                "state": "unreadable",
+                "diff_summary": f"{type(exc).__name__}: {exc}",
+            },
+            True,
+        )
+
+    # W515 — substitute with the live file's own python-version pin if one
+    # is present. Falls back to the bundled default for templates that don't
+    # declare the placeholder or live files without a pin (identical to the
+    # pre-W515 behaviour).
+    live_python_version = _extract_python_version_from_workflow(live_text)
+    rendered = substitute_vars(
+        raw_template,
+        {"python_version": live_python_version or default_python_version},
+    )
+    live_norm = _normalize_workflow_yaml(live_text)
+    tmpl_norm = _normalize_workflow_yaml(rendered)
+    if live_norm == tmpl_norm:
+        return None, True
+
+    # Lightweight diff summary: line counts + first divergence. A full
+    # unified diff would balloon the doctor envelope; we keep it one-line
+    # and let the user re-emit to see the structural diff.
+    live_lines = live_norm.splitlines()
+    tmpl_lines = tmpl_norm.splitlines()
+    first_diverge = 0
+    for i, (a, b) in enumerate(zip(live_lines, tmpl_lines)):
+        if a != b:
+            first_diverge = i + 1  # 1-based
+            break
+    else:
+        first_diverge = min(len(live_lines), len(tmpl_lines)) + 1
+
+    return (
+        {
+            "template": label,
+            "live_path": live_rel,
+            "state": "drifted",
+            "diff_summary": (
+                f"{len(live_lines)} live vs {len(tmpl_lines)} template lines; first divergence at line {first_diverge}"
+            ),
+        },
+        True,
+    )
+
+
+def _check_ci_workflow_drift() -> dict:
+    """Detect drift between emitted GitHub workflows and canonical templates.
+
+    Compares live ``.github/workflows/*.yml`` files (those that came from
+    ``roam ci-setup --write``) against the bundled template under
+    ``src/roam/templates/ci/``. Differences can reflect template updates or
+    deliberate local customization; this comparison cannot distinguish intent.
+
+    States:
+      not_applicable — no live workflow exists for any registered template
+                       (project doesn't use this feature; advisory pass)
+      clean          — every live workflow matches its template
+      drift          — at least one live workflow differs from its template
+      template_missing — packaging error: a registered template file is
+                       absent from the install (advisory pass; doctor's
+                       other checks already cover packaging integrity)
+
+    Advisory only — drift is informational, never blocking. Preview with
+    ``roam ci-setup --platform github`` and review differences while preserving
+    the live workflow's permissions, triggers and custom steps.
+    """
+    try:
+        (
+            _GITHUB_TEMPLATE,
+            _get_python_version,
+            _substitute_vars,
+            _templates_dir,
+        ) = _load_ci_setup_drift_contract()
+    except _CiSetupDriftContractUnavailable as exc:
+        return {
+            "name": "CI workflow drift",
+            "passed": True,
+            "detail": f"ci-setup drift contract unavailable: {exc}",
+            "_state": "import_failed",
+        }
+
+    project_root = Path.cwd()
+    templates_dir = _templates_dir()
+
+    # Default substitution variables — match cmd_ci_setup's defaults so the
+    # rendered template matches what `ci-setup --write` would produce with
+    # no flags.
+    default_python_version = _get_python_version()
+
+    all_pairs, template_missing = _build_ci_drift_pairs(_GITHUB_TEMPLATE, templates_dir)
+
+    pair_results = [
+        _compare_one_ci_pair(
+            label,
+            raw_template,
+            live_rel,
+            default_python_version,
+            project_root,
+            _substitute_vars,
+        )
+        for label, raw_template, live_rel in all_pairs
+        if raw_template
+    ]
+    checked = sum(was_checked for _, was_checked in pair_results)
+    drifted = [record for record, _ in pair_results if record is not None and record["state"] != "not_emitted"]
+    missing = [record for record, _ in pair_results if record is not None and record["state"] == "not_emitted"]
+
+    # If no live workflows AND no drifted entries, the feature isn't in
+    # use here — advisory pass.
+    if checked == 0 and not drifted:
+        return {
+            "name": "CI workflow drift",
+            "passed": True,
+            "detail": "no emitted roam workflows found under .github/workflows/",
+            "_state": "not_applicable",
+            "_checked": 0,
+            "_drifted": [],
+            "_missing": missing,
+            "_template_missing": template_missing,
+        }
+
+    if drifted:
+        names = ", ".join(d["template"] for d in drifted[:3])
+        more = f" (+{len(drifted) - 3} more)" if len(drifted) > 3 else ""
+        return {
+            "name": "CI workflow drift",
+            "passed": False,
+            "detail": (
+                f"ADVISORY: {len(drifted)} workflows drifted from template ({names}{more}). "
+                "Run `roam ci-setup --platform github` to preview, then review differences "
+                "while preserving the live workflow's custom settings."
+            ),
+            "_state": "drift",
+            "_checked": checked,
+            "_drifted": drifted,
+            "_missing": missing,
+            "_template_missing": template_missing,
+        }
+
+    return {
+        "name": "CI workflow drift",
+        "passed": True,
+        "detail": f"all {checked} emitted workflows match templates",
+        "_state": "clean",
+        "_checked": checked,
+        "_drifted": [],
+        "_missing": missing,
+        "_template_missing": template_missing,
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI command
+# ---------------------------------------------------------------------------
+
+
+# Checks whose failure is advisory — these don't block normal usage.
+# A failure here means "something to be aware of" rather than "roam is
+# broken." CI can still pass with advisory failures unless ``--strict``
+# is set. See cmd_doctor docstring for the full exit-code matrix.
+def _check_claude_hook_bodies() -> dict:
+    """Deployed Claude hook bodies are roam-shipped and current (advisory).
+
+    Covers both install levels. Flags: stale roam bodies (healable), bodies
+    whose settings entry is wired but whose file vanished, and modified /
+    foreign / unreadable bodies (need --force). The T2c spec routes this
+    reporting through doctor so a drifted fleet shows up in onboarding
+    diagnostics, not only when someone happens to run `hooks claude`.
+    """
+    from roam.commands.cmd_hooks import (
+        _CLAUDE_STOP_HOOK_FILENAME,
+        _CLAUDE_STOP_HOOK_SCRIPT,
+        _CLAUDE_UPS_HOOK_FILENAME,
+        _CLAUDE_UPS_HOOK_SCRIPT,
+        _claude_hook_dir,
+        _claude_settings_path,
+        _hook_entry_present,
+        _load_claude_settings,
+        _scan_hook_bodies,
+    )
+
+    managed = [
+        ("UserPromptSubmit", _CLAUDE_UPS_HOOK_FILENAME, _CLAUDE_UPS_HOOK_SCRIPT),
+        ("Stop", _CLAUDE_STOP_HOOK_FILENAME, _CLAUDE_STOP_HOOK_SCRIPT),
+    ]
+    problems: list[str] = []
+    scanned = 0
+    for level, user_level in (("project", False), ("user", True)):
+        settings, load_error, _settings_bytes = _load_claude_settings(_claude_settings_path(user_level))
+        if load_error:
+            problems.append(f"{level}:settings=unreadable_or_unsafe")
+            continue
+        states = _scan_hook_bodies(_claude_hook_dir(user_level), managed)
+        for event, fname, _script in managed:
+            state = states.get(fname)
+            entry = _hook_entry_present(settings, event, fname)
+            if state == "missing":
+                if entry:
+                    problems.append(f"{level}:{fname}=missing (entry wired, body gone)")
+                continue
+            if state is None:
+                continue
+            scanned += 1
+            if state != "current":
+                problems.append(f"{level}:{fname}={state}")
+    if not problems:
+        detail = f"{scanned} deployed hook body(ies) current" if scanned else "no Claude hook bodies deployed"
+        return {"name": "Claude hook bodies", "passed": True, "detail": detail}
+    return {
+        "name": "Claude hook bodies",
+        "passed": False,
+        "detail": (
+            f"{len(problems)} hook body issue(s): "
+            + ", ".join(problems)
+            + " — `roam hooks claude --write` heals roam-shipped bodies; --force overwrites modified ones (.bak kept)"
+        ),
+    }
+
+
+_ADVISORY_CHECK_NAMES = frozenset(
+    {
+        "Claude hook bodies",  # T2c heal reporting — actionable locally only
+        "Optional extras",  # graceful degradation when extras missing
+        "Cloud sync",  # OneDrive/Dropbox warning, not a hard break
+        "MCP backpressure",  # only matters for MCP server users
+        "MCP tool registry",  # only matters for MCP users
+        "Plugin discovery",  # plugins are optional
+        "Index exists",  # auto-created on first command
+        "Index freshness",  # stale index is still functional
+        "Search index sync",  # W1510 — symbol_fts not covering symbols degrades
+        #   lexical recall but roam still answers; same "degraded, not broken"
+        #   shape as "Index freshness" above, and the repair is a known one-line
+        #   `roam index --force`. Blocking would exit 2 for every user whose
+        #   index predates the light-reindex fix — teaching them to ignore
+        #   doctor, which is the failure mode this check exists to prevent.
+        #   `--strict` still gates it in CI.
+        "Index manifest",  # drift hints — informational
+        "Index manifest history",  # cross-run drift — informational
+        "Index step manifest",  # per-sub-step failures — informational
+        #   (W82/A8: names which sub-step degraded)
+        "Installed binary",  # stale-install hint — informational
+        "Stale math_signals column",  # post-migration #51 re-index hint
+        "Phase timings",  # W408 — per-phase wallclock; diagnostic only
+        "CI workflow drift",  # W482 — emitted-workflow vs template drift
+        "Corpus content",  # W836 — empty corpus is advisory, not blocking
+        "CI environment parity",  # local-vs-CI divergence — must be KNOWN, not forbidden
+        #   (same physical condition as "Installed binary" above: doctor
+        #    imported the right roam to run the check at all, so nothing here
+        #    stops roam working. A global install beside a project venv is a
+        #    normal setup — blocking would exit 2 for a large share of users
+        #    and teach them to ignore doctor. `--strict` still gates it in CI.)
+        "Dependency versions",  # stale venv vs pyproject.toml specifier — roam's own
+        #   behaviour degrades (parses to zero symbols, etc.) but the fix is a
+        #   known one-line reinstall; blocking would exit 2 for every dev venv
+        #   one `pip install -e .` behind a tightened bound.
+        "Installed version",  # editable dist-info predates a pyproject.toml version
+        #   bump — `--version` lies but the running code is unaffected; same
+        #   "reinstall to reconcile" shape as "Installed binary" above.
+    }
+)
+
+
+@roam_capability(
+    name="doctor",
+    category="health",
+    summary="Diagnose environment: Python, dependencies, git, index state.",
+    inputs=[],
+    outputs=["checks", "verdict"],
+    examples=["roam doctor", "roam doctor --strict"],
+    tags=["diagnostics", "setup"],
+    ai_safe=True,
+    requires_index=False,
+    maturity="stable",
+    mcp_expose=True,
+    mcp_preset=("core",),
+    side_effect=True,
+    task_required=False,
+    destructive=False,
+    stale_sensitive=False,
+)
+@click.command("doctor")
+@click.option(
+    "--strict",
+    is_flag=True,
+    help=(
+        "Promote advisory check failures to blocking (exit 2). CI gates "
+        "that require zero drift use this; default behaviour reports "
+        "advisory failures in the table and exits 0, so cache-age and "
+        "cloud-sync warnings don't fail every CI run."
+    ),
+)
+@click.option(
+    "--persist",
+    is_flag=True,
+    default=False,
+    help=(
+        "Write BLOCKING check failures into the central findings "
+        "registry (subject_kind='environment'). Advisory failures are "
+        "intentionally skipped — they are ephemeral environment "
+        "diagnostics with no permanent codebase-level meaning."
+    ),
+)
+@click.pass_context
+def doctor(ctx, strict, persist):
+    """Diagnose environment setup: Python, dependencies, and index state.
+
+    Unlike ``health`` (which analyzes codebase structural quality), this command
+    validates the local environment: Python, dependencies, git, and index state.
+    Checks each requirement and reports PASS or FAIL. Useful for onboarding
+    new developers or troubleshooting agent setup issues.
+
+    \b
+    Exit codes:
+      0  All checks passed, OR only advisory checks failed (cache age,
+         cloud sync, optional extras). Advisory failures are reported in
+         the table and in the JSON summary, never in the exit code.
+      2  At least one blocking check failed (Python version, tree-sitter, ...).
+
+    There is NO exit 1. Advisory-only failures deliberately exit 0 so a
+    fresh install does not read as broken; branch on the JSON summary
+    (``advisory_failed``) if you need to detect them.
+
+    With ``--strict``, advisory failures are promoted to blocking — any
+    failure exits 2. CI gates that require zero drift use this.
+
+    \b
+    Examples:
+      roam doctor
+      roam --json doctor
+      roam doctor --strict   # CI mode
+
+    See also ``health`` (codebase quality), ``init`` (initial setup),
+    and ``mcp-setup`` (verify MCP server registration).
+    """
+    json_mode = ctx.obj.get("json") if ctx.obj else False
+
+    # W607-N: Pattern-2 consumer-layer wiring — thread a ``warnings_out``
+    # bucket through the doctor pipeline. cmd_doctor is the DB-shape
+    # aggregator that consumes findings + health + describe + retrieve +
+    # index_status substrates through ~22 per-check helpers (corpus,
+    # required tables, manifest, manifest history, index step failures,
+    # phase timings, math_signals drift, CI workflow drift, …). Every
+    # per-check helper already catches exceptions internally and emits a
+    # ``passed: False`` record, BUT each helper itself can still raise
+    # before reaching that floor (Python misconfig, networkx import
+    # explosion, unhandled OSError during ``shutil.which``, etc.) — and
+    # the outer ``checks.append(_check_X())`` loop has no guards. The
+    # W607-N wrapper turns each helper invocation into a marker-emitting
+    # try/except + skips the check on failure so the envelope still emits.
+    #
+    # Marker family ``doctor_*`` (DB / environment-aggregator scope,
+    # distinct from W607-M's ``health_*`` flagship CI-gate family,
+    # W607-K's ``describe_*`` flagship-aggregator family, W607-L's
+    # ``minimap_*`` DB-shape family, and W607-G/H/I/J subprocess
+    # families). The marker-prefix discipline keeps each consumer's
+    # scope identifiable downstream.
+    #
+    # Complementary to W805-836 Pattern-2 silent "all checks passed" on
+    # empty corpus (which pins the corpus-content advisory). W607-N
+    # does NOT graduate any W805-836 bug — the corpus-content disclosure
+    # is a separate Pattern-2 contract orthogonal to the per-helper
+    # substrate-failure axis here.
+    #
+    # Empty bucket → byte-identical envelope (no warnings_out key in
+    # either ``summary`` or top-level).
+    _w607n_warnings_out: list[str] = []
+
+    def _run_check(phase: str, fn, *args):
+        """Run one ``_check_*`` helper with W607-N marker emission.
+
+        On a clean call the result is appended to ``checks`` as before.
+        On an uncaught exception (the helper itself raised before
+        producing its own pass/fail dict), surface a
+        ``doctor_<phase>_failed:<exc_class>:<detail>`` marker via
+        ``_w607n_warnings_out`` and skip the check — the envelope still
+        emits cleanly with the remaining checks.
+        """
+        try:
+            result = fn(*args)
+        except Exception as exc:  # noqa: BLE001 — top-level disclosure
+            _w607n_warnings_out.append(f"doctor_{phase}_failed:{type(exc).__name__}:{exc}")
+            return None
+        checks.append(result)
+        return result
+
+    # --- Run all checks ---
+    checks: list[dict] = []
+
+    _run_check("python_version", _check_python_version)
+    _run_check("tree_sitter", _check_tree_sitter)
+    _run_check("tree_sitter_language_pack", _check_tree_sitter_language_pack)
+    _run_check("git", _check_git)
+    _run_check("git_repo_health", _check_git_repo_health)
+    _run_check("ci_environment_parity", _check_ci_environment_parity)
+    _run_check("dependency_versions", _check_dependency_versions)
+    _run_check("installed_version_drift", _check_installed_version_drift)
+    _run_check("networkx", _check_networkx)
+    _run_check("optional_extras", _check_optional_extras)
+    _run_check("cloud_sync", _check_cloud_sync)
+    _run_check("cache_permissions", _check_cache_permissions)
+    _run_check("claude_hook_bodies", _check_claude_hook_bodies)
+    _run_check("command_registry", _check_command_registry)
+    _run_check("mcp_registry", _check_mcp_registry)
+    _run_check("mcp_backpressure", _check_mcp_backpressure)
+    _run_check("plugin_discovery", _check_plugin_discovery)
+    _run_check("required_tables", _check_required_tables)
+    _run_check("corpus_content", _check_corpus_content)
+    _run_check("stale_math_signal_column", _check_stale_math_signal_column)
+
+    # Index checks: existence feeds into freshness and SQLite checks
+    index_check = _run_check("index_exists", _check_index_exists)
+
+    db_path_str = index_check.get("_db_path") if index_check else None
+    _run_check("index_freshness", _check_index_freshness, db_path_str)
+    _run_check("sqlite", _check_sqlite, db_path_str)
+    _run_check("search_index_sync", _check_search_index_sync, db_path_str)
+    _run_check("index_manifest", _check_index_manifest)
+    _run_check("index_manifest_history", _check_index_manifest_history)
+    _run_check("index_step_failures", _check_index_step_failures)
+    # W408: surface per-phase wallclock from the latest indexer run. The
+    # check itself is always advisory; the JSON envelope adds a top-level
+    # ``phase_timings`` block so consumers can read seconds-per-phase
+    # without parsing the human-readable detail string.
+    phase_check = _run_check("phase_timings", _check_phase_timings) or {}
+    _run_check("installed_binary", _check_installed_binary_matches_source)
+    # W482 — emitted-workflow drift (follow-up to W471 SLSA SRC-L3).
+    ci_drift_check = _run_check("ci_workflow_drift", _check_ci_workflow_drift) or {}
+
+    # --- Compute summary, with advisory / blocking severity split ---
+    total = len(checks)
+    failed = [c for c in checks if not c["passed"]]
+    passed_count = total - len(failed)
+
+    advisory_failed = [c for c in failed if c["name"] in _ADVISORY_CHECK_NAMES]
+    blocking_failed = [c for c in failed if c["name"] not in _ADVISORY_CHECK_NAMES]
+
+    # --- W156: mirror BLOCKING failures into the central findings registry.
+    # HYBRID filter — advisory failures are by-design ephemeral environment
+    # diagnostics (cache age, cloud sync, dev/install drift) and would
+    # pollute the registry with non-codebase signal. Blocking failures ARE
+    # reproducible problems the codebase or CI can act on, so they earn a
+    # row. Wrapped defensively: a pre-W89 DB (no ``findings`` table) or a
+    # missing index silently no-ops rather than crashing doctor.
+    #
+    # W607-BE: ADDITIVE substrate-boundary plumbing over the prior W607-N
+    # closure. cmd_doctor's persist path collapses three distinct
+    # registry-side substrate boundaries into a single ``except Exception:
+    # _w607n_warnings_out.append(...)`` channel — losing the ability to
+    # tell which step crashed (DB existence probe vs connection open vs
+    # finding emit vs commit). W607-BE splits the boundary so each
+    # registry-side raise surfaces a structured
+    # ``doctor_<phase>_failed:<exc_class>:<detail>`` marker via
+    # ``_w607be_warnings_out``; markers are merged into BOTH
+    # ``summary.warnings_out`` and the top-level ``warnings_out`` at
+    # output time. Empty bucket -> byte-identical envelope.
+    _w607be_warnings_out: list[str] = []
+
+    def _run_check_be(phase: str, fn, *args, default=None, **kwargs):
+        """Run one persist-side substrate with W607-BE marker emission.
+
+        On a clean call the result is returned as-is. On an uncaught
+        exception, surface a ``doctor_<phase>_failed:<exc_class>:<detail>``
+        marker via ``_w607be_warnings_out`` and return *default* — the
+        envelope still emits cleanly with the remaining substrates. This
+        complements W607-N's per-``_check_*`` wrapper (which catches
+        helpers raising before producing their pass/fail dict) by
+        disclosing which registry-side step crashed when ``--persist``
+        is set.
+        """
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — top-level disclosure
+            _w607be_warnings_out.append(f"doctor_{phase}_failed:{type(exc).__name__}:{exc}")
+            return default
+
+    if persist and blocking_failed:
+        from roam.db.connection import db_exists, open_db
+
+        _db_present = _run_check_be("persist_db_exists", db_exists, default=False)
+        if _db_present:
+            _conn_ctx = _run_check_be(
+                "persist_open_db",
+                lambda: open_db(readonly=False),
+                default=None,
+            )
+            if _conn_ctx is not None:
+                try:
+                    with _conn_ctx as _conn:
+                        _run_check_be(
+                            "persist_emit_findings",
+                            _emit_doctor_findings,
+                            _conn,
+                            checks,
+                            DOCTOR_DETECTOR_VERSION,
+                        )
+                        _run_check_be(
+                            "persist_commit_findings",
+                            _conn.commit,
+                        )
+                except Exception as exc:  # noqa: BLE001 — context-manager raise
+                    # The ``with`` context may itself raise on exit (e.g.
+                    # connection.__exit__ rolling back a transaction that
+                    # hit a sqlite3.OperationalError on schema drift). The
+                    # individual inner boundaries already disclosed via
+                    # ``_run_check_be`` when they raised; this outer
+                    # marker captures only the context-exit edge.
+                    _w607be_warnings_out.append(f"doctor_persist_context_failed:{type(exc).__name__}:{exc}")
+
+    # W607-DW: post-capture substrate-CALL plumbing LAYERED on top of
+    # W607-N (capture-layer per-check wrap) and W607-BE (persist-side
+    # boundaries). cmd_doctor's POST-capture path collapses five distinct
+    # substrate boundaries into one unguarded sequence — score
+    # computation, verdict composition, section assembly, envelope
+    # serialization, and text formatting. A raise inside any of these
+    # (e.g. a poisoned ``len(failed)``, an f-string format-spec crash on
+    # a degraded ``_check_*`` result, a non-JSON-serializable section
+    # payload, a ``__str__`` raise during click.echo) would torpedo the
+    # envelope WITHOUT lineage.
+    #
+    # W607-DW splits the post-capture boundary into 5 wrapped substrate
+    # calls so each raise surfaces a structured
+    # ``doctor_<phase>_failed:<exc_class>:<detail>`` marker via
+    # ``_w607dw_warnings_out``; markers merge into BOTH
+    # ``summary.warnings_out`` and the top-level ``warnings_out`` at
+    # output time. Empty bucket → byte-identical envelope.
+    #
+    # Phase sub-vocabulary (DISJOINT from W607-N's ``_check_*`` phase
+    # names and W607-BE's ``persist_*`` phase names so the shared
+    # ``doctor_*`` marker family carries no collision):
+    #   compute_scores / compose_verdict / assemble_sections /
+    #   serialize_envelope / format_text
+    #
+    # Mirrors the cmd_dashboard W607-DP shape exactly. The helper
+    # template returns ``default`` VERBATIM on raise (NOT
+    # ``default if default is not None else {}``) so the
+    # serialize_envelope path's ``rendered is None`` guard works.
+    _w607dw_warnings_out: list[str] = []
+
+    def _run_check_dw(phase: str, fn, *args, default=None, **kwargs):
+        """Run one W607-DW post-capture substrate with marker emission.
+
+        Clean call returns the result as-is. On an uncaught raise,
+        surface ``doctor_<phase>_failed:<exc_class>:<detail>`` via
+        ``_w607dw_warnings_out`` and substitute *default* — the
+        envelope still emits the remaining substrates cleanly.
+
+        ``default`` is returned VERBATIM on raise (including ``None``)
+        so callers can distinguish a degraded-but-empty result (``{}``)
+        from a degraded-no-output result (``None``). This is critical
+        for the ``serialize_envelope`` phase whose ``rendered is None``
+        guard precedes the minimal-fallback echo (W978 #6).
+        """
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 — top-level disclosure
+            _w607dw_warnings_out.append(f"doctor_{phase}_failed:{type(exc).__name__}:{exc}")
+            return default
+
+    # W607-DW ``compute_scores`` substrate: derive verdict from per-check
+    # pass/fail counts. A raise inside ``len(failed)`` or
+    # ``failed[0]['name']`` (e.g. a degraded ``_check_*`` returning a
+    # non-dict surrogate) surfaces a canonical marker instead of crashing.
+    def _compute_scores():
+        if not failed:
+            return {"verdict_kind": "all_passed", "verdict_arg": total}
+        elif blocking_failed and len(failed) == 1:
+            return {"verdict_kind": "single_fail", "verdict_arg": failed[0]["name"]}
+        elif blocking_failed:
+            return {
+                "verdict_kind": "mixed_blocking",
+                "verdict_arg": (len(blocking_failed), len(advisory_failed)),
+            }
+        else:
+            return {
+                "verdict_kind": "only_advisory",
+                "verdict_arg": len(advisory_failed),
+            }
+
+    _scores = _run_check_dw(
+        "compute_scores",
+        _compute_scores,
+        default={"verdict_kind": "degraded", "verdict_arg": None},
+    )
+
+    # W607-DW ``compose_verdict`` substrate: the LAW 6 single-line floor
+    # lives here. A raise inside the f-string composition returns the
+    # literal floor verdict instead of crashing.
+    def _compose_verdict():
+        kind = _scores.get("verdict_kind") if isinstance(_scores, dict) else "degraded"
+        arg = _scores.get("verdict_arg") if isinstance(_scores, dict) else None
+        if kind == "all_passed":
+            return f"all {arg} checks passed"
+        elif kind == "single_fail":
+            return f"1 check failed ({arg})"
+        elif kind == "mixed_blocking":
+            return f"{arg[0]} blocking, {arg[1]} advisory"
+        elif kind == "only_advisory":
+            return f"{arg} non-blocking advisory check(s) failed"
+        else:
+            return "DOCTOR — verdict unavailable"
+
+    # W978 #1: verdict floor is a non-empty literal string so a
+    # degraded compose_verdict still satisfies LAW 6.
+    verdict = _run_check_dw(
+        "compose_verdict",
+        _compose_verdict,
+        default="DOCTOR — verdict unavailable",
+    )
+
+    # Issue-template-ready summary line: a single string capturing the
+    # diagnostic in copy-paste form, so users filing GitHub bugs can
+    # paste one line that contains all the relevant context.
+    #
+    # WMI-hang guard: do NOT use platform.system()/platform.release() on
+    # Windows. On CPython 3.12 they route through platform.uname() ->
+    # win32_ver() -> _wmi_query(), a WMI COM call that hangs indefinitely
+    # when the WMI service is slow/contended — observed wedging `roam doctor`
+    # past a 90s budget on Win11 (all checks complete; only this cosmetic
+    # line blocked). sys.getwindowsversion() and sys.platform are WMI-free.
+    if sys.platform == "win32":
+        _wv = sys.getwindowsversion()
+        _os_label = f"Windows {_wv.major}.{_wv.minor}.{_wv.build}"
+    else:
+        import platform as _platform
+
+        _os_label = f"{_platform.system()} {_platform.release()}"
+
+    issue_line = (
+        f"Roam {_get_roam_version()} · "
+        f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} · "
+        f"{_os_label} · "
+        f"{passed_count}/{total} checks pass · "
+        f"{len(advisory_failed)} advisory · {len(blocking_failed)} blocking"
+    )
+
+    # Strip private keys (prefixed with _) before output
+    clean_checks = [{k: v for k, v in c.items() if not k.startswith("_")} for c in checks]
+
+    # W408: hoist the phase-timing payload into the envelope so consumers
+    # (CI dashboards, W395-followup perf rankers) don't have to parse the
+    # human-readable ``detail`` string. Top-level key stays compact when
+    # no index exists yet.
+    phase_timings_block: dict = {
+        "state": phase_check.get("_state", "no_data"),
+    }
+    if phase_check.get("_phase_timings"):
+        phase_timings_block["per_phase_seconds"] = phase_check["_phase_timings"]
+        phase_timings_block["total_seconds"] = phase_check.get("_total_seconds", 0.0)
+        phase_timings_block["slowest_phase"] = phase_check.get("_slowest_phase")
+        phase_timings_block["slowest_seconds"] = phase_check.get("_slowest_seconds")
+
+    # W482: hoist drift detail into a top-level ci_workflow_drift block so
+    # consumers (CI dashboards, agent contracts) read structured drift
+    # entries instead of parsing the human-readable detail string.
+    ci_workflow_drift_block: dict = {
+        "state": ci_drift_check.get("_state", "not_applicable"),
+        "templates_checked": ci_drift_check.get("_checked", 0),
+        "drifted": ci_drift_check.get("_drifted", []),
+        "missing": ci_drift_check.get("_missing", []),
+        "template_missing": ci_drift_check.get("_template_missing", []),
+    }
+
+    # Pattern-2 playbook (W836 follow-up): surface explicit partial_success +
+    # state so downstream consumers don't need to count advisory_failed +
+    # blocking_failed themselves. partial_success is True whenever ANY check
+    # failed — both advisory and blocking degrade the run from "all clear".
+    # state vocabulary: all_passed | advisory_warnings | blocking_failures.
+    if blocking_failed:
+        state = "blocking_failures"
+    elif advisory_failed:
+        state = "advisory_warnings"
+    else:
+        state = "all_passed"
+
+    if json_mode:
+        # W607-N + W607-BE + W607-DW: Pattern-2 consumer-layer wiring —
+        # when any per-check helper, persist-side substrate, OR
+        # post-capture substrate raised before producing its own dict,
+        # the marker bucket carries the lineage. Surface on BOTH the
+        # summary mirror (so consumers reading only ``summary`` see the
+        # disclosure) AND the top-level (so the preserved-list field at
+        # ``_ALWAYS_PRESERVED_LIST_FIELDS`` in formatter.py survives
+        # detail-mode list-payload stripping). Non-empty bucket also
+        # flips ``partial_success`` to True regardless of any check pass.
+        #
+        # W607-DW ``assemble_sections`` substrate boundary: build the
+        # summary_block + envelope_kwargs in one wrapped call so a
+        # ``.get`` chain on a degraded sub-envelope does not crash.
+        def _assemble_sections():
+            # Pattern-1 family canonical-failure envelope status (CLAUDE.md):
+            #   all_passed         -> "ok"
+            #   advisory_warnings  -> "advisory_warnings"
+            #   blocking_failures  -> "hard_failure"
+            # Distinguishes advisory-only (exit 0) from hard-failure (exit 2)
+            # without forcing consumers to count advisory_failed/blocking_failed.
+            if blocking_failed:
+                _status = "hard_failure"
+            elif advisory_failed:
+                _status = "advisory_warnings"
+            else:
+                _status = "ok"
+            _summary_block: dict = {
+                "verdict": verdict,
+                "status": _status,
+                "issue_line": issue_line,
+                "total": total,
+                "passed": passed_count,
+                "failed": len(failed),
+                "advisory_failed": len(advisory_failed),
+                "blocking_failed": len(blocking_failed),
+                "all_passed": len(failed) == 0,
+                "partial_success": (
+                    bool(failed)
+                    or bool(_w607n_warnings_out)
+                    or bool(_w607be_warnings_out)
+                    or bool(_w607dw_warnings_out)
+                ),
+                "state": state,
+                "strict": bool(strict),
+            }
+            _envelope_kwargs: dict = {
+                "checks": clean_checks,
+                "failed_checks": [c for c in clean_checks if not c["passed"]],
+                "advisory_failed": [c for c in clean_checks if c["name"] in _ADVISORY_CHECK_NAMES and not c["passed"]],
+                "blocking_failed": [
+                    c for c in clean_checks if c["name"] not in _ADVISORY_CHECK_NAMES and not c["passed"]
+                ],
+                "phase_timings": phase_timings_block,
+                "ci_workflow_drift": ci_workflow_drift_block,
+            }
+            return {"summary_block": _summary_block, "envelope_kwargs": _envelope_kwargs}
+
+        # Floor on degrade: minimal summary + empty kwargs so the
+        # serialize_envelope substrate still has structurally valid
+        # input. The verdict literal floor preserved separately.
+        _assembled = _run_check_dw(
+            "assemble_sections",
+            _assemble_sections,
+            default={
+                "summary_block": {"verdict": verdict, "partial_success": True},
+                "envelope_kwargs": {},
+            },
+        )
+        summary_block = (
+            _assembled.get("summary_block", {"verdict": verdict})
+            if isinstance(_assembled, dict)
+            else {"verdict": verdict}
+        )
+        envelope_kwargs: dict = _assembled.get("envelope_kwargs", {}) if isinstance(_assembled, dict) else {}
+
+        # W607-N + W607-BE + W607-DW additive: merge all three marker
+        # buckets into a single ``warnings_out`` channel. All three
+        # prefix families use the ``doctor_<phase>_failed:<exc_class>:<detail>``
+        # shape so downstream parsers see one closed-enum prefix family.
+        _combined_markers = list(_w607n_warnings_out) + list(_w607be_warnings_out) + list(_w607dw_warnings_out)
+        if _combined_markers:
+            summary_block["partial_success"] = True
+            summary_block["warnings_out"] = list(_combined_markers)
+            envelope_kwargs["warnings_out"] = list(_combined_markers)
+
+        # W607-DW ``serialize_envelope`` substrate boundary: a raise in
+        # ``json_envelope`` or ``to_json`` (e.g. a non-serializable
+        # section payload) surfaces as the canonical marker; the
+        # command still emits a minimal envelope on the degraded path.
+        def _serialize_envelope():
+            return to_json(
+                json_envelope(
+                    "doctor",
+                    summary=summary_block,
+                    **envelope_kwargs,
+                )
+            )
+
+        rendered = _run_check_dw("serialize_envelope", _serialize_envelope, default=None)
+        # W978 #6: ``rendered is None`` guard before echo so a degraded
+        # serialize_envelope does not crash on the print path. The
+        # minimal hand-rolled fallback re-surfaces the markers + verdict
+        # so consumers reading stdout see the disclosure.
+        if rendered is None:
+            import json as _json_fallback
+
+            summary_block["partial_success"] = True
+            summary_block["warnings_out"] = (
+                list(_w607n_warnings_out) + list(_w607be_warnings_out) + list(_w607dw_warnings_out)
+            )
+            click.echo(
+                _json_fallback.dumps(
+                    {
+                        "command": "doctor",
+                        "summary": summary_block,
+                        "warnings_out": summary_block["warnings_out"],
+                    }
+                )
+            )
+        else:
+            click.echo(rendered)
+        # Two-tier exit codes (Pattern-2 advisory-vs-blocker discipline):
+        #   0 = clean OR advisory-only failures (state == "advisory_warnings")
+        #   2 = blocking failures (state == "blocking_failures")
+        # --strict promotes advisory to blocking. Advisory-only failures
+        # MUST NOT exit non-zero on the default path — a fresh-install user
+        # reading "exit 1" interprets it as "roam is broken" when the only
+        # failure was a non-fatal warning. See Pattern-2 silent-fallback
+        # discipline (CLAUDE.md): never emit a hard-failure signal on a
+        # state the verdict explicitly labels advisory.
+        if blocking_failed or (strict and advisory_failed):
+            ctx.exit(2)
+        return
+
+    # --- Text output ---
+    # W607-DW ``format_text`` substrate boundary: a raise during
+    # click.echo formatting (e.g. a __str__ raise on a degraded check
+    # entry, a missing key on a degraded ``clean_checks`` dict)
+    # surfaces a marker rather than crashing.
+    def _format_text():
+        click.echo(f"VERDICT: {verdict}\n")
+        for c in clean_checks:
+            if c["passed"]:
+                label = "PASS"
+            elif c["name"] in _ADVISORY_CHECK_NAMES:
+                label = "WARN"  # advisory failures get distinct visual weight
+            else:
+                label = "FAIL"
+            click.echo(f"  [{label}] {c['detail']}")
+
+        # One-line diagnostic, copy-pasteable into a GitHub issue or chat.
+        click.echo()
+        click.echo(f"  {issue_line}")
+
+        if failed:
+            click.echo()
+            if blocking_failed and advisory_failed:
+                click.echo(f"  {len(blocking_failed)} blocking, {len(advisory_failed)} advisory.")
+            elif blocking_failed:
+                click.echo(f"  {len(blocking_failed)} check{'s' if len(blocking_failed) != 1 else ''} failed.")
+            else:
+                note = " (use --strict to fail CI on advisory)" if not strict else ""
+                click.echo(f"  {len(advisory_failed)} advisory check(s) — non-blocking{note}.")
+        return None
+
+    _run_check_dw("format_text", _format_text, default=None)
+
+    # W1331: a check helper that RAISES is skipped entirely -- it produces
+    # no PASS line, no FAIL line, and no entry in ``failed_checks``, so the
+    # text report a human reads to answer "is my install healthy?" simply
+    # omits it and the verdict counts one fewer check. Only the JSON
+    # envelope named the skipped checks. Emitted after ``format_text`` so a
+    # raise inside the formatter itself is disclosed too.
+    echo_text_warnings(list(_w607n_warnings_out) + list(_w607be_warnings_out) + list(_w607dw_warnings_out))
+
+    # Two-tier exit codes — see JSON path above. Advisory-only failures
+    # exit 0; only blocking failures or --strict-promoted advisories exit 2.
+    if blocking_failed or (strict and advisory_failed):
+        ctx.exit(2)
+
+
+def _get_roam_version() -> str:
+    """Best-effort roam-code version string for the issue-line summary."""
+    try:
+        import importlib.metadata as _md
+
+        return _md.version("roam-code")
+    except _md.PackageNotFoundError:
+        try:
+            from roam import __version__
+
+            return __version__
+        except ImportError:
+            return "unknown"

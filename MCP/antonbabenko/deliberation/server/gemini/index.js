@@ -1,0 +1,1074 @@
+#!/usr/bin/env node
+// @ts-nocheck -- legacy bridge; predates the strict typecheck gate (core-only). Opt-in is a separate pass.
+
+/**
+ * Claude Delegator - Gemini MCP Bridge
+ *
+ * A zero-dependency MCP server that wraps the Antigravity CLI (agy).
+ * Speaks JSON-RPC 2.0 over stdio.
+ *
+ * Public surface is unchanged from the legacy gemini-CLI bridge: the MCP server
+ * is still "gemini", the tools are still "gemini" / "gemini-reply", and the env
+ * vars GEMINI_DEFAULT_MODEL / GEMINI_DISABLE_TIMEOUT_RECOVERY still apply. Only
+ * the underlying CLI, flags, output parsing, and timeout recovery changed.
+ */
+
+const { spawn, spawnSync, execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const { resolveCommand, commandOnPath, shimMessage } = require("../../core/resolve-bin.js");
+const { clampToHostBudget, annotateTimeout, graceWithinHostBudget, seedHostBudget } = require("../../core/host-budget.js");
+const { stubReason, readMinAnswerChars } = require("../../core/answer-floor.js");
+const { groundingNote } = require("../../core/grounding.js");
+
+const AGY_BIN = process.env.AGY_BIN || "agy";
+// Windows installs a CLI as a `.cmd` shim that Node's spawn cannot execute (issue #170), so
+// resolve the name to something spawnable once, at boot - agy cannot change under a running
+// bridge. On every other platform, and for an AGY_BIN that is already a path (which is how the
+// test harness points at its fixtures), this is an identity transform.
+//
+// There is no npm package publishing an `agy` bin, so no node-entry bypass is possible: a
+// shim-only install resolves to `shim: true` and the startup gate below says so explicitly
+// rather than reporting a missing install.
+//
+// OPERATIONAL NOTE: resolving once means an agy INSTALLED after the server started is not picked
+// up, and one UNINSTALLED after a successful resolve leaves a stale path that fails ENOENT rather
+// than re-searching PATH. Either way the fix is a restart - worth knowing before chasing a
+// phantom missing-cli through an upgrade. (When resolution finds nothing it passes the bare name
+// through, so THAT case does re-search PATH on every spawn.)
+const AGY_TARGET = resolveCommand(AGY_BIN, {});
+/**
+ * Stat-only: is the resolved agy target spawnable? Read per call (not cached) so a
+ * long-lived server notices an install; nothing is executed.
+ * @returns {boolean}
+ */
+function cliAvailable() {
+  return !AGY_TARGET.shim && commandOnPath(AGY_CMD);
+}
+const AGY_CMD = AGY_TARGET.cmd;
+/** Args that must lead agy's own argv (empty unless an interpreter was interposed). */
+const AGY_PREFIX_ARGS = AGY_TARGET.prefixArgs;
+// The built-in stays the PORTABLE router alias: concrete agy ids come and go per
+// install (a machine without "gemini-3.6-flash-high" would hard-fail every call),
+// so shipping a pinned id would break users who do not have that exact model.
+// Concrete ids fuse family + reasoning effort ("gemini-3.6-flash-high"); the bare
+// family ("gemini-3.6-flash") is rejected with "requires --effort". `agy models`
+// prints display names ("Gemini 3.6 Flash (High)"), which --model also accepts, but
+// the slug is canonical (it is what ~/.gemini/settings.json stores) and carries no
+// spaces/parens through argv.
+//
+// Pin a concrete id when you can: the alias routes server-side and agy's catalog
+// also carries Claude and GPT-OSS entries, so a routed call can seat a non-Gemini
+// model in the Gemini slot and quietly collapse cross-vendor independence in
+// ask-all / consensus. Precedence: per-call `model` > providers.gemini.model in
+// config.json > GEMINI_DEFAULT_MODEL > this constant.
+// The shipped router alias - the ONE pin runGemini drops when agy rejects it, because it
+// ships in every install's config; an id the operator typed themselves fails loudly.
+const BUILTIN_MODEL_ALIAS = "auto-gemini-3";
+const DEFAULT_MODEL = process.env.GEMINI_DEFAULT_MODEL || BUILTIN_MODEL_ALIAS;
+const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes (Gemini 3 deep prompts run 200-260s)
+const HELP_PROBE_TIMEOUT_MS = 15_000; // `agy --help` capability probe ceiling
+const DEFAULT_RECOVERY_GRACE_MS = 120_000; // extra drain budget after the soft timeout
+const MAX_MS = 600_000;
+const VALID_SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
+// Conversation ids are passed as the agy --conversation arg. shell:false blocks
+// shell injection, but a leading-dash value could be parsed as an agy flag, so
+// the first char must be alphanumeric/underscore; hyphens are allowed only after
+// it. Total length 1..128. Applies to both the gemini-reply threadId input and
+// the agy-sourced id read from last_conversations.json.
+const THREAD_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
+
+/**
+ * The error a shim-only resolution must fail with, or null when the target is spawnable.
+ * Pure, and exported for tests: AGY_TARGET is resolved at module load from the real platform,
+ * so this is the only part of the shim path that can be asserted off Windows.
+ * @param {{shim?:boolean, cmd?:string}} target
+ * @param {string} binName
+ * @returns {(Error & {code?:string})|null}
+ */
+function agyShimError(target, binName) {
+  if (!target || target.shim !== true) return null;
+  const err = new Error(shimMessage(binName, target.cmd, "AGY_BIN"));
+  // Reuses the existing vocabulary: classifyGeminiError maps this code to missing-cli.
+  err.code = "missing-cli";
+  return err;
+}
+
+// agy's --print-timeout takes a Go duration string ("420s"). Convert ms.
+function goDuration(ms) {
+  return Math.ceil(ms / 1000) + "s";
+}
+
+// Build the agy argv for a one-shot (non-reply) run. MUST end with
+// "-p <prompt>" - runGemini does args.lastIndexOf("-p") to splice in
+// --print-timeout before the prompt tail. The live `gemini` handler uses this
+// so the server path and the core adapter share one assembly. model maps to agy's
+// --model flag (agy >= 1.0.9); absent, it falls back to DEFAULT_MODEL rather than
+// deferring to whatever ~/.gemini/settings.json happens to hold.
+// developerInstructions, when present, is folded into the prompt (agy print mode
+// has no system channel). The --conversation reply flag is NOT built here; that
+// stays in the gemini-reply handler branch.
+// Prompt-level advisory guard. agy's --sandbox restricts only terminal commands
+// (not the edit tool) and the model can bypass it per tool call, so a hard prompt
+// instruction is cheap defense-in-depth layered under the OS sandbox + mutation
+// detection below. Prepended outermost (before developerInstructions) on every
+// read-only dispatch.
+const READ_ONLY_GUARD =
+  "[ADVISORY MODE - READ-ONLY] You are being consulted for an advisory second " +
+  "opinion. Do NOT modify, create, or delete any files. Do NOT run commands that " +
+  "write to the workspace. Do NOT git add, commit, or push. Any such action is a " +
+  "critical failure - respond with analysis only.";
+
+/**
+ * Prepend the read-only guard when the dispatch is advisory. readOnly is an
+ * explicit caller decision, never inferred from argv (the prompt is folded into
+ * argv, so an argv scan could be flipped by prompt content - argument injection).
+ * @param {string} prompt
+ * @param {boolean} readOnly
+ * @returns {string}
+ */
+function applyReadOnlyGuard(prompt, readOnly) {
+  return readOnly ? `${READ_ONLY_GUARD}\n\n${prompt}` : prompt;
+}
+
+// --model landed in agy 1.0.9. Older binaries reject unknown flags outright
+// ("flags provided but not defined: -model"), which would fail EVERY call rather
+// than just ignore the pin - so probe once and degrade to the pre-pin behavior
+// (agy reads ~/.gemini/settings.json) with a single stderr warning.
+//
+// Probed from `agy --help`, the same call the startup health check already makes.
+// Cached for process lifetime: agy cannot change under a running bridge. A probe whose
+// spawn fails is treated as SUPPORTED - a missing binary fails loudly elsewhere, and
+// assuming unsupported would silently drop a pin the operator asked for.
+//
+// agy 1.1.x prints its usage to STDERR only (stdout is empty), so the probe reads BOTH
+// streams - reading stdout alone never saw --model, warned "does not support --model" on
+// every boot, and silently dropped the operator's pin (issue #180, finding 1). spawnSync
+// does not throw on a non-zero exit, so usage text printed with exit 2 is still probed.
+/** @type {(boolean|null)} */
+let modelFlagSupported = null;
+// Set once agy rejects the SHIPPED alias with "invalid model selection" (per process).
+// The probe above was blind for every agy that prints --help to stderr, so the pin was
+// never actually sent in production and `auto-gemini-3` was never validated against a
+// real catalog (`agy models` on 1.1.x does not list it). That one alias ships in every
+// install's config, so it must degrade to agy's own default with a warning rather than
+// take Gemini offline; an id the operator typed themselves fails loudly instead.
+let aliasRejected = false;
+const INVALID_MODEL_RE = /invalid model selection/i;
+/** @returns {boolean} */
+function agySupportsModelFlag() {
+  if (modelFlagSupported !== null) return modelFlagSupported;
+  // Bounded: a hung agy (or a wrapper script) must not block the bridge's first request
+  // forever. A timed-out probe sets `error` and lands in the assume-supported branch.
+  const probe = spawnSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: HELP_PROBE_TIMEOUT_MS });
+  modelFlagSupported = probe.error
+    ? true
+    : /(^|\s)--model(\s|$)/m.test(`${probe.stdout || ""}\n${probe.stderr || ""}`);
+  if (modelFlagSupported === false) {
+    console.error(
+      `[deliberation-gemini] ${AGY_BIN} does not support --model; the configured model pin will be ignored ` +
+      "and agy will use ~/.gemini/settings.json instead. Upgrade agy to 1.0.9 or newer to pin per call."
+    );
+  }
+  return modelFlagSupported;
+}
+
+/**
+ * @param {{prompt:string, model?:string, includeDirs?:string[], sandbox?:string, developerInstructions?:string}} req
+ * @returns {string[]}
+ */
+function buildAgyArgs(req) {
+  const args = [];
+  // Sandbox / permissions mapping (default read-only -> --sandbox).
+  const readOnly = req.sandbox !== "workspace-write";
+  if (req.sandbox === "workspace-write") args.push("--dangerously-skip-permissions");
+  else args.push("--sandbox");
+  // Extra workspace dirs.
+  for (const d of req.includeDirs || []) args.push("--add-dir", d);
+  // Pin the model per call so the run does not inherit the operator's global
+  // ~/.gemini/settings.json. Must precede the "-p <prompt>" tail. Skipped on an
+  // agy too old to know the flag - it would reject the whole argv (see
+  // agySupportsModelFlag), which would break every call rather than one pin.
+  if (agySupportsModelFlag()) {
+    const model = isNonEmptyString(req.model) ? req.model : DEFAULT_MODEL;
+    // Must stay IMMEDIATELY before the -p tail: runGemini finds the pin by position
+    // (never by scanning values) to drop the shipped alias once agy has rejected it.
+    args.push("--model", model);
+  }
+  // Fold expert instructions and the date-grounding note into the prompt (no system
+  // channel in print mode), with the advisory guard directly on the question.
+  let prompt = `${groundingNote()}\n\n${applyReadOnlyGuard(req.prompt, readOnly)}`;
+  if (req.developerInstructions) prompt = `${req.developerInstructions}\n\n${prompt}`;
+  args.push("-p", prompt); // "-p <prompt>" MUST be the tail
+  return args;
+}
+
+// --- Advisory read-only enforcement (env scrub + OS sandbox + mutation detect) ---
+
+// Credentials a delegate has no need for but could use to push or exfiltrate over
+// the (intentionally open) network. Scrubbed from the child env on EVERY run -
+// read-only and workspace-write alike (a write run edits files; it still never
+// needs the operator's keys). agy's own Gemini auth lives in ~/.gemini, not these vars.
+// These two are NOT name-shape-visible to CREDENTIAL_NAME_RE (no _KEY/_TOKEN/_SECRET/
+// PASSWORD suffix) but still hand sensitive material to a child, so they must be
+// scrubbed explicitly. Do NOT fold this list into the regex — that would re-leak them.
+const ADVISORY_ENV_SCRUB = ["GIT_ASKPASS", "SSH_AUTH_SOCK"];
+// Strip any var whose NAME looks like a credential (advisory agy has open network
+// and no need for the operator's keys). Denylist-by-shape, not a pass-allowlist:
+// agy still needs PATH/HOME/TMPDIR/locale + its own ~/.gemini auth (not an env var).
+const CREDENTIAL_NAME_RE = /(?:^|_)(?:KEY|TOKEN|SECRET|SECRETS|PASSWORD|PASSWD|CREDENTIAL|CREDENTIALS)$|API_KEY|ACCESS_KEY|SESSION_TOKEN|PRIVATE_KEY/i;
+
+/**
+ * Build the scrubbed child env (used for EVERY run - read-only and workspace-write):
+ * drop the OS-sandbox kill-switch (so it never inherits into the delegate), scrub the
+ * explicit push/exfil credential denylist, then scrub any remaining var whose NAME is
+ * credential-shaped.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+function advisoryEnv(env) {
+  const out = { ...env };
+  delete out.DELIBERATION_DISABLE_OS_SANDBOX;
+  for (const k of ADVISORY_ENV_SCRUB) delete out[k];
+  for (const k of Object.keys(out)) {
+    if (CREDENTIAL_NAME_RE.test(k)) delete out[k];
+  }
+  return out;
+}
+
+// Escape a path for embedding in a Seatbelt string literal.
+function seatbeltLiteral(p) {
+  return String(p).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * macOS Seatbelt profile: allow everything by default (reads, process, network -
+ * agy needs the network for its API + OAuth token refresh), deny ALL file writes,
+ * then re-allow the few paths agy must write: ~/.gemini (oauth creds + the
+ * conversation cache that backs threadId continuity) and temp dirs. Network is NOT
+ * isolated - this contains local writes only. (An apple-event deny was considered
+ * for IPC-escape hardening but `apple-event*` is not a valid operation in a `-p`
+ * string profile on current macOS - it fails the whole profile compile - so it is
+ * intentionally omitted.)
+ * @param {{home:string, tmpdir:string}} o
+ * @returns {string}
+ */
+function buildSeatbeltProfile(o) {
+  const gem = seatbeltLiteral(path.join(o.home, ".gemini"));
+  const tmp = seatbeltLiteral(o.tmpdir);
+  return [
+    "(version 1)",
+    "(allow default)",
+    "(deny file-write*)",
+    "(allow file-write*",
+    `  (subpath "${gem}")`,
+    `  (subpath "${tmp}")`,
+    '  (subpath "/private/var/folders")',
+    '  (subpath "/private/tmp")',
+    '  (literal "/dev/null")',
+    '  (literal "/dev/dtracehelper")',
+    '  (regex #"^/dev/tty"))',
+  ].join("\n");
+}
+
+/**
+ * Decide how to spawn agy. Pure (platform/paths injected) so it is unit-testable.
+ * On darwin with sandbox-exec available and a read-only run, wrap in a Seatbelt
+ * profile that denies workspace writes. Otherwise spawn unwrapped (workspace-write
+ * runs, the kill-switch, non-darwin, or a missing sandbox-exec). Linux has no OS
+ * wrapper in v1 - it relies on the prompt guard + mutation detection; bwrap is a
+ * documented future seam.
+ * @param {{bin:string, args:string[], readOnly:boolean, platform?:string,
+ *          home?:string, tmpdir?:string, sandboxExecPath?:string|null, disabled?:boolean}} o
+ * @returns {{cmd:string, argv:string[], osSandbox:boolean}}
+ */
+function buildSpawnCommand(o) {
+  const platform = o.platform || process.platform;
+  const unwrapped = { cmd: o.bin, argv: o.args, osSandbox: false };
+  if (!o.readOnly || o.disabled === true || platform !== "darwin" || !o.sandboxExecPath) {
+    return unwrapped;
+  }
+  const profile = buildSeatbeltProfile({ home: o.home, tmpdir: o.tmpdir });
+  return { cmd: o.sandboxExecPath, argv: ["-p", profile, o.bin, ...o.args], osSandbox: true };
+}
+
+// Probe for an executable sandbox-exec; null when absent (degrade to detection).
+function resolveSandboxExecPath() {
+  try {
+    fs.accessSync("/usr/bin/sandbox-exec", fs.constants.X_OK);
+    return "/usr/bin/sandbox-exec";
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Snapshot a git worktree's identity (HEAD + porcelain status). Returns null when
+ * the dir is not a git repo / git is unavailable / has no commits - detection is
+ * then unavailable for that root (we never imply "clean" from a failed capture).
+ * @param {string} cwd
+ * @returns {{head:string, status:string}|null}
+ */
+function captureGitState(cwd) {
+  const opts = { cwd, encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] };
+  try {
+    const head = execFileSync("git", ["rev-parse", "HEAD"], opts).trim();
+    const status = execFileSync("git", ["status", "--porcelain"], opts);
+    return { head, status };
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Pure comparator for two git snapshots. Exported for tests.
+ * @param {{head:string,status:string}|null} pre
+ * @param {{head:string,status:string}|null} post
+ * @returns {boolean}
+ */
+function diffGitState(pre, post) {
+  if (!pre || !post) return false;
+  return pre.head !== post.head || pre.status !== post.status;
+}
+
+// Snapshot every root (consulted cwd + any --add-dir roots) before the run.
+function captureRoots(dirs) {
+  const seen = new Set();
+  const states = [];
+  for (const d of dirs) {
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    states.push([d, captureGitState(d)]);
+  }
+  return states;
+}
+
+// Re-capture each root after the run; true if any git-tracked root changed.
+function rootsMutated(preStates) {
+  for (const [dir, pre] of preStates) {
+    if (diffGitState(pre, captureGitState(dir))) return true;
+  }
+  return false;
+}
+
+function workspaceMutationWarning(dir) {
+  return (
+    "WORKSPACE MUTATION DETECTED\n" +
+    "This advisory (read-only) run changed the workspace at " + dir + " " +
+    "(git HEAD and/or working-tree status changed during the run). Review " +
+    "`git status` / `git log` before continuing - nothing was auto-reverted, and " +
+    "the result below should be treated as tainted.\n---\n"
+  );
+}
+
+// --- MCP Protocol Helpers ---
+
+function sendResponse(id, result) {
+  process.stdout.write(JSON.stringify({
+    jsonrpc: "2.0",
+    id,
+    result
+  }) + "\n");
+}
+
+function sendError(id, code, message) {
+  process.stdout.write(JSON.stringify({
+    jsonrpc: "2.0",
+    id,
+    error: { code, message }
+  }) + "\n");
+}
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasRequestId(request) {
+  return isObject(request) && Object.prototype.hasOwnProperty.call(request, "id");
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+// agy reports failures as "Error: <msg>" on stdout at exit 0. Any stdout LINE
+// starting with "Error:" is a failure even when the process exits 0 - the
+// sentinel can arrive after streamed partial output, so match line-anchored
+// (multiline), not just at the very start of the buffer.
+function stdoutIsError(s) {
+  return /^\s*Error:\s/m.test(s);
+}
+
+// providers.gemini.timeout, already merged with providers.defaults.timeout by the config
+// layer. Without this the standalone bridge (what /ask-gemini calls) would stay pinned to
+// the 300s built-in no matter what the config says. Lazy + fail-soft, mirroring the Grok
+// bridge: a broken config must never take the bridge down, only lose the pin.
+let _cfgReader = null;
+/** @returns {(number|undefined)} */
+function configuredTimeout() {
+  try {
+    if (!_cfgReader) {
+      const { makeConfigReader } = require("../openrouter/config.js");
+      _cfgReader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
+    }
+    const r = _cfgReader.get();
+    const t = r && r.resolved && r.resolved.providers && r.resolved.providers.gemini && r.resolved.providers.gemini.timeout;
+    return typeof t === "number" && t > 0 ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Answer floor, shared with the Grok bridge (core/answer-floor.js). agy sometimes exits 0
+// having printed only a preamble ("I will begin by finding the repository directory...")
+// instead of an answer; that stub used to flow downstream as a real opinion and silently
+// block consensus. Detection keys on CONTENT (an announced-intent opening), not length: the
+// original 80-char length floor rejected a legitimate terse answer ("ok") as `empty`
+// (issue #180).
+/** Minimum trimmed stdout length for a clean exit to count as an answer. 0 disables the floor AND the intent check. */
+function minAnswerChars() { return readMinAnswerChars(process.env.GEMINI_MIN_ANSWER_CHARS); }
+
+// --- Error Classification ---
+
+// Pure helper: given a runGemini rejection's message and code, produce the
+// structured error fields the orchestrator consumes. Exported for tests.
+function classifyGeminiError(errMsg, errCode) {
+  const msg = String(errMsg || "");
+  const lower = msg.toLowerCase();
+  if (errCode === "timeout") return { errorKind: "timeout", retryable: true };
+  if (errCode === "empty")   return { errorKind: "empty",   retryable: true };
+  if (errCode === "model-not-allowed") return { errorKind: "model-not-allowed", retryable: false };
+  if (errCode === "parse")   return { errorKind: "parse",   retryable: false };
+  if (errCode === "missing-cli") return { errorKind: "missing-cli", retryable: false };
+  if (msg.includes("(agy) not found")) return { errorKind: "missing-cli", retryable: false };
+  if (lower.includes("aborterror") || lower.includes("aborted")) {
+    return { errorKind: "upstream-abort", retryable: true };
+  }
+  return { errorKind: "unknown", retryable: false };
+}
+
+// --- Conversation id resolution ---
+//
+// agy persists a cwd -> conversation-id map at
+// ~/.gemini/antigravity-cli/cache/last_conversations.json. After an agy -p run
+// in a cwd, that cwd's value is the run's conversation id. Resume uses
+// --conversation <id>. There is no id on stderr; we read it from this map.
+function resolveConversationId(cwd) {
+  try {
+    const mapPath = process.env.AGY_LAST_CONVERSATIONS ||
+      path.join(os.homedir(), ".gemini", "antigravity-cli", "cache", "last_conversations.json");
+    const map = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+    if (!map || typeof map !== "object") return null;
+    const resolved = path.resolve(cwd);
+    let real = resolved;
+    try { real = fs.realpathSync(resolved); } catch (_) { /* ignore */ }
+    const candidate = map[real] ?? map[resolved] ?? map[cwd] ?? null;
+    return (typeof candidate === "string" && THREAD_ID_RE.test(candidate)) ? candidate : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// --- agy CLI Wrapper ---
+
+/**
+ * @param {string[]} args
+ * @param {string} [cwd]
+ * @param {number} [timeoutMs]
+ * @param {number} [recoveryGraceMs]
+ * @param {{readOnly?:boolean, includeDirs?:string[]}} [opts] advisory-enforcement
+ *   knobs. readOnly is the EXPLICIT caller decision (never argv-inferred): when
+ *   true the run gets the OS sandbox wrapper, env scrub, and git mutation
+ *   detection. includeDirs widens detection to --add-dir roots.
+ */
+async function runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
+  return new Promise((resolve, reject) => {
+    // AGY_BIN resolved only to a Windows shell shim Node cannot execute. Reject BEFORE
+    // spawning, and do it here rather than only at the startup gate below: the unified MCP
+    // server require()s this file, so `require.main === module` is false there and the boot
+    // gate never runs in the process that actually serves Gemini calls.
+    const shimErr = agyShimError(AGY_TARGET, AGY_BIN);
+    if (shimErr) {
+      reject(shimErr);
+      return;
+    }
+    // Clamped under the host's per-call cap (MCP_TOOL_TIMEOUT) so the host never kills a
+    // run before this timeout - which names the cap - gets to fire.
+    const hostClamp = clampToHostBudget((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS, process.env, opts.hostBudgetRemainingMs);
+    const t = /** @type {number} */ (hostClamp.timeoutMs);
+    const effCwd = cwd || process.cwd();
+    const spawnStartMs = Date.now();
+    const readOnly = opts.readOnly === true;
+    // Snapshot every git root before the run so a post-run diff can flag writes
+    // the OS sandbox did not (and writes on Linux, which has no OS wrapper yet).
+    const preRoots = readOnly ? captureRoots([effCwd, ...(opts.includeDirs || [])]) : [];
+    const disableRecovery = process.env.GEMINI_DISABLE_TIMEOUT_RECOVERY === "1";
+    // No drain under a host cap: the soft timeout is already the hard one there (a clamped
+    // 55s soft timeout + the default 120s drain is a 175s call the host kills at 60s).
+    const grace = graceWithinHostBudget(disableRecovery
+      ? 0
+      : (typeof recoveryGraceMs === "number" && recoveryGraceMs >= 0
+          ? recoveryGraceMs
+          : DEFAULT_RECOVERY_GRACE_MS));
+
+    let killed = false;   // legacy hard-kill path (grace === 0)
+    let draining = false; // soft timeout fired, buffering streamed stdout
+    let settled = false;
+    let graceTimer = null;
+
+    // agy streams stdout incrementally; we buffer it. The agy print-timeout is
+    // set generously past the bridge soft timeout + grace so the BRIDGE owns
+    // timing (agy should not error out before we drain).
+    // args already end with "-p <prompt>"; prepend --print-timeout before them
+    // so flags stay together and -p <prompt> remains the tail.
+    const ptIdx = args.lastIndexOf("-p");
+    const head = ptIdx >= 0 ? args.slice(0, ptIdx) : args;
+    const tail = ptIdx >= 0 ? args.slice(ptIdx) : [];
+    const agyArgs = [...head, "--print-timeout", goDuration(t + grace + 30_000), ...tail];
+    // Wrap the FINAL argv (after the --print-timeout splice) in the OS sandbox when
+    // read-only (the OS write-deny is a no-op for workspace-write - writes must land).
+    // The credential env scrub, by contrast, runs in BOTH modes (see env: below): a
+    // write-capable run still has no need for the operator's keys / SSH agent.
+    const spawnPlan = buildSpawnCommand({
+      bin: AGY_CMD,
+      args: [...AGY_PREFIX_ARGS, ...agyArgs],
+      readOnly,
+      platform: process.platform,
+      home: os.homedir(),
+      tmpdir: (() => { try { return fs.realpathSync(os.tmpdir()); } catch (_) { return os.tmpdir(); } })(),
+      sandboxExecPath: readOnly ? resolveSandboxExecPath() : null,
+      disabled: process.env.DELIBERATION_DISABLE_OS_SANDBOX === "1",
+    });
+    if (spawnPlan.osSandbox) {
+      process.stderr.write("[deliberation] agy read-only run wrapped in sandbox-exec (workspace writes denied)\n");
+    }
+    const agyProcess = spawn(spawnPlan.cmd, spawnPlan.argv, {
+      // Scrub credentials in BOTH read-only and workspace-write runs. A write run
+      // legitimately mutates the worktree but still has no need for the operator's
+      // API keys / GIT_ASKPASS / SSH_AUTH_SOCK - the human commits and pushes, not agy.
+      env: advisoryEnv(process.env),
+      shell: false,
+      detached: process.platform !== "win32",
+      cwd: effCwd,
+      // agy -p (print mode) waits for stdin EOF before returning; if the stdin
+      // pipe is left open it hangs until the timeout. Give it /dev/null so it
+      // sees EOF immediately and runs to completion.
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    function clearTimers() { clearTimeout(killTimer); if (graceTimer) clearTimeout(graceTimer); opts.signal?.removeEventListener("abort",abort); }
+    function killGroup(signal) {
+      try {if(process.platform!=="win32"&&agyProcess.pid)process.kill(-agyProcess.pid,signal);else agyProcess.kill(signal);}catch{try{agyProcess.kill(signal);}catch{}}
+    }
+    function destroyStreams() {
+      try { agyProcess.stdout.destroy(); } catch (_) {}
+      try { agyProcess.stderr.destroy(); } catch (_) {}
+    }
+    function timeoutError() {
+      const tail = stderr && stderr.trim() ? "; last agy stderr: " + stderr.trim().slice(-500) : "";
+      const err = new Error("Gemini (agy) timed out after " + Math.round(t / 1000) + "s" + tail);
+      err.code = "timeout";
+      return annotateTimeout(err, hostClamp);
+    }
+    function finishTimeout() {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      killGroup("SIGKILL");
+      destroyStreams();
+      reject(timeoutError());
+    }
+
+    const abort=()=>finishTimeout();
+    const killTimer = setTimeout(() => {
+      if (settled) return;
+      if (grace > 0) {
+        // Drain: keep agy alive and keep buffering streamed stdout. If agy
+        // exits cleanly (exit 0, non-empty stdout, no Error: sentinel) within
+        // the grace budget the close handler resolves recovered:true. If the
+        // grace expires first, finishTimeout() fails hard.
+        draining = true;
+        graceTimer = setTimeout(() => finishTimeout(), grace);
+        return;
+      }
+      // Legacy hard-kill path.
+      killed = true;
+      try { agyProcess.kill("SIGTERM"); } catch (_) {}
+      graceTimer = setTimeout(() => {
+        try { agyProcess.kill("SIGKILL"); } catch (_) {}
+      }, 1_000);
+    }, t);
+
+    agyProcess.on("close", clearTimers);
+    opts.signal?.addEventListener("abort",abort,{once:true});if(opts.signal?.aborted)abort();
+    agyProcess.on("error", clearTimers);
+
+    // exit fires when the process itself exits even if child pipes are still
+    // open. Surface the legacy timeout early without waiting for pipe drain.
+    agyProcess.on("exit", () => {
+      if (killed && !settled) {
+        settled = true;
+        clearTimers();
+        destroyStreams();
+        reject(timeoutError());
+      }
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    agyProcess.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      if (err.code === "ENOENT") {
+        reject(new Error("Antigravity CLI (agy) not found. Install from https://antigravity.google and run `agy` once to sign in."));
+      } else {
+        reject(err);
+      }
+    });
+
+    agyProcess.stdout.on("data", (data) => { stdout += data.toString(); });
+    agyProcess.stderr.on("data", (data) => { stderr += data.toString(); });
+
+    agyProcess.on("close", (code) => {
+      if (settled) return; // already resolved/rejected elsewhere
+      if (killed) {        // legacy soft-timeout kill
+        settled = true;
+        clearTimers();
+        return reject(timeoutError());
+      }
+
+      const out = stdout.trim();
+      const trimmedErr = stderr.trim();
+      const success = code === 0 && out && !stdoutIsError(out);
+      // Answer floor (core/answer-floor.js), applied on BOTH the clean-exit and the drain
+      // path. Exempting the drain would make validity timing-dependent: the same stub
+      // would fail when agy is fast and pass when it is slow. A stub recovered after a
+      // soft timeout is not an answer either - it falls through to the hard timeout.
+      const stub = success ? stubReason(out, minAnswerChars()) : null;
+      const tooShort = stub !== null;
+
+      if (draining) {
+        // Soft timeout already fired. Only a clean exit meeting the success
+        // contract recovers; anything else is a hard timeout. NEVER return
+        // partial buffered stdout - or a sub-floor stub - as success.
+        if (success && !tooShort) {
+          settled = true;
+          clearTimers();
+          process.stderr.write(
+            "[deliberation] recovered agy answer via stdout drain after soft timeout (" +
+            Math.round((Date.now() - spawnStartMs) / 1000) + "s)\n"
+          );
+          const mutated = readOnly && rootsMutated(preRoots);
+          const text = mutated ? workspaceMutationWarning(effCwd) + out : out;
+          return resolve({ response: text, threadId: resolveConversationId(effCwd) || "unknown", recovered: true, ...(mutated ? { workspaceMutated: true } : {}) });
+        }
+        return finishTimeout();
+      }
+
+      settled = true;
+      clearTimers();
+
+      if (success && !tooShort) {
+        const threadId = resolveConversationId(effCwd);
+        if (threadId == null) {
+          process.stderr.write(
+            "[deliberation] no conversation id found for cwd " + effCwd +
+            "; returning threadId:\"unknown\" (resume will be unavailable)\n"
+          );
+        }
+        const mutated = readOnly && rootsMutated(preRoots);
+        const text = mutated ? workspaceMutationWarning(effCwd) + out : out;
+        return resolve({ response: text, threadId: threadId || "unknown", ...(mutated ? { workspaceMutated: true } : {}) });
+      }
+
+      // Failure. Prefer stderr so it is not masked by an stdout banner; then an
+      // stdout Error: sentinel; then a generic message.
+      let message;
+      if (tooShort) message = `agy returned a stub, not an answer (${stub}): ${out.slice(0, 200)}`;
+      else if (trimmedErr) message = trimmedErr;
+      else if (stdoutIsError(out)) message = out;
+      else if (!out) message = `No output from agy`;
+      else message = `agy exited with code ${code}`;
+
+      const err = new Error(message);
+      if (tooShort) {
+        err.code = "empty";
+      } else if (INVALID_MODEL_RE.test(message)) {
+        // agy validated --model against its catalog and refused; agy's text lists the
+        // catalog, so the message is the diagnosis. Deterministic - never retried.
+        err.code = "model-not-allowed";
+      } else if (/timed out/i.test(message)) {
+        err.code = "timeout";
+      } else if (!trimmedErr && !out) {
+        // Clean exit, nothing on either stream: empty/garbage output.
+        err.code = "parse";
+      }
+      // Otherwise leave err.code undefined and let classifyGeminiError map the
+      // message text (trust / abort / unknown).
+      reject(err);
+    });
+  });
+}
+
+/**
+ * runGeminiOnce plus one self-heal, for the SHIPPED alias only: when agy rejects
+ * `--model auto-gemini-3` ("invalid model selection", ~3.5s because agy fetches its
+ * catalog first), drop the pin, remember that for this process (buildAgyArgs then omits
+ * it up front), warn once, and run again within the REMAINING time budget so agy uses
+ * its own ~/.gemini/settings.json default. The result then carries `pinDropped: true`
+ * so callers can report the effective model honestly. Any other rejected id is the
+ * operator's own pin and is rethrown as-is (code "model-not-allowed", agy's catalog in
+ * the message) - silently swapping a model someone asked for is worse than failing.
+ * Same signature as runGeminiOnce; the unified server calls this through `bridge.runGemini`.
+ * @param {string[]} args
+ * @param {string} [cwd]
+ * @param {number} [timeoutMs]
+ * @param {number} [recoveryGraceMs]
+ * @param {{readOnly?:boolean, includeDirs?:string[]}} [opts]
+ */
+async function runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts = {}) {
+  const started = Date.now();
+  // An unstamped call (the standalone /ask-gemini handler) still spends ONE budget across
+  // the first run and the alias-drop retry below.
+  opts = { ...opts, hostBudgetRemainingMs: seedHostBudget(opts.hostBudgetRemainingMs) };
+  // buildAgyArgs lays argv out as [...flags, "--model", id, "-p", prompt]: the pin, when
+  // present, sits exactly two elements before the "-p" tail. Positional on purpose - an
+  // option VALUE (an --add-dir path, the prompt itself) can never be mistaken for the flag.
+  const p = args.length - 2;
+  const pinnedAlias = p >= 2 && args[p] === "-p" && args[p - 2] === "--model" && args[p - 1] === BUILTIN_MODEL_ALIAS;
+  const withoutPin = () => [...args.slice(0, p - 2), ...args.slice(p)];
+  if (pinnedAlias && aliasRejected) {
+    // Already learned this process: skip the doomed ~3.5s attempt, still say so.
+    const out = await runGeminiOnce(withoutPin(), cwd, timeoutMs, recoveryGraceMs, opts);
+    return { ...out, pinDropped: true };
+  }
+  try {
+    return await runGeminiOnce(args, cwd, timeoutMs, recoveryGraceMs, opts);
+  } catch (err) {
+    const code = err && /** @type {{code?:string}} */ (err).code;
+    if (!pinnedAlias || code !== "model-not-allowed") throw err;
+    const budget = ((typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : DEFAULT_TIMEOUT_MS) - (Date.now() - started);
+    if (budget <= 0) throw err;
+    if (!aliasRejected) {
+      aliasRejected = true;
+      process.stderr.write(
+        `[deliberation-gemini] agy rejected --model "${BUILTIN_MODEL_ALIAS}" (not in \`agy models\`); ` +
+        "retrying without the pin so agy uses ~/.gemini/settings.json. Set providers.gemini.model " +
+        "in config.json (or GEMINI_DEFAULT_MODEL) to a listed id to stop this warning.\n"
+      );
+    }
+    // The retry is a second leg of the same call: it gets what is left of the host budget too.
+    const spent = Date.now() - started;
+    const retryOpts = typeof opts.hostBudgetRemainingMs === "number"
+      ? { ...opts, hostBudgetRemainingMs: Math.max(1, opts.hostBudgetRemainingMs - spent) }
+      : opts;
+    const out = await runGeminiOnce(withoutPin(), cwd, budget, recoveryGraceMs, retryOpts);
+    return { ...out, pinDropped: true };
+  }
+}
+
+// --- Request Handlers ---
+
+const handlers = {
+  "initialize": (id, _params, shouldRespond) => {
+    if (!shouldRespond) return;
+    sendResponse(id, {
+      protocolVersion: "2024-11-05",
+      capabilities: { tools: {} },
+      serverInfo: { name: "deliberation-gemini", version: "1.6.0" }
+    });
+  },
+
+  "tools/list": (id, _params, shouldRespond) => {
+    if (!shouldRespond) return;
+    sendResponse(id, {
+      tools: [
+        {
+          name: "gemini",
+          description: "Start a new Gemini expert session",
+          inputSchema: {
+            type: "object",
+            properties: {
+              prompt: { type: "string", description: "The delegation prompt" },
+              "developer-instructions": { type: "string", description: "Expert system instructions" },
+              sandbox: { type: "string", enum: ["read-only", "workspace-write"], default: "read-only" },
+              cwd: { type: "string", description: "Current working directory" },
+              model: { type: "string", default: DEFAULT_MODEL, description: "agy model id fusing family + effort, e.g. \"gemini-3.6-flash-high\" (see `agy models`; display names also work). Passed as --model; defaults to providers.gemini.model, then GEMINI_DEFAULT_MODEL, then the \"auto-gemini-3\" router alias." },
+              "include-directories": {
+                type: "array",
+                items: { type: "string" },
+                description: "Additional workspace dirs; maps to repeated --add-dir on the Antigravity CLI (agy)."
+              },
+              timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 300000. On expiry the bridge drains the streamed stdout and recovers a late answer instead of failing.", default: DEFAULT_TIMEOUT_MS },
+              "recovery-grace": { type: "number", description: "Extra ms to keep agy alive after the soft timeout to drain a late answer from streamed stdout. 0..600000. Default 120000. 0 disables drain.", default: DEFAULT_RECOVERY_GRACE_MS }
+            },
+            required: ["prompt"]
+          }
+        },
+        {
+          name: "gemini-reply",
+          description: "Continue an existing Gemini session",
+          inputSchema: {
+            type: "object",
+            properties: {
+              threadId: { type: "string", description: "Conversation ID returned by a previous gemini call" },
+              prompt: { type: "string", description: "Follow-up prompt" },
+              sandbox: { type: "string", enum: ["read-only", "workspace-write"], default: "read-only" },
+              cwd: { type: "string" },
+              "include-directories": {
+                type: "array",
+                items: { type: "string" },
+                description: "Additional workspace dirs; maps to repeated --add-dir on the Antigravity CLI (agy)."
+              },
+              timeout: { type: "number", description: "Soft timeout in ms. 1..600000. Default 300000. On expiry the bridge drains the streamed stdout and recovers a late answer instead of failing.", default: DEFAULT_TIMEOUT_MS },
+              "recovery-grace": { type: "number", description: "Extra ms to keep agy alive after the soft timeout to drain a late answer from streamed stdout. 0..600000. Default 120000. 0 disables drain.", default: DEFAULT_RECOVERY_GRACE_MS }
+            },
+            required: ["threadId", "prompt"]
+          }
+        }
+      ]
+    });
+  },
+
+  "tools/call": async (id, params, shouldRespond) => {
+    if (!isObject(params)) {
+      if (shouldRespond) sendError(id, -32602, "Invalid params: expected an object");
+      return;
+    }
+
+    const { name, arguments: args } = params;
+    if (!isNonEmptyString(name)) {
+      if (shouldRespond) sendError(id, -32602, "Invalid params: 'name' must be a non-empty string");
+      return;
+    }
+    if (!isObject(args)) {
+      if (shouldRespond) sendError(id, -32602, "Invalid params: 'arguments' must be an object");
+      return;
+    }
+    if (args.sandbox !== undefined && !VALID_SANDBOX_VALUES.has(args.sandbox)) {
+      if (shouldRespond) sendError(id, -32602, "Invalid params: 'sandbox' must be 'read-only' or 'workspace-write'");
+      return;
+    }
+    if (args.cwd !== undefined && !isNonEmptyString(args.cwd)) {
+      if (shouldRespond) sendError(id, -32602, "Invalid params: 'cwd' must be a non-empty string when provided");
+      return;
+    }
+    if (args.timeout !== undefined) {
+      if (typeof args.timeout !== "number" || !Number.isFinite(args.timeout) || args.timeout <= 0 || args.timeout > MAX_MS) {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: 'timeout' must be a number > 0 and <= 600000 milliseconds");
+        return;
+      }
+    }
+    if (args["recovery-grace"] !== undefined) {
+      const g = args["recovery-grace"];
+      if (typeof g !== "number" || !Number.isFinite(g) || g < 0 || g > MAX_MS) {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: 'recovery-grace' must be a number >= 0 and <= 600000 milliseconds");
+        return;
+      }
+    }
+    if (args["include-directories"] !== undefined) {
+      if (!Array.isArray(args["include-directories"]) || args["include-directories"].length === 0) {
+        if (shouldRespond) sendError(id, -32602, "Invalid params: 'include-directories' must be a non-empty array of strings when provided");
+        return;
+      }
+      for (const dir of args["include-directories"]) {
+        if (!isNonEmptyString(dir)) {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: each entry in 'include-directories' must be a non-empty string");
+          return;
+        }
+      }
+    }
+
+    try {
+      const agyArgs = [];
+
+      // Sandbox / permissions mapping is common to both tools.
+      const sandboxFlags = [];
+      if (args.sandbox === "workspace-write") sandboxFlags.push("--dangerously-skip-permissions");
+      else sandboxFlags.push("--sandbox");
+
+      const addDirFlags = [];
+      if (args["include-directories"]) {
+        for (const dir of args["include-directories"]) addDirFlags.push("--add-dir", dir);
+      }
+
+      if (name === "gemini") {
+        // model is validated here and passed through to agy's --model by
+        // buildAgyArgs (which supplies DEFAULT_MODEL when absent).
+        if (args.model !== undefined && !isNonEmptyString(args.model)) {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'model' must be a non-empty string when provided");
+          return;
+        }
+        if (!isNonEmptyString(args.prompt)) {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'prompt' is required");
+          return;
+        }
+        if (args["developer-instructions"] !== undefined && typeof args["developer-instructions"] !== "string") {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'developer-instructions' must be a string when provided");
+          return;
+        }
+
+        agyArgs.push(...buildAgyArgs({
+          prompt: args.prompt,
+          model: args.model,
+          includeDirs: args["include-directories"],
+          sandbox: args.sandbox,
+          developerInstructions: args["developer-instructions"],
+        }));
+      } else if (name === "gemini-reply") {
+        if (!isNonEmptyString(args.threadId)) {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'threadId' is required for gemini-reply");
+          return;
+        }
+        const threadId = args.threadId.trim();
+        if (!THREAD_ID_RE.test(threadId) || threadId === "latest" || threadId === "unknown") {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'threadId' must be an explicit conversation id (alphanumeric/underscore start, then [A-Za-z0-9_-], 1..128 chars)");
+          return;
+        }
+        if (!isNonEmptyString(args.prompt)) {
+          if (shouldRespond) sendError(id, -32602, "Invalid params: 'prompt' is required");
+          return;
+        }
+
+        agyArgs.push("--conversation", threadId, ...sandboxFlags, ...addDirFlags);
+        // buildAgyArgs is not used on the reply path, so apply the advisory guard
+        // here explicitly (read-only is anything but workspace-write).
+        agyArgs.push("-p", applyReadOnlyGuard(args.prompt, args.sandbox !== "workspace-write"));
+      } else {
+        if (shouldRespond) sendError(id, -32601, `Tool not found: ${name}`);
+        return;
+      }
+
+      // Precedence: per-call arg > providers.gemini.timeout / providers.defaults.timeout
+      // (resolved in the config layer) > the 300s built-in.
+      const timeoutMs = (typeof args.timeout === "number" && args.timeout > 0)
+        ? args.timeout
+        : (configuredTimeout() ?? DEFAULT_TIMEOUT_MS);
+      const recoveryGraceMs = (typeof args["recovery-grace"] === "number" && args["recovery-grace"] >= 0)
+        ? args["recovery-grace"]
+        : DEFAULT_RECOVERY_GRACE_MS;
+      const readOnly = args.sandbox !== "workspace-write";
+      const { response, threadId, recovered, workspaceMutated, pinDropped } = await runGemini(
+        agyArgs, args.cwd, timeoutMs, recoveryGraceMs,
+        { readOnly, includeDirs: args["include-directories"] || [] }
+      );
+
+      // Return metadata (threadId) at the top level for orchestration rules,
+      // and standard content array for the UI. pinDropped: the shipped model alias was
+      // rejected by agy and the run used agy's own settings.json default instead.
+      if (shouldRespond) {
+        sendResponse(id, {
+          content: [{ type: "text", text: response }],
+          threadId: threadId,
+          ...(recovered ? { recovered: true } : {}),
+          ...(workspaceMutated ? { workspaceMutated: true } : {}),
+          ...(pinDropped ? { pinDropped: true } : {})
+        });
+      }
+    } catch (e) {
+      const errMsg = (e && e.message) || String(e);
+      const errCode = e && e.code;
+      const { errorKind, retryable } = classifyGeminiError(errMsg, errCode);
+
+      if (shouldRespond) {
+        sendResponse(id, {
+          content: [{ type: "text", text: `Error: ${errMsg}` }],
+          isError: true,
+          errorKind,
+          retryable,
+        });
+      }
+    }
+  },
+
+  "notifications/initialized": () => {}
+};
+
+// --- Main Loop (Robust JSON-RPC stream handling) ---
+
+let buffer = "";
+
+// Process one JSON-RPC line. Awaits its handler and catches internally so callers can
+// dispatch lines CONCURRENTLY: replies correlate by id and Node serializes stdout writes,
+// so parallel tool calls overlap without reordering or frame-interleaving hazard.
+async function processLine(line) {
+  if (!line.trim()) return;
+
+  let request;
+  try {
+    request = JSON.parse(line);
+  } catch (e) {
+    return; // Ignore parse errors from noise
+  }
+
+  const shouldRespond = hasRequestId(request);
+  if (!isObject(request) || typeof request.method !== "string") {
+    if (shouldRespond) sendError(request.id, -32600, "Invalid Request");
+    return;
+  }
+
+  const handler = handlers[request.method];
+  if (!handler) {
+    if (shouldRespond) sendError(request.id, -32601, `Method not found: ${request.method}`);
+    return;
+  }
+
+  try {
+    await handler(request.id, request.params, shouldRespond);
+  } catch (e) {
+    if (shouldRespond) sendError(request.id, -32603, `Internal error: ${e.message}`);
+  }
+}
+
+if (require.main === module) {
+  // Dispatch concurrently - do NOT await each line - so parallel tool calls overlap.
+  process.stdin.on("data", (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop(); // Keep partial line in buffer
+    for (const line of lines) void processLine(line);
+  });
+
+  // Startup Check
+  // A found-but-unspawnable shim is a different problem from a missing install, and the
+  // generic message below sends the user off to reinstall something they already have.
+  const bootShimErr = agyShimError(AGY_TARGET, AGY_BIN);
+  if (bootShimErr) {
+    console.error(bootShimErr.message);
+    process.exit(1);
+  }
+  try {
+    execFileSync(AGY_CMD, [...AGY_PREFIX_ARGS, "--help"], { stdio: "ignore" });
+  } catch (e) {
+    console.error("Antigravity CLI (agy) not found. Install from https://antigravity.google and run `agy` once to sign in.");
+    process.exit(1);
+  }
+}
+
+// Test-only exports
+if (typeof module !== "undefined" && module.exports) {
+  module.exports.classifyGeminiError = classifyGeminiError;
+  module.exports.agyShimError = agyShimError;
+  module.exports.resolveConversationId = resolveConversationId;
+  module.exports.goDuration = goDuration;
+  module.exports.stdoutIsError = stdoutIsError;
+  module.exports.minAnswerChars = minAnswerChars;
+  module.exports.configuredTimeout = configuredTimeout;
+
+  // Production exports (used by core adapters as well as tests)
+  module.exports.runGemini = runGemini;
+  module.exports.buildAgyArgs = buildAgyArgs;
+  module.exports.cliAvailable = cliAvailable;
+
+  // Advisory read-only enforcement (pure helpers; unit-tested)
+  module.exports.READ_ONLY_GUARD = READ_ONLY_GUARD;
+  module.exports.applyReadOnlyGuard = applyReadOnlyGuard;
+  module.exports.advisoryEnv = advisoryEnv;
+  module.exports.THREAD_ID_RE = THREAD_ID_RE;
+  module.exports.buildSeatbeltProfile = buildSeatbeltProfile;
+  module.exports.buildSpawnCommand = buildSpawnCommand;
+  module.exports.diffGitState = diffGitState;
+}

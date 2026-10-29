@@ -1,0 +1,636 @@
+import ora from 'ora';
+import type { ServerDefinition } from '../config.js';
+import type { Runtime } from '../runtime.js';
+import { setStdioLogMode } from '../sdk-stdio-logging.js';
+import { MCPORTER_VERSION } from '../version.js';
+import { renderAdhocServerHelpLines } from './adhoc-help.js';
+import { persistPreparedEphemeralServer, prepareEphemeralServerTarget } from './ephemeral-target.js';
+import { splitHttpToolSelector } from './http-utils.js';
+import { chooseClosestIdentifier, renderIdentifierResolutionMessages } from './identifier-helpers.js';
+import { formatExampleBlock } from './list-detail-helpers.js';
+import type { ListSummaryResult, StatusCategory } from './list-format.js';
+import { classifyListError, formatSourceSuffix, renderServerListRow } from './list-format.js';
+import { extractListFlags } from './list-flags.js';
+import type { ToolMetadata } from './generate/tools.js';
+import {
+  buildAuthCommandHint,
+  buildJsonListEntry,
+  createEmptyStatusCounts,
+  type ListJsonServerEntry,
+  printBriefTool,
+  printSingleServerHeader,
+  printToolDetail,
+  summarizeStatusCounts,
+} from './list-output.js';
+import { dimText, extraDimText, supportsSpinner, yellowText } from './terminal.js';
+import { resolveListTimeout, withTimeout } from './timeouts.js';
+import { loadToolMetadata } from './tool-cache.js';
+import { formatTransportSummary } from './transport-utils.js';
+
+export async function handleList(runtime: Runtime, args: string[]): Promise<void> {
+  const flags = extractListFlags(args);
+  let target = args.shift();
+  let requestedTool: string | undefined;
+
+  if (target) {
+    const split = splitHttpToolSelector(target);
+    if (split) {
+      target = split.baseUrl;
+      requestedTool = split.tool;
+    }
+  }
+
+  const prepared = await prepareEphemeralServerTarget({
+    runtime,
+    target,
+    ephemeral: flags.ephemeral,
+  });
+  target = prepared.target;
+
+  if (!target) {
+    if (flags.brief) {
+      throw new Error('--brief requires a server target.');
+    }
+    const previousStdioLogMode = setStdioLogMode('silent');
+    try {
+      const servers = runtime.getDefinitions();
+      const perServerTimeoutMs = resolveListTimeout(flags.timeoutMs);
+      const serverChecks = servers.map((server) => ({
+        server,
+        timeoutMs: resolveListTimeout(flags.timeoutMs, server),
+      }));
+      const perServerTimeoutSeconds = Math.round(perServerTimeoutMs / 1000);
+
+      if (servers.length === 0) {
+        if (flags.quiet) {
+          return;
+        }
+        if (flags.format === 'json') {
+          const payload = {
+            mode: 'list',
+            counts: createEmptyStatusCounts(),
+            servers: [] as ListJsonServerEntry[],
+          };
+          console.log(JSON.stringify(payload, null, 2));
+        } else {
+          console.log('No MCP servers configured.');
+        }
+        return;
+      }
+
+      if (!flags.quiet && flags.format === 'text') {
+        console.log(
+          `mcporter ${MCPORTER_VERSION} — Listing ${servers.length} server(s) (per-server timeout: ${perServerTimeoutSeconds}s${serverChecks.some(({ timeoutMs }) => timeoutMs !== perServerTimeoutMs) ? `; Chrome auto-connect: ${Math.max(...serverChecks.map(({ timeoutMs }) => timeoutMs)) / 1000}s` : ''})`
+        );
+      }
+      const spinner =
+        !flags.quiet && flags.format === 'text' && supportsSpinner
+          ? ora(`Discovering ${servers.length} server(s)…`).start()
+          : undefined;
+      const renderResults = !flags.quiet && flags.format === 'text';
+      let completedCount = 0;
+
+      const tasks = serverChecks.map(({ server, timeoutMs }) =>
+        checkListServer(runtime, server, timeoutMs, flags.disableOAuth).then((result) => {
+          if (renderResults) {
+            const rendered = renderServerListRow(result, timeoutMs, { verbose: flags.verbose });
+            completedCount += 1;
+            if (spinner) {
+              spinner.stop();
+              console.log(rendered.line);
+              const remaining = servers.length - completedCount;
+              if (remaining > 0) {
+                spinner.text = `Listing servers… ${completedCount}/${servers.length}`;
+                spinner.start();
+              }
+            } else {
+              console.log(rendered.line);
+            }
+          }
+          return { result, timeoutMs };
+        })
+      );
+
+      const results = await Promise.all(tasks);
+      const jsonEntries = results.map(({ result, timeoutMs }) =>
+        buildJsonListEntry(result, Math.round(timeoutMs / 1000), {
+          includeSchemas: Boolean(flags.schema),
+          includeSources: Boolean(flags.verbose || flags.includeSources),
+          includeConnectionInfo: flags.verbose,
+        })
+      );
+      const counts = summarizeStatusCounts(jsonEntries);
+      maybeSetListExitCode(jsonEntries, flags);
+
+      if (flags.quiet) {
+        return;
+      }
+
+      if (flags.format === 'json') {
+        console.log(JSON.stringify({ mode: 'list', counts, servers: jsonEntries }, null, 2));
+        return;
+      }
+
+      if (spinner) {
+        spinner.stop();
+      }
+      const okSummary = `${counts.ok} healthy`;
+      const parts = [
+        okSummary,
+        ...(counts.auth > 0 ? [`${counts.auth} auth required`] : []),
+        ...(counts.offline > 0 ? [`${counts.offline} offline`] : []),
+        ...(counts.http > 0 ? [`${counts.http} http errors`] : []),
+        ...(counts.error > 0 ? [`${counts.error} errors`] : []),
+      ];
+      console.log(`✔ Listed ${servers.length} server${servers.length === 1 ? '' : 's'} (${parts.join('; ')}).`);
+      return;
+    } finally {
+      setStdioLogMode(previousStdioLogMode);
+    }
+  }
+
+  if (!requestedTool) {
+    const selector = resolveConfiguredToolSelector(runtime, target);
+    if (selector) {
+      target = selector.server;
+      requestedTool = selector.tool;
+    }
+  }
+  if (flags.statusOnly && requestedTool) {
+    throw new Error('--status cannot be used with a tool selector.');
+  }
+
+  const resolved = resolveServerDefinition(runtime, target, { quiet: flags.quiet });
+  if (!resolved) {
+    process.exitCode = 1;
+    return;
+  }
+  target = resolved.name;
+  const definition = resolved.definition;
+  const timeoutMs = resolveListTimeout(flags.timeoutMs, definition);
+  const sourcePath =
+    definition.sources?.length || definition.source
+      ? formatSourceSuffix(definition.sources ?? definition.source, true, { verbose: flags.verbose })
+      : undefined;
+  const transportSummary = formatTransportSummary(definition);
+  const startedAt = Date.now();
+  if (flags.statusOnly) {
+    const previousStdioLogMode = flags.quiet || flags.format === 'json' ? setStdioLogMode('silent') : undefined;
+    try {
+      const result = await checkListServer(runtime, definition, timeoutMs, flags.disableOAuth);
+      await persistPreparedEphemeralServer(runtime, prepared);
+      const entry = buildJsonListEntry(result, Math.round(timeoutMs / 1000), {
+        includeSchemas: false,
+        includeSources: Boolean(flags.verbose || flags.includeSources),
+        includeConnectionInfo: flags.verbose,
+      });
+      maybeSetListExitCode([entry], flags);
+      if (flags.quiet) {
+        return;
+      }
+      if (flags.format === 'json') {
+        console.log(
+          JSON.stringify({ mode: 'list', counts: summarizeStatusCounts([entry]), servers: [entry] }, null, 2)
+        );
+        return;
+      }
+      const rendered = renderServerListRow(result, timeoutMs, { verbose: flags.verbose });
+      console.log(rendered.line);
+      console.log(
+        `✔ Listed 1 server (${entry.status === 'ok' ? '1 healthy' : `0 healthy; 1 ${statusLabel(entry.status)}`}).`
+      );
+      return;
+    } finally {
+      if (previousStdioLogMode !== undefined) {
+        setStdioLogMode(previousStdioLogMode);
+      }
+    }
+  }
+  const previousStdioLogMode = flags.quiet || flags.format === 'json' ? setStdioLogMode('silent') : undefined;
+  try {
+    if (flags.format === 'json') {
+      try {
+        const metadataEntries = filterToolMetadata(
+          await withTimeout(
+            loadToolMetadata(runtime, target, {
+              includeSchema: true,
+              autoAuthorize: false,
+              allowCachedAuth: true,
+              disableOAuth: flags.disableOAuth,
+            }),
+            timeoutMs
+          ),
+          requestedTool
+        );
+        await persistPreparedEphemeralServer(runtime, prepared);
+        const durationMs = Date.now() - startedAt;
+        if (requestedTool && metadataEntries.length === 0) {
+          if (!flags.quiet) {
+            printMissingToolJson(definition, requestedTool, durationMs, transportSummary, flags);
+          }
+          process.exitCode = 1;
+          return;
+        }
+        const instructions = await loadServerInstructions(runtime, target);
+        const connectionInfo = flags.verbose ? await loadConnectionInfo(runtime, target) : undefined;
+        const payload = {
+          mode: 'server',
+          name: definition.name,
+          status: 'ok' as StatusCategory,
+          durationMs,
+          description: definition.description,
+          instructions,
+          protocolVersion: connectionInfo?.protocolVersion,
+          era: connectionInfo?.era,
+          transport: transportSummary,
+          source: definition.source,
+          sources: flags.verbose || flags.includeSources ? definition.sources : undefined,
+          tools: metadataEntries.map((entry) => ({
+            name: entry.tool.name,
+            description: entry.tool.description,
+            inputSchema: entry.tool.inputSchema,
+            outputSchema: entry.tool.outputSchema,
+            options: entry.options,
+          })),
+        };
+        if (!flags.quiet) {
+          console.log(JSON.stringify(payload, null, 2));
+        }
+        return;
+      } catch (error) {
+        await persistPreparedEphemeralServer(runtime, prepared);
+        const durationMs = Date.now() - startedAt;
+        const authCommand = buildAuthCommandHint(definition);
+        const advice = classifyListError(error, definition.name, timeoutMs, { authCommand });
+        const payload = {
+          mode: 'server',
+          name: definition.name,
+          status: advice.category,
+          durationMs,
+          description: definition.description,
+          transport: transportSummary,
+          source: definition.source,
+          sources: flags.verbose || flags.includeSources ? definition.sources : undefined,
+          issue: advice.issue,
+          authCommand: advice.authCommand,
+          error: advice.summary,
+        };
+        if (!flags.quiet) {
+          console.log(JSON.stringify(payload, null, 2));
+        }
+        process.exitCode = 1;
+        return;
+      }
+    }
+    try {
+      // Always request schemas so we can render CLI-style parameter hints without re-querying per tool.
+      const metadataEntries = filterToolMetadata(
+        await withTimeout(
+          loadToolMetadata(runtime, target, {
+            includeSchema: true,
+            autoAuthorize: false,
+            allowCachedAuth: true,
+            disableOAuth: flags.disableOAuth,
+          }),
+          timeoutMs
+        ),
+        requestedTool
+      );
+      await persistPreparedEphemeralServer(runtime, prepared);
+      const durationMs = Date.now() - startedAt;
+      if (requestedTool && metadataEntries.length === 0) {
+        if (!flags.quiet) {
+          printMissingToolText(definition, requestedTool, durationMs, transportSummary, sourcePath);
+        }
+        process.exitCode = 1;
+        return;
+      }
+      if (flags.quiet) {
+        return;
+      }
+      const instructions = await loadServerInstructions(runtime, target);
+      const connectionInfo = flags.verbose ? await loadConnectionInfo(runtime, target) : undefined;
+      const summaryLine = printSingleServerHeader(
+        definition,
+        metadataEntries.length,
+        durationMs,
+        transportSummary,
+        sourcePath,
+        {
+          printSummaryNow: false,
+          instructions,
+        }
+      );
+      if (connectionInfo?.protocolVersion) {
+        console.log(
+          `  ${extraDimText(`Protocol: ${connectionInfo.protocolVersion}${connectionInfo.era ? ` (${connectionInfo.era})` : ''}`)}`
+        );
+      }
+      if (metadataEntries.length === 0) {
+        console.log('  Tools: <none>');
+        console.log(summaryLine);
+        console.log('');
+        return;
+      }
+      if (flags.brief) {
+        let optionalOmitted = false;
+        for (const entry of metadataEntries) {
+          const detail = printBriefTool(definition, entry, flags.requiredOnly);
+          optionalOmitted ||= detail.optionalOmitted;
+        }
+        if (flags.requiredOnly && optionalOmitted) {
+          console.log(`  ${extraDimText('Optional parameters hidden; run with --all-parameters to view all fields.')}`);
+          console.log('');
+        }
+        console.log(summaryLine);
+        console.log('');
+        return;
+      }
+      const examples: string[] = [];
+      let optionalOmitted = false;
+      for (const entry of metadataEntries) {
+        const detail = printToolDetail(definition, entry, Boolean(flags.schema), flags.requiredOnly);
+        examples.push(...detail.examples);
+        optionalOmitted ||= detail.optionalOmitted;
+      }
+      const uniqueExamples = formatExampleBlock(examples);
+      if (uniqueExamples.length > 0) {
+        console.log(`  ${dimText('Examples:')}`);
+        for (const example of uniqueExamples) {
+          console.log(`    ${example}`);
+        }
+        console.log('');
+      }
+      if (flags.requiredOnly && optionalOmitted) {
+        console.log(`  ${extraDimText('Optional parameters hidden; run with --all-parameters to view all fields.')}`);
+        console.log('');
+      }
+      console.log(summaryLine);
+      console.log('');
+      return;
+    } catch (error) {
+      await persistPreparedEphemeralServer(runtime, prepared);
+      maybeSetListExitCode([{ status: 'error' }], flags);
+      if (flags.quiet) {
+        return;
+      }
+      const durationMs = Date.now() - startedAt;
+      printSingleServerHeader(definition, undefined, durationMs, transportSummary, sourcePath);
+      const message = error instanceof Error ? error.message : 'Failed to load tool list.';
+      const authCommand = buildAuthCommandHint(definition);
+      const advice = classifyListError(error, definition.name, timeoutMs, { authCommand });
+      const timedOut = message === 'Timeout' || /\btimed out\b/i.test(message);
+      console.warn(`  Tools: ${timedOut ? `<timed out after ${timeoutMs}ms>` : '<unavailable>'}`);
+      console.warn(`  Reason: ${message}`);
+      if (advice.category === 'auth' && advice.authCommand) {
+        console.warn(`  Next: run '${advice.authCommand}' to finish authentication.`);
+      }
+    }
+  } finally {
+    if (previousStdioLogMode !== undefined) {
+      setStdioLogMode(previousStdioLogMode);
+    }
+  }
+}
+
+async function checkListServer(
+  runtime: Runtime,
+  server: ServerDefinition,
+  timeoutMs: number,
+  disableOAuth: boolean
+): Promise<ListSummaryResult> {
+  const startedAt = Date.now();
+  try {
+    const tools = await withTimeout(
+      runtime.listTools(server.name, {
+        autoAuthorize: false,
+        allowCachedAuth: true,
+        disableOAuth,
+        timeoutMs,
+      }),
+      timeoutMs
+    );
+    const connectionInfo = await loadConnectionInfo(runtime, server.name);
+    return {
+      server,
+      status: 'ok' as const,
+      tools,
+      connectionInfo,
+      durationMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const timedOut = message === 'Timeout' || /\btimed out\b/i.test(message);
+    let failure = error;
+    if (timedOut) {
+      try {
+        await runtime.close(server.name);
+      } catch (closeError) {
+        failure = new AggregateError(
+          [error, closeError],
+          'Timed out listing tools and failed to close the connection.'
+        );
+      }
+    }
+    return {
+      server,
+      status: 'error' as const,
+      error: failure,
+      durationMs: Date.now() - startedAt,
+    };
+  }
+}
+
+function maybeSetListExitCode(
+  entries: readonly { status: StatusCategory }[],
+  flags: ReturnType<typeof extractListFlags>
+): void {
+  if (!flags.exitCode) {
+    return;
+  }
+  if (entries.some((entry) => entry.status !== 'ok')) {
+    process.exitCode = 1;
+  }
+}
+
+function statusLabel(status: StatusCategory): string {
+  switch (status) {
+    case 'auth':
+      return 'auth required';
+    case 'offline':
+      return 'offline';
+    case 'http':
+      return 'http error';
+    case 'error':
+      return 'error';
+    case 'ok':
+      return 'healthy';
+    default:
+      return 'error';
+  }
+}
+
+export function printListHelp(): void {
+  const lines = [
+    'Usage: mcporter list [server | url] [flags]',
+    '',
+    'Targets:',
+    '  <name>                 Use a server from config/mcporter.json or editor imports.',
+    '  https://host/mcp       List an HTTP server directly; mcporter infers the entry.',
+    '',
+    'Ad-hoc servers:',
+    ...renderAdhocServerHelpLines(),
+    '',
+    'Display flags:',
+    '  --brief                Show compact signatures only for a single server.',
+    '  --signatures           Alias for --brief.',
+    '  --schema               Show tool schemas when listing servers.',
+    '  --all-parameters       Include optional parameters in tool docs.',
+    '  --json                 Emit a JSON summary instead of text.',
+    '  --status               Check server status only, without tool docs.',
+    '  --exit-code            Exit 1 when any checked server is unhealthy.',
+    '  --quiet                Suppress output; implies --exit-code.',
+    '  --verbose              Show all config sources for matching servers.',
+    '  --sources              Include source arrays in JSON output without other verbose details.',
+    '  --timeout <ms>         Override the per-server discovery timeout.',
+    '  --no-oauth             Never start OAuth; use cached tokens only.',
+    '',
+    'Examples:',
+    '  mcporter list',
+    '  mcporter list --quiet',
+    '  mcporter list linear --schema',
+    '  mcporter list linear --status --json',
+    '  mcporter list linear --brief',
+    '  mcporter list linear.list_issues --signatures',
+    '  mcporter list https://mcp.example.com/mcp',
+    '  mcporter list --http-url https://localhost:3333/mcp --schema',
+  ];
+  console.error(lines.join('\n'));
+}
+
+function resolveServerDefinition(
+  runtime: Runtime,
+  name: string,
+  options: { quiet?: boolean } = {}
+): { definition: ServerDefinition; name: string } | undefined {
+  try {
+    const definition = runtime.getDefinition(name);
+    return { definition, name };
+  } catch (error) {
+    if (!(error instanceof Error) || !/Unknown MCP server/i.test(error.message)) {
+      throw error;
+    }
+    const suggestion = suggestServerName(runtime, name);
+    if (!suggestion) {
+      if (!options.quiet) {
+        console.error(error.message);
+      }
+      return undefined;
+    }
+    const messages = renderIdentifierResolutionMessages({
+      entity: 'server',
+      attempted: name,
+      resolution: suggestion,
+    });
+    if (suggestion.kind === 'auto' && messages.auto) {
+      if (!options.quiet) {
+        console.log(dimText(messages.auto));
+      }
+      return resolveServerDefinition(runtime, suggestion.value, options);
+    }
+    if (!options.quiet && messages.suggest) {
+      console.error(yellowText(messages.suggest));
+    }
+    if (!options.quiet) {
+      console.error(error.message);
+    }
+    return undefined;
+  }
+}
+
+function suggestServerName(runtime: Runtime, attempted: string) {
+  const definitions = runtime.getDefinitions();
+  const names = definitions.map((entry) => entry.name);
+  return chooseClosestIdentifier(attempted, names);
+}
+
+function resolveConfiguredToolSelector(
+  runtime: Runtime,
+  target: string | undefined
+): { server: string; tool: string } | undefined {
+  if (!target || !target.includes('.')) {
+    return undefined;
+  }
+  const definitions = runtime.getDefinitions();
+  const match = definitions
+    .map((definition) => definition.name)
+    .filter((name) => target.startsWith(`${name}.`))
+    .toSorted((a, b) => b.length - a.length)[0];
+  if (!match) {
+    return undefined;
+  }
+  const tool = target.slice(match.length + 1);
+  if (!tool) {
+    return undefined;
+  }
+  return { server: match, tool };
+}
+
+function filterToolMetadata(entries: ToolMetadata[], requestedTool: string | undefined): ToolMetadata[] {
+  if (!requestedTool) {
+    return entries;
+  }
+  return entries.filter((entry) => entry.tool.name === requestedTool);
+}
+
+function printMissingToolText(
+  definition: ServerDefinition,
+  tool: string,
+  durationMs: number,
+  transportSummary: string,
+  sourcePath: string | undefined
+): void {
+  printSingleServerHeader(definition, 0, durationMs, transportSummary, sourcePath);
+  console.warn(`  Tool '${tool}' not found on '${definition.name}'.`);
+  process.exitCode = 1;
+}
+
+function printMissingToolJson(
+  definition: ServerDefinition,
+  tool: string,
+  durationMs: number,
+  transportSummary: string,
+  flags: { verbose: boolean; includeSources: boolean }
+): void {
+  console.log(
+    JSON.stringify(
+      {
+        mode: 'server',
+        name: definition.name,
+        status: 'error' as StatusCategory,
+        durationMs,
+        description: definition.description,
+        transport: transportSummary,
+        source: definition.source,
+        sources: flags.verbose || flags.includeSources ? definition.sources : undefined,
+        tools: [],
+        error: `Tool '${tool}' not found on '${definition.name}'.`,
+      },
+      null,
+      2
+    )
+  );
+  process.exitCode = 1;
+}
+
+async function loadServerInstructions(runtime: Runtime, serverName: string): Promise<string | undefined> {
+  if (typeof runtime.getInstructions !== 'function') {
+    return undefined;
+  }
+  return runtime.getInstructions(serverName);
+}
+
+async function loadConnectionInfo(runtime: Runtime, serverName: string) {
+  if (typeof runtime.getConnectionInfo !== 'function') return undefined;
+  return runtime.getConnectionInfo(serverName);
+}

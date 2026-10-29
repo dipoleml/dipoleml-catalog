@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.kajisho5.ffmpeg-skill",
+  "type": "mcp",
+  "name": "Ffmpeg Skill",
+  "slug": "ffmpeg-skill",
+  "vendor": "kajisho5",
+  "description": "Local video editor for coding agents: 42 FFmpeg tools with a machine-readable contract and an MCP server, for DipoleML, Cursor and Codex. Cut, captions, reframe, loudness, platform exports. No cloud, no API keys.",
+  "version": "2.17.3",
+  "homepage": "https://github.com/kajisho5/ffmpeg-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-skills",
+    "audio-processing",
+    "captions",
+    "codex",
+    "coding-agent",
+    "cursor",
+    "ffmpeg",
+    "loudness-normalization"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "audio-processing",
+    "captions",
+    "claude-code",
+    "codex",
+    "coding-agent",
+    "cursor",
+    "ffmpeg",
+    "loudness-normalization",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "python",
+    "subtitles",
+    "transcoding",
+    "video",
+    "video-editing",
+    "video-processing",
+    "whisper"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kajisho5",
+    "brandName": "kajisho5",
+    "source": "https://github.com/kajisho5.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:10Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kajisho5/ffmpeg-skill",
+    "url": "https://github.com/kajisho5/ffmpeg-skill",
+    "commit": "1ae1bdf1ca0adbb1606fbca493948b1bbb2f83ff",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3515,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ffmpeg Skill | Local video editor for coding agents: 42 FFmpeg tools with a machine-readable contract and an MCP server, for Claude Code, Cursor and Codex. Cut, captions, reframe, loudness, platform exports. No cloud, no API keys.",
+        "after": "Ffmpeg Skill | Local video editor for coding agents: 42 FFmpeg tools with a machine-readable contract and an MCP server, for DipoleML, Cursor and Codex. Cut, captions, reframe, loudness, platform exports. No cloud, no API keys.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ffmpeg-skill"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "bin/install.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=16"
+    ],
+    "packages": [
+      "ffmpeg-skill"
+    ],
+    "env": [
+      "NPM_TOKEN"
+    ],
+    "credentials": [
+      "NPM_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.pv-bhat.vibe-check-mcp-server",
+  "type": "mcp",
+  "name": "Vibe Check MCP Server",
+  "slug": "vibe-check-mcp-server",
+  "vendor": "pv-bhat",
+  "description": "Vibe Check is a tool that provides mentor-like feedback to AI Agents, preventing tunnel-vision, over-engineering and reasoning lock-in for complex and long-horizon agent workflows. KISS your over-eager AI Agents goodbye! Effective for: Coding, Ambiguous Tasks, High-Risk tasks",
+  "version": "2.9.0",
+  "homepage": "https://github.com/PV-Bhat/vibe-check-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-ai",
+    "agentic-workflow",
+    "chain-of-thought",
+    "cpi",
+    "error-handling",
+    "model-context-protocol",
+    "rli",
+    "vibe-coding"
+  ],
+  "tags": [
+    "agentic-ai",
+    "agentic-workflow",
+    "ai-agents",
+    "chain-of-thought",
+    "cpi",
+    "error-handling",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "rli",
+    "vibe-coding",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "pv-bhat",
+    "brandName": "pv-bhat",
+    "source": "https://github.com/PV-Bhat.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "PV-Bhat/vibe-check-mcp-server",
+    "url": "https://github.com/PV-Bhat/vibe-check-mcp-server",
+    "commit": "ed8452f2d626011526b0c62f7be7d0a6f67794c1",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 502,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@pv-bhat/vibe-check-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "@pv-bhat/vibe-check-mcp"
+    ],
+    "env": [
+      "GEMINI_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_BASE_URL",
+      "MCP_ALLOWED_HOSTS",
+      "MCP_TRANSPORT",
+      "MCP_HTTP_PORT"
+    ],
+    "credentials": [
+      "GEMINI_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

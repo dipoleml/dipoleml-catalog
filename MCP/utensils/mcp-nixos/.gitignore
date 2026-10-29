@@ -1,0 +1,110 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+mcp_nixos_test_cache/
+*test_cache*/
+
+# Environments
+.env
+.env.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Nix
+.direnv/
+result
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+.zed/
+
+# MCP local configuration
+.mcp-nix.json
+
+# Misc
+temp
+tmp
+
+# UV (not used - flake only)
+uv.lock
+uv-*.lock
+.aider*
+.pypirc
+mcp-completion-docs.md
+TODO.md
+
+# Wily
+.wily/
+
+# Logs
+*.log
+*.DS_Store
+
+# Pi coding agent extensions (editor-only deps; Pi resolves at runtime)
+/.pi/node_modules/
+/.pi/package-lock.json
+
+# Website (VitePress)
+/website/node_modules/
+/website/out/
+/website/.vitepress/cache/
+/website/.vitepress/dist/
+/website/.vercel/
+/website/.env*.local
+/website/npm-debug.log*
+/website/yarn-debug.log*
+/website/yarn-error.log*
+/website/pnpm-debug.log*
+/website/.pnpm-store/
+/website/.DS_Store
+/website/*.pem
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+
+reference-mcp-coroot/

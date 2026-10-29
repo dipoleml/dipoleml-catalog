@@ -1,0 +1,340 @@
+#!/usr/bin/env node
+
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import TurndownService from "turndown";
+import { writeFile, readFile } from "fs/promises";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+import { lookup } from "dns/promises";
+
+// SSRF protection: validate URLs before fetching (CWE-918)
+const BLOCKED_IP_RANGES = [
+  // Loopback
+  { prefix: "127.", mask: null },
+  // IPv6 loopback
+  { exact: "::1" },
+  // Link-local (cloud metadata endpoints like 169.254.169.254)
+  { prefix: "169.254.", mask: null },
+  // RFC 1918 private ranges
+  { prefix: "10.", mask: null },
+  { prefix: "172.", min: 16, max: 31 }, // 172.16.0.0 - 172.31.255.255
+  { prefix: "192.168.", mask: null },
+  // IPv6 private/link-local
+  { prefix: "fe80:", mask: null },
+  { prefix: "fc00:", mask: null },
+  { prefix: "fd", mask: null },
+  // Unspecified
+  { exact: "0.0.0.0" },
+  { exact: "::" },
+];
+
+function isPrivateIP(ip) {
+  for (const range of BLOCKED_IP_RANGES) {
+    if (range.exact && ip === range.exact) return true;
+    if (range.prefix && ip.startsWith(range.prefix)) {
+      if (range.min !== undefined) {
+        const secondOctet = parseInt(ip.split(".")[1], 10);
+        if (secondOctet >= range.min && secondOctet <= range.max) return true;
+      } else {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Allow private network access via --allow-local flag or ALLOW_LOCAL_NETWORK=true env var
+const allowLocalNetwork = process.argv.includes("--allow-local") ||
+  process.env.ALLOW_LOCAL_NETWORK === "true";
+
+async function validateUrl(urlString) {
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error("Invalid URL format");
+  }
+
+  // Only allow http and https schemes
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`URL scheme '${parsed.protocol.slice(0, -1)}' is not allowed. Only http and https are supported.`);
+  }
+
+  // Resolve hostname to IP and check against blocked ranges (unless opted out)
+  if (!allowLocalNetwork) {
+    const hostname = parsed.hostname;
+
+    // Check if hostname is already an IP literal
+    if (isPrivateIP(hostname)) {
+      throw new Error("URLs pointing to private or internal network addresses are not allowed. Use --allow-local flag to permit local network access.");
+    }
+
+    // DNS resolution check
+    try {
+      const { address } = await lookup(hostname);
+      if (isPrivateIP(address)) {
+        throw new Error("URLs pointing to private or internal network addresses are not allowed. Use --allow-local flag to permit local network access.");
+      }
+    } catch (err) {
+      if (err.message.includes("not allowed")) throw err;
+      throw new Error(`Could not resolve hostname: ${hostname}`);
+    }
+  }
+
+  return parsed;
+}
+
+// Get package version for user-agent
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(await readFile(resolve(__dirname, "package.json"), "utf-8"));
+const USER_AGENT = `html-to-markdown-mcp/${pkg.version} (+https://github.com/levz0r/html-to-markdown-mcp/blob/master/bot.txt)`;
+
+// Create MCP server
+const server = new Server(
+  {
+    name: "html-to-markdown",
+    version: "1.0.0",
+  },
+  {
+    capabilities: {
+      tools: {},
+    },
+  }
+);
+
+// Initialize Turndown service with configuration similar to markdown-printer
+const turndownService = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+  bulletListMarker: "-",
+});
+
+// Remove unwanted elements
+turndownService.remove(["script", "style", "noscript", "iframe", "svg"]);
+
+// List available tools
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "html_to_markdown",
+        description: "Fetch HTML from a URL or convert provided HTML content to Markdown format. Automatically extracts and converts web pages to clean, readable Markdown. Use this whenever you need to fetch and extract information from a webpage.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to fetch HTML from. If provided, the HTML will be automatically fetched and converted. Either 'url' or 'html' must be provided.",
+            },
+            html: {
+              type: "string",
+              description: "Raw HTML content to convert to Markdown. Use this if you already have HTML content. Either 'url' or 'html' must be provided.",
+            },
+            includeMetadata: {
+              type: "boolean",
+              description: "Include metadata header (source URL, title, and timestamp) in the output",
+              default: true,
+            },
+            maxLength: {
+              type: "number",
+              description: "Maximum length of the returned markdown content in characters. If the content exceeds this length, it will be truncated with a message indicating the truncation. Use this for large pages to avoid token limits. Default: no limit.",
+            },
+            saveToFile: {
+              type: "string",
+              description: "Optional file path to save the full markdown content to. When specified, the full content is saved to the file and a summary is returned instead of the full content. Useful for very large pages.",
+            },
+          },
+        },
+      },
+      {
+        name: "save_markdown",
+        description: "Save markdown content to a file. Use this to persist converted HTML to a markdown file on disk.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            content: {
+              type: "string",
+              description: "The markdown content to save",
+            },
+            filePath: {
+              type: "string",
+              description: "The file path where the markdown should be saved (can be relative or absolute)",
+            },
+          },
+          required: ["content", "filePath"],
+        },
+      },
+    ],
+  };
+});
+
+// Helper function to extract title from HTML
+function extractTitle(html) {
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    return titleMatch[1].trim();
+  }
+
+  const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  if (h1Match) {
+    return h1Match[1].trim();
+  }
+
+  return "Untitled";
+}
+
+// Handle tool calls
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (request.params.name === "html_to_markdown") {
+    const { url, html, includeMetadata = true, maxLength, saveToFile } = request.params.arguments;
+
+    if (!url && !html) {
+      throw new Error("Either 'url' or 'html' parameter is required");
+    }
+
+    try {
+      let htmlContent = html;
+      let pageUrl = url;
+      let pageTitle = null;
+
+      // If URL is provided, validate and fetch the HTML
+      if (url) {
+        await validateUrl(url);
+        console.error(`Fetching HTML from: ${url}`);
+        const response = await fetch(url, {
+          headers: {
+            "User-Agent": USER_AGENT,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`);
+        }
+
+        htmlContent = await response.text();
+        pageUrl = url;
+        pageTitle = extractTitle(htmlContent);
+        console.error(`Extracted title: ${pageTitle}`);
+      }
+
+      // Convert HTML to Markdown
+      const markdown = turndownService.turndown(htmlContent);
+
+      // Add metadata header if requested
+      let content = markdown;
+      if (includeMetadata) {
+        const metadataTitle = pageTitle || extractTitle(htmlContent);
+        const metadataUrl = pageUrl || "Unknown";
+        const timestamp = new Date().toISOString();
+
+        content = `# ${metadataTitle}\n\n**Source:** ${metadataUrl}\n**Saved:** ${timestamp}\n\n---\n\n${markdown}`;
+      }
+
+      // Save to file if requested
+      if (saveToFile) {
+        const absolutePath = resolve(saveToFile);
+        await writeFile(absolutePath, content, "utf-8");
+        console.error(`Saved markdown to: ${absolutePath}`);
+
+        const metadataTitle = pageTitle || extractTitle(htmlContent);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Successfully converted and saved to: ${absolutePath}\n\nTitle: ${metadataTitle}\nSize: ${content.length} characters\nLines: ${content.split('\n').length}`,
+            },
+          ],
+        };
+      }
+
+      // Truncate if maxLength is specified and content exceeds it
+      if (maxLength && content.length > maxLength) {
+        const truncated = content.substring(0, maxLength);
+        const remainingChars = content.length - maxLength;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${truncated}\n\n---\n\n[Content truncated. Showing ${maxLength} of ${content.length} characters. ${remainingChars} characters omitted. Use saveToFile parameter to save the full content.]`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: content,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error converting HTML to Markdown: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  if (request.params.name === "save_markdown") {
+    const { content, filePath } = request.params.arguments;
+
+    if (!content) {
+      throw new Error("'content' parameter is required");
+    }
+
+    if (!filePath) {
+      throw new Error("'filePath' parameter is required");
+    }
+
+    try {
+      const absolutePath = resolve(filePath);
+      await writeFile(absolutePath, content, "utf-8");
+      console.error(`Saved markdown to: ${absolutePath}`);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Successfully saved markdown to: ${absolutePath}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error saving markdown file: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  throw new Error(`Unknown tool: ${request.params.name}`);
+});
+
+// Start the server
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("HTML to Markdown MCP Server running on stdio");
+}
+
+main().catch((error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});

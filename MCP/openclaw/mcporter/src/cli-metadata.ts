@@ -1,0 +1,202 @@
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import type { ServerDefinition, ServerSource } from './config.js';
+import { pickSharedDefinitionFields } from './definition-fields.js';
+
+export type CliArtifactKind = 'template' | 'bundle' | 'binary';
+
+export interface SerializedServerDefinition {
+  readonly name: string;
+  readonly description?: string;
+  readonly command:
+    | {
+        kind: 'http';
+        url: string;
+        headers?: Record<string, string>;
+      }
+    | {
+        kind: 'stdio';
+        command: string;
+        args: string[];
+        cwd: string;
+      };
+  readonly env?: Record<string, string>;
+  readonly auth?: string;
+  readonly tokenCacheDir?: string;
+  readonly clientName?: string;
+  readonly protocolVersion?: ServerDefinition['protocolVersion'];
+  readonly chromeDevtoolsRelay?: ServerDefinition['chromeDevtoolsRelay'];
+  readonly oauthClientId?: string;
+  readonly oauthClientSecretEnv?: string;
+  readonly oauthTokenEndpointAuthMethod?: string;
+  readonly oauthRedirectUrl?: string;
+  readonly oauthClientMetadataUrl?: string;
+  readonly oauthScope?: string;
+  readonly oauthRequestedScope?: string;
+  readonly oauthVaultEncryption?: ServerDefinition['oauthVaultEncryption'];
+  readonly refresh?: ServerDefinition['refresh'];
+  readonly httpFetch?: ServerDefinition['httpFetch'];
+  readonly lifecycle?: ServerDefinition['lifecycle'];
+  readonly logging?: ServerDefinition['logging'];
+  readonly allowedTools?: readonly string[];
+  readonly blockedTools?: readonly string[];
+}
+
+export interface CliArtifactMetadata {
+  readonly schemaVersion: 1;
+  readonly generatedAt: string;
+  readonly generator: {
+    readonly name: string;
+    readonly version: string;
+  };
+  readonly server: {
+    readonly name: string;
+    readonly source?: ServerSource;
+    readonly definition: SerializedServerDefinition;
+  };
+  readonly artifact: {
+    readonly path: string;
+    readonly kind: CliArtifactKind;
+  };
+  readonly invocation: {
+    serverRef?: string;
+    configPath?: string;
+    rootDir?: string;
+    runtime: 'node' | 'bun';
+    bundler?: 'rolldown' | 'bun';
+    outputPath?: string;
+    bundle?: boolean | string;
+    compile?: boolean | string;
+    timeoutMs: number;
+    minify: boolean;
+    includeTools?: string[];
+    excludeTools?: string[];
+  };
+}
+
+// metadataPathForArtifact derives the metadata file path for a given artifact output path.
+export function metadataPathForArtifact(artifactPath: string): string {
+  return `${artifactPath}.metadata.json`;
+}
+
+// readCliMetadata loads metadata for a generated CLI artifact, preferring the embedded
+// inspect command and falling back to legacy sidecar files.
+export async function readCliMetadata(artifactPath: string): Promise<CliArtifactMetadata> {
+  let embeddedError: unknown;
+  try {
+    return await readMetadataFromCli(artifactPath);
+  } catch (error) {
+    embeddedError = error;
+  }
+
+  const legacyPath = metadataPathForArtifact(artifactPath);
+  try {
+    const buffer = await fs.readFile(legacyPath, 'utf8');
+    return JSON.parse(buffer) as CliArtifactMetadata;
+  } catch (error) {
+    if (isErrno(error, 'ENOENT') && embeddedError) {
+      throw embeddedError;
+    }
+    if (!isErrno(error, 'ENOENT')) {
+      throw error;
+    }
+  }
+  throw embeddedError;
+}
+
+async function readMetadataFromCli(artifactPath: string): Promise<CliArtifactMetadata> {
+  // A missing header must not suppress native PATH lookup or Windows .exe resolution.
+  const interpreter =
+    process.platform === 'win32' ? await readGeneratedInterpreter(artifactPath).catch(() => undefined) : undefined;
+  return await new Promise<CliArtifactMetadata>((resolve, reject) => {
+    const child = spawn(interpreter ?? artifactPath, [...(interpreter ? [artifactPath] : []), '__mcporter_inspect'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (data) => {
+      stdout += String(data);
+    });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (data) => {
+      stderr += String(data);
+    });
+    child.on('error', (error) => reject(error));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Failed to inspect CLI artifact at ${artifactPath}${
+              stderr ? `: ${stderr.trim()}` : ''
+            } (exit code ${code ?? -1})`
+          )
+        );
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout) as CliArtifactMetadata;
+        resolve(parsed);
+      } catch (error) {
+        reject(
+          new Error(
+            `Unable to parse embedded metadata from ${artifactPath}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        );
+      }
+    });
+  });
+}
+
+async function readGeneratedInterpreter(artifactPath: string): Promise<string | undefined> {
+  const file = await fs.open(artifactPath, 'r');
+  try {
+    // Windows cannot execute shebang scripts; recognize only the headers we generate.
+    const header = Buffer.alloc(64);
+    const { bytesRead } = await file.read(header, 0, header.length, 0);
+    return /^#!\/usr\/bin\/env (node|bun)\r?\n/.exec(header.toString('utf8', 0, bytesRead))?.[1];
+  } finally {
+    await file.close();
+  }
+}
+
+function isErrno(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return Boolean(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === code);
+}
+
+// serializeDefinition converts an in-memory server definition into the metadata-friendly JSON form.
+export function serializeDefinition(definition: ServerDefinition): SerializedServerDefinition {
+  const sharedFields = {
+    ...pickSharedDefinitionFields(definition),
+    lifecycle: definition.lifecycle,
+    logging: definition.logging,
+  };
+  if (definition.command.kind === 'http') {
+    return {
+      name: definition.name,
+      description: definition.description,
+      command: {
+        kind: 'http',
+        url: definition.command.url.toString(),
+        headers: definition.command.headers,
+      },
+      env: definition.env,
+      ...sharedFields,
+    };
+  }
+  return {
+    name: definition.name,
+    description: definition.description,
+    command: {
+      kind: 'stdio',
+      command: definition.command.command,
+      args: [...definition.command.args],
+      cwd: definition.command.cwd,
+    },
+    env: definition.env,
+    ...sharedFields,
+  };
+}

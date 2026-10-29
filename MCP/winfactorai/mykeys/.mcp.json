@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "mkeys": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/server/index.js"
+      ],
+      "env": {
+        "MKEYS_ALLOW_REVEAL": "${user_config.allowReveal}",
+        "MKEYS_ALLOW_PRIVATE_ENDPOINTS": "${user_config.allowPrivateEndpoints}"
+      },
+      "timeoutMs": 60000
+    }
+  }
+}

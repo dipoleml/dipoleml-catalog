@@ -1,0 +1,36 @@
+# Bundled stdio build artifacts (not needed by the Vercel function)
+dist/
+
+# Node modules
+node_modules/
+
+# Build directories
+build/
+
+# Documentation
+*.md
+!README.md
+!skills/**
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Local environment
+.env.local
+.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+

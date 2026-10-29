@@ -1,0 +1,142 @@
+"""
+TradeMemory Services Launcher (silent, for Startup folder)
+Starts: tradememory FastAPI server + mt5_sync.py + daily_reflection scheduler.
+No console window (uses .pyw extension).
+"""
+import subprocess
+import os
+import shutil
+import sys
+import time
+import threading
+from pathlib import Path
+from datetime import datetime
+
+try:
+    import schedule
+except ImportError:  # only the reflection schedule needs it; server and sync still start
+    schedule = None
+
+# Repo root: this file lives in <repo>/scripts/platform/. For the Startup folder,
+# add a shortcut to it there; a copy would resolve the wrong root.
+PROJECT = Path(__file__).resolve().parents[2]
+LOGS = PROJECT / "logs"
+LOGS.mkdir(exist_ok=True)
+
+
+def find_python():
+    """PYTHON env var, else the repo's .venv, else python on PATH, like the .bat launchers."""
+    if os.environ.get("PYTHON"):
+        return os.environ["PYTHON"]
+    venv_python = PROJECT / ".venv" / "Scripts" / "python.exe"
+    if venv_python.exists():
+        return str(venv_python)
+    # Not sys.executable: under the .pyw association that is pythonw.exe. And look PATH up
+    # here, because a bare "python" in Popen is found next to pythonw.exe before PATH.
+    return shutil.which("python") or "python"
+
+
+PYTHON = find_python()
+
+
+def log(msg):
+    """Append to startup.log."""
+    with open(LOGS / "startup.log", "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.now()}] {msg}\n")
+
+
+def start_detached(cmd, log_name):
+    """Start a process detached from this script."""
+    log_file = open(LOGS / log_name, "a", encoding="utf-8")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(PROJECT),
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        creationflags=0x00000008 | 0x00000200,  # DETACHED + NEW_PROCESS_GROUP
+    )
+    return proc.pid
+
+
+def run_reflection(mode="daily"):
+    """Run daily_reflection.py."""
+    args = [PYTHON, str(PROJECT / "scripts" / "daily_reflection.py")]
+    if mode == "weekly":
+        args.append("--weekly")
+    elif mode == "monthly":
+        args.append("--monthly")
+
+    log_file = open(LOGS / "reflection.log", "a", encoding="utf-8")
+    log_file.write(f"\n--- {mode} reflection @ {datetime.now()} ---\n")
+    result = subprocess.run(
+        args, cwd=str(PROJECT),
+        stdout=log_file, stderr=subprocess.STDOUT, timeout=120
+    )
+    log(f"Reflection ({mode}) completed, exit code: {result.returncode}")
+
+
+def reflection_scheduler():
+    """Background thread: run daily reflection at 23:55, weekly on Sunday."""
+    if schedule is None:
+        # This file runs under whatever Python opened it (the .pyw association or the
+        # shortcut's target), which need not be PYTHON above.
+        log(f"Reflection schedule off: the schedule package is not installed for {sys.executable}")
+        return
+    schedule.every().day.at("23:55").do(run_reflection, mode="daily")
+    schedule.every().sunday.at("23:50").do(run_reflection, mode="weekly")
+
+    log("Reflection scheduler started (daily 23:55, weekly Sun 23:50)")
+
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
+
+
+# --- Main ---
+
+log(f"Starting TradeMemory services with {PYTHON}")
+
+# Start tradememory FastAPI server
+server_pid = start_detached(
+    [PYTHON, "-m", "tradememory"],
+    "server.log"
+)
+log(f"Server started, PID={server_pid}")
+
+# Wait for server to be ready
+time.sleep(5)
+
+# Start mt5_sync.py with watchdog (auto-restart on crash)
+def mt5_sync_watchdog():
+    """Keep mt5_sync.py alive — restart on crash/exit."""
+    RESTART_DELAY = 30
+    while True:
+        log("mt5_sync watchdog: starting mt5_sync.py...")
+        log_file = open(LOGS / "mt5_sync_session.log", "a", encoding="utf-8")
+        proc = subprocess.Popen(
+            [PYTHON, "-u", str(PROJECT / "scripts" / "mt5_sync.py")],
+            cwd=str(PROJECT),
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+        log(f"mt5_sync started, PID={proc.pid}")
+        proc.wait()  # Block until process exits
+        log(f"mt5_sync exited (code={proc.returncode}). Restarting in {RESTART_DELAY}s...")
+        time.sleep(RESTART_DELAY)
+
+sync_thread = threading.Thread(target=mt5_sync_watchdog, daemon=True)
+sync_thread.start()
+log("mt5_sync watchdog thread started")
+
+# Start reflection scheduler in background thread
+t = threading.Thread(target=reflection_scheduler, daemon=True)
+t.start()
+
+log(f"All services started: server={server_pid}, sync=watchdog_thread, scheduler=thread")
+
+# Keep this process alive (scheduler needs it)
+try:
+    while True:
+        time.sleep(300)  # Wake every 5 min to keep process alive
+except KeyboardInterrupt:
+    log("Launcher stopped by user")

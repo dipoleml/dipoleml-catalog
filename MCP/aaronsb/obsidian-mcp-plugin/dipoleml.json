@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.aaronsb.obsidian-mcp-plugin",
+  "type": "mcp",
+  "name": "Obsidian MCP Plugin",
+  "slug": "obsidian-mcp-plugin",
+  "vendor": "aaronsb",
+  "description": "High-performance Model Context Protocol (MCP) server for Obsidian that provides AI tools with direct vault access through semantic operations and HTTP transport.",
+  "version": "0.12.9",
+  "homepage": "https://github.com/aaronsb/obsidian-mcp-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "knowledge-graph",
+    "model-context-protocol",
+    "obsidian",
+    "obsidian-plugin",
+    "semantic-search"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "knowledge-graph",
+    "mcp",
+    "model-context-protocol",
+    "obsidian",
+    "obsidian-plugin",
+    "semantic-search"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "aaronsb",
+    "brandName": "aaronsb",
+    "source": "https://github.com/aaronsb.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:35Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "aaronsb/obsidian-mcp-plugin",
+    "url": "https://github.com/aaronsb/obsidian-mcp-plugin",
+    "commit": "945996ab98aae729156d6919456df2b2d78c2dbd",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 467,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "obsidian-mcp-plugin"
+    ],
+    "env": [
+      "YOUR_API_KEY"
+    ],
+    "credentials": [
+      "YOUR_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

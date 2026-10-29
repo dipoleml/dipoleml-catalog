@@ -1,0 +1,19 @@
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4xl) var(--space-xl);
+  color: var(--text-muted);
+}
+
+.icon {
+  font-size: 32px;
+  margin-bottom: var(--space-lg);
+  opacity: 0.3;
+}
+
+.text {
+  font-size: var(--font-size-base);
+  color: var(--text-label);
+}

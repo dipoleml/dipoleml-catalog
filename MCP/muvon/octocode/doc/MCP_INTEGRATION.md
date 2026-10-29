@@ -1,0 +1,585 @@
+# MCP Server Integration Guide
+
+Complete guide for integrating Octocode with AI assistants using the Model Context Protocol (MCP).
+
+## Overview
+
+Octocode provides a built-in MCP server that enables AI assistants to interact with your codebase through semantic search, code signatures, GraphRAG, and structural pattern matching. The server supports both stdin/stdout mode (for direct AI assistant integration) and HTTP mode (for web-based integrations).
+
+**📖 For client-specific setup instructions, see [MCP Client Setup Guide](MCP_CLIENTS.md).**
+
+## Quick Start
+
+### Basic MCP Server
+
+```bash
+# Start MCP server for current project
+octocode mcp --path .
+
+# Start for specific project
+octocode mcp --path /path/to/your/project
+
+# Start with debug logging
+octocode mcp --path . --debug
+```
+
+### HTTP Mode
+
+```bash
+# Start HTTP server on specific port
+octocode mcp --bind "127.0.0.1:8080" --path .
+
+# Bind to all interfaces
+octocode mcp --bind "0.0.0.0:8080" --path /path/to/project
+```
+
+## Claude Desktop Integration
+
+### Configuration
+
+Add to your Claude Desktop configuration file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows**: `%APPDATA%\\Claude\\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "octocode": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/your/project"]
+    }
+  }
+}
+```
+
+### Multiple Projects
+
+```json
+{
+  "mcpServers": {
+    "octocode-rust": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/rust/project"]
+    },
+    "octocode-python": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/python/project"]
+    },
+    "octocode-typescript": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/ts/project"]
+    }
+  }
+}
+```
+
+### With LSP Integration
+
+```json
+{
+  "mcpServers": {
+    "octocode-rust": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/rust/project", "--with-lsp", "rust-analyzer"]
+    },
+    "octocode-python": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/python/project", "--with-lsp", "pylsp"]
+    },
+    "octocode-typescript": {
+      "command": "octocode",
+      "args": ["mcp", "--path", "/path/to/ts/project", "--with-lsp", "typescript-language-server --stdio"]
+    }
+  }
+}
+```
+
+## Available MCP Tools
+
+Octocode provides 4 core tools for code intelligence:
+
+### semantic_search
+
+Semantic search across your codebase with multi-query support.
+
+**Parameters:**
+- `query` (string or array) - Search query or multiple queries
+- `mode` (string, optional) - Search scope: "all", "code", "docs", "text", "commits"
+- `detail_level` (string, optional) - Detail level: "signatures", "partial", "full"
+- `language` (string, optional) - Filter code results by language (rust, python, typescript, go, etc.)
+- `max_results` (integer, optional) - Maximum results to return (1-20, default: 3)
+- `threshold` (number, optional) - Similarity threshold (0.0-1.0)
+
+**Single Query Example:**
+```json
+{
+  "query": "authentication functions",
+  "mode": "code",
+  "detail_level": "partial",
+  "max_results": 5
+}
+```
+
+**Multi-Query Example:**
+```json
+{
+  "query": ["authentication", "middleware", "security"],
+  "mode": "all",
+  "detail_level": "full",
+  "max_results": 10
+}
+```
+
+### view_signatures
+
+Extract and view function signatures, class definitions, and other meaningful code structures from files.
+
+**Parameters:**
+- `files` (array) - Array of file paths or glob patterns to analyze (1-100 entries; a bare string is accepted too)
+
+**Examples:**
+
+**View signatures for specific files:**
+```json
+{
+  "files": ["src/main.rs", "src/lib.rs"]
+}
+```
+
+**View signatures using glob patterns:**
+```json
+{
+  "files": ["src/**/*.rs", "tests/**/*.rs"]
+}
+```
+
+**Multi-language analysis:**
+```json
+{
+  "files": ["**/*.{rs,py,js,ts,css,svelte,md}"]
+}
+```
+
+### graphrag
+
+Relationship-aware graph operations over current source. The base graph is built lazily with Tree-sitter and works when `[graphrag].enabled = false`; it needs no code index, embeddings, or LLM. Unchanged repositories reuse an in-memory graph, while repository metadata changes are detected on the next request. With in-process MCP indexing enabled, watcher events also invalidate the graph cache.
+
+The live graph contains file and symbol nodes connected by deterministic `contains`, `imports`, `calls`, `extends`, and `implements` edges. Enabling persisted GraphRAG overlays semantic file matches, descriptions, and additional file-level relationships. It does not embed or LLM-enrich symbol nodes.
+
+For agent use, `search` selects likely file or symbol nodes; it does not automatically traverse their edges. Follow it with `get-relationships`, then use `get-node` or `find-path` when deeper navigation is needed. Use `structural_search` separately for AST-pattern matching and `semantic_search` for meaning-based code retrieval.
+
+**Parameters:**
+- `operation` (string, required) - Operation to perform: "search", "get-node", "get-relationships", "find-path", "overview"
+- `query` (string, optional) - Search query for 'search'; deterministic name/path lookup is always available, with semantic file lookup added when persisted GraphRAG is enabled
+- `node_id` (string, optional) - Node identifier for 'get-node' and 'get-relationships': `path/to/file`, `path/to/file::symbol`, or `path/to/file::Owner::method`
+- `source_id` (string, optional) - Source node identifier for 'find-path' operation
+- `target_id` (string, optional) - Target node identifier for 'find-path' operation
+- `max_depth` (integer, optional) - Maximum path depth for 'find-path' operation (default: 3)
+- `format` (string, optional) - Output format: "text", "json", "markdown" (default: "text")
+
+**Operation Examples:**
+
+**Search for file or symbol nodes:**
+```json
+{
+  "operation": "search",
+  "query": "AuthService authenticate"
+}
+```
+
+**Get detailed node information:**
+```json
+{
+  "operation": "get-node",
+  "node_id": "src/auth/mod.rs",
+  "format": "markdown"
+}
+```
+
+**Find all relationships for a node:**
+```json
+{
+  "operation": "get-relationships",
+  "node_id": "src/auth/service.rs::AuthService::authenticate",
+  "format": "text"
+}
+```
+
+**Find connection paths between nodes:**
+```json
+{
+  "operation": "find-path",
+  "source_id": "src/auth/mod.rs",
+  "target_id": "src/database/mod.rs",
+  "max_depth": 3,
+  "format": "markdown"
+}
+```
+
+**Get graph overview and statistics:**
+```json
+{
+  "operation": "overview",
+  "format": "json"
+}
+```
+
+### structural_search
+
+Search or rewrite code by AST structure using ast-grep pattern syntax. Complements `semantic_search`: use this for structural/syntactic patterns, `semantic_search` for meaning-based queries.
+
+Source lines render as `N:hh|content`: N is the 1-based line number and hh a hash of the whole original line, indentation included. The IDs match OctoFS `view` line ids, so OctoFS edit tools can target them without another read; the `N:hh|` prefix is not code and must be stripped when quoting code or using a plain-text edit tool. An exact-name `symbol` query returns the complete definition when it is up to 32 lines; longer definitions, wildcard symbols, `pattern` and `references` show a bounded preview (first 4 lines, an omitted-lines marker, last line). Read omitted lines with a file reader instead of re-running the search. `context` surrounds the whole matched range. Each page has a 16 KiB source budget; the footer gives the next `offset`.
+
+**Parameters:**
+- `pattern` (string) - AST pattern to search for (e.g. `$FUNC.unwrap()`, `if let Some($X) = $Y { $$$ }`)
+- `symbol` (string) - Find symbol DEFINITIONS by name, `*` wildcards supported (e.g. `handle_*`)
+- `references` (string) - Find symbol USAGES by name, `*` wildcards supported
+- `language` (string, required) - Language to search: rust, javascript, typescript, python, go, java, cpp, php, ruby, swift, lua, bash, css, json, elixir
+- `paths` (array or string, optional) - File path substrings or globs to narrow results (e.g. `src/mcp`, `src/**/*.rs`)
+- `inside` (string, optional) - Only keep matches inside a node matching this kind or pattern (e.g. `function_item`)
+- `has` (string, optional) - Only keep matches containing a node matching this kind or pattern (e.g. `$X.unwrap()`)
+- `constraints` (object, optional) - Regex constraints on captured metavariables, e.g. `{"NAME": "^handle_"}`
+- `context` (integer, optional) - Number of source lines before the match start and after the match end (default: 0)
+- `max_results` (integer, optional) - Maximum number of matches to return (default: 50)
+- `offset` (integer, optional) - Pagination offset into the full result set (default: 0)
+- `rewrite` (string, optional) - Rewrite template with metavariable substitution (e.g. `$VAR.expect("reason")`)
+- `update_all` (boolean, optional) - When true, apply rewrites to files in-place. When false/absent, returns a diff preview
+
+Provide **exactly one** of `pattern`, `symbol`, or `references` — supplying two is rejected.
+
+**Search Examples:**
+
+**Find all unwrap() calls in Rust:**
+```json
+{
+  "pattern": "$VAR.unwrap()",
+  "language": "rust"
+}
+```
+
+**Find new expressions in JavaScript with path filter:**
+```json
+{
+  "pattern": "new $CLASS($$$ARGS)",
+  "language": "javascript",
+  "paths": ["src/"],
+  "context": 2
+}
+```
+
+**Rewrite Examples:**
+
+**Preview rewrite (dry run):**
+```json
+{
+  "pattern": "$VAR.unwrap()",
+  "language": "rust",
+  "rewrite": "$VAR.expect(\"added context\")"
+}
+```
+
+**Apply rewrite in-place:**
+```json
+{
+  "pattern": "console.log($ARG)",
+  "language": "javascript",
+  "rewrite": "logger.info($ARG)",
+  "update_all": true,
+  "paths": ["src/"]
+}
+```
+
+## Multi-Repository Mode
+
+To serve several repositories from one MCP endpoint, run `mcp` with `--multi`.
+It scans the immediate subdirectories of `--path` for git repositories and
+exposes the regular tool set, with every tool gaining a required `project`
+argument (injected into the schema and description) that selects the target
+repository by its subdirectory name. This works over stdio and HTTP and
+replaces the former `mcp-proxy` command.
+
+```bash
+# Multi-repo over stdio
+octocode mcp --multi --path /path/to/parent/directory
+
+# Multi-repo over HTTP
+octocode mcp --multi --bind "127.0.0.1:8080" --path /workspace
+```
+
+`--auto` selects the mode from the target directory instead: single-repo when
+`--path` is itself a git repo root, multi-repo when it is not but git
+repositories exist one level under it.
+
+**Features:**
+- Discovers git repositories one level under the specified directory
+- Each repository gets its own store and background watcher/indexing threads,
+  built lazily on first use and reaped when idle
+- Maps to the same per-project storage the single-repo `mcp` command uses
+- A single endpoint (stdio or HTTP); pick the repo per call via `project`
+
+**Configuration (stdio):**
+```json
+{
+  "mcpServers": {
+    "octocode-multi": {
+      "command": "octocode",
+      "args": ["mcp", "--multi", "--path", "/workspace"]
+    }
+  }
+}
+```
+
+## Session Routing
+
+Some clients share one connection between several sessions working in
+different directories (octomind does: its daemon, ACP and WebSocket modes run
+many sessions per process). Such a client names the calling session's
+directory on every request in `capabilities.experimental.session.workdir`, and
+octocode serves each request for that directory, in either mode:
+
+- The served directory (`--path`), and in single-repo mode its subdirectories,
+  reach the started server unchanged.
+- Any other directory is served the way `--auto` would serve it: a git
+  repository root as one repository, a directory with repositories one level
+  under it with the `project` argument, anything else as a plain directory.
+  These handlers come from the same lazily-built, idle-reaped pool as
+  multi-repo mode, with the same per-project storage and the same
+  `index.mcp_index` / git rules. LSP tools stay with the started server.
+- `tools/list` for a session is marked `cacheScope: private` (2026-07-28), so
+  the client keeps one list per session.
+
+Clients that send no session context (Claude Code and most hosts) see no
+change.
+
+## Usage Examples
+
+### Code Exploration
+
+**Ask your AI:**
+> "Can you search for authentication-related code in my project?"
+
+**AI uses:**
+```json
+{
+  "tool": "semantic_search",
+  "arguments": {
+    "query": ["authentication", "auth", "login"],
+    "mode": "code",
+    "max_results": 10
+  }
+}
+```
+
+### Architecture Understanding
+
+**Ask your AI:**
+> "How are the database components connected in this system?"
+
+**AI uses:**
+```json
+{
+  "tool": "graphrag",
+  "arguments": {
+    "operation": "search",
+    "query": "database component relationships and data flow patterns"
+  }
+}
+```
+
+### Code Pattern Search
+
+**Ask your AI:**
+> "Find all places where we use .unwrap() in the codebase"
+
+**AI uses:**
+```json
+{
+  "tool": "structural_search",
+  "arguments": {
+    "pattern": "$VAR.unwrap()",
+    "language": "rust",
+    "max_results": 50
+  }
+}
+```
+
+### File Structure Analysis
+
+**Ask your AI:**
+> "Show me the structure of the authentication module"
+
+**AI uses:**
+```json
+{
+  "tool": "view_signatures",
+  "arguments": {
+    "files": ["src/auth/**/*.rs"]
+  }
+}
+```
+
+### Custom Settings
+
+```bash
+# Start with debug logging
+octocode mcp \
+  --path /path/to/project \
+  --debug
+
+# HTTP mode with custom binding
+octocode mcp \
+  --bind "0.0.0.0:8080" \
+  --path /path/to/project \
+  --debug
+```
+
+### Multiple Projects
+
+For projects with multiple codebases, start separate MCP servers:
+
+```bash
+# Terminal 1: Work project
+octocode mcp --path /work/project --bind "127.0.0.1:8081"
+
+# Terminal 2: Personal project
+octocode mcp --path /personal/project --bind "127.0.0.1:8082"
+```
+
+### Environment-Specific Configuration
+
+```bash
+# Development environment
+octocode mcp --path . --debug
+
+# Production environment
+octocode mcp --path /app --bind "127.0.0.1:8080"
+```
+
+## Integration with Other AI Assistants
+
+### Generic MCP Client
+
+Any MCP-compatible client can connect to Octocode:
+
+```python
+# Python example using MCP client library
+import mcp
+
+client = mcp.Client("octocode", ["mcp", "--path", "/path/to/project"])
+
+# Use semantic search
+result = await client.call_tool("semantic_search", {
+    "query": "authentication functions",
+    "mode": "code"
+})
+```
+
+### HTTP API Integration
+
+When using HTTP mode, you can integrate with web applications:
+
+```javascript
+// JavaScript example
+const response = await fetch('http://localhost:8080', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: {
+      name: "semantic_search",
+      arguments: {
+        query: ["authentication", "middleware"],
+        mode: "code",
+        max_results: 5
+      }
+    }
+  })
+});
+
+const results = await response.json();
+```
+
+## Performance Optimization
+
+### For Large Codebases
+
+```bash
+# Optimize for large projects
+octocode mcp \
+  --path /large/project \
+  --debug
+```
+
+### Memory Management
+
+Octocode automatically manages memory for large codebases:
+- Efficient vector storage with LanceDB
+- Smart caching of frequently accessed data
+- Incremental updates for changed files
+
+## Troubleshooting
+
+### Common Issues
+
+**MCP server not appearing in client:**
+- Ensure Octocode is in your PATH: `which octocode`
+- Use absolute paths in MCP config
+- Restart your MCP client after config changes
+
+**Tools returning errors:**
+- Ensure your project is indexed: `octocode index`
+- Check API keys are set: `echo $VOYAGE_API_KEY`
+- Verify the project path in MCP config matches your indexed project
+
+**Permission errors:**
+- Check file permissions: `ls -la $(which octocode)`
+- Use absolute path in config: `"command": "/usr/local/bin/octocode"`
+
+### Debug Mode
+
+Enable debug logging to troubleshoot issues:
+
+```bash
+octocode mcp --path /your/project --debug
+```
+
+This logs all MCP requests and responses to help diagnose problems.
+
+### MCP Server Not Starting
+
+1. **Check path exists**: Ensure the project path is valid
+2. **Check permissions**: Ensure read access to the project directory
+3. **Check port availability**: Ensure the port isn't already in use
+4. **Check LSP server**: Ensure language server is installed and in PATH
+
+### AI Assistant Not Connecting
+
+1. **Check configuration**: Verify Claude Desktop config syntax
+2. **Check paths**: Ensure absolute paths in configuration
+3. **Restart assistant**: Restart Claude Desktop after config changes
+4. **Check logs**: Use `--debug` flag to see detailed logs
+
+### LSP Integration Issues
+
+1. **Check LSP server**: Verify language server works independently
+2. **Check project setup**: Ensure project files are valid
+3. **Check symbol resolution**: Try broader symbol names
+4. **Check file paths**: Ensure files exist and are accessible
+
+### Performance Issues
+
+1. **Limit search results**: Use smaller `max_results` values
+2. **Increase thresholds**: Use higher similarity thresholds
+3. **Optimize indexing**: Use faster embedding models
+4. **Monitor resources**: Check CPU and memory usage
+
+## Next Steps
+
+- **[MCP Client Setup Guide](MCP_CLIENTS.md)** — Detailed setup for 15+ clients
+- **[Commands Reference](COMMANDS.md)** — Learn all Octocode CLI commands
+- **[Configuration](CONFIGURATION.md)** — Customize indexing and search behavior
+- **[Advanced Usage](ADVANCED_USAGE.md)** — Advanced configuration and optimization
+- **[LSP Integration Guide](LSP_INTEGRATION.md)** — Language server integration

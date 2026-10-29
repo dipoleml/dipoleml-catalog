@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.shinpr.mcp-local-rag",
+  "type": "mcp",
+  "name": "MCP Local Rag",
+  "slug": "mcp-local-rag",
+  "vendor": "shinpr",
+  "description": "Local-first RAG server for developers. Semantic + keyword search for code and technical docs. Works with MCP or CLI. Fully private, zero setup.",
+  "version": "0.23.1",
+  "homepage": "https://github.com/shinpr/mcp-local-rag",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-skills",
+    "cli-tool",
+    "developer-tools",
+    "hybrid-search",
+    "local-first",
+    "local-rag",
+    "model-context-protocol",
+    "privacy-first"
+  ],
+  "tags": [
+    "agent-skills",
+    "cli-tool",
+    "developer-tools",
+    "hybrid-search",
+    "local-first",
+    "local-rag",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "privacy-first",
+    "rag",
+    "semantic-search",
+    "vector-search"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "shinpr",
+    "brandName": "shinpr",
+    "source": "https://github.com/shinpr.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "shinpr/mcp-local-rag",
+    "url": "https://github.com/shinpr/mcp-local-rag",
+    "commit": "d4f5bdd6253aa65646b8c6363e0f1f59a7812b74",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 425,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-local-rag"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node ^22.23.4 || ^24.22.1 || >=26.12.1"
+    ],
+    "packages": [
+      "mcp-local-rag"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

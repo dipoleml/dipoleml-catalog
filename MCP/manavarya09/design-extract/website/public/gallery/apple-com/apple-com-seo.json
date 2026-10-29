@@ -1,0 +1,44 @@
+{
+  "openGraph": {
+    "image": "https://www.apple.com/ac/structured-data/images/open_graph_logo.png?202604211141",
+    "title": "Apple",
+    "description": "Discover the innovative world of Apple and shop everything iPhone, iPad, Apple Watch, Mac, and Apple TV, plus explore accessories, entertainment, and expert device support.",
+    "url": "https://www.apple.com/",
+    "locale": "en_US",
+    "site_name": "Apple",
+    "type": "website"
+  },
+  "twitter": {},
+  "description": "Discover the innovative world of Apple and shop everything iPhone, iPad, Apple Watch, Mac, and Apple TV, plus explore accessories, entertainment, and expert device support.",
+  "canonical": null,
+  "themeColor": null,
+  "viewport": "width=device-width, initial-scale=1, viewport-fit=cover",
+  "favicons": [],
+  "manifest": null,
+  "structuredData": [
+    {
+      "type": "Organization",
+      "name": "Apple",
+      "sample": "{\"@context\":\"http://schema.org\",\"@id\":\"https://www.apple.com/#organization\",\"@type\":\"Organization\",\"name\":\"Apple\",\"url\":\"https://www.apple.com/\",\"logo\":\"https://www.apple.com/ac/structured-data/images/knowledge_graph_logo.png?202604211141\",\"subOrganization\":{\"@type\":\"Organization\",\"name\":\"Apple Support\",\"url\":\"https://support.apple.com\",\"@id\":\"https://support.apple.com/#organization\"},\"contactPoin"
+    },
+    {
+      "type": "WebSite",
+      "name": "Apple",
+      "sample": "{\"@context\":\"http://schema.org\",\"@id\":\"https://www.apple.com/#website\",\"@type\":\"WebSite\",\"url\":\"https://www.apple.com/\",\"name\":\"Apple\",\"potentialAction\":{\"@type\":\"SearchAction\",\"target\":\"https://www.apple.com/us/search/{search_term_string}?src=mc_google\",\"query-input\":\"required name=search_term_string\"}}"
+    },
+    {
+      "type": "WebPage",
+      "name": "Apple",
+      "sample": "{\"@context\":\"http://schema.org\",\"@id\":\"https://www.apple.com/#webpage\",\"@type\":\"WebPage\",\"url\":\"https://www.apple.com/\",\"name\":\"Apple\"}"
+    }
+  ],
+  "score": {
+    "hasOg": true,
+    "hasTwitter": false,
+    "hasDescription": true,
+    "hasCanonical": false,
+    "hasStructuredData": true,
+    "hasFavicon": false,
+    "hasThemeColor": false
+  }
+}

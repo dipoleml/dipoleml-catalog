@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.erickwendel.erickwendel-contributions-mcp",
+  "type": "mcp",
+  "name": "Erickwendel Contributions MCP",
+  "slug": "erickwendel-contributions-mcp",
+  "vendor": "erickwendel",
+  "description": "A Model Context Protocol (MCP) server that provides tools to query Erick Wendel's contributions across different platforms",
+  "version": "1.1.4",
+  "homepage": "https://github.com/ErickWendel/erickwendel-contributions-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "graphql",
+    "large-language-models",
+    "model-context-protocol",
+    "model-context-protocol-servers",
+    "vibe-coding"
+  ],
+  "tags": [
+    "graphql",
+    "large-language-models",
+    "llm",
+    "model-context-protocol",
+    "model-context-protocol-servers",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "erickwendel",
+    "brandName": "erickwendel",
+    "source": "https://github.com/ErickWendel.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:57Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ErickWendel/erickwendel-contributions-mcp",
+    "url": "https://github.com/ErickWendel/erickwendel-contributions-mcp",
+    "commit": "3716a45de655dfc8a034e71dc4c4104ea14d4824",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 383,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@erickwendel/contributions-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "@erickwendel/contributions-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

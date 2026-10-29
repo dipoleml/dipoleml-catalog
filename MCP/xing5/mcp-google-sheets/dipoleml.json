@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.xing5.mcp-google-sheets",
+  "type": "mcp",
+  "name": "MCP Google Sheets",
+  "slug": "mcp-google-sheets",
+  "vendor": "xing5",
+  "description": "This MCP server integrates with your Google Drive and Google Sheets, to enable creating and modifying spreadsheets.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/xing5/mcp-google-sheets",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "google",
+    "spreadsheet"
+  ],
+  "tags": [
+    "google",
+    "mcp",
+    "mcp-server",
+    "spreadsheet"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:47Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "xing5/mcp-google-sheets",
+    "url": "https://github.com/xing5/mcp-google-sheets",
+    "commit": "b2f98244590f1d0982505f4faa908731278ea998",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1016,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-google-sheets"
+    ],
+    "env": [
+      "TOKEN_PATH"
+    ],
+    "credentials": [
+      "TOKEN_PATH"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

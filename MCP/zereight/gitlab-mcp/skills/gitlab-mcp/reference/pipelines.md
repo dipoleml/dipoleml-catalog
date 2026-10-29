@@ -1,0 +1,119 @@
+# Pipeline Operations
+
+> **Opt-in toolset**: Enable with GITLAB_TOOLSETS=core,pipelines. If you already set GITLAB_TOOLSETS, append pipelines to your existing list instead of replacing it. USE_PIPELINE=true is deprecated (removed in next major (v3.0.0)); it also exposed `validate_ci_lint` and `validate_project_ci_lint` via GITLAB_TOOLS.
+
+## List & Inspect
+
+```text
+list_pipelines             -> list pipelines with filters (status, ref, source)
+get_pipeline               -> pipeline details (status, duration, coverage)
+get_pipeline_variables     -> variables configured on a pipeline
+get_pipeline_test_report   -> full unit test report
+get_pipeline_test_report_summary -> summarized unit test report
+update_pipeline_metadata   -> rename a pipeline
+delete_pipeline            -> permanently delete a pipeline and related data
+list_pipeline_jobs         -> all jobs in a pipeline
+list_pipeline_trigger_jobs -> trigger/bridge jobs (downstream pipelines)
+get_pipeline_job           -> single job details
+get_pipeline_job_output    -> job log output (paginate from the end with limit/offset, or search with pattern; do not fetch the entire log)
+```
+
+Inspection tools take `project_id` and `pipeline_id`; variables and test reports also accept
+`page` and `per_page`. Reading requires project pipeline access. `update_pipeline_metadata`
+also takes `name` and requires permission to administer pipelines. `delete_pipeline` requires
+the project Owner role and irreversibly deletes the pipeline plus related jobs, logs, artifacts,
+and triggers; child pipelines are not automatically deleted.
+
+## Create & Control
+
+```
+create_pipeline            -> trigger new pipeline for a branch/tag
+  project_id: "my-group/my-project"
+  ref: "main"
+  variables: [{ key: "DEPLOY_ENV", value: "staging" }]
+```
+
+```
+retry_pipeline             -> retry all failed jobs in a pipeline
+cancel_pipeline            -> cancel running pipeline
+play_pipeline_job          -> run a manual job
+play_pipeline_jobs         -> run multiple manual jobs sequentially
+retry_pipeline_job         -> retry a single failed job
+cancel_pipeline_job        -> cancel a single running job
+erase_pipeline_job         -> erase a job log and artifacts
+wait_for_pipeline          -> poll until a pipeline reaches a terminal status
+wait_for_job               -> poll until a job reaches a terminal status
+```
+
+`play_pipeline_job` and `retry_pipeline_job` accept `job_inputs` for typed manual-job inputs.
+
+## Artifacts
+
+```
+list_job_artifacts         -> list files in a job's artifact archive
+get_job_artifact_file      -> get content of a single artifact file
+download_job_artifacts     -> download full artifact archive (zip) under the download directory
+```
+
+## Deployments & Environments
+
+```
+list_deployments           -> list deployments with filters
+get_deployment             -> deployment details, including approval_summary, approvals, and pending_approval_count when GitLab provides them
+create_deployment          -> create a deployment record
+update_deployment          -> update deployment status
+delete_deployment          -> delete a deployment
+list_deployment_merge_requests -> merge requests shipped by a deployment
+approve_deployment         -> approve or reject a protected deployment
+list_environments          -> list project environments
+get_environment            -> environment details
+update_environment         -> update environment settings
+delete_environment         -> delete a stopped environment
+stop_environment           -> stop one environment
+stop_stale_environments    -> stop environments older than a cutoff
+delete_review_app_environments -> clean up stopped review apps
+```
+
+`stop_stale_environments` excludes protected environments and only stops (never deletes).
+`delete_review_app_environments` schedules deletion one week later and defaults to `dry_run: true`.
+
+## Runners
+
+```text
+list_project_runners -> runners available to a project (type, status, paused, tag_list)
+get_runner           -> one runner: tag_list, run_untagged, locked, access_level
+```
+
+`list_project_runners` calls GET /projects/:id/runners. The list payload includes id,
+description, runner_type, status, and paused, and does not include tags. Call `get_runner`
+(GET /runners/:id) when a job is stuck pending because no runner tag matches. When
+GITLAB_ALLOWED_PROJECT_IDS or a session project scope is active, `get_runner` first
+confirms the runner is on an allowed project's runner list, omits projects outside that
+allowlist, and omits groups because a project allowlist cannot verify them. Both tools drop runner registration tokens and runner
+authentication tokens from the result.
+
+## Pipeline Triggers
+
+```
+list/get/create/update/delete_pipeline_trigger -> manage project trigger tokens
+trigger_pipeline             -> run a pipeline with a trigger token
+```
+
+## Common Patterns
+
+### Check why a pipeline failed
+
+1. `list_pipelines` with `status: "failed"` -> get pipeline ID
+2. `list_pipeline_jobs` -> find failed job(s)
+3. `get_pipeline_job_output` -> read error logs
+
+### Retry failed pipeline
+
+1. `retry_pipeline` -> retries all failed jobs
+   OR
+2. `retry_pipeline_job` -> retry specific job only
+
+### Download test results
+
+1. `list_job_artifacts` -> find the test report file path
+2. `get_job_artifact_file` -> read the report content

@@ -1,0 +1,451 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// GraphRAG utility functions
+
+use crate::indexer::graphrag::types::CodeNode;
+use crate::utils::path::PathNormalizer;
+use anyhow::Result;
+use std::path::{Path, PathBuf};
+
+// Calculate cosine similarity between two vectors
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+	if a.len() != b.len() {
+		return 0.0;
+	}
+
+	let mut dot_product = 0.0;
+	let mut a_norm = 0.0;
+	let mut b_norm = 0.0;
+
+	for i in 0..a.len() {
+		dot_product += a[i] * b[i];
+		a_norm += a[i] * a[i];
+		b_norm += b[i] * b[i];
+	}
+
+	a_norm = a_norm.sqrt();
+	b_norm = b_norm.sqrt();
+
+	if a_norm == 0.0 || b_norm == 0.0 {
+		return 0.0;
+	}
+
+	dot_product / (a_norm * b_norm)
+}
+
+// Detect project root by looking for common indicators starting from a given directory
+pub fn detect_project_root_from(start_dir: &Path) -> Result<PathBuf> {
+	let mut dir = start_dir;
+
+	let indicators = [
+		"Cargo.toml",
+		"package.json",
+		".git",
+		"pyproject.toml",
+		"go.mod",
+		"pom.xml",
+		"build.gradle",
+		"composer.json",
+	];
+
+	loop {
+		for indicator in &indicators {
+			if dir.join(indicator).exists() {
+				return Ok(dir.to_path_buf());
+			}
+		}
+
+		match dir.parent() {
+			Some(parent) => dir = parent,
+			None => break,
+		}
+	}
+
+	Ok(start_dir.to_path_buf())
+}
+
+// Detect project root by looking for common indicators from current_dir
+pub fn detect_project_root() -> Result<PathBuf> {
+	let current_dir = std::env::current_dir()?;
+	detect_project_root_from(&current_dir)
+}
+
+// Convert absolute path to relative path from project root
+pub fn to_relative_path(absolute_path: &str, project_root: &Path) -> Result<String> {
+	let abs_path = PathBuf::from(absolute_path);
+
+	// Canonicalize both paths to handle symlinks and case sensitivity issues
+	let canonical_abs = abs_path.canonicalize().unwrap_or_else(|_| {
+		// If canonicalization fails, try to make it absolute relative to project root
+		if abs_path.is_relative() {
+			project_root.join(&abs_path)
+		} else {
+			abs_path.clone()
+		}
+	});
+
+	let canonical_root = project_root
+		.canonicalize()
+		.unwrap_or_else(|_| project_root.to_path_buf());
+
+	// `canonicalize` resolves only a path that exists, so a file deleted since it
+	// was indexed keeps its raw form while the root still resolves. Where the
+	// root reaches the filesystem through a symlink the two then sit in
+	// different namespaces — on macOS a temp dir is `/var/folders/...` raw but
+	// `/private/var/folders/...` resolved — and they never share a prefix even
+	// though the path is plainly inside the project. Retry against the unresolved
+	// root before declaring the path outside it.
+	if let Ok(relative) = canonical_abs.strip_prefix(&canonical_root) {
+		return Ok(PathNormalizer::normalize_separators(&relative.to_string_lossy()));
+	}
+
+	let relative = canonical_abs.strip_prefix(project_root).map_err(|_| {
+		anyhow::anyhow!(
+			"Path {} (canonical: {}) is not within project root {} (canonical: {})",
+			absolute_path,
+			canonical_abs.display(),
+			project_root.display(),
+			canonical_root.display()
+		)
+	})?;
+
+	Ok(PathNormalizer::normalize_separators(&relative.to_string_lossy()))
+}
+
+// Render GraphRAG nodes to JSON format
+pub fn render_graphrag_nodes_json(nodes: &[CodeNode]) -> Result<(), anyhow::Error> {
+	let json = serde_json::to_string_pretty(nodes)?;
+	println!("{}", json);
+	Ok(())
+}
+
+// Render GraphRAG nodes to text format (token-efficient, for MCP and CLI)
+pub fn graphrag_nodes_to_text(nodes: &[CodeNode]) -> String {
+	if nodes.is_empty() {
+		return "No matching nodes found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("GRAPHRAG NODES ({} found)\n\n", nodes.len()));
+
+	// Group nodes by file path for better organization
+	let mut nodes_by_file: std::collections::HashMap<String, Vec<&CodeNode>> = std::collections::HashMap::new();
+
+	for node in nodes {
+		nodes_by_file.entry(node.path.clone()).or_default().push(node);
+	}
+
+	// Print results organized by file
+	for (file_path, file_nodes) in nodes_by_file.iter() {
+		output.push_str(&format!("FILE: {}\n", file_path));
+
+		for node in file_nodes {
+			output.push_str(&format!("  {} {}\n", node.kind, node.name));
+			output.push_str(&format!("  ID: {}\n", node.id));
+			output.push_str(&format!("  Description: {}\n", node.description));
+
+			if !node.symbols.is_empty() {
+				output.push_str("  Symbols:\n");
+				// Display symbols
+				let mut display_symbols = node.symbols.clone();
+				display_symbols.sort();
+				display_symbols.dedup();
+
+				for symbol in display_symbols {
+					// Only show non-type symbols to users
+					if !symbol.contains("_") {
+						output.push_str(&format!("    - {}\n", symbol));
+					}
+				}
+			}
+			output.push('\n');
+		}
+		output.push('\n');
+	}
+
+	output
+}
+
+// Render GraphRAG nodes to Markdown format
+pub fn graphrag_nodes_to_markdown(nodes: &[CodeNode]) -> String {
+	let mut markdown = String::new();
+
+	if nodes.is_empty() {
+		markdown.push_str("No matching nodes found.");
+		return markdown;
+	}
+
+	markdown.push_str(&format!("# Found {} GraphRAG nodes\n\n", nodes.len()));
+
+	// Group nodes by file path for better organization
+	let mut nodes_by_file: std::collections::HashMap<String, Vec<&CodeNode>> = std::collections::HashMap::new();
+
+	for node in nodes {
+		nodes_by_file.entry(node.path.clone()).or_default().push(node);
+	}
+
+	// Print results organized by file
+	for (file_path, file_nodes) in nodes_by_file.iter() {
+		markdown.push_str(&format!("## File: {}\n\n", file_path));
+
+		for node in file_nodes {
+			markdown.push_str(&format!("### {} `{}`\n", node.kind, node.name));
+			markdown.push_str(&format!("**ID:** {}  \n", node.id));
+			markdown.push_str(&format!("**Description:** {}  \n", node.description));
+
+			if !node.symbols.is_empty() {
+				markdown.push_str("**Symbols:**  \n");
+				// Display symbols
+				let mut display_symbols = node.symbols.clone();
+				display_symbols.sort();
+				display_symbols.dedup();
+
+				for symbol in display_symbols {
+					// Only show non-type symbols to users
+					if !symbol.contains("_") {
+						markdown.push_str(&format!("- `{}`  \n", symbol));
+					}
+				}
+			}
+
+			markdown.push('\n');
+		}
+
+		markdown.push_str("---\n\n");
+	}
+
+	markdown
+}
+
+/// Normalize a node ID for consistent lookup.
+/// Strips leading `./`, normalizes separators to `/`, removes trailing `/`.
+pub fn normalize_node_id(input: &str) -> String {
+	use crate::utils::path::PathNormalizer;
+
+	let mut normalized = PathNormalizer::normalize_separators(input);
+
+	// Strip leading "./"
+	while normalized.starts_with("./") {
+		normalized = normalized[2..].to_string();
+	}
+
+	// Remove trailing "/"
+	while normalized.ends_with('/') {
+		normalized.pop();
+	}
+
+	normalized
+}
+
+/// Find a node in the graph with fuzzy matching.
+/// Tries: exact match → normalized match → file suffix → unique owner-qualified
+/// symbol suffix → unique bare symbol name.
+/// Returns the actual node ID stored in the graph.
+pub fn find_node_id<'a>(graph: &'a super::types::CodeGraph, input: &str) -> Option<&'a str> {
+	// 1. Exact match
+	if graph.nodes.contains_key(input) {
+		return graph.nodes.get_key_value(input).map(|(k, _)| k.as_str());
+	}
+
+	// 2. Normalized match
+	let normalized = normalize_node_id(input);
+	if graph.nodes.contains_key(&normalized) {
+		return graph.nodes.get_key_value(&normalized).map(|(k, _)| k.as_str());
+	}
+
+	// 3. Suffix match — user provides "searchd.cpp", stored as "src/searchd.cpp"
+	let normalized_lower = normalized.to_lowercase();
+	let mut best_match: Option<&str> = None;
+	let mut best_len = usize::MAX;
+
+	for key in graph.nodes.keys() {
+		let key_lower = key.to_lowercase();
+		if key_lower == normalized_lower {
+			return Some(key.as_str()); // Case-insensitive exact match
+		}
+		if key_lower.ends_with(&format!("/{}", normalized_lower)) {
+			// Prefer shortest matching path (most specific)
+			if key.len() < best_len {
+				best_match = Some(key.as_str());
+				best_len = key.len();
+			}
+		}
+	}
+
+	if best_match.is_some() {
+		return best_match;
+	}
+
+	// 4. Owner-qualified symbol suffix (`Service::run`). Resolve only when
+	// unique across files, just like a bare symbol name.
+	if normalized.contains("::") {
+		let suffix = format!("::{}", normalized_lower);
+		let mut owned_match = None;
+		for key in graph.nodes.keys() {
+			if key.to_lowercase().ends_with(&suffix) {
+				if owned_match.is_some() {
+					return None;
+				}
+				owned_match = Some(key.as_str());
+			}
+		}
+		if owned_match.is_some() {
+			return owned_match;
+		}
+	}
+
+	// 5. Bare symbol name. Resolve only when unique so overloaded/common names
+	// never silently select an arbitrary graph node.
+	let mut symbol_match = None;
+	for (key, node) in &graph.nodes {
+		if node.is_symbol_node() && node.name.eq_ignore_ascii_case(&normalized) {
+			if symbol_match.is_some() {
+				return None;
+			}
+			symbol_match = Some(key.as_str());
+		}
+	}
+
+	symbol_match
+}
+
+// Check if two symbols match (accounting for common patterns)
+pub fn symbols_match(import: &str, export: &str) -> bool {
+	// Direct match
+	if import == export {
+		return true;
+	}
+
+	// Clean symbol names (remove prefixes/suffixes)
+	let clean_import = import
+		.trim_start_matches("import_")
+		.trim_start_matches("use_")
+		.trim_start_matches("from_");
+	let clean_export = export
+		.trim_start_matches("export_")
+		.trim_start_matches("pub_")
+		.trim_start_matches("public_");
+
+	clean_import == clean_export
+}
+
+// Check if paths have parent-child relationship
+// Check if paths have parent-child relationship
+pub fn is_parent_child_relationship(path1: &str, path2: &str) -> bool {
+	use crate::utils::path::PathNormalizer;
+
+	// Normalize path separators to forward slashes for consistent comparison
+	let normalized_path1 = PathNormalizer::normalize_separators(path1);
+	let normalized_path2 = PathNormalizer::normalize_separators(path2);
+
+	let path1_parts: Vec<&str> = normalized_path1.split('/').collect();
+	let path2_parts: Vec<&str> = normalized_path2.split('/').collect();
+
+	// One should be exactly one level deeper than the other
+	if path1_parts.len().abs_diff(path2_parts.len()) == 1 {
+		let (shorter, longer) = if path1_parts.len() < path2_parts.len() {
+			(path1_parts, path2_parts)
+		} else {
+			(path2_parts, path1_parts)
+		};
+
+		// Check if all parts of shorter path match the beginning of longer path
+		shorter.iter().zip(longer.iter()).all(|(a, b)| a == b)
+	} else {
+		false
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn symbol_node(id: &str, name: &str) -> super::super::types::CodeNode {
+		super::super::types::CodeNode {
+			id: id.to_string(),
+			name: name.to_string(),
+			kind: "function".to_string(),
+			path: id.split("::").next().unwrap_or_default().to_string(),
+			description: String::new(),
+			symbols: Vec::new(),
+			hash: String::new(),
+			embedding: Vec::new(),
+			imports: Vec::new(),
+			exports: Vec::new(),
+			functions: Vec::new(),
+			size_lines: 0,
+			language: "rust".to_string(),
+		}
+	}
+
+	#[test]
+	fn resolves_only_unique_bare_symbol_names() {
+		let mut graph = super::super::types::CodeGraph::default();
+		graph.nodes.insert(
+			"src/config.rs::parse_config".to_string(),
+			symbol_node("src/config.rs::parse_config", "parse_config"),
+		);
+		assert_eq!(
+			find_node_id(&graph, "parse_config"),
+			Some("src/config.rs::parse_config")
+		);
+
+		graph.nodes.insert(
+			"tests/config.rs::parse_config".to_string(),
+			symbol_node("tests/config.rs::parse_config", "parse_config"),
+		);
+		assert_eq!(find_node_id(&graph, "parse_config"), None);
+	}
+
+	#[test]
+	fn resolves_unique_owner_qualified_symbol_suffix() {
+		let mut graph = super::super::types::CodeGraph::default();
+		graph.nodes.insert(
+			"src/service.rs::Service::run".to_string(),
+			symbol_node("src/service.rs::Service::run", "run"),
+		);
+		assert_eq!(
+			find_node_id(&graph, "Service::run"),
+			Some("src/service.rs::Service::run")
+		);
+	}
+
+	#[test]
+	fn test_is_parent_child_relationship_cross_platform() {
+		// Test Unix-style paths
+		assert!(is_parent_child_relationship("src", "src/main.rs"));
+		assert!(is_parent_child_relationship("src/main.rs", "src"));
+
+		// Test Windows-style paths
+		assert!(is_parent_child_relationship("src", "src\\main.rs"));
+		assert!(is_parent_child_relationship("src\\main.rs", "src"));
+
+		// Test mixed separators
+		assert!(is_parent_child_relationship("src/utils", "src\\utils\\helper.rs"));
+		assert!(is_parent_child_relationship("src\\utils\\helper.rs", "src/utils"));
+
+		// Test non-parent-child relationships
+		assert!(!is_parent_child_relationship("src/main.rs", "lib/helper.rs"));
+		assert!(!is_parent_child_relationship("src\\main.rs", "lib\\helper.rs"));
+
+		// Test same level (not parent-child)
+		assert!(!is_parent_child_relationship("src/main.rs", "src/lib.rs"));
+		assert!(!is_parent_child_relationship("src\\main.rs", "src\\lib.rs"));
+	}
+}
+
+#[cfg(test)]
+#[path = "utils_tests.rs"]
+mod utils_tests;

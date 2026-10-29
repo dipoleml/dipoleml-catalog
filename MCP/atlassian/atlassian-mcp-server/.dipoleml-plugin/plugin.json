@@ -1,0 +1,16 @@
+{
+  "name": "atlassian-mcp-server",
+  "displayName": "Atlassian MCP Server",
+  "version": "0.0.0",
+  "description": "Connect to Atlassian products including Jira and Confluence. Search and create issues, access documentation, manage sprints, and integrate your development workflow with Atlassian's collaboration tools.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Atlassian"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/atlassian/atlassian-mcp-server",
+  "repository": "https://github.com/atlassian/atlassian-mcp-server",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

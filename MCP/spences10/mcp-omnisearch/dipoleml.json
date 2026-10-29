@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.spences10.mcp-omnisearch",
+  "type": "mcp",
+  "name": "MCP Omnisearch",
+  "slug": "mcp-omnisearch",
+  "vendor": "spences10",
+  "description": "🔍 A Model Context Protocol (MCP) server providing unified access to multiple search engines (Tavily, Brave, Kagi, Exa), AI tools (Kagi FastGPT, Exa, Linkup), and content extraction services (Firecrawl, Tavily, Kagi). Includes GitHub search. All through a single interface.",
+  "version": "0.2.1",
+  "homepage": "https://github.com/spences10/mcp-omnisearch",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "brave",
+    "exa",
+    "firecrawl",
+    "github-search",
+    "kagi",
+    "linkup",
+    "model-context-protocol",
+    "search"
+  ],
+  "tags": [
+    "brave",
+    "exa",
+    "firecrawl",
+    "github-search",
+    "kagi",
+    "linkup",
+    "mcp",
+    "model-context-protocol",
+    "search",
+    "tavily"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:39Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "spences10/mcp-omnisearch",
+    "url": "https://github.com/spences10/mcp-omnisearch",
+    "commit": "736fcc07890d378f330d18d81cf99a9cd96046b0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 359,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:57Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-omnisearch"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "mcp-omnisearch"
+    ],
+    "env": [
+      "TAVILY_API_KEY",
+      "EXA_API_KEY",
+      "KAGI_API_KEY",
+      "BRAVE_API_KEY",
+      "GITHUB_API_KEY",
+      "LINKUP_API_KEY",
+      "FIRECRAWL_API_KEY",
+      "FIRECRAWL_BASE_URL"
+    ],
+    "credentials": [
+      "TAVILY_API_KEY",
+      "EXA_API_KEY",
+      "KAGI_API_KEY",
+      "BRAVE_API_KEY",
+      "GITHUB_API_KEY",
+      "LINKUP_API_KEY",
+      "FIRECRAWL_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

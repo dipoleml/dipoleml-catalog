@@ -1,0 +1,201 @@
+{
+  "library": "unknown",
+  "confidence": 0,
+  "alternates": [],
+  "stats": {
+    "count": 33,
+    "strokeOnly": 0,
+    "fillOnly": 1,
+    "mixed": 0,
+    "avgStrokeWidth": 1,
+    "gridDistribution": {
+      "24": 26
+    },
+    "roundedCapsFraction": 0
+  },
+  "signals": [
+    "grid24"
+  ],
+  "icons": [
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1fru31a",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-7vzs6a",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-12q6f3t",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-12q6f3t",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-12q6f3t",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-12q6f3t",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-12efcmn",
+      "grid": null,
+      "strokeWidth": 1,
+      "style": "fill"
+    },
+    {
+      "class": "",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1eiqq1",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1fyckd0",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1qlgdw4",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-16eh0u2",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "btn-builtin-icon fig-bni7vm",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1kb6yjw",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1kb6yjw",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "fig-1kb6yjw",
+      "grid": 24,
+      "strokeWidth": null,
+      "style": "mixed"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.classfang.ssh-mcp-server",
+  "type": "mcp",
+  "name": "Ssh MCP Server",
+  "slug": "ssh-mcp-server",
+  "vendor": "classfang",
+  "description": "基于 SSH 的 MCP 服务 🧙‍♀️。已被MCP官方收录 🎉。 SSH MCP Server 🧙‍♀️. It has been included in the community MCP repository 🎉.",
+  "version": "1.10.0",
+  "homepage": "https://github.com/classfang/ssh-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "unity",
+    "brandName": "unity",
+    "source": "https://cdn.simpleicons.org/unity",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "classfang/ssh-mcp-server",
+    "url": "https://github.com/classfang/ssh-mcp-server",
+    "commit": "f814a4e7205703cb1b910e48d1de5d5c37b2cc63",
+    "path": "",
+    "license": "ISC",
+    "licenseClass": "green",
+    "stars": 987,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@fangjunjie/ssh-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@fangjunjie/ssh-mcp-server"
+    ],
+    "env": [
+      "SSH_MCP_HTTP_TOKEN"
+    ],
+    "credentials": [
+      "SSH_MCP_HTTP_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:ISC",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

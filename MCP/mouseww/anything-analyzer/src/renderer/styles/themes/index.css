@@ -1,0 +1,11 @@
+/* Theme index — import all theme overrides */
+@import './light.css';
+@import './discord.css';
+@import './github-dark.css';
+@import './catppuccin.css';
+@import './dracula.css';
+@import './nord.css';
+@import './tokyo-night.css';
+@import './gruvbox.css';
+@import './ayu-dark.css';
+@import './one-dark.css';

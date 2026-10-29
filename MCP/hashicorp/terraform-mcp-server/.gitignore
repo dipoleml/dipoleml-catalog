@@ -1,0 +1,9 @@
+cmd/terraform-mcp-server/terraform-mcp-server/terraform-mcp-server
+/terraform-mcp-server
+cmd/mcpcurl/mcpcurl
+*.log
+.vscode/
+dist/
+bin/*
+server.json.backup*
+gemini-extension.json.backup*

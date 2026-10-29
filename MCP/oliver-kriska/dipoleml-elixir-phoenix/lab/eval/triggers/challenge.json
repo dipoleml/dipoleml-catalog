@@ -1,0 +1,17 @@
+{
+  "skill": "challenge",
+  "should_trigger": [
+    "Challenge my LiveView form submission logic",
+    "Grill me on this Ecto changeset",
+    "Scrutinize my async socket assigns before I commit",
+    "Challenge my OTP supervision tree design",
+    "Before I merge, challenge my stream implementation"
+  ],
+  "should_not_trigger": [
+    "Run a full code review on my changes",
+    "Verify my code compiles and tests pass",
+    "Debug why my form isn't saving",
+    "Scan my codebase for technical debt",
+    "Help me respond to this PR comment"
+  ]
+}

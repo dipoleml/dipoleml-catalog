@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.capazme.mcp-legal-it",
+  "type": "mcp",
+  "name": "MCP Legal It",
+  "slug": "mcp-legal-it",
+  "vendor": "capazme",
+  "description": "MCP server + DipoleML plugin for Italian law — 200+ tools: verified statutes, case law search, legal calculations, GDPR compliance",
+  "version": "0.0.0",
+  "homepage": "https://github.com/capazme/mcp-legal-it",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "italian-law",
+    "legal-tech",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "claude",
+    "italian-law",
+    "legal-tech",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "capazme",
+    "brandName": "capazme",
+    "source": "https://github.com/capazme.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "capazme/mcp-legal-it",
+    "url": "https://github.com/capazme/mcp-legal-it",
+    "commit": "d95b73cb8cde024558341e2ddd3197dcf3e3ed75",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 28,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "MCP Legal It | MCP server + Claude plugin for Italian law — 200+ tools: verified statutes, case law search, legal calculations, GDPR compliance",
+        "after": "MCP Legal It | MCP server + DipoleML plugin for Italian law — 200+ tools: verified statutes, case law search, legal calculations, GDPR compliance",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-legal-it"
+    ],
+    "env": [
+      "IMPORTANT",
+      "MCP_TRANSPORT",
+      "MCP_HOST",
+      "MCP_PORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

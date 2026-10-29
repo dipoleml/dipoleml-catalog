@@ -1,0 +1,17 @@
+{
+  "skill": "boundaries",
+  "should_trigger": [
+    "Check if we have circular dependencies between contexts",
+    "Review context boundaries before we split the accounts module",
+    "Show me what's calling across context boundaries",
+    "Is the payments context too tightly coupled to orders?",
+    "Validate our module dependencies for architecture review"
+  ],
+  "should_not_trigger": [
+    "Add authentication checks to the accounts controller",
+    "Create a new payments context with refunds handling",
+    "These queries are slow, optimize the dashboard",
+    "Validate this changeset and add constraints",
+    "Help me refactor this LiveView component"
+  ]
+}

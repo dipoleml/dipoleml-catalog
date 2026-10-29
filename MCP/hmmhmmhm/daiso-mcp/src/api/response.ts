@@ -1,0 +1,100 @@
+/**
+ * API 공통 응답 유틸리티
+ */
+
+import type { Context } from 'hono';
+import { ServiceError, toServiceErrorDiagnostics, toStandardErrorDiagnostics } from '../core/errors.js';
+
+export interface AppBindings {
+  DAISO_JP_PRODUCT_RELAY_ENABLED?: string;
+  DAILY_RATE_LIMITER?: DurableObjectNamespace;
+  UPSTREAM_ROUTE_HEALTH?: DurableObjectNamespace;
+  GEOCODE_GATEWAY?: DurableObjectNamespace;
+  ZYTE_API_KEY?: string;
+  CGV_RELAY_URL?: string;
+  CGV_RELAY_TOKEN?: string;
+  CGV_ACCESS_CLIENT_ID?: string;
+  CGV_ACCESS_CLIENT_SECRET?: string;
+  DTRYX_RELAY_URL?: string;
+  DTRYX_RELAY_TOKEN?: string;
+  DTRYX_ACCESS_CLIENT_ID?: string;
+  DTRYX_ACCESS_CLIENT_SECRET?: string;
+  OY_RELAY_URL?: string;
+  OY_RELAY_TOKEN?: string;
+  OY_ACCESS_CLIENT_ID?: string;
+  OY_ACCESS_CLIENT_SECRET?: string;
+  CONVENIENCE_RELAY_URL?: string;
+  CONVENIENCE_RELAY_TOKEN?: string;
+  CONVENIENCE_ACCESS_CLIENT_ID?: string;
+  CONVENIENCE_ACCESS_CLIENT_SECRET?: string;
+  GS25_API_KEY?: string;
+  GOOGLE_MAPS_API_KEY?: string;
+  KAKAO_REST_API_KEY?: string;
+  NAVER_CLIENT_ID?: string;
+  NAVER_CLIENT_SECRET?: string;
+  OPINET_API_KEY?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
+  HEALTH_CHECK_SECRET?: string;
+  HEALTH_CHECK_BASE_URL?: string;
+  HEALTH_CHECK_TRANSPORT?: string;
+  HEALTH_CHECK_SLOW_THRESHOLD_MS?: string;
+}
+
+export type ApiContext = Context<{ Bindings: AppBindings }>;
+
+/** API 응답 형식 */
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+  };
+  diagnostics?: ReturnType<typeof toStandardErrorDiagnostics>;
+  meta?: {
+    total?: number;
+    page?: number;
+    pageSize?: number;
+  };
+}
+
+/**
+ * 성공 응답 생성
+ */
+export function successResponse<T>(c: ApiContext, data: T, meta?: ApiResponse<T>['meta']) {
+  return c.json<ApiResponse<T>>({
+    success: true,
+    data,
+    meta,
+  });
+}
+
+/**
+ * 에러 응답 생성
+ */
+export function errorResponse(
+  c: ApiContext,
+  code: string,
+  message: string,
+  status: 400 | 401 | 403 | 404 | 410 | 429 | 500 | 503 = 400,
+) {
+  return c.json<ApiResponse<never>>(
+    {
+      success: false,
+      error: { code, message },
+      diagnostics: toStandardErrorDiagnostics(code, message, { status }),
+    },
+    status,
+  );
+}
+
+/** 원문이 제거된 외부 서비스 오류를 실제 상태와 함께 반환합니다. */
+export function serviceErrorResponse(c: ApiContext, error: ServiceError, operation: string) {
+  if (error.retryAfter !== undefined) c.header('Retry-After', String(error.retryAfter));
+  return c.json<ApiResponse<never>>({
+    success: false,
+    error: { code: error.code, message: error.message },
+    diagnostics: toServiceErrorDiagnostics(error, operation),
+  }, error.status);
+}

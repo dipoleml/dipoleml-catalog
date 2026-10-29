@@ -1,0 +1,337 @@
+import dedent from 'dedent';
+import { z } from 'zod';
+
+import { HELPER_TOOLS, MAX_INLINE_BYTES } from '../../const.js';
+import type {
+    ConsoleLinkContext,
+    HelperTool,
+    InternalToolArgs,
+    ToolDescriptionContext,
+    ToolEntry,
+    ToolInputSchema,
+} from '../../types.js';
+import { ALL_TOOLS_PRESENT, TOOL_TYPE } from '../../types.js';
+import {
+    type ActorDetailsResult,
+    buildCardOptions,
+    fetchActorDetails as fetchActorDetailsFromApi,
+    resolveReadmeContent,
+    typeObjectToString,
+} from '../../utils/actor_details.js';
+import { compileSchema } from '../../utils/ajv.js';
+import { buildConsoleActorUrl, getConsoleLinkContext, VERBATIM_LINKS_NUDGE } from '../../utils/console_link.js';
+import { wrapJsonText } from '../../utils/encode_text.js';
+import { respondOk, respondUserError, type ToolResponse } from '../../utils/mcp.js';
+import { getUserInfoCached } from '../../utils/userid_cache.js';
+import { canRunActor, getOwnServerRemedy } from '../actor_tool_naming.js';
+import { actorDetailsOutputSchema } from '../structured_output_schemas.js';
+import { fixActorNameInputAndLog } from './actor_tools_factory.js';
+import { buildServerInterfaceText } from './server_interface_schema.js';
+
+/**
+ * Shared schema for actor details output options.
+ *
+ * Behavior:
+ * - If output is undefined or empty object: use defaults (all true except outputSchema and serverInterface)
+ * - If any property is explicitly set: only include sections with explicit true values
+ */
+export const actorDetailsOutputOptionsSchema = z.object({
+    description: z.boolean().optional().describe('Include Actor description text only.'),
+    stats: z.boolean().optional().describe('Include usage statistics (users, runs, success rate).'),
+    pricing: z.boolean().optional().describe('Include pricing model and costs.'),
+    rating: z.boolean().optional().describe('Include user rating (out of 5 stars).'),
+    metadata: z
+        .boolean()
+        .optional()
+        .describe('Include developer, categories, last modified date, and deprecation status.'),
+    inputSchema: z.boolean().optional().describe('Include required input parameters schema.'),
+    readme: z
+        .boolean()
+        .optional()
+        .describe('Include Actor README documentation (summary when available, full otherwise).'),
+    outputSchema: z
+        .boolean()
+        .optional()
+        .describe('Include inferred output schema from recent successful runs (TypeScript type).'),
+    serverInterface: z.union([z.boolean(), z.string()]).optional().describe(dedent`
+            Server Actor HTTP API. true: full schema with guidance when it fits; otherwise operation navigation.
+            "METHOD /path" (e.g. "GET /search"): operation excerpt. "#/...": raw node at a local JSON pointer.
+            Each section is limited to ${MAX_INLINE_BYTES} UTF-8 bytes including guidance. References are not expanded or fetched.
+        `),
+});
+
+export const actorDetailsOutputDefaults = {
+    description: true,
+    stats: true,
+    pricing: true,
+    rating: true,
+    metadata: true,
+    inputSchema: true,
+    readme: true,
+    outputSchema: false,
+    serverInterface: false as boolean | string,
+};
+
+export type ResolvedOutputOptions = typeof actorDetailsOutputDefaults;
+
+/**
+ * Resolves `output` per {@link actorDetailsOutputOptionsSchema}'s documented defaulting behavior:
+ * undefined/empty → defaults; otherwise undefined properties are treated as false.
+ */
+export function resolveOutputOptions(output?: z.infer<typeof actorDetailsOutputOptionsSchema>): ResolvedOutputOptions {
+    const hasExplicitOptions = output && Object.values(output).some((v) => v !== undefined);
+
+    if (!hasExplicitOptions) {
+        return actorDetailsOutputDefaults;
+    }
+
+    return {
+        description: output?.description === true,
+        stats: output?.stats === true,
+        pricing: output?.pricing === true,
+        rating: output?.rating === true,
+        metadata: output?.metadata === true,
+        inputSchema: output?.inputSchema === true,
+        readme: output?.readme === true,
+        outputSchema: output?.outputSchema === true,
+        serverInterface: output?.serverInterface ?? false,
+    };
+}
+
+/**
+ * Zod schema for fetch-actor-details arguments — used by the mode-independent
+ * base tool. The `-widget` sibling has its own `actor`-only schema in
+ * `src/tools/widgets/fetch_actor_details_widget.ts`.
+ */
+export const fetchActorDetailsToolArgsSchema = z.object({
+    actor: z
+        .string()
+        .min(1)
+        .describe(`Actor ID or full name in the format "username/name", e.g., "apify/rag-web-browser".`),
+    output: actorDetailsOutputOptionsSchema
+        .optional()
+        .describe('Specify which information to include in the response to save tokens.'),
+});
+
+function buildDescription({ hasTool }: ToolDescriptionContext): string {
+    const mcpToolList = hasTool(HELPER_TOOLS.ACTOR_MCP_TOOL_LIST)
+        ? `\nIt does not connect to an MCP server Actor; ${HELPER_TOOLS.ACTOR_MCP_TOOL_LIST} lists its MCP tools.`
+        : '';
+    return dedent`Get detailed information about an Actor by its ID or full name (format: "username/name", e.g., "apify/rag-web-browser").
+
+Requires the exact ID or full name — do not construct a plausible-looking name and call this tool with it.${
+        hasTool(HELPER_TOOLS.STORE_SEARCH)
+            ? ` If you only have a description, a partial name, or a name you have not seen in this conversation, \
+find it with ${HELPER_TOOLS.STORE_SEARCH} first.`
+            : ''
+    }
+
+Use 'output' to control returned information:
+- Default: all fields except outputSchema and serverInterface.${
+        hasTool(HELPER_TOOLS.ACTOR_SERVER_REQUEST)
+            ? ' Server Actors always get a one-line server interface summary unless serverInterface is true or a selector.'
+            : ''
+    }
+- Selective: set only the fields you need to true, e.g. output: { inputSchema: true }
+- Common patterns: inputSchema only, description + readme, serverInterface: true (full API schema when it fits, operation navigation otherwise), "GET /search" (operation excerpt), or "#/components/schemas/Name" (referenced schema node) for Server Actors
+
+The 'readme' field returns the summary when available, full README otherwise.
+Use when querying Actor details, documentation, or input requirements.${mcpToolList}
+
+EXAMPLES:
+- What does apify/web-fetch do?
+- What is the input schema for apify/web-scraper?
+- What HTTP operations does this Server Actor expose?`;
+}
+
+/**
+ * Build error response for when actor is not found. The recovery tool is named only when the
+ * session was served it: a name the client never received in `tools/list` invites a call to a
+ * tool that does not exist.
+ * See apify/apify-mcp-server#1296.
+ */
+export function buildActorNotFoundResponse(actorName: string, loadedToolNames: readonly string[]): ToolResponse {
+    const recovery = loadedToolNames.includes(HELPER_TOOLS.STORE_SEARCH)
+        ? `\nSearch for the Actor by keyword with ${HELPER_TOOLS.STORE_SEARCH} rather than trying another spelling.`
+        : '';
+    return respondUserError(
+        dedent`
+            Actor information for '${actorName}' was not found.
+            Please verify Actor ID or name format and ensure that the Actor exists.
+        ` + recovery,
+    );
+}
+
+/** Guidance appended when the Actor exists but `canRunActor` says this session can't run it. */
+export function buildActorNotRunnableGuidance(
+    actorId: string,
+    loadedToolNames: readonly string[],
+    loadedActorIds: ReadonlySet<string>,
+): string {
+    if (canRunActor(actorId, loadedToolNames, loadedActorIds)) return '';
+    return dedent`
+        This Actor is not exposed as a tool and cannot be run in this configuration. To use it,
+        ${getOwnServerRemedy()}
+    `;
+}
+
+/** Build text and structured response for actor details. */
+export function buildActorDetailsTextResponse(options: {
+    details: ActorDetailsResult;
+    output: ResolvedOutputOptions;
+    actorOutputSchema?: Record<string, unknown> | null;
+    serverInterfaceMessage?: string;
+    linkContext?: ConsoleLinkContext;
+}): {
+    texts: string[];
+    structuredContent: Record<string, unknown>;
+} {
+    const { details, output, actorOutputSchema, serverInterfaceMessage, linkContext } = options;
+
+    const actorUrl =
+        buildConsoleActorUrl(linkContext, details.actorInfo.id) ??
+        `https://apify.com/${details.actorInfo.username}/${details.actorInfo.name}`;
+
+    const texts: string[] = [];
+
+    const needsCard = output.description || output.stats || output.pricing || output.rating || output.metadata;
+
+    if (needsCard) {
+        texts.push(`# Actor information\n${details.actorCard}`);
+    }
+
+    const resolvedReadme = output.readme ? resolveReadmeContent(details) : undefined;
+    if (resolvedReadme) {
+        texts.push(`${resolvedReadme.heading}\n${resolvedReadme.content}`);
+    }
+
+    if (output.inputSchema) {
+        // Console has no /input sub-page — link to the Actor detail page instead.
+        const inputSchemaUrl = linkContext ? actorUrl : `${actorUrl}/input`;
+        texts.push(`# [Input schema](${inputSchemaUrl})\n${wrapJsonText(details.inputSchema)}`);
+    }
+
+    if (output.outputSchema) {
+        if (actorOutputSchema && Object.keys(actorOutputSchema).length > 0) {
+            const typeString = typeObjectToString(actorOutputSchema);
+            texts.push(dedent`
+                # Output Schema (TypeScript)
+                Inferred from recent successful runs:
+                \`\`\`typescript
+                type ActorOutput = ${typeString}
+                \`\`\`
+            `);
+        } else {
+            texts.push(dedent`
+                # Output Schema
+                No output schema available. The Actor may not have recent successful runs, or the output structure could not be determined.
+            `);
+        }
+    }
+
+    if (serverInterfaceMessage) texts.push(serverInterfaceMessage);
+
+    if (linkContext) {
+        texts.push(VERBATIM_LINKS_NUDGE);
+    }
+
+    const structuredContent: Record<string, unknown> = {
+        actorInfo: needsCard ? details.actorCardStructured : undefined,
+        readme: resolvedReadme?.content,
+        inputSchema: output.inputSchema ? details.inputSchema : undefined,
+        outputSchema: output.outputSchema ? (actorOutputSchema ?? {}) : undefined,
+        serverInterface: serverInterfaceMessage,
+    };
+
+    return { texts, structuredContent };
+}
+
+/**
+ * Shared handler for the base fetch-actor-details tool.
+ * Returns the same text + structured response in both modes.
+ */
+export async function buildFetchActorDetailsResult(toolArgs: InternalToolArgs): Promise<ToolResponse> {
+    const {
+        args,
+        apifyToken,
+        apifyClient,
+        actorStore,
+        paymentProvider,
+        mcpSessionId,
+        loadedToolNames,
+        loadedActorIds,
+    } = toolArgs;
+    const parsed = fetchActorDetailsToolArgsSchema.parse(args);
+    const actorName = fixActorNameInputAndLog(parsed.actor, { mcpSessionId, route: HELPER_TOOLS.ACTOR_GET_DETAILS });
+
+    const resolvedOutput = resolveOutputOptions(parsed.output);
+    // Skip the /users/me round-trip when pricing isn't rendered (e.g. inputSchema-only requests). In that case
+    // `userTier` is only used to fill the placeholder `{ model: 'FREE', userTier }` in the structured card, where
+    // it's never read, so defaulting to 'FREE' is safe and saves a request.
+    const userPlanTier = resolvedOutput.pricing
+        ? (await getUserInfoCached(apifyToken, apifyClient)).userPlanTier
+        : 'FREE';
+    // Console UI tokens hit the same cached users/me lookup; non-UI tokens short-circuit.
+    const linkContext = await getConsoleLinkContext(apifyToken, apifyClient);
+    const cardOptions = { ...buildCardOptions(resolvedOutput), userTier: userPlanTier, linkContext };
+    const details = await fetchActorDetailsFromApi(apifyClient, actorName, { cardOptions, actorStore });
+    if (!details) {
+        return buildActorNotFoundResponse(actorName, loadedToolNames);
+    }
+
+    const serverInterface = buildServerInterfaceText({
+        actor: details.actorInfo,
+        actorFullName: `${details.actorInfo.username}/${details.actorInfo.name}`,
+        schema: details.webServerSchema,
+        serverInterface: resolvedOutput.serverInterface,
+        loadedToolNames,
+        hasPaymentProvider: paymentProvider !== undefined,
+    });
+    if ('error' in serverInterface) return respondUserError(serverInterface.error);
+
+    let actorOutputSchema: Record<string, unknown> | null | undefined;
+    if (resolvedOutput.outputSchema) {
+        actorOutputSchema = actorStore
+            ? await actorStore.getActorOutputSchemaAsTypeObject(actorName).catch(() => null)
+            : null;
+    }
+
+    // NOTE: Data duplication between texts and structuredContent is intentional and required.
+    // Some MCP clients only read text content, while others only read structured content.
+    const { texts, structuredContent } = buildActorDetailsTextResponse({
+        details,
+        output: resolvedOutput,
+        actorOutputSchema,
+        serverInterfaceMessage: serverInterface.text,
+        linkContext,
+    });
+
+    // Resolved Actor ID, not the raw `actor` input — that may itself be an ID.
+    const runnableGuidance = buildActorNotRunnableGuidance(details.actorInfo.id, loadedToolNames, loadedActorIds);
+    if (runnableGuidance) texts.push(runnableGuidance);
+
+    return respondOk(texts, { structuredContent });
+}
+
+/**
+ * Default mode fetch-actor-details tool.
+ * Returns full text response with output schema fetch.
+ */
+export const fetchActorDetails: ToolEntry = Object.freeze({
+    type: TOOL_TYPE.INTERNAL,
+    name: HELPER_TOOLS.ACTOR_GET_DETAILS,
+    title: 'Fetch Actor details',
+    description: buildDescription(ALL_TOOLS_PRESENT),
+    buildDescription,
+    inputSchema: z.toJSONSchema(fetchActorDetailsToolArgsSchema) as ToolInputSchema,
+    outputSchema: actorDetailsOutputSchema,
+    ajvValidate: compileSchema(z.toJSONSchema(fetchActorDetailsToolArgsSchema)),
+    annotations: {
+        title: 'Fetch Actor details',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+    },
+    call: async (toolArgs) => buildFetchActorDetailsResult(toolArgs),
+} as const satisfies HelperTool);

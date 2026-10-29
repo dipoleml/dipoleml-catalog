@@ -1,0 +1,80 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.karanb192/reddit-mcp-buddy",
+  "version": "1.2.0",
+  "description": "Browse Reddit RSS; approved API access for search, analysis, and optional posting.",
+  "author": {
+    "name": "Karan Bansal",
+    "email": "karanb192@gmail.com",
+    "url": "https://github.com/karanb192"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/karanb192/reddit-mcp-buddy",
+  "bugs": "https://github.com/karanb192/reddit-mcp-buddy/issues",
+  "repository": {
+    "id": "1056452116",
+    "url": "https://github.com/karanb192/reddit-mcp-buddy",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "reddit-mcp-buddy",
+      "version": "1.2.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
+  "tags": [
+    "reddit",
+    "social-media",
+    "content",
+    "search",
+    "analysis"
+  ],
+  "features": [
+    "browse-subreddits",
+    "search-posts",
+    "get-comments",
+    "user-analysis",
+    "reddit-terms",
+    "create-posts",
+    "add-comments",
+    "subreddit-rules"
+  ],
+  "tools": [
+    {
+      "name": "browse_subreddit",
+      "description": "Browse posts from any subreddit with sorting options (hot, new, top, rising, controversial). Supports time ranges, NSFW filtering, and subreddit metadata."
+    },
+    {
+      "name": "search_reddit",
+      "description": "Search Reddit content across all subreddits or specific ones. Filter by author, time range, flair, and sort by relevance, hot, top, new, or comments."
+    },
+    {
+      "name": "get_post_details",
+      "description": "Get detailed information about a Reddit post including full comment threads. Supports comment sorting, depth control, and link extraction."
+    },
+    {
+      "name": "user_analysis",
+      "description": "Analyze a Reddit user's profile including karma, posting history, active subreddits, and activity patterns over different time ranges."
+    },
+    {
+      "name": "reddit_explain",
+      "description": "Get explanations of Reddit terminology, slang, and culture (karma, cake day, AMA, ELI5, etc.) with definitions and usage examples."
+    },
+    {
+      "name": "create_post",
+      "description": "Submit a text or link post with mechanical preflight and validate_only dry runs. Opt-in via REDDIT_BUDDY_WRITE, stdio only. Confirmation uses elicitation when supported; otherwise approval depends on the client before repeating the previewed payload."
+    },
+    {
+      "name": "add_comment",
+      "description": "Comment on a post or reply to a specific comment, behind the same opt-in, credential, and confirmation gates as create_post."
+    },
+    {
+      "name": "subreddit_rules",
+      "description": "Fetch a subreddit's rules, posting requirements, capability flags, and flair choices in one cached read-only call."
+    }
+  ]
+}

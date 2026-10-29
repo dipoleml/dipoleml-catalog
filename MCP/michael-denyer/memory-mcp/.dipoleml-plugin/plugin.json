@@ -1,0 +1,16 @@
+{
+  "name": "memory-mcp",
+  "displayName": "Memory MCP",
+  "version": "0.8.0",
+  "description": "Persistent memory for DipoleML with hot cache instant recall and semantic search. Give your AI assistant a second brain.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Michael Denyer"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/michael-denyer/memory-mcp",
+  "repository": "https://github.com/michael-denyer/memory-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

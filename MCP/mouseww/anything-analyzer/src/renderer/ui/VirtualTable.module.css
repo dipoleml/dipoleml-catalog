@@ -1,0 +1,240 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  overflow: hidden;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Header row */
+.headerRow {
+  display: flex;
+  align-items: center;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.headerCell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+  border-right: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.headerCell:last-child {
+  border-right: none;
+}
+
+.headerCellFlex {
+  composes: headerCell;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Text label inside header cell — clips independently */
+.headerLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sortable {
+  cursor: pointer;
+}
+
+.sortable:hover {
+  color: var(--text-primary);
+}
+
+.sortIcon {
+  font-size: 10px;
+  color: var(--text-disabled);
+}
+
+.sortActive {
+  color: var(--color-info);
+}
+
+/* Filter button */
+.filterBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-disabled);
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.filterBtn:hover {
+  color: var(--text-secondary);
+}
+
+.filterActive {
+  color: var(--color-info);
+}
+
+/* Filter dropdown (rendered via Portal at body level) */
+.filterDropdown {
+  z-index: var(--z-dropdown);
+  min-width: 160px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--color-frame);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-button);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-xs) 0;
+}
+
+.filterSearch {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: var(--space-xs);
+}
+
+.filterSearch input {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-badge);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.filterItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.filterItem:hover {
+  background: var(--color-surface);
+}
+
+.filterCheckbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-info);
+}
+
+.filterActions {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-xs) var(--space-sm);
+  border-top: 1px solid var(--color-border-subtle);
+  margin-top: var(--space-xs);
+}
+
+/* Body */
+.body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.virtualViewport {
+  contain: strict;
+}
+
+.virtualCanvas {
+  position: relative;
+  width: 100%;
+}
+
+/* Row */
+.row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border-subtle);
+  transition: background var(--transition-fast);
+  contain: layout paint style;
+}
+
+.row:hover {
+  background: var(--color-hover);
+}
+
+.rowSelected {
+  background: var(--color-info-bg);
+}
+
+.rowSelected:hover {
+  background: var(--color-info-border);
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+/* Cell */
+.cell {
+  padding: 5px 10px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-right: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.cellFlex {
+  composes: cell;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Checkbox column */
+.checkboxCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.checkbox {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-info);
+  cursor: pointer;
+}
+
+/* Empty state */
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4xl);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Expanded row */
+.expandedContent {
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}

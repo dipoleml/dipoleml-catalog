@@ -1,0 +1,716 @@
+# Commands Reference
+
+Complete reference for all Octocode commands with examples and options.
+
+## Core Commands
+
+### `octocode index`
+
+Index your codebase for semantic search.
+
+```bash
+# Basic indexing
+octocode index
+
+# List all files currently indexed
+octocode index --list-files
+
+# Show all chunks for one indexed file, with metadata
+octocode index --show-file src/main.rs
+
+# Show GraphRAG connections for one file
+octocode index --graphrag src/main.rs
+
+# Skip the git repository requirement and git-based optimizations
+octocode index --no-git
+```
+
+**What it does:**
+- Scans all supported files in your project
+- Extracts code symbols and structure using Tree-sitter
+- Generates embeddings for semantic search
+- Builds persisted knowledge-graph relationships (if GraphRAG is enabled)
+- Stores everything in local LanceDB database
+- **Safe file discovery** - Prevents infinite recursion from symlinks
+- **Respects ignore patterns** - Honors .gitignore and .noindex files
+
+### `octocode search`
+
+Semantic search across your codebase.
+
+```bash
+# Basic search
+octocode search "user authentication"
+
+# Multi-query search (NEW!)
+octocode search "authentication" "middleware"
+octocode search "jwt" "token" "validation"
+
+# Search specific content types
+octocode search "database connection" --mode code
+octocode search "API documentation" --mode docs
+octocode search "configuration" --mode text
+octocode search "error handling" --mode all
+octocode search "mcp server" --mode commits
+
+# Control result details
+octocode search "auth" --detail-level signatures  # Function signatures only
+octocode search "auth" --detail-level partial     # Smart truncation (default)
+octocode search "auth" --detail-level full        # Complete implementations
+
+# Adjust similarity
+# --max-results is a config value, not a search flag:
+#   octocode config --max-results 10
+octocode search "auth" --threshold 0.7
+
+# Output formats: cli (default), json, md, text
+octocode search "auth" --format json
+# Markdown output
+octocode search "auth" --format md
+
+# Filter by programming language (only affects code blocks)
+octocode search "auth" --language rust
+
+# Symbol expansion
+octocode search "user authentication" --expand
+```
+
+**Search modes:**
+- `all` - Search across all content types, excluding commits (default)
+- `code` - Search only in code blocks
+- `docs` - Search only in documentation files
+- `text` - Search only in plain text files
+- `commits` - Search git commit history (messages, files, AI descriptions)
+
+### `octocode view`
+
+View code signatures and structure.
+
+```bash
+# View current directory
+octocode view
+
+# View specific files with patterns
+octocode view "src/**/*.rs"
+octocode view "**/*.py"
+octocode view "src/auth/*.ts"
+
+# Output formats: cli (default), json, md, text
+octocode view --format json
+# Markdown format
+octocode view --format md
+# Specific files in markdown
+octocode view "src/**/*.rs" --format md
+```
+
+### `octocode grep`
+
+Structural code search using ast-grep patterns. Finds code by AST structure, not text.
+
+```bash
+# Find all .unwrap() calls in Rust
+octocode grep '$FUNC.unwrap()' --lang rust
+
+# Find all `new` expressions in JavaScript
+octocode grep 'new $CLASS($$$ARGS)' --lang javascript
+
+# Find println calls in Java
+octocode grep 'System.out.println($ARG)' --lang java
+
+# Search specific paths with context lines
+octocode grep 'return nil' --lang go --paths 'src/**/*.go' -C 2
+
+# JSON output
+octocode grep 'puts $ARG' --lang ruby --json
+```
+
+**Pattern syntax (ast-grep):**
+- `$VAR` — matches any single AST node
+- `$$REST` — matches zero or more nodes in a sequence
+- `$$$ARGS` — matches zero or more function arguments
+- Literal code — matches exact structure (e.g. `return 0`, `x = 1`)
+
+**Rewrite (refactoring):**
+```bash
+# Preview rewrites (dry run)
+octocode grep '$FUNC.unwrap()' --lang rust --rewrite '$FUNC.expect("reason")'
+
+# Apply rewrites in-place
+octocode grep '$FUNC.unwrap()' --lang rust --rewrite '$FUNC.expect("reason")' --update-all
+
+# Rewrite with path filter
+octocode grep 'console.log($ARG)' --lang javascript --rewrite 'logger.info($ARG)' --paths 'src/**/*.js' --update-all
+```
+
+**Options:**
+- `--lang <language>` — Language to search (auto-detected from extensions if omitted)
+- `--paths <glob>` — File paths or glob patterns to search
+- `-C, --context <n>` — Number of context lines around matches
+- `--rewrite <template>` — Rewrite template with metavariable substitution
+- `--update-all` — Apply rewrites to files in-place (requires --rewrite)
+- `--json` — Output as JSON
+
+**Supported languages:**
+Rust, JavaScript, TypeScript, Python, Go, Java, C/C++, PHP, Ruby, Swift, Lua, Bash, CSS, JSON, Elixir
+
+### `octocode config`
+
+Manage configuration settings.
+
+```bash
+# View current configuration
+octocode config --show
+
+# Set embedding models
+octocode config --code-embedding-model "voyage:voyage-code-3"
+octocode config --text-embedding-model "voyage:voyage-3.5-lite"
+
+# Set LLM model (provider:model format)
+octocode config --model "anthropic:claude-3-5-sonnet-20241022"
+
+# Search settings
+octocode config --max-results 20
+octocode config --similarity-threshold 0.3
+
+# Enable/disable features
+octocode config --graphrag-enabled true
+octocode config --graphrag-enabled false
+
+# Performance tuning
+octocode config --chunk-size 2000
+```
+
+### `octocode models`
+
+Discover and validate embedding models dynamically.
+
+```bash
+# List all supported models for all providers
+octocode models list
+
+# List models for specific provider
+octocode models list voyage
+octocode models list openai
+octocode models list jina
+
+# Get detailed information about a specific model
+octocode models info voyage:voyage-code-3
+octocode models info openai:text-embedding-3-small
+octocode models info jina:jina-embeddings-v4
+
+# Validate model support and get dimensions
+octocode models info google:text-embedding-005
+```
+
+**Output format:**
+- **Enumerated lists**: Models displayed with numbers and dimensions (e.g., "1. voyage-3.5 (1024d)")
+- **Model count headers**: Shows total number of models found per provider
+- **Dimension information**: Each model shows its embedding dimension
+- **Unified format**: Consistent output across all providers
+
+**Supported providers:**
+- `voyage` - Voyage AI models (voyage-code-3, voyage-3.5-lite, etc.)
+- `openai` - OpenAI embedding models (text-embedding-3-small, text-embedding-3-large, etc.)
+- `jina` - Jina AI models (jina-embeddings-v4, jina-clip-v2, etc.)
+- `google` - Google AI models (gemini-embedding-001, text-embedding-005, etc.)
+- `octohub` - OctoHub models (dynamic discovery via API)
+- `openrouter` - OpenRouter models (dynamic discovery via API)
+- `local` - Any OpenAI-compatible embedding endpoint
+- `onnx` - Any HuggingFace repo with an `onnx/` export
+- `together` - Together AI models (intfloat/multilingual-e5-large-instruct, etc.)
+- `fastembed` - Local FastEmbed models (requires the `fastembed` feature, enabled in default builds)
+- `huggingface` - HuggingFace models (requires the `huggingface` feature, enabled in default builds)
+
+**Features:**
+- **Curated lists plus live lookup**: providers with a fixed catalog (Voyage, Jina, Google, OpenAI, Together, FastEmbed) are enumerated with dimensions; the rest resolve model names on demand
+- **Fail-fast validation**: Instantly verify if a model is supported
+- **Dimension detection**: Get exact embedding dimensions for each model
+- **Feature-gated**: Shows only available providers based on build features
+
+### `octocode diff`
+
+AI-powered analysis of code changes with risk assessment.
+
+```bash
+# Analyze working directory changes
+octocode diff
+
+# Analyze only staged changes
+octocode diff --staged
+
+# Analyze a specific commit
+octocode diff abc1234
+
+# Analyze a commit range
+octocode diff abc1234..def5678
+
+# Analyze changes on a branch
+octocode diff feature-branch
+
+# Output formats
+octocode diff --format json
+octocode diff --format md
+```
+
+**What it does:**
+- Summarizes what changed and why
+- Assesses risk level for each change group
+- Produces structured change cards with impact analysis
+- Flags uncertain areas that may need closer review
+
+### `octocode explain`
+
+AI-powered code explanation focused on architecture, not line-by-line.
+
+```bash
+# Explain a file
+octocode explain src/auth/mod.rs
+
+# Explain a specific symbol in a file
+octocode explain src/auth/mod.rs:authenticate_user
+
+# Explain by search query (finds relevant code first)
+octocode explain "how authentication works"
+
+# Output formats
+octocode explain src/main.rs --format md
+octocode explain src/main.rs --format json
+```
+
+**What it does:**
+- Explains WHAT the code does, WHY it exists, and HOW it fits in the system
+- Focuses on purpose, design decisions, and relationships
+- Uses semantic search to resolve query-based targets
+
+### `octocode stats`
+
+Display codebase index statistics.
+
+```bash
+# Show stats
+octocode stats
+
+# JSON output
+octocode stats --format json
+
+# Plain text
+octocode stats --format text
+```
+
+**What it shows:**
+- Indexed files, code blocks, text blocks, document blocks
+- Commit blocks count
+- GraphRAG nodes and relationships (if enabled)
+- Index staleness (whether HEAD matches last indexed commit)
+- Contextual enrichment status (if enabled)
+
+## AI-Powered Git Commands
+
+### `octocode commit`
+
+Generate intelligent commit messages with AI.
+
+```bash
+# Basic usage - analyze staged changes
+git add .
+octocode commit
+
+# Add all files and commit in one step
+octocode commit --all
+
+# Provide context for better commit messages
+octocode commit --message "Refactoring authentication system"
+
+# Auto-commit without confirmation
+octocode commit --all --yes
+
+# Skip pre-commit hooks
+octocode commit --no-verify
+
+# Rewrite the message of an existing commit by hash
+# (HEAD commits are amended in place; older commits are rewritten via rebase)
+octocode commit --commit abc1234
+
+# Add Co-authored-by trailers (repeatable; adds to commits.co_authored_by in config)
+octocode commit --co-author "Alice <alice@example.com>" --co-author "Bob <bob@example.com>"
+```
+
+**How the message is produced:**
+- The model returns structured fields (type, scope, subject, effect, changes, breaking); octocode renders the text itself, so markup cannot leak in and the subject is capped at 72 characters
+- A second call audits the draft against the diff and lists every claim the diff does not support; the draft is rewritten without them, and the command fails rather than commit a message it could not verify
+- Large diffs are summarised chunk by chunk into a change list, then drafted and audited from that list
+
+**Pre-commit Integration:**
+- Automatically runs pre-commit hooks if available
+- Uses `--all-files` when `--all` flag is specified
+- Re-stages modified files after pre-commit runs
+- Generates AI commit message after pre-commit completes
+
+### `octocode review`
+
+AI-powered code review for best practices.
+
+```bash
+# Review staged changes
+git add .
+octocode review
+
+# Review all changes
+octocode review --all
+
+# Focus on specific areas
+octocode review --focus security
+octocode review --focus performance
+octocode review --focus maintainability
+
+# Filter by severity
+octocode review --severity critical    # Only critical issues
+octocode review --severity high        # Critical and high issues
+octocode review --severity low         # All issues
+
+# Output format
+octocode review --json                 # JSON output for tooling
+```
+
+### `octocode release`
+
+AI-powered release management with version calculation.
+
+```bash
+# Preview release (recommended first step)
+octocode release --dry-run
+
+# Create release with AI version calculation
+octocode release
+
+# Force specific version
+octocode release --force-version "2.0.0"
+
+# Skip confirmation prompt
+octocode release --yes
+
+# Custom changelog file
+octocode release --changelog "HISTORY.md"
+
+# Add Co-authored-by trailers to the release commit (repeatable; adds to commits.co_authored_by)
+octocode release --co-author "Alice <alice@example.com>"
+```
+
+**Supported project types:**
+- Rust (Cargo.toml)
+- Node.js (package.json)
+- PHP (composer.json)
+- Go (go.mod)
+- Python (pyproject.toml)
+- Chrome extension (manifest.json with `manifest_version`; also synced in root/`public/`/`src/` alongside any other project type)
+- Plain version file (`VERSION` or `version.txt` at the root; used when no manifest above is present, e.g. Bash tools)
+
+## MCP Server Commands
+
+### `octocode mcp`
+
+Start Model Context Protocol server for AI assistants.
+
+```bash
+# Basic MCP server
+octocode mcp --path /path/to/your/project
+
+# With LSP integration
+octocode mcp --path /path/to/project --with-lsp "rust-analyzer"
+octocode mcp --path /path/to/project --with-lsp "pylsp"
+octocode mcp --path /path/to/project --with-lsp "typescript-language-server --stdio"
+
+# HTTP mode (instead of stdin/stdout)
+octocode mcp --bind "127.0.0.1:8080" --path /path/to/project
+
+# Custom port: HTTP mode is selected by --bind; there is no --port flag
+octocode mcp --bind "127.0.0.1:3001" --path /path/to/project
+
+# Debug mode with enhanced logging
+octocode mcp --path /path/to/project --debug
+```
+
+**Available MCP tools:**
+- `semantic_search` - Semantic code search (supports multi-query, all modes including commits)
+- `view_signatures` - View file signatures and code structure by glob patterns
+- `graphrag` - Always-on live file/symbol graph operations (search, get-node, get-relationships, find-path, overview); no index or LLM required
+- `structural_search` - AST-based structural code search using ast-grep patterns
+- `lsp_*` - LSP integration tools (when --with-lsp is used)
+
+### `octocode mcp --multi`
+
+Serve every git repository found one level under `--path` from a single MCP
+endpoint (works over both stdio and HTTP). This replaces the former
+`mcp-proxy` command.
+
+```bash
+# Multi-repo over stdio (default transport)
+octocode mcp --multi --path /path/to/parent/directory
+
+# Multi-repo over HTTP
+octocode mcp --multi --bind "127.0.0.1:8080" --path /workspace --debug
+```
+
+### `octocode mcp --auto`
+
+Pick the mode from the target directory: single-repo when `--path` is itself a
+git repo root, multi-repo when it is not but git repositories exist one level
+under it. Conflicts with `--multi`.
+
+```bash
+octocode mcp --auto --path /workspace
+```
+
+**How it works:**
+- Scans the immediate subdirectories of `--path` for git repositories.
+- Every tool gains a required `project` argument (injected into the tool's
+  schema and description only in this mode) that names the target repository,
+  using the subdirectory name as the key.
+- Each repository is served by its own lazily-built handler with its own store
+  and background watcher/indexing threads, mapped to the same per-project
+  storage the single-repo `mcp` command uses. Idle handlers are reaped.
+
+## Knowledge Graph Commands
+
+### `octocode graphrag`
+
+Commands for the persisted GraphRAG database. Unlike the MCP `graphrag` tool's always-on live structural graph, this CLI requires `[graphrag].enabled = true` and a completed `octocode index` run.
+
+```bash
+# Enable and build the optional persisted graph first
+octocode config --graphrag-enabled true
+octocode index
+
+# Search the relationship graph
+octocode graphrag search --query "authentication modules"
+
+# Get detailed information about a file
+octocode graphrag get-node --node-id "src/auth/mod.rs"
+
+# Find relationships for a specific file
+octocode graphrag get-relationships --node-id "src/auth/mod.rs"
+
+# Find connections between two modules
+octocode graphrag find-path \
+  --source-id "src/auth/mod.rs" \
+  --target-id "src/database/mod.rs"
+
+# Get graph overview
+octocode graphrag overview
+
+# Export formats: cli (default), json, md, text
+octocode graphrag overview --format md > project-structure.md
+octocode graphrag search --query "auth" --format json
+```
+
+## Utility Commands
+
+### `octocode format`
+
+Format code according to .editorconfig rules.
+
+```bash
+# Format all supported files
+octocode format
+
+# Preview changes without applying
+octocode format --dry-run
+
+# Format specific files
+octocode format src/main.rs src/lib.rs
+
+# Format and commit changes
+octocode format --commit
+
+# Verbose output
+octocode format --verbose
+```
+
+### `octocode logs`
+
+View MCP server logs.
+
+```bash
+# View logs for current project
+octocode logs
+
+# Follow logs in real-time
+octocode logs --follow
+
+# Show only error logs
+octocode logs --errors-only
+
+# Show more/fewer lines
+octocode logs --lines 50
+
+# View logs for all projects
+octocode logs --all
+```
+
+
+### `octocode watch`
+
+Auto-index files when they change.
+
+```bash
+# Basic watch mode
+octocode watch
+
+# Custom debounce timing (1-30 seconds)
+octocode watch --debounce 5
+
+# Custom additional delay (0-5000ms)
+octocode watch --additional-delay 2000
+
+# Combine timing options
+octocode watch --debounce 3 --additional-delay 1500
+
+# Quiet mode (less output)
+octocode watch --quiet
+
+# Watch without git requirements
+octocode watch --no-git
+```
+
+### `octocode clear`
+
+Clear indexed database tables.
+
+```bash
+# Clear all data (--mode takes: all, code, docs, text, commits, graphrag)
+octocode clear --mode all
+
+# Clear specific data types
+octocode clear --mode code
+octocode clear --mode docs
+octocode clear --mode text
+octocode clear --mode commits
+octocode clear --mode graphrag
+
+# Default mode (all)
+octocode clear
+```
+
+
+### `octocode completion`
+
+Generate shell completion scripts.
+
+```bash
+# Generate completions for your shell
+octocode completion bash > ~/.bash_completion.d/octocode
+octocode completion zsh > ~/.zsh/completions/_octocode
+octocode completion fish > ~/.config/fish/completions/octocode.fish
+
+# Or install using make (if available)
+make install-completions
+```
+
+### `octocode branch`
+
+Manage branch delta indexes.
+
+```bash
+# List all indexed branch deltas
+octocode branch list
+
+# Show info about a branch delta index (defaults to current branch)
+octocode branch info
+octocode branch info feature-branch
+
+# Delete a branch delta index
+octocode branch delete feature-branch
+
+# Remove indexes for branches that no longer exist in git or are merged
+octocode branch prune
+octocode branch prune --dry-run   # show what would be pruned
+```
+
+### `octocode export`
+
+Export the current project's dataset to a portable archive (`.tar.zst`). The full archive path is printed on success; transient state (lock and log files) is excluded.
+
+```bash
+# Write the archive to the current directory
+octocode export
+
+# Write the archive to a specific directory
+octocode export /path/to/destination
+```
+
+### `octocode import`
+
+Import a dataset archive produced by `octocode export`. Existing `storage/` and `branches/` are backed up and replaced atomically, with rollback on failure.
+
+```bash
+# Import into the current project
+octocode import octocode-dataset.tar.zst
+```
+
+## Output Formats
+
+Commands that render structured data take `--format` with `cli` (default), `json`, `md`, or `text`: `search`, `view`, `stats`, `diff`, `explain`, and `graphrag`. `search`, `stats`, `diff`, and `explain` also accept the `-f` short form; `view` and `graphrag` are long-form only.
+
+```bash
+# JSON output
+octocode search "auth" --format json
+
+# Markdown output
+octocode view "src/**/*.rs" --format md
+
+# Plain text output
+octocode stats --format text
+
+# Help for any command
+octocode <command> --help
+octocode help <command>
+```
+
+`grep` and `review` use a standalone `--json` flag instead.
+
+## Command Combinations
+
+### Complete Reindex Workflow
+
+# Clear old data and reindex
+octocode clear
+octocode index
+
+# Start MCP server
+octocode mcp --path . &
+```
+
+### Daily Development Workflow
+
+```bash
+# Start watching for changes
+octocode watch --quiet &
+
+# Work on code...
+# Files are automatically indexed
+
+# Search for relevant code
+octocode search "error handling patterns"
+
+# Commit with AI assistance
+git add .
+octocode commit
+
+# Review changes
+octocode review --focus security
+```
+
+### Documentation Generation
+
+# Generate comprehensive documentation
+octocode view "src/**/*.rs" --format md > docs/api-reference.md
+octocode graphrag overview --format md > docs/architecture.md
+
+# Create project structure overview
+octocode search "main components" --format md > docs/components.md
+```
+
+For more detailed information about specific features, see:
+- [Advanced Usage](ADVANCED_USAGE.md) - Advanced workflows and techniques
+- [MCP Integration](MCP_INTEGRATION.md) - Detailed MCP server setup
+- [Configuration](CONFIGURATION.md) - Complete configuration reference

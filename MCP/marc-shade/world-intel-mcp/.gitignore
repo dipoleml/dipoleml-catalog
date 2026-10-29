@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+.env.local
+*.log
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite3
+node_modules/
+# Per-session test home, cache and TMPDIR from the root conftest.py; a run
+# killed before cleanup leaves one behind (databases, WAL/SHM sidecars,
+# pytest lock files and *current symlinks).
+/.test-cache-*/

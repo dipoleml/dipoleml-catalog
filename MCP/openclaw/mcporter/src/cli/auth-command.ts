@@ -1,0 +1,249 @@
+import { spawn } from 'node:child_process';
+import type { ServerDefinition } from '../config-schema.js';
+import { childEnvWithoutVaultSecrets } from '../oauth-vault-encryption.js';
+import type { OAuthAuthorizationRequest, OAuthSessionOptions } from '../oauth.js';
+import { suppressBrowserLaunchFromEnv } from '../oauth-browser-suppression.js';
+import { analyzeConnectionError } from '../error-classifier.js';
+import { clearOAuthCaches } from '../oauth-persistence.js';
+import type { Runtime } from '../runtime.js';
+import { isOAuthFlowError, resolveOAuthTimeoutFromEnv } from '../runtime/oauth.js';
+import { renderAdhocServerHelpLines } from './adhoc-help.js';
+import type { EphemeralServerSpec } from './adhoc-server.js';
+import { extractEphemeralServerFlags } from './ephemeral-flags.js';
+import { persistPreparedEphemeralServer, prepareEphemeralServerTarget } from './ephemeral-target.js';
+import { looksLikeHttpUrl } from './http-utils.js';
+import { buildConnectionIssueEnvelope } from './json-output.js';
+import { getActiveLogger, logInfo, logWarn } from './logger-context.js';
+import { consumeOutputFormat } from './output-format.js';
+
+type BrowserSuppression = 'default' | 'no-browser';
+
+export interface AuthCommandOptions {
+  readonly oauthTimeoutMs?: number;
+}
+
+export async function handleAuth(runtime: Runtime, args: string[], options: AuthCommandOptions = {}): Promise<void> {
+  const browserSuppression = consumeBrowserSuppression(args, process.env);
+  const noBrowser = browserSuppression === 'no-browser';
+  const oauthTimeoutMs = options.oauthTimeoutMs ?? resolveOAuthTimeoutFromEnv();
+  let authorizationOutputEmitted = false;
+  const markAuthorizationOutputEmitted = () => {
+    authorizationOutputEmitted = true;
+  };
+  const resetIndex = args.indexOf('--reset');
+  const shouldReset = resetIndex !== -1;
+  if (shouldReset) {
+    args.splice(resetIndex, 1);
+  }
+  const ephemeralSpec: EphemeralServerSpec | undefined = extractEphemeralServerFlags(args);
+  const format = consumeOutputFormat(args, {
+    defaultFormat: 'text',
+    allowed: ['text', 'json'],
+    enableRawShortcut: false,
+    jsonShortcutFlag: '--json',
+  }) as 'text' | 'json';
+  let target = args.shift();
+  const nameHints: string[] = [];
+  if (ephemeralSpec && target && !looksLikeHttpUrl(target)) {
+    nameHints.push(target);
+  }
+
+  const prepared = await prepareEphemeralServerTarget({
+    runtime,
+    target,
+    ephemeral: ephemeralSpec,
+    nameHints,
+    reuseFromSpec: true,
+  });
+  target = prepared.target;
+
+  if (!target) {
+    throw new Error('Usage: mcporter auth <server | url> [--http-url <url> | --stdio <command>]');
+  }
+
+  const definition = runtime.getDefinition(target);
+  if (shouldReset) {
+    await clearOAuthCaches(definition);
+    if (!noBrowser) {
+      logInfo(`Cleared cached credentials for '${target}'.`);
+    }
+  }
+
+  if (definition.command.kind === 'stdio' && definition.oauthCommand) {
+    logInfo(`Starting auth helper for '${target}' (stdio). Leave this running until the browser flow completes.`);
+    try {
+      await runStdioAuth(definition, { noBrowser });
+      logInfo(`Auth helper for '${target}' finished. You can now call tools.`);
+    } finally {
+      await persistPreparedEphemeralServer(runtime, prepared);
+    }
+    return;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      if (!noBrowser) {
+        logInfo(`Initiating OAuth flow for '${target}'...`);
+      }
+      const tools = await withInfoLogsSuppressed(noBrowser, () =>
+        runtime.listTools(target, {
+          autoAuthorize: true,
+          timeoutMs: oauthTimeoutMs,
+          ...(noBrowser
+            ? {
+                oauthSessionOptions: buildNoBrowserOAuthOptions(format, markAuthorizationOutputEmitted),
+              }
+            : {}),
+        })
+      );
+      await persistPreparedEphemeralServer(runtime, prepared);
+      if (!noBrowser) {
+        logInfo(`Authorization complete. ${tools.length} tool${tools.length === 1 ? '' : 's'} available.`);
+      }
+      return;
+    } catch (error) {
+      await persistPreparedEphemeralServer(runtime, prepared);
+      if (attempt === 0 && shouldRetryAuthError(error)) {
+        logWarn('Server signaled OAuth after the initial attempt. Retrying with browser flow...');
+        continue;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (format === 'json') {
+        if (authorizationOutputEmitted) {
+          console.error(`Failed to authorize '${target}': ${message}`);
+        } else {
+          const payload = buildConnectionIssueEnvelope({
+            server: target,
+            error,
+            issue: analyzeConnectionError(error),
+          });
+          console.log(JSON.stringify(payload, null, 2));
+        }
+        process.exitCode = 1;
+        return;
+      }
+      throw new Error(`Failed to authorize '${target}': ${message}`, { cause: error });
+    }
+  }
+}
+
+async function withInfoLogsSuppressed<T>(enabled: boolean, task: () => Promise<T>): Promise<T> {
+  if (!enabled) {
+    return task();
+  }
+  const logger = getActiveLogger();
+  const originalInfo = logger.info.bind(logger);
+  logger.info = () => {};
+  try {
+    return await task();
+  } finally {
+    logger.info = originalInfo;
+  }
+}
+
+async function runStdioAuth(definition: ServerDefinition, options: { noBrowser?: boolean } = {}): Promise<void> {
+  const authArgs = [...(definition.command.kind === 'stdio' ? (definition.command.args ?? []) : [])];
+  if (definition.oauthCommand) {
+    authArgs.push(...definition.oauthCommand.args);
+  }
+  const env = childEnvWithoutVaultSecrets(
+    options.noBrowser ? { ...process.env, MCPORTER_OAUTH_NO_BROWSER: '1' } : process.env
+  );
+  return new Promise((resolve, reject) => {
+    const child = spawn(definition.command.kind === 'stdio' ? definition.command.command : '', authArgs, {
+      stdio: 'inherit',
+      cwd: definition.command.kind === 'stdio' ? definition.command.cwd : process.cwd(),
+      env,
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Auth helper exited with code ${code ?? 'null'}`));
+      }
+    });
+  });
+}
+
+function buildNoBrowserOAuthOptions(
+  format: 'text' | 'json',
+  markAuthorizationOutputEmitted: () => void
+): OAuthSessionOptions {
+  return {
+    suppressBrowserLaunch: true,
+    onAuthorizationUrl(request: OAuthAuthorizationRequest) {
+      markAuthorizationOutputEmitted();
+      if (format === 'json') {
+        console.log(
+          JSON.stringify(
+            {
+              authorizationUrl: request.authorizationUrl,
+              redirectUrl: request.redirectUrl,
+            },
+            null,
+            2
+          )
+        );
+        return;
+      }
+      console.log(request.authorizationUrl);
+    },
+  };
+}
+
+function consumeBrowserSuppression(args: string[], env: NodeJS.ProcessEnv): BrowserSuppression {
+  let mode: BrowserSuppression = suppressBrowserLaunchFromEnv(env) ? 'no-browser' : 'default';
+  const noBrowserIndex = args.indexOf('--no-browser');
+  if (noBrowserIndex !== -1) {
+    args.splice(noBrowserIndex, 1);
+    mode = 'no-browser';
+  }
+  const browserIndex = args.indexOf('--browser');
+  if (browserIndex !== -1) {
+    const value = args[browserIndex + 1];
+    if (!value) {
+      throw new Error("Flag '--browser' requires a value.");
+    }
+    if (value !== 'none') {
+      throw new Error("--browser must be 'none' when provided to mcporter auth.");
+    }
+    args.splice(browserIndex, 2);
+    mode = 'no-browser';
+  }
+  return mode;
+}
+
+function shouldRetryAuthError(error: unknown): boolean {
+  if (isOAuthFlowError(error)) {
+    return false;
+  }
+  return analyzeConnectionError(error).kind === 'auth';
+}
+
+export function printAuthHelp(): void {
+  const lines = [
+    'Usage: mcporter auth <server | url> [flags]',
+    '',
+    'Purpose:',
+    '  Run the authentication flow for a server without listing tools.',
+    '',
+    'Common flags:',
+    '  --reset                 Clear cached credentials before re-authorizing.',
+    '  --json                  Emit a JSON envelope on failure (and auth-start JSON with --no-browser).',
+    '  --no-browser            Print the OAuth authorization URL without launching a browser.',
+    '  --browser none          Alias for --no-browser (also supported by config login).',
+    '  MCPORTER_OAUTH_NO_BROWSER=1|true|yes also enables --no-browser behavior.',
+    '',
+    'Ad-hoc targets:',
+    ...renderAdhocServerHelpLines(24),
+    '',
+    'Examples:',
+    '  mcporter auth linear',
+    '  mcporter auth linear --no-browser',
+    '  mcporter auth https://mcp.example.com/mcp',
+    '  mcporter auth --stdio "npx -y chrome-devtools-mcp@latest"',
+    '  mcporter auth --http-url http://localhost:3000/mcp --allow-http',
+  ];
+  console.error(lines.join('\n'));
+}

@@ -1,0 +1,48 @@
+---
+title: "DBHub 1.0.0"
+description: "DBHub 1.0.0: support for the new MCP 2026-07-28 spec, 17 months of development in numbers, and the MCP server the Claude Code docs use to connect PostgreSQL."
+---
+
+*July 28, 2026*
+
+DBHub 1.0.0 is out — the first major version of our database MCP server for PostgreSQL, MySQL, MariaDB, SQL Server, and SQLite.
+
+## Why now
+
+MCP shipped its [2026-07-28 spec revision](https://blog.modelcontextprotocol.io/posts/2026-07-28/), which makes the protocol stateless at its core. 1.0.0 adopts it: the stateless serving model, cacheable tool lists, and header-based routing, while 2025-era clients keep working unchanged on the same endpoints. The changes are documented with before/after code in [How DBHub Adopts the New MCP Spec 2026-07-28](/blog/how-dbhub-adopts-mcp-spec-2026-07-28).
+
+DBHub has been stateless by design since its first release. With the spec now standardizing that model, this is the right point to call it 1.0.
+
+## 17 months in numbers
+
+Since the first commit in March 2025:
+
+- **573 commits**, **73 npm releases**
+- **164 pull requests** merged from **34 contributors**
+- **158 issues** closed, **3 open**
+- **3,200+ GitHub stars**, **270+ forks**
+
+1.0.0 ships: multi-database TOML configuration with hot reload, custom parameterized tools, SSH tunnels with multi-hop ProxyJump, read-only enforcement with engine-level guards, a web workbench, an MCP Bundle for Claude Desktop, and a Claude Code plugin.
+
+## Referenced by the Claude Code docs
+
+The [Claude Code documentation](https://code.claude.com/docs/en/mcp#example-query-your-postgresql-database) uses DBHub in its "Query your PostgreSQL database" example:
+
+![Claude Code docs referencing DBHub for PostgreSQL](https://raw.githubusercontent.com/bytebase/dbhub/main/docs/images/blog/dbhub-1-0-0/claude-code-docs-dbhub.webp)
+
+```bash
+claude mcp add --transport stdio db -- npx -y @bytebase/dbhub \
+  --dsn "postgresql://readonly:pass@prod.db.com:5432/analytics"
+```
+
+## Compatibility
+
+1.0.0 is a protocol upgrade, not a breaking release: every existing `dbhub.toml`, DSN, and command-line flag works unchanged, and 2025-era MCP clients are served alongside 2026-07-28 clients. The one caveat for hand-rolled HTTP scripts is in the [adoption post](/blog/how-dbhub-adopts-mcp-spec-2026-07-28#5-compatibility).
+
+Try it:
+
+```bash
+npx @bytebase/dbhub --demo
+```
+
+DBHub is MIT-licensed at [github.com/bytebase/dbhub](https://github.com/bytebase/dbhub). Thanks to everyone who filed the issues and sent the pull requests.

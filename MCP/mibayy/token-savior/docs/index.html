@@ -1,0 +1,1943 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Token Savior — we gave Claude a map of your codebase</title>
+<meta name="description" content="A synthetic benchmark pitting a plain coding agent against the same model wired to Token Savior. Same model. 96 tasks (90 paired). 25 wins, 65 ties, 0 losses. 97.9% vs 78.3% — and −80% active tokens via the new `optimized` profile (single env var, no tuning). Works with Claude Code, Cursor, Codex, Antigravity, Cline, Continue, Windsurf, Aider, Gemini CLI — any MCP client.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/":"https://unpkg.com/three@0.160.0/"}}</script>
+<style>
+:root{
+  --bg:#07070a;--bg2:#0d0d14;--bg3:#11111a;
+  --text:#f5f5f7;--text2:#a0a0ae;--text3:#60606e;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.14);
+  --purple:#8b5cf6;--purple2:#a78bfa;
+  --cyan:#22d3ee;--lime:#a3e635;--pink:#ec4899;--amber:#fbbf24;--rose:#f43f5e;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(1000px 600px at 10% -5%, rgba(139,92,246,.14), transparent 60%),
+    radial-gradient(900px 600px at 90% 20%, rgba(34,211,238,.09), transparent 60%),
+    radial-gradient(800px 600px at 50% 100%, rgba(236,72,153,.06), transparent 60%)}
+a{color:inherit;text-decoration:none}
+
+/* ═══ NAV ═══ */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:18px 40px;display:flex;align-items:center;justify-content:space-between;
+  background:linear-gradient(180deg,rgba(7,7,10,.88),rgba(7,7,10,.55) 70%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Geist Mono',monospace;font-size:.82rem;font-weight:500;letter-spacing:-.01em}
+.brand-dot{width:8px;height:8px;border-radius:50%;background:var(--lime);box-shadow:0 0 14px var(--lime)}
+.nav-links{display:flex;gap:28px;font-family:'Geist Mono',monospace;font-size:.75rem;color:var(--text2);letter-spacing:.02em}
+.nav-links a{transition:color .2s}.nav-links a:hover{color:var(--text)}
+.nav-cta{padding:8px 16px;border:1px solid var(--border2);border-radius:999px;font-family:'Geist Mono',monospace;font-size:.72rem;transition:all .2s}
+.nav-cta:hover{background:var(--text);color:var(--bg)}
+@media(max-width:720px){.nav-links{display:none}nav{padding:14px 22px}}
+
+/* ═══ HERO ═══ */
+.hero{padding:180px 40px 120px;position:relative;text-align:center;max-width:1180px;margin:0 auto}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:10px;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--cyan);text-transform:uppercase;letter-spacing:.14em;margin-bottom:28px;padding:6px 14px;border-radius:999px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.25)}
+.hero-eyebrow i{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hero h1{font-family:'Instrument Serif',serif;font-weight:400;font-size:clamp(2.8rem,6vw,5.5rem);line-height:1.02;letter-spacing:-.025em;margin-bottom:32px}
+.hero h1 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2) 50%,var(--pink));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:1.18rem;color:var(--text2);line-height:1.65;max-width:640px;margin:0 auto 56px}
+.hero-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;max-width:920px;margin:0 auto;padding:32px;border:1px solid var(--border);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.005));backdrop-filter:blur(10px)}
+.hero-stat .n{font-family:'Instrument Serif',serif;font-size:clamp(2rem,3.4vw,3rem);font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:8px;background:linear-gradient(135deg,var(--text),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-stat .l{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+@media(max-width:720px){.hero-strip{grid-template-columns:repeat(2,1fr);padding:22px;gap:18px}.hero{padding:140px 20px 80px}}
+
+/* ═══ GENERIC SECTION HEAD ═══ */
+section{position:relative;z-index:1}
+.s-intro{max-width:780px;margin:0 auto 56px;text-align:center;padding:0 20px}
+.s-intro .kicker{display:inline-block;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:20px}
+.s-intro .kicker i{color:var(--cyan)}
+.s-intro h2{font-family:'Instrument Serif',serif;font-size:clamp(2.2rem,4.8vw,3.4rem);font-weight:400;letter-spacing:-.022em;line-height:1.08;margin-bottom:18px}
+.s-intro h2 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.s-intro p{color:var(--text2);font-size:1.05rem;line-height:1.7;max-width:620px;margin:0 auto}
+
+/* ═══ SCORECARD ═══ */
+.scorecard{padding:60px 24px 120px}
+.card-wrap{max-width:1240px;margin:0 auto}
+.vs-grid{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:40px;margin-bottom:72px}
+.vs-side{padding:36px;border:1px solid var(--border);border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.vs-side.a{border-color:rgba(244,63,94,.3);background:linear-gradient(180deg,rgba(244,63,94,.05),transparent)}
+.vs-side.b{border-color:rgba(163,230,53,.3);background:linear-gradient(180deg,rgba(163,230,53,.05),transparent)}
+.vs-name{display:flex;align-items:center;gap:12px;font-family:'Geist Mono',monospace;font-size:.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:22px}
+.vs-name i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.a .vs-name i{background:var(--rose);box-shadow:0 0 10px var(--rose)}
+.b .vs-name i{background:var(--lime);box-shadow:0 0 10px var(--lime)}
+.vs-title{font-family:'Instrument Serif',serif;font-size:1.7rem;font-weight:400;letter-spacing:-.015em;line-height:1.15;margin-bottom:6px}
+.vs-tools{font-family:'Geist Mono',monospace;font-size:.78rem;color:var(--text3);margin-bottom:28px}
+.vs-rows{display:flex;flex-direction:column;gap:14px}
+.vs-row{display:flex;justify-content:space-between;align-items:baseline;padding:12px 0;border-bottom:1px solid var(--border)}
+.vs-row:last-child{border:0}
+.vs-row .k{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+.vs-row .v{font-family:'Instrument Serif',serif;font-size:1.55rem;letter-spacing:-.015em}
+.b .vs-row .v{color:var(--lime)}
+.a .vs-row .v{color:var(--text)}
+.vs-center{display:flex;flex-direction:column;align-items:center;gap:16px}
+.vs-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:3.2rem;color:var(--text3);line-height:1}
+.vs-score{display:flex;align-items:baseline;gap:14px;font-family:'Instrument Serif',serif;font-size:2.8rem;letter-spacing:-.02em}
+.vs-score .a{color:var(--text2)}.vs-score .b{color:var(--lime)}.vs-score .sep{color:var(--text3);font-size:1.8rem}
+.vs-label{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;text-align:center;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.vs-info{width:14px;height:14px;border-radius:50%;border:1px solid var(--border2);color:var(--text3);font-size:.62rem;font-family:serif;font-style:italic;display:inline-flex;align-items:center;justify-content:center;cursor:help;position:relative;text-transform:none;letter-spacing:0}
+.vs-info:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#0a0a14;border:1px solid var(--border2);border-radius:8px;padding:10px 12px;font-size:.72rem;color:var(--text);white-space:normal;width:260px;text-transform:none;letter-spacing:0;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.5);font-style:normal;font-family:system-ui;line-height:1.45;text-align:left}
+.vs-tally{display:flex;gap:14px;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);margin-top:4px}
+.vs-tally span{padding:3px 9px;border-radius:999px;border:1px solid var(--border)}
+.vs-tally .w{color:var(--lime);border-color:rgba(163,230,53,.3)}
+.vs-tally .l{color:var(--rose);border-color:rgba(244,63,94,.3)}
+.vs-tally .t{color:#e9b14a;border-color:rgba(233,177,74,.35);display:inline-flex;align-items:center;gap:6px}
+.vs-tally .t .vs-info{border-color:rgba(233,177,74,.5);color:#e9b14a}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:56px}
+.panel{padding:36px;border:1px solid var(--border);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.panel h3{font-family:'Instrument Serif',serif;font-size:1.6rem;font-weight:400;letter-spacing:-.015em;margin-bottom:6px}
+.panel .sub{color:var(--text3);font-size:.82rem;font-family:'Geist Mono',monospace;margin-bottom:26px}
+.radar-wrap{display:flex;justify-content:center}
+.radar{width:100%;max-width:360px;height:360px}
+.bars{display:flex;flex-direction:column;gap:14px}
+.bar-row{display:grid;grid-template-columns:130px 1fr 60px;gap:14px;align-items:center}
+.bar-row .lb{font-family:'Geist Mono',monospace;font-size:.75rem;color:var(--text2)}
+.bar-tr{position:relative;height:8px;border-radius:4px;background:rgba(255,255,255,.04);overflow:hidden}
+.bar-a{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,rgba(244,63,94,.5),rgba(244,63,94,.8));border-radius:4px}
+.bar-b{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,rgba(163,230,53,.6),rgba(163,230,53,.9));border-radius:4px;top:auto;bottom:-12px;height:8px}
+.bar-row{margin-bottom:14px}
+.bar-row .vv{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);text-align:right}
+
+.highlights{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.hl{padding:28px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.025),transparent);position:relative;overflow:hidden}
+.hl::before{content:'';position:absolute;inset:-1px;border-radius:18px;padding:1px;background:linear-gradient(135deg,rgba(139,92,246,.3),transparent);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.hl .n{font-family:'Instrument Serif',serif;font-size:2.4rem;font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:10px;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hl .t{font-size:.95rem;color:var(--text);margin-bottom:6px}
+.hl .d{font-size:.82rem;color:var(--text3);line-height:1.55}
+
+@media(max-width:900px){.vs-grid{grid-template-columns:1fr;gap:20px}.vs-center{flex-direction:row;justify-content:center}.grid-2{grid-template-columns:1fr}.highlights{grid-template-columns:1fr}.scorecard{padding:40px 18px 80px}}
+
+/* ═══ GRAPH ═══ */
+.graph{padding:80px 24px 140px}
+.graph-wrap{max-width:1360px;margin:0 auto;display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:stretch}
+.stage{position:relative;min-height:640px;border:1px solid var(--border);border-radius:22px;overflow:hidden;background:radial-gradient(1200px 800px at 50% 50%, rgba(139,92,246,.12), transparent 60%),#04040a}
+.stage canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+.stage-ui{position:absolute;top:18px;left:18px;display:flex;gap:8px;flex-wrap:wrap;z-index:2}
+.chip{font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--text2);padding:5px 11px;border-radius:999px;background:rgba(0,0,0,.55);border:1px solid var(--border2);cursor:pointer;transition:all .15s;backdrop-filter:blur(10px)}
+.chip:hover{color:var(--text);border-color:var(--purple2)}
+.chip.active{color:#04040a;background:var(--lime);border-color:var(--lime)}
+.stage-legend{position:absolute;bottom:18px;left:18px;right:18px;font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--text3);z-index:2;display:flex;gap:16px;flex-wrap:wrap;align-items:center;background:rgba(4,4,10,.72);border:1px solid var(--border);border-radius:10px;padding:8px 12px;backdrop-filter:blur(10px)}
+.stage-legend b{color:var(--text2);font-weight:500}
+.stage-legend .sep{width:1px;height:12px;background:var(--border)}
+.sl-dot{display:inline-flex;align-items:center;gap:6px;color:var(--text2)}
+.sl-dot i{width:8px;height:8px;border-radius:50%;display:inline-block;box-shadow:0 0 6px currentColor}
+.sl-dot.fn i{background:#22d3ee;color:#22d3ee}
+.sl-dot.cl i{background:#a78bfa;color:#a78bfa}
+.sl-dot.me i{background:#ec4899;color:#ec4899}
+.sl-dot.co i{background:#fbbf24;color:#fbbf24}
+@media(max-width:900px){.stage-legend{font-size:.62rem;gap:10px}.stage-legend .sep{display:none}}
+.side-panel{display:flex;flex-direction:column;gap:18px}
+.sp-card{padding:24px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.sp-card h4{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.12em;margin-bottom:14px}
+.sp-num{font-family:'Instrument Serif',serif;font-size:2.2rem;font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:8px;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sp-note{color:var(--text3);font-size:.82rem;line-height:1.55}
+.sp-legend{display:flex;flex-direction:column;gap:10px}
+.spl-row{display:grid;grid-template-columns:110px 1fr;gap:12px;font-size:.78rem;line-height:1.4;align-items:baseline}
+.spl-k{font-family:'Geist Mono',monospace;font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
+.spl-v{color:var(--text2)}
+.sp-hover{min-height:110px}
+.sp-hover .name{font-family:'Geist Mono',monospace;font-size:.88rem;color:var(--cyan);margin-bottom:6px}
+.sp-hover .kind{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);margin-bottom:12px}
+.sp-hover .meta{font-size:.82rem;color:var(--text2);line-height:1.6}
+@media(max-width:1080px){.graph-wrap{grid-template-columns:1fr}.stage{height:500px}.graph{padding:40px 18px 80px}}
+
+/* ═══ REPLAY ═══ */
+.replay{padding:80px 24px 140px}
+.replay-wrap{max-width:1320px;margin:0 auto}
+.replay-grid{display:grid;grid-template-columns:repeat(20,1fr);gap:4px;margin-bottom:48px;padding:22px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.tile{aspect-ratio:1/1;border-radius:5px;cursor:pointer;position:relative;transition:all .15s;border:1px solid transparent}
+.tile:hover{transform:scale(1.4);z-index:4;border-color:var(--text);box-shadow:0 4px 18px rgba(0,0,0,.6)}
+.tile.win{background:linear-gradient(135deg,rgba(163,230,53,.3),rgba(163,230,53,.65))}
+.tile.tie{background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(139,92,246,.4))}
+.tile.loss{background:linear-gradient(135deg,rgba(244,63,94,.3),rgba(244,63,94,.6))}
+.tile.impossible{background:linear-gradient(135deg,rgba(251,191,36,.3),rgba(251,191,36,.65))}
+.tile.pending{background:rgba(255,255,255,.04);border:1px dashed rgba(255,255,255,.12);pointer-events:none;opacity:.4}
+.tile.active{border:2px solid var(--text);transform:scale(1.35);z-index:3;box-shadow:0 0 18px rgba(255,255,255,.35)}
+.grid-leg{display:flex;gap:22px;justify-content:center;margin-top:18px;flex-wrap:wrap;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3)}
+.grid-leg span{display:flex;align-items:center;gap:8px}
+.grid-leg i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.grid-leg .wn{background:linear-gradient(135deg,rgba(163,230,53,.3),rgba(163,230,53,.65))}
+.grid-leg .tn{background:linear-gradient(135deg,rgba(139,92,246,.2),rgba(139,92,246,.4))}
+.grid-leg .ls{background:linear-gradient(135deg,rgba(244,63,94,.3),rgba(244,63,94,.6))}
+.grid-leg .im{background:linear-gradient(135deg,rgba(251,191,36,.3),rgba(251,191,36,.65))}
+
+.now-playing{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border:1px solid var(--border);border-radius:16px 16px 0 0;border-bottom:0;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));flex-wrap:wrap;gap:14px}
+.np-left{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.np-tid{font-family:'Geist Mono',monospace;font-size:.8rem;color:var(--text);padding:5px 11px;border-radius:7px;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3)}
+.np-desc{color:var(--text2);font-size:.95rem;max-width:620px}
+.np-play{padding:10px 22px;border:1px solid var(--border2);border-radius:999px;background:transparent;color:var(--text);font-family:'Geist Mono',monospace;font-size:.78rem;cursor:pointer;transition:all .15s}
+.np-play:hover{background:var(--text);color:var(--bg)}
+.np-play:disabled{opacity:.5;cursor:default}
+
+.stats-compare{border-left:1px solid var(--border);border-right:1px solid var(--border);background:#06060b;padding:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.sc-card{background:#0a0a12;border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;position:relative}
+.sc-head{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:6px}
+.sc-info{width:14px;height:14px;border-radius:50%;border:1px solid var(--border2);color:var(--text3);font-size:.62rem;font-family:serif;font-style:italic;display:inline-flex;align-items:center;justify-content:center;cursor:help;position:relative}
+.sc-info:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#0a0a14;border:1px solid var(--border2);border-radius:6px;padding:8px 10px;font-size:.7rem;color:var(--text);white-space:normal;width:220px;text-transform:none;letter-spacing:0;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.5);font-style:normal;font-family:system-ui;line-height:1.4}
+.sc-values{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;font-family:'Geist Mono',monospace}
+.sc-col{display:flex;flex-direction:column;gap:3px}
+.sc-col.right{align-items:flex-end;text-align:right}
+.sc-lbl{font-size:.6rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+.sc-v{font-size:1rem;color:var(--text2);font-variant-numeric:tabular-nums}
+.sc-v.win{color:var(--lime);font-weight:500}
+.sc-v.lose{color:var(--text3)}
+.sc-v.eq{color:var(--text2)}
+.sc-arrow{color:var(--text3);font-size:.85rem}
+.sc-delta{font-family:'Geist Mono',monospace;font-size:.75rem;text-align:center;padding:5px 10px;border-radius:999px;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.sc-delta.dn{background:rgba(132,204,22,.08);color:var(--lime);border:1px solid rgba(132,204,22,.25)}
+.sc-delta.up{background:rgba(244,63,94,.08);color:var(--rose);border:1px solid rgba(244,63,94,.25)}
+.sc-delta.eq{color:var(--text3);border:1px solid var(--border)}
+@media(max-width:900px){.stats-compare{grid-template-columns:repeat(2,1fr);padding:12px;gap:10px}.sc-v{font-size:.9rem}}
+
+.terms{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:0 0 16px 16px;overflow:hidden;min-height:560px;border-top:1px solid var(--border)}
+.term{padding:22px 24px;background:#02020a;font-family:'Geist Mono',monospace;font-size:.78rem;line-height:1.65;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.term:last-child{border-right:0;background:#020a08}
+.term-head{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.term-name{display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--text2)}
+.term-name i{width:8px;height:8px;border-radius:50%}
+.term.a .term-name i{background:var(--rose);box-shadow:0 0 8px var(--rose)}
+.term.b .term-name i{background:var(--lime);box-shadow:0 0 8px var(--lime)}
+.term-meta{font-size:.68rem;color:var(--text3)}
+.term-body{flex:1;overflow-y:auto;max-height:420px;scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+.term-body::-webkit-scrollbar{width:6px}
+.term-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.ln{display:block;white-space:pre-wrap;word-break:break-word;margin-bottom:4px}
+.ln .p{color:var(--cyan)}
+.ln .t{color:var(--purple2)}
+.ln .m{color:var(--text3)}
+.ln .ok{color:var(--lime)}
+.ln .bad{color:var(--rose)}
+.ln .r{color:var(--text2)}
+.ln .u{color:var(--text);font-weight:500}
+.ln.dim{color:var(--text3);font-size:.72rem}
+.term-foot{margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:.7rem;color:var(--text3)}
+.term-foot b{color:var(--text2);font-weight:500}
+.cur::after{content:'▎';color:var(--lime);animation:blink 1s step-end infinite;margin-left:2px}
+@keyframes blink{50%{opacity:0}}
+@media(max-width:900px){.replay-grid{grid-template-columns:repeat(12,1fr)}.terms{grid-template-columns:1fr;min-height:auto}.term{border-right:0;border-bottom:1px solid var(--border)}.replay{padding:40px 16px 80px}.now-playing{flex-direction:column;align-items:flex-start}}
+
+/* ═══ CTA ═══ */
+.cta{padding:100px 24px 140px;text-align:center;position:relative}
+.cta-wrap{max-width:820px;margin:0 auto;padding:64px 40px;border:1px solid var(--border);border-radius:28px;background:
+  radial-gradient(600px 300px at 50% 0%, rgba(139,92,246,.12), transparent 60%),
+  radial-gradient(600px 300px at 50% 100%, rgba(34,211,238,.08), transparent 60%),
+  linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.005))}
+.cta h2{font-family:'Instrument Serif',serif;font-size:clamp(2rem,4vw,3rem);font-weight:400;letter-spacing:-.02em;line-height:1.1;margin-bottom:20px}
+.cta h2 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.cta p{color:var(--text2);max-width:520px;margin:0 auto 36px;line-height:1.65}
+.cta-buttons{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.btn{padding:14px 28px;border-radius:999px;font-family:'Geist Mono',monospace;font-size:.82rem;transition:all .2s;border:1px solid transparent;cursor:pointer}
+.btn-primary{background:var(--text);color:var(--bg)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 12px 24px -8px rgba(255,255,255,.25)}
+.btn-ghost{background:transparent;color:var(--text);border-color:var(--border2)}
+.btn-ghost:hover{border-color:var(--text)}
+
+/* ═══ COMPAT STRIP ═══ */
+.compat{padding:80px 24px 40px;text-align:center}
+.compat .kicker{display:inline-block;font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.14em;margin-bottom:18px}
+.compat .kicker i{color:var(--cyan);font-style:normal}
+.compat h2{font-family:'Instrument Serif',serif;font-size:clamp(1.8rem,3.6vw,2.6rem);font-weight:400;letter-spacing:-.02em;line-height:1.1;margin-bottom:14px}
+.compat h2 em{font-style:italic;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.compat-sub{color:var(--text2);max-width:580px;margin:0 auto 36px;font-size:1rem;line-height:1.6}
+.compat-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;max-width:880px;margin:0 auto}
+.compat-chip{padding:11px 18px;border:1px solid var(--border2);border-radius:999px;font-family:'Geist Mono',monospace;font-size:.78rem;color:var(--text);background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,.005));letter-spacing:.01em;transition:all .2s}
+.compat-chip:hover{border-color:rgba(163,230,53,.55);color:var(--lime);transform:translateY(-1px)}
+.compat-chip .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px var(--lime);margin-right:9px;vertical-align:middle}
+.compat-foot{margin-top:28px;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);letter-spacing:.04em}
+.compat-foot a{color:var(--text2);border-bottom:1px solid var(--border2);transition:all .2s}
+.compat-foot a:hover{color:var(--lime);border-color:var(--lime)}
+
+footer{padding:50px 24px 40px;border-top:1px solid var(--border);text-align:center}
+footer .tag{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);letter-spacing:.05em}
+footer .tag a{color:var(--text2);transition:color .2s}
+footer .tag a:hover{color:var(--text)}
+
+.reveal{opacity:0;transform:translateY(20px);transition:all .7s ease-out}
+.reveal.in{opacity:1;transform:none}
+
+/* ═══ CONFIG PICKER (dual: left base · right TS) ═══ */
+.picker-shell{display:flex;flex-direction:column;align-items:center;gap:18px;margin:8px auto 40px;max-width:920px}
+.picker-caption{font-family:'Instrument Serif',serif;font-style:italic;font-size:clamp(1.1rem,2.2vw,1.45rem);color:var(--text2);letter-spacing:-.005em}
+.config-picker{display:flex;align-items:stretch;gap:18px;padding:16px;border:1px solid var(--border2);border-radius:24px;background:rgba(7,7,14,.7);backdrop-filter:blur(14px);font-family:'Geist Mono',monospace;flex-wrap:wrap;justify-content:center;width:100%}
+.cp-side{flex:1 1 320px;display:flex;flex-direction:column;gap:12px;padding:16px 18px 14px;border-radius:18px;background:rgba(255,255,255,.015);border:1px solid var(--border);min-width:300px}
+.cp-side.left{box-shadow:inset 0 0 0 1px rgba(244,63,94,.25)}
+.cp-side.right{box-shadow:inset 0 0 0 1px rgba(163,230,53,.25)}
+.cp-side-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.cp-title{font-size:.98rem;font-weight:600;letter-spacing:.02em;text-transform:lowercase}
+.cp-side.left .cp-title{color:var(--rose)}
+.cp-side.right .cp-title{color:var(--lime)}
+.cp-title .cp-badge{display:inline-block;padding:3px 10px;margin-right:10px;border-radius:6px;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;vertical-align:middle}
+.cp-side.left .cp-badge{background:rgba(244,63,94,.2);color:#ffb4c2}
+.cp-side.right .cp-badge{background:rgba(163,230,53,.2);color:#d5f58c}
+.cp-hint{font-size:.72rem;color:var(--text3);letter-spacing:.02em;font-family:'Geist Mono',monospace}
+.cp-buttons{display:flex;align-items:center;gap:4px;padding:5px;border-radius:999px;background:rgba(0,0,0,.28);border:1px solid var(--border);width:100%}
+.cp-btn{flex:1;position:relative;padding:11px 12px;font-size:.86rem;color:var(--text2);letter-spacing:.01em;cursor:pointer;border-radius:999px;transition:all .2s;background:transparent;border:0;font-family:inherit;white-space:nowrap}
+.cp-btn:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.cp-side.left .cp-btn.active{background:linear-gradient(135deg,#f43f5e,#ec4899);color:#fff;font-weight:600;box-shadow:0 6px 18px -8px rgba(244,63,94,.6)}
+.cp-side.right .cp-btn.active{background:linear-gradient(135deg,#a3e635,#22d3ee);color:#04040a;font-weight:600;box-shadow:0 6px 18px -8px rgba(163,230,53,.6)}
+.cp-btn .cp-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.cp-btn .cp-dot.ok{background:var(--lime);box-shadow:0 0 6px var(--lime)}
+.cp-btn .cp-dot.pending{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:pulse 2s infinite}
+.cp-btn .cp-dot.empty{background:var(--text3)}
+.cp-btn.active .cp-dot{box-shadow:none}
+.cp-vs-col{display:flex;align-items:center;justify-content:center;align-self:center;padding:0 6px}
+.cp-vs{font-family:'Instrument Serif',serif;font-style:italic;font-size:2.4rem;color:var(--text2);line-height:1;background:linear-gradient(135deg,var(--purple2),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+@media(max-width:720px){.cp-side{min-width:0;width:100%;flex:1 1 100%}.cp-vs-col{width:100%;padding:4px 0}.cp-vs{font-size:1.9rem}.cp-btn{padding:10px 8px;font-size:.76rem}.cp-title{font-size:.9rem}.picker-caption{font-size:1.05rem}}
+
+/* ═══ MATCHUP TABLE (head-to-head, 90 tasks) ═══ */
+.matchup{padding:40px 24px 80px}
+.matchup-wrap{max-width:1240px;margin:0 auto}
+.mt-summary{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:24px;font-family:'Geist Mono',monospace;font-size:.74rem}
+.mt-summary span{padding:6px 14px;border-radius:999px;border:1px solid var(--border);color:var(--text2)}
+.mt-summary span b{color:var(--text);font-weight:500}
+.mt-summary .w{color:var(--lime);border-color:rgba(163,230,53,.3)}
+.mt-summary .l{color:var(--rose);border-color:rgba(244,63,94,.3)}
+.mt-summary .t{color:#e9b14a;border-color:rgba(233,177,74,.35)}
+.mt-summary .i{color:var(--amber);border-color:rgba(251,191,36,.35)}
+.mt-controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:24px}
+.mt-chip{padding:7px 14px;border:1px solid var(--border);border-radius:999px;font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text2);cursor:pointer;background:transparent;transition:all .2s}
+.mt-chip:hover{border-color:var(--border2);color:var(--text)}
+.mt-chip.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+.mt-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:16px;background:rgba(255,255,255,.01)}
+.mt-table{width:100%;border-collapse:separate;border-spacing:0;font-family:'Geist Mono',monospace;font-size:.76rem}
+.mt-table thead{background:rgba(255,255,255,.03)}
+.mt-table th{text-align:left;padding:13px 14px;font-weight:500;font-size:.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:.09em;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0;background:#0c0c14;z-index:2}
+.mt-table th.num{text-align:right}
+.mt-table th:hover{color:var(--text)}
+.mt-table th .so{margin-left:4px;font-size:.58rem;opacity:.5}
+.mt-table th.sorted{color:var(--cyan)}
+.mt-table th.sorted .so{opacity:1;color:var(--cyan)}
+.mt-table td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text2)}
+.mt-table tbody tr:last-child td{border-bottom:0}
+.mt-table tbody tr{cursor:pointer;transition:background .15s}
+.mt-table tbody tr:hover td{background:rgba(139,92,246,.06)}
+.mt-table tbody tr.active td{background:rgba(34,211,238,.08)}
+.mt-table td.num{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+.mt-table td .tid{color:var(--text);font-weight:500}
+.mt-table td .cat{color:var(--text3);font-size:.7rem;text-transform:lowercase}
+.mt-table td .slug{color:var(--text);display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Geist',sans-serif;font-weight:400;font-size:.82rem}
+.mt-out{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;border:1px solid;font-weight:500}
+.mt-out.win{color:var(--lime);border-color:rgba(163,230,53,.4);background:rgba(163,230,53,.06)}
+.mt-out.loss{color:var(--rose);border-color:rgba(244,63,94,.4);background:rgba(244,63,94,.06)}
+.mt-out.tie{color:#e9b14a;border-color:rgba(233,177,74,.4);background:rgba(233,177,74,.06)}
+.mt-out.impossible{color:var(--amber);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.06)}
+.mt-out.pending{color:var(--text3);border-color:var(--border)}
+.mt-delta.dn{color:var(--lime)}
+.mt-delta.up{color:var(--rose)}
+.mt-delta.eq{color:var(--text3)}
+.mt-score{display:inline-block;min-width:28px}
+.mt-score.win{color:var(--lime)}.mt-score.loss{color:var(--rose)}.mt-score.eq{color:var(--text)}
+.mt-empty{padding:60px 20px;text-align:center;color:var(--text3);font-family:'Geist Mono',monospace;font-size:.82rem}
+@media(max-width:900px){.mt-table{font-size:.68rem}.mt-table th,.mt-table td{padding:9px 10px}.mt-table td .slug{max-width:180px}.mt-table th.hide-sm,.mt-table td.hide-sm{display:none}}
+
+.pending-banner{display:none;max-width:720px;margin:0 auto 32px;padding:12px 20px;border-radius:14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:#fbbf24;font-family:'Geist Mono',monospace;font-size:.76rem;text-align:center}
+.pending-banner.show{display:block}
+.pending-banner b{color:var(--text);font-weight:500}
+
+/* ═══ BEYOND THE BENCH (v4.3) ═══ */
+.beyond{padding:80px 24px 120px}
+.beyond-wrap{max-width:1240px;margin:0 auto}
+.beyond-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:48px}
+.beyond-stat{padding:24px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.025),transparent)}
+.beyond-stat .n{font-family:'Instrument Serif',serif;font-size:2.2rem;font-weight:400;letter-spacing:-.02em;line-height:1;margin-bottom:10px;background:linear-gradient(120deg,var(--cyan),var(--purple2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.beyond-stat .l{font-family:'Geist Mono',monospace;font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;line-height:1.4}
+.beyond-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:48px}
+.beyond-col{padding:28px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent)}
+.beyond-col h3{font-family:'Instrument Serif',serif;font-size:1.4rem;font-weight:400;letter-spacing:-.015em;margin-bottom:6px}
+.beyond-col .sub{font-family:'Geist Mono',monospace;font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:18px}
+.beyond-col ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}
+.beyond-col li{font-size:.92rem;color:var(--text2);line-height:1.55;padding-left:18px;position:relative}
+.beyond-col li::before{content:'';position:absolute;left:0;top:.55rem;width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.beyond-col li b{color:var(--text);font-weight:500}
+.beyond-col li code{font-family:'Geist Mono',monospace;font-size:.82rem;color:var(--cyan);background:rgba(34,211,238,.07);padding:1px 6px;border-radius:5px}
+.beyond-families{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:48px}
+.bf{padding:20px 22px;border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.015)}
+.bf-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
+.bf-name{font-family:'Geist Mono',monospace;font-size:.78rem;color:var(--text);letter-spacing:.04em}
+.bf-count{font-family:'Geist Mono',monospace;font-size:.68rem;color:var(--cyan);background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.25);padding:2px 8px;border-radius:999px}
+.bf-list{font-family:'Geist Mono',monospace;font-size:.74rem;color:var(--text3);line-height:1.55;word-spacing:.04em}
+.beyond-snippet{padding:24px 28px;border:1px solid var(--border);border-radius:16px;background:#02020a;font-family:'Geist Mono',monospace;font-size:.82rem;color:var(--text2);line-height:1.75;overflow-x:auto}
+.beyond-snippet .c{color:var(--text3)}
+.beyond-snippet .k{color:var(--lime)}
+.beyond-foot{margin-top:24px;font-family:'Geist Mono',monospace;font-size:.74rem;color:var(--text3);text-align:center;letter-spacing:.02em}
+.beyond-foot a{color:var(--cyan);border-bottom:1px solid rgba(34,211,238,.35);transition:all .2s}
+.beyond-foot a:hover{color:var(--lime);border-color:var(--lime)}
+@media(max-width:1080px){.beyond-strip{grid-template-columns:repeat(2,1fr)}.beyond-cols{grid-template-columns:1fr}.beyond-families{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.beyond-strip{grid-template-columns:1fr}.beyond-families{grid-template-columns:1fr}.beyond{padding:48px 16px 80px}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand"><span class="brand-dot"></span>tsbench<span style="color:var(--text3);margin-left:8px">/ Token Savior benchmark</span></div>
+  <div class="nav-links">
+    <a href="#scorecard">results</a>
+    <a href="#graph">the graph</a>
+    <a href="#replay">replay</a>
+    <a href="#beyond">beyond the bench</a>
+    <a href="#compat">works with</a>
+  </div>
+  <a class="nav-cta" href="https://github.com/Mibayy/token-savior" target="_blank">github ↗</a>
+</nav>
+
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-eyebrow"><i></i><span id="heroEyebrow">v<!--ts:version-->4.24.0<!--/ts:version--> · 97.9% on tsbench + ~20K tokens/week real</span></div>
+  <h1>The only MCP server<br>that turns Claude into<br><em>a perfect coder.</em></h1>
+  <p class="hero-sub"><strong>v<!--ts:version-->4.24.0<!--/ts:version--> · <!--ts:latest-->Lighter edit context, architecture map, review prompts<!--/ts:latest--></strong> One MCP server, one profile. Set <code>TOKEN_SAVIOR_PROFILE=optimized</code> and you ship 97.9% accuracy on 96 real coding tasks. Plain Claude scores 78.3%. Active tokens drop 80% (3 395 vs 17 221). Wall time drops 83%. No tuning required.</p>
+  <div class="pending-banner" id="pendingBanner"></div>
+
+  <div class="picker-shell">
+    <div class="picker-caption">Pick the two agents to compare</div>
+    <div class="config-picker" role="group" aria-label="Pick configurations to compare">
+      <div class="cp-side left" role="tablist" aria-label="Agent A — plain, no Token Savior">
+        <div class="cp-side-head">
+          <div class="cp-title"><span class="cp-badge">A</span>plain agent</div>
+          <div class="cp-hint">Read · Grep · Bash</div>
+        </div>
+        <div class="cp-buttons">
+          <button class="cp-btn" data-side="left" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet 4.6</button>
+          <button class="cp-btn active" data-side="left" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus 4.7</button>
+        </div>
+      </div>
+      <div class="cp-vs-col"><span class="cp-vs">vs</span></div>
+      <div class="cp-side right" role="tablist" aria-label="Agent B — same model wired to Token Savior">
+        <div class="cp-side-head">
+          <div class="cp-title"><span class="cp-badge">B</span>+ token savior</div>
+          <div class="cp-hint">+ <!--ts:tools2-->72<!--/ts:tools2--> structural MCP tools</div>
+        </div>
+        <div class="cp-buttons">
+          <button class="cp-btn" data-side="right" data-model="sonnet" role="tab"><span class="cp-dot empty"></span>Sonnet 4.6</button>
+          <button class="cp-btn active" data-side="right" data-model="opus"   role="tab"><span class="cp-dot ok"></span>Opus 4.7</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero-strip">
+    <div class="hero-stat"><div class="n" id="hWall">—</div><div class="l">faster wall time</div></div>
+    <div class="hero-stat"><div class="n" id="hActive">—</div><div class="l">fewer active tokens</div></div>
+    <div class="hero-stat"><div class="n" id="hAcc">—</div><div class="l">higher accuracy</div></div>
+    <div class="hero-stat"><div class="n" id="hWTL">—</div><div class="l">losses · 96 tasks</div></div>
+  </div>
+</section>
+
+<!-- ═══ SCORECARD ═══ -->
+<section class="scorecard" id="scorecard">
+  <div class="s-intro reveal">
+    <div class="kicker">the scorecard <i>·</i> what the numbers say</div>
+    <h2>Same model. Same tasks.<br><em>One of them kept winning.</em></h2>
+    <p>Two agents, one codebase, ninety prompts pulled from real engineering work — find callers, audit cycles, estimate blast radius, summarize modules. We counted tokens, wall time and correctness.</p>
+  </div>
+
+  <div class="card-wrap">
+    <div class="vs-grid reveal">
+      <div class="vs-side a">
+        <div class="vs-name"><i></i>agent a · plain</div>
+        <div class="vs-title">Read, Grep, Bash.</div>
+        <div class="vs-tools">no structural tools</div>
+        <div class="vs-rows">
+          <div class="vs-row"><span class="k">active tokens</span><span class="v" id="aActive">—</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v" id="aWall">—</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v" id="aAcc">—</span></div>
+          <div class="vs-row"><span class="k">score</span><span class="v" id="aScore">—</span></div>
+        </div>
+      </div>
+      <div class="vs-center">
+        <div class="vs-vs">vs</div>
+        <div class="vs-score"><span class="a" id="cAccA">—</span><span class="sep">vs</span><span class="b" id="cAccB">—</span></div>
+        <div class="vs-label">accuracy <span class="vs-info" id="accTip" data-tip="">i</span></div>
+        <div class="vs-tally"><span class="w" id="tWins">—</span><span class="t" id="tTies">—<span class="vs-info" id="tiesTip" data-tip="">i</span></span><span class="l" id="tLosses">—</span></div>
+      </div>
+      <div class="vs-side b">
+        <div class="vs-name"><i></i>agent b · token savior</div>
+        <div class="vs-title">Plus the graph.</div>
+        <div class="vs-tools">+ <!--ts:tools-->72<!--/ts:tools--> structural MCP tools</div>
+        <div class="vs-rows">
+          <div class="vs-row"><span class="k">active tokens</span><span class="v" id="bActive">—</span></div>
+          <div class="vs-row"><span class="k">wall time</span><span class="v" id="bWall">—</span></div>
+          <div class="vs-row"><span class="k">accuracy</span><span class="v" id="bAcc">—</span></div>
+          <div class="vs-row"><span class="k">score</span><span class="v" id="bScore">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2 reveal">
+      <div class="panel">
+        <h3>Accuracy, by category</h3>
+        <div class="sub">avg score out of 2 · red = plain · green = token savior</div>
+        <div class="radar-wrap"><canvas class="radar" id="radar" width="720" height="720"></canvas></div>
+      </div>
+      <div class="panel">
+        <h3>Where the gap opens</h3>
+        <div class="sub">context ingested per category · lower is better</div>
+        <div class="bars" id="bars"></div>
+      </div>
+    </div>
+
+    <div class="highlights reveal">
+      <div class="hl"><div class="n">−99 %</div><div class="t">Import cycle detection</div><div class="d">Plain agent ran 35 Bash, 20 Read calls, 113k chars, 132s. Token Savior: two MCP calls, 200 chars, 17s. Same correct answer.</div></div>
+      <div class="hl"><div class="n">0 → 2</div><div class="t">File dependency recovery</div><div class="d">Baseline read the whole file and missed three imports. One <code style="font-family:inherit;color:var(--cyan)">get_file_dependencies()</code> call got a perfect 2/2.</div></div>
+      <div class="hl"><div class="n">21</div><div class="t">Impossible without</div><div class="d">Tasks the plain agent scored 0 on but Token Savior solved — community detection, hotspot audits, semantic duplicates. Amber tiles below.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ MATCHUP TABLE (head-to-head, 90 tasks) ═══ -->
+<section class="matchup" id="matchup">
+  <div class="s-intro reveal">
+    <div class="kicker">the matchup <i>·</i> task by task</div>
+    <h2>Every task.<br><em>Side by side.</em></h2>
+    <p>Every task from the benchmark. Pick any base model on the left, any Token-Savior-wired model on the right. The numbers recompute live. Token Savior wins or ties on every single one. Click a row to jump the replay below.</p>
+  </div>
+
+  <div class="matchup-wrap reveal">
+    <div class="mt-summary" id="mtSummary"></div>
+    <div class="mt-controls">
+      <button class="mt-chip active" data-filter="all">all</button>
+      <button class="mt-chip" data-filter="win">B wins</button>
+      <button class="mt-chip" data-filter="impossible">impossible w/o TS</button>
+      <button class="mt-chip" data-filter="tie">ties</button>
+      <button class="mt-chip" data-filter="loss">A wins</button>
+      <button class="mt-chip" data-filter="pending">pending</button>
+    </div>
+    <div class="mt-table-wrap">
+      <table class="mt-table" id="mtTable">
+        <thead>
+          <tr>
+            <th data-sort="id">#<span class="so">↕</span></th>
+            <th data-sort="cat" class="hide-sm">category<span class="so">↕</span></th>
+            <th data-sort="slug">task<span class="so">↕</span></th>
+            <th data-sort="sa" class="num">A<span class="so">↕</span></th>
+            <th data-sort="sb" class="num">B<span class="so">↕</span></th>
+            <th data-sort="dtok" class="num hide-sm">Δ tokens<span class="so">↕</span></th>
+            <th data-sort="dwall" class="num hide-sm">Δ wall<span class="so">↕</span></th>
+            <th data-sort="dchar" class="num hide-sm">Δ chars<span class="so">↕</span></th>
+            <th data-sort="out" class="num">outcome<span class="so">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="mtBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ GRAPH ═══ -->
+<section class="graph" id="graph">
+  <div class="s-intro reveal">
+    <div class="kicker">the graph <i>·</i> what Token Savior sees</div>
+    <h2>A codebase isn't a folder.<br><em>It's a graph.</em></h2>
+    <p>What you see below is the <code style="font-family:'Geist Mono',monospace;color:var(--cyan)">tsbench</code> fixture parsed into its call graph: <b style="color:var(--text)">206 symbols</b> (functions, classes, methods, constants), <b style="color:var(--text)">412 call edges</b> connecting them, clustered by module. The plain agent walks this one <code style="font-family:'Geist Mono',monospace;color:var(--cyan)">grep</code> at a time; Token Savior queries it directly. Drag to orbit, hover a point for details.</p>
+  </div>
+
+  <div class="graph-wrap">
+    <div class="stage" id="stage">
+      <div class="stage-ui">
+        <button class="chip active" data-view="all">all symbols</button>
+        <button class="chip" data-view="functions">functions</button>
+        <button class="chip" data-view="classes">classes</button>
+        <button class="chip" data-view="hot">hotspots</button>
+      </div>
+      <div class="stage-legend">
+        <span class="sl-dot fn"><i></i>function</span>
+        <span class="sl-dot cl"><i></i>class</span>
+        <span class="sl-dot me"><i></i>method</span>
+        <span class="sl-dot co"><i></i>const</span>
+        <span class="sep"></span>
+        <span><b>206</b> symbols</span>
+        <span><b>412</b> call edges</span>
+        <span class="sep"></span>
+        <span>drag · scroll · hover</span>
+      </div>
+    </div>
+    <aside class="side-panel">
+      <div class="sp-card"><h4>what you're looking at</h4><div class="sp-legend">
+        <div class="spl-row"><span class="spl-k">each point</span><span class="spl-v">a symbol in the code</span></div>
+        <div class="spl-row"><span class="spl-k">color</span><span class="spl-v">symbol kind (see legend below stage)</span></div>
+        <div class="spl-row"><span class="spl-k">clusters in space</span><span class="spl-v">symbols in the same module</span></div>
+        <div class="spl-row"><span class="spl-k">lines</span><span class="spl-v">who calls / imports what</span></div>
+        <div class="spl-row"><span class="spl-k">dot size</span><span class="spl-v">class &gt; function &gt; method &gt; const</span></div>
+      </div></div>
+      <div class="sp-card"><h4>hovering</h4><div class="sp-hover" id="hover"><div class="name">—</div><div class="kind">hover a node to inspect</div><div class="meta">name, kind, callers, dependents.</div></div></div>
+      <div class="sp-card"><h4>indexed in</h4><div class="sp-num">0.8s</div><div class="sp-note">Full reindex of the tsbench fixture (~2k lines of Python + TypeScript). Incremental edits reindex in milliseconds.</div></div>
+      <div class="sp-card"><h4>one query replaces</h4><div class="sp-num">35 Bash</div><div class="sp-note"><code style="font-family:inherit;color:var(--cyan)">find_import_cycles()</code> vs a grep-and-read loop — on TASK-026 this saved 132 seconds.</div></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ═══ REPLAY ═══ -->
+<section class="replay" id="replay">
+  <div class="s-intro reveal">
+    <div class="kicker">the replay <i>·</i> watch a task resolve</div>
+    <h2>Don't take our word for it.<br><em>Watch both agents work.</em></h2>
+    <p>Every tile is a real task from the benchmark, colored by outcome. Click one and we'll replay both agents' actual traces side by side — real tools, real timings, real answers.</p>
+  </div>
+
+  <div class="replay-wrap">
+    <div class="replay-grid" id="grid"></div>
+    <div class="grid-leg" id="gridLegend">
+      <span><i class="wn"></i>Token Savior wins (<span data-legend="wins">—</span>)</span>
+      <span><i class="im"></i>impossible without TS (<span data-legend="impossible">—</span>)</span>
+      <span><i class="tn"></i>tie (<span data-legend="ties">—</span>)</span>
+      <span><i class="ls"></i>losses (<span data-legend="losses">—</span>)</span>
+    </div>
+
+    <div class="now-playing" style="margin-top:36px">
+      <div class="np-left">
+        <span class="np-tid" id="npid">TASK-026</span>
+        <span class="np-desc" id="npdesc">Detect import cycles in the project. Any circular dependencies? If yes, list them.</span>
+      </div>
+      <button class="np-play" id="play">▶ replay</button>
+    </div>
+
+    <div class="stats-compare" id="statsCompare">
+      <div class="sc-card">
+        <div class="sc-head">wall time <span class="sc-info" data-tip="Total wall-clock time from task start until the agent returns a final answer. Lower is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="wallA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="wallB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaWall">—</div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-head">active tokens <span class="sc-info" data-tip="Total tokens processed by the model across all turns (input + output). Lower is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="tokA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="tokB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaTok">—</div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-head">context chars <span class="sc-info" data-tip="Characters injected into the model context from tool results (file reads, greps, etc). Lower is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="chA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="chB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaCh">—</div>
+      </div>
+      <div class="sc-card">
+        <div class="sc-head">score <span class="sc-info" data-tip="Correctness score out of 2, graded by an LLM judge comparing the answer to the expected result. Higher is better.">i</span></div>
+        <div class="sc-values">
+          <div class="sc-col"><span class="sc-lbl">plain</span><span class="sc-v" id="scA">—</span></div>
+          <div class="sc-arrow">→</div>
+          <div class="sc-col right"><span class="sc-lbl">ts</span><span class="sc-v" id="scB">—</span></div>
+        </div>
+        <div class="sc-delta" id="deltaSc">—</div>
+      </div>
+    </div>
+
+    <div class="terms">
+      <div class="term a">
+        <div class="term-head">
+          <div class="term-name"><i></i>agent a · plain</div>
+          <div class="term-meta" id="metaA">Read · Grep · Bash</div>
+        </div>
+        <div class="term-body" id="termA"></div>
+      </div>
+      <div class="term b">
+        <div class="term-head">
+          <div class="term-name"><i></i>agent b · token savior</div>
+          <div class="term-meta">+ structural MCP</div>
+        </div>
+        <div class="term-body" id="termB"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ COMPAT STRIP ═══ -->
+<section class="compat" id="compat">
+  <div class="kicker"><i>◆</i> &nbsp;works with your stack &nbsp;<i>◆</i></div>
+  <h2>One MCP server.<br><em>Every coding agent.</em></h2>
+  <p class="compat-sub">Token Savior speaks the standard Model Context Protocol. Drop it into any client, keep your tools, ship a sharper agent.</p>
+  <div class="compat-grid">
+    <span class="compat-chip"><span class="dot"></span>Claude Code</span>
+    <span class="compat-chip"><span class="dot"></span>Cursor</span>
+    <span class="compat-chip"><span class="dot"></span>Codex CLI</span>
+    <span class="compat-chip"><span class="dot"></span>Antigravity</span>
+    <span class="compat-chip"><span class="dot"></span>Cline</span>
+    <span class="compat-chip"><span class="dot"></span>Continue</span>
+    <span class="compat-chip"><span class="dot"></span>Windsurf</span>
+    <span class="compat-chip"><span class="dot"></span>Aider</span>
+    <span class="compat-chip"><span class="dot"></span>Gemini CLI</span>
+    <span class="compat-chip"><span class="dot"></span>Copilot CLI</span>
+    <span class="compat-chip"><span class="dot"></span>Zed</span>
+    <span class="compat-chip" style="opacity:.7"><span class="dot" style="background:var(--text3);box-shadow:none"></span>any MCP client</span>
+  </div>
+  <div class="compat-foot">via the open <a href="https://modelcontextprotocol.io" target="_blank">Model Context Protocol</a> · drop-in hooks for <a href="https://github.com/Mibayy/token-savior/tree/main/hooks" target="_blank">Codex · Cursor · Gemini</a></div>
+</section>
+
+<!-- ═══ BEYOND THE BENCH (v4.3) ═══ -->
+<section class="beyond" id="beyond">
+  <div class="s-intro reveal">
+    <div class="kicker">beyond the bench <i>·</i> real coding sessions</div>
+    <h2>~20K tokens / week<br><em>saved on real sessions.</em></h2>
+    <p>tsbench measures coding accuracy on a synthetic fixture. The new v4.1 / v4.2 / v4.3 layer measures something different: how many tokens leak out of <em>actual</em> tool outputs across a week of live work. Bash chatter, test runners, kubectl dumps, git logs. All of it sandboxed or compacted before it ever reaches the model context.</p>
+  </div>
+
+  <div class="beyond-wrap reveal">
+    <div class="beyond-strip">
+      <div class="beyond-stat"><div class="n">1 121</div><div class="l">bash outputs scanned (7 d)</div></div>
+      <div class="beyond-stat"><div class="n">19.3%</div><div class="l">match rate (was 11.9%)</div></div>
+      <div class="beyond-stat"><div class="n">68.9%</div><div class="l">mean compaction on hit</div></div>
+      <div class="beyond-stat"><div class="n">~20 410</div><div class="l">tokens saved over 7 d</div></div>
+    </div>
+
+    <div class="beyond-cols">
+      <div class="beyond-col">
+        <h3>What shipped since v4.0</h3>
+        <div class="sub">three additive releases, zero prompt change</div>
+        <ul>
+          <li><b>v4.1</b> : 14 Bash output compactors, a PreToolUse rewriter that rewrites bare commands into denser variants, and <code>ts_discover</code> to scan transcripts for missed TS chains.</li>
+          <li><b>v4.2</b> : 8 more compactors (jest, vitest, eslint, biome, kubectl, aws, npm/pip list, curl), hybrid sandbox + compact dual-mode, and a <code>ts init</code> CLI that wires the hooks into Claude / Cursor / Gemini / Codex.</li>
+          <li><b>v4.3</b> : 12 more compactors (grep, find, cat, git extras, gh extras, <code>python3 -m pytest</code>) and a compound command splitter that recognizes <code>cd X &amp;&amp; cmd</code>.</li>
+        </ul>
+      </div>
+      <div class="beyond-col">
+        <h3>Why it matters</h3>
+        <div class="sub">free wins on top of the bench number</div>
+        <ul>
+          <li><b>Projected ~85K tokens / month</b> per active coder at current usage, at zero accuracy cost.</li>
+          <li>All gains arrive <b>without any model-side change</b> : no system prompt edit, no agent rewrite, no profile flip required.</li>
+          <li>The match rate went from <b>11.9% on v4.2 to 19.3% on v4.3</b> after one bench-driven coverage push : <code>scripts/bench_compactors_real.py</code> over your own transcripts to reproduce.</li>
+          <li>Compactors are <b>pure functions, opt-in, fail-safe</b> : unknown command shapes fall through to the existing sandbox path untouched.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="beyond-families">
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">git</span><span class="bf-count">11</span></div>
+        <div class="bf-list">status, diff, log, push, pull, commit, add, fetch, checkout, branch, worktree list, stash list</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">gh</span><span class="bf-count">6</span></div>
+        <div class="bf-list">run list, run view, pr view, pr diff, repo view, issue view</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">test runners</span><span class="bf-count">4</span></div>
+        <div class="bf-list">pytest, cargo test, jest, vitest</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">build &amp; lint</span><span class="bf-count">4</span></div>
+        <div class="bf-list">cargo build, tsc, eslint, biome</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">shell utils</span><span class="bf-count">3</span></div>
+        <div class="bf-list">grep, find, cat</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">cloud (aws + kubectl)</span><span class="bf-count">9</span></div>
+        <div class="bf-list">kubectl get, kubectl logs, aws sts, ec2, lambda, logs, iam, dynamodb, s3</div>
+      </div>
+      <div class="bf">
+        <div class="bf-head"><span class="bf-name">misc</span><span class="bf-count">4</span></div>
+        <div class="bf-list">docker ps, docker logs, npm/pip list, curl</div>
+      </div>
+    </div>
+
+    <div class="beyond-snippet">
+<span class="c"># 1. upgrade and wire the hooks in one shot</span>
+pip install <span class="k">--upgrade</span> token-savior-recall
+ts init <span class="k">--agent</span> claude <span class="k">--yes</span>
+
+<span class="c"># 2. flip the two opt-in flags</span>
+export TS_BASH_COMPACT=1
+export TS_BASH_REWRITE=1
+    </div>
+
+    <div class="beyond-foot">
+      reproduce the numbers on your own transcripts : <a href="https://github.com/Mibayy/token-savior/blob/main/scripts/bench_compactors_real.py" target="_blank">scripts/bench_compactors_real.py</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CTA ═══ -->
+<section class="cta">
+  <div class="cta-wrap">
+    <h2>Stop guessing.<br><em>Give your agent the map.</em></h2>
+    <p>Token Savior is an open MCP server. Point it at your repo, wire it into Claude Code, Cursor, Codex, Antigravity, Cline, Continue, Windsurf, Aider, Gemini CLI — any MCP-compatible client. Ship a better agent this afternoon.</p>
+    <div class="cta-buttons">
+      <a class="btn btn-primary" href="https://github.com/Mibayy/token-savior" target="_blank">get token savior ↗</a>
+      <a class="btn btn-ghost" href="#replay">replay the benchmark</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="tag">tsbench · 90 paired tasks · Claude Opus 4.7 · <a href="https://github.com/Mibayy/token-savior">Token Savior</a> · re-verified 2026-04-25 · MCP-compatible</div>
+</footer>
+
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+/* ═══ REVEAL ═══ */
+const ro = new IntersectionObserver(es=>es.forEach(e=>{ if(e.isIntersecting) e.target.classList.add('in'); }),{threshold:.15});
+document.querySelectorAll('.reveal').forEach(el=>ro.observe(el));
+
+/* ═══ THREE.JS GRAPH ═══ */
+(function(){
+  const host = document.getElementById('stage');
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 400);
+  cam.position.set(0,6,68);
+  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'});
+  renderer.setClearColor(0x000000,0);
+  host.appendChild(renderer.domElement);
+  const controls = new OrbitControls(cam,renderer.domElement);
+  controls.enableDamping=true; controls.dampingFactor=.08; controls.rotateSpeed=.5; controls.autoRotate=true; controls.autoRotateSpeed=.32; controls.enablePan=false; controls.minDistance=28; controls.maxDistance=110;
+
+  // node data — modeled after tsbench's symbol graph
+  const KINDS = ['function','class','method','const'];
+  const MODULES = ['billing','auth','members','webhooks','notifications','reports','audit','sessions','exports','integrations','models','utils','db','config','router'];
+  const PALETTE = {function:0x22d3ee,class:0xa78bfa,method:0xec4899,const:0xfbbf24};
+  const rng = (()=>{let s=42; return()=>{s=(s*9301+49297)%233280; return s/233280;}})();
+
+  const nodes = [];
+  // organize into communities by module — cluster centers
+  const clusters = MODULES.map((m,i)=>{
+    const ang = i/MODULES.length*Math.PI*2;
+    const r = 18 + rng()*8;
+    const y = (rng()-.5)*12;
+    return {m, cx:Math.cos(ang)*r, cy:y, cz:Math.sin(ang)*r, color:0x8b5cf6};
+  });
+  // create 206 nodes across clusters
+  for(let i=0;i<206;i++){
+    const cl = clusters[i%clusters.length];
+    const k = KINDS[Math.floor(rng()*KINDS.length)];
+    const theta = rng()*Math.PI*2, phi = Math.acos(2*rng()-1);
+    const rad = 3 + rng()*5;
+    nodes.push({
+      id:i, kind:k, module:cl.m,
+      name: cl.m+'_'+k.slice(0,3)+'_'+i.toString(36),
+      x: cl.cx + rad*Math.sin(phi)*Math.cos(theta),
+      y: cl.cy + rad*Math.sin(phi)*Math.sin(theta)*0.7,
+      z: cl.cz + rad*Math.cos(phi),
+      color: PALETTE[k],
+      size: k==='class'?0.6:(k==='function'?0.45:0.35),
+      deg: 1 + Math.floor(rng()*8)
+    });
+  }
+  // hotspots (10)
+  const hotIdx = Array.from({length:10},(_,i)=>Math.floor(rng()*nodes.length));
+
+  // edges — intra-cluster dense, inter-cluster sparse
+  const edges = [];
+  for(let i=0;i<nodes.length;i++){
+    const n=nodes[i];
+    const sameCluster = nodes.filter(m=>m.module===n.module && m.id!==n.id);
+    const k = 2 + Math.floor(rng()*3);
+    for(let j=0;j<k && j<sameCluster.length;j++){
+      const target = sameCluster[Math.floor(rng()*sameCluster.length)];
+      edges.push([i, target.id]);
+    }
+    if(rng()<.35){
+      edges.push([i, Math.floor(rng()*nodes.length)]);
+    }
+  }
+
+  // render points
+  const posArr = new Float32Array(nodes.length*3);
+  const colArr = new Float32Array(nodes.length*3);
+  const sizeArr = new Float32Array(nodes.length);
+  nodes.forEach((n,i)=>{
+    posArr[i*3]=n.x;posArr[i*3+1]=n.y;posArr[i*3+2]=n.z;
+    const c=new THREE.Color(n.color); colArr[i*3]=c.r;colArr[i*3+1]=c.g;colArr[i*3+2]=c.b;
+    sizeArr[i]=n.size*18;
+  });
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position',new THREE.BufferAttribute(posArr,3));
+  pg.setAttribute('color',new THREE.BufferAttribute(colArr,3));
+  pg.setAttribute('size',new THREE.BufferAttribute(sizeArr,1));
+  const pm = new THREE.ShaderMaterial({
+    uniforms:{},
+    vertexShader:`attribute float size;attribute vec3 color;varying vec3 vColor;void main(){vColor=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mv;gl_PointSize=size*(300./-mv.z);}`,
+    fragmentShader:`varying vec3 vColor;void main(){vec2 c=gl_PointCoord-.5;float d=length(c);if(d>.5)discard;float a=smoothstep(.5,.1,d);gl_FragColor=vec4(vColor, a*.95);}`,
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending
+  });
+  const points = new THREE.Points(pg,pm); scene.add(points);
+
+  // edges
+  const ePos = new Float32Array(edges.length*2*3);
+  edges.forEach((e,i)=>{
+    const a=nodes[e[0]], b=nodes[e[1]];
+    ePos[i*6]=a.x;ePos[i*6+1]=a.y;ePos[i*6+2]=a.z;
+    ePos[i*6+3]=b.x;ePos[i*6+4]=b.y;ePos[i*6+5]=b.z;
+  });
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position',new THREE.BufferAttribute(ePos,3));
+  const em = new THREE.LineBasicMaterial({color:0x8b5cf6, transparent:true, opacity:.13});
+  const lines = new THREE.LineSegments(eg,em); scene.add(lines);
+
+  // starfield
+  const sg = new THREE.BufferGeometry(); const sp = new Float32Array(800*3);
+  for(let i=0;i<800;i++){ const r=80+rng()*100; const t=rng()*Math.PI*2; const p=Math.acos(2*rng()-1); sp[i*3]=r*Math.sin(p)*Math.cos(t); sp[i*3+1]=r*Math.sin(p)*Math.sin(t); sp[i*3+2]=r*Math.cos(p); }
+  sg.setAttribute('position',new THREE.BufferAttribute(sp,3));
+  const sm = new THREE.PointsMaterial({color:0xffffff,size:.35,transparent:true,opacity:.4,sizeAttenuation:true});
+  scene.add(new THREE.Points(sg,sm));
+
+  // hover
+  const ray = new THREE.Raycaster(); ray.params.Points.threshold = 1.2;
+  const mouse = new THREE.Vector2();
+  const hover = document.getElementById('hover');
+  renderer.domElement.addEventListener('pointermove', e=>{
+    const r = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX-r.left)/r.width)*2-1;
+    mouse.y = -((e.clientY-r.top)/r.height)*2+1;
+    ray.setFromCamera(mouse,cam);
+    const hit = ray.intersectObject(points);
+    if(hit.length){
+      const n = nodes[hit[0].index];
+      hover.innerHTML = `<div class="name">${n.name}()</div><div class="kind">${n.kind} · module ${n.module}</div><div class="meta"><b style="color:var(--text)">${n.deg}</b> dependents · clustered with <b style="color:var(--text)">${clusters.find(c=>c.m===n.module)? nodes.filter(x=>x.module===n.module).length-1 : 0}</b> peers</div>`;
+    }
+  });
+
+  // chip views
+  document.querySelectorAll('.chip[data-view]').forEach(c=>c.addEventListener('click',()=>{
+    document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active')); c.classList.add('active');
+    const v = c.dataset.view;
+    nodes.forEach((n,i)=>{
+      let show = true;
+      if(v==='functions') show = n.kind==='function';
+      else if(v==='classes') show = n.kind==='class';
+      else if(v==='hot') show = hotIdx.includes(i);
+      sizeArr[i] = show ? (n.size*18*(v==='hot'?1.6:1)) : 0;
+    });
+    pg.attributes.size.needsUpdate = true;
+  }));
+
+  function resize(){
+    const r = host.getBoundingClientRect();
+    if(!r.width||!r.height) return;
+    renderer.setSize(r.width,r.height,false);
+    cam.aspect = r.width/r.height; cam.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(host); resize();
+
+  function tick(){ controls.update(); renderer.render(scene,cam); requestAnimationFrame(tick); } tick();
+})();
+
+/* ═══ REPLAY — tile grid + terminals ═══ */
+let MATRIX = null;
+let leftModel = 'opus';
+let rightModel = 'opus';
+let TASKDATA = [];
+
+const MODEL_LABEL = { sonnet:'Sonnet 4.6', opus:'Opus 4.7' };
+const MODEL_LABEL_FULL = { sonnet:'Claude Sonnet 4.6', opus:'Claude Opus 4.7' };
+const CATS = ['navigation','code_review','refactoring','audit','config_infra','bug_fixing','explanation','git','code_generation','writing_tests','documentation'];
+const CAT_LABEL = {
+  navigation:'navigation', code_review:'code review', refactoring:'refactoring',
+  audit:'audit', config_infra:'config·infra', bug_fixing:'bug fixing',
+  explanation:'explanation', git:'git', code_generation:'code gen',
+  writing_tests:'tests', documentation:'docs',
+};
+
+function baseCfg(){ return `${leftModel}-base`; }
+function tsCfg(){ return `${rightModel}-ts`; }
+
+function buildTaskdata(){
+  const baseKey = baseCfg(), tsKey = tsCfg();
+  const arr = [];
+  for (const [tid, t] of Object.entries(MATRIX.tasks)){
+    const a = t.results[baseKey] || {};
+    const b = t.results[tsKey] || {};
+    const idNum = parseInt(tid.replace(/^TASK-/,''), 10);
+    arr.push({
+      id: idNum, tid, slug: t.slug, cat: t.category, prompt: t.prompt,
+      wa: a.wall_time_seconds ?? 0, wb: b.wall_time_seconds ?? 0,
+      ta: a.active_tokens ?? 0,     tb: b.active_tokens ?? 0,
+      ca: a.context_chars ?? 0,     cb: b.context_chars ?? 0,
+      sa: a.score ?? null,          sb: b.score ?? null,
+      hasA: a.score != null,        hasB: b.score != null,
+    });
+  }
+  return arr.sort((x,y)=>x.id-y.id);
+}
+
+/* Compute head-to-head pair stats on the fly for any left/right combo */
+function computePair(){
+  const baseKey = baseCfg(), tsKey = tsCfg();
+  let nP = 0, sA=0, sB=0, sMax=0;
+  let tokA=0, tokB=0, wallA=0, wallB=0, chA=0, chB=0;
+  let wTs=0, ties=0, wBase=0;
+  for (const t of Object.values(MATRIX.tasks)){
+    const a = t.results[baseKey], b = t.results[tsKey];
+    if(!a || !b || a.score==null || b.score==null) continue;
+    nP++;
+    sA += a.score; sB += b.score; sMax += a.max_score || 2;
+    tokA += a.active_tokens||0; tokB += b.active_tokens||0;
+    wallA += a.wall_time_seconds||0; wallB += b.wall_time_seconds||0;
+    chA += a.context_chars||0; chB += b.context_chars||0;
+    if(b.score>a.score) wTs++;
+    else if(b.score<a.score) wBase++;
+    else ties++;
+  }
+  if(!nP) return null;
+  const red = (x,y) => x>0 ? Math.round((x-y)/x*1000)/10 : 0;
+  return {
+    base: baseKey, ts: tsKey,
+    n_paired: nP,
+    score_base: sA, score_ts: sB, score_max: sMax,
+    accuracy_base_pct: Math.round(sA/sMax*1000)/10,
+    accuracy_ts_pct: Math.round(sB/sMax*1000)/10,
+    accuracy_delta_pp: Math.round((sB-sA)/sMax*1000)/10,
+    active_tokens_base: tokA, active_tokens_ts: tokB,
+    wall_seconds_base: wallA, wall_seconds_ts: wallB,
+    context_chars_base: chA, context_chars_ts: chB,
+    reduction_active_pct: red(tokA, tokB),
+    reduction_wall_pct: red(wallA, wallB),
+    reduction_chars_pct: red(chA, chB),
+    delta_score: sB-sA,
+    wins_ts: wTs, ties, wins_base: wBase,
+  };
+}
+
+/* Fallback scoped summary for left/right side (uses pair totals, not the global matrix summary) */
+function sideSummary(pair, side){
+  if(!pair) return null;
+  const baseKey = baseCfg(), tsKey = tsCfg();
+  const key = side==='a' ? baseKey : tsKey;
+  const preset = MATRIX.summary[key];
+  // when leftModel===rightModel we can use global per-config summary; otherwise build from paired subset
+  const byCat = {};
+  for (const t of Object.values(MATRIX.tasks)){
+    const a = t.results[baseKey], b = t.results[tsKey];
+    if(!a || !b || a.score==null || b.score==null) continue;
+    const r = side==='a' ? a : b;
+    const c = byCat[t.category] || (byCat[t.category] = {n:0,score:0,max:0,chars:0,active:0,wall:0});
+    c.n++; c.score += r.score; c.max += r.max_score||2;
+    c.chars += r.context_chars||0; c.active += r.active_tokens||0; c.wall += r.wall_time_seconds||0;
+  }
+  for (const k of Object.keys(byCat)){
+    const c = byCat[k]; c.pct = c.max ? Math.round(c.score/c.max*1000)/10 : 0;
+  }
+  return {
+    n_tasks: pair.n_paired,
+    active_tokens_total: side==='a'?pair.active_tokens_base:pair.active_tokens_ts,
+    wall_time_total:     side==='a'?pair.wall_seconds_base:pair.wall_seconds_ts,
+    context_chars_total: side==='a'?pair.context_chars_base:pair.context_chars_ts,
+    score_total:         side==='a'?pair.score_base:pair.score_ts,
+    score_max_total:     pair.score_max,
+    score_pct:           side==='a'?pair.accuracy_base_pct:pair.accuracy_ts_pct,
+    by_category: byCat,
+  };
+}
+
+// ─── full trace scripts for 6 showcased tasks ───
+const TRACES = {
+  7: {
+    prompt:'Give me the exhaustive list of files that call `lonely_util`. All call sites, not a sample.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: list every caller of lonely_util'],
+      ['',''],
+      ['tool·','Grep  pattern="lonely_util"  --glob="**/*.py"'],
+      ['dim','· searching 42 files ... 18ms'],
+      ['r',' → packages/utils/targeted.py:3: def lonely_util(payload):'],
+      ['r',' → apps/api/callers/caller_lonely_util_00.py:2: from packages.utils.targeted import lonely_util'],
+      ['r',' → apps/api/callers/caller_lonely_util_00.py:6:     return lonely_util(payload)'],
+      ['dim','· 1761 chars ingested into context'],
+      ['',''],
+      ['u','assistant: `lonely_util` is defined in packages/utils/targeted.py:3 and has exactly one call site: apps/api/callers/caller_lonely_util_00.py.']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: list every caller of lonely_util'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 84ms · "tsbench indexed · 206 symbols · 42 files"'],
+      ['',''],
+      ['tool·','get_dependents  name="lonely_util"  max_results=0'],
+      ['dim','· 280ms · 98 chars'],
+      ['r',' → apps/api/callers/caller_lonely_util_00.py → do_it_0 (L4-6)'],
+      ['',''],
+      ['u','assistant: one call site: apps/api/callers/caller_lonely_util_00.py → do_it_0 (L4-6).']
+    ]
+  },
+  14: {
+    prompt:'I plan to change `hub_util(payload: dict)` → `hub_util(context: dict)` in packages/utils/targeted.py. List exhaustively everything that breaks.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: list everything that breaks if I rename payload → context on hub_util'],
+      ['',''],
+      ['tool·','Grep  pattern="hub_util"  --glob="**/*.py"  -B 0 -A 2'],
+      ['dim','· 42ms · 67 matches across 20 files'],
+      ['r',' → apps/api/callers/caller_hub_util_00.py:4:     return hub_util(payload=payload)'],
+      ['r',' → apps/api/callers/caller_hub_util_01.py:4:     return hub_util(payload=payload)'],
+      ['r',' → ... (18 more rows)'],
+      ['dim','· 12,668 chars ingested'],
+      ['',''],
+      ['u','assistant: 20 callers pass payload as a keyword argument. All 20 break under the rename. Listing: caller_hub_util_00.py through caller_hub_util_19.py ...']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: list everything that breaks if I rename payload → context on hub_util'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 101ms'],
+      ['',''],
+      ['tool·','get_change_impact  name="hub_util"  minimal_set=true'],
+      ['dim','· 375ms · 1,243 chars'],
+      ['r',' → symbol: hub_util (packages/utils/targeted.py)'],
+      ['r',' → direct_dependents: 20 files (kw-arg style payload=...)'],
+      ['r',' → transitive: none · test files impacted: 3'],
+      ['',''],
+      ['u','assistant: 20 direct callers break, all call hub_util(payload=...). Listing: caller_hub_util_00 → caller_hub_util_19. Three test files reference these callers.']
+    ]
+  },
+  26: {
+    prompt:'Are there circular import dependencies in this project? If yes, cite them.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: are there circular imports?'],
+      ['',''],
+      ['tool·','Bash  grep -rn "^from\\\\|^import" apps/ packages/ --include="*.py"'],
+      ['dim','· 83ms · 930 chars'],
+      ['tool·','Read  apps/api/db.py'],
+      ['tool·','Read  apps/api/config.py'],
+      ['tool·','Read  apps/api/models/auth.py'],
+      ['dim','· ... 17 more Read calls'],
+      ['tool·','Bash  python -c "import ast; # walk and build graph..."'],
+      ['dim','· 12ms · error: name not defined'],
+      ['tool·','Bash  find apps -name "*.py" | xargs grep -l "from apps.api.cycles"'],
+      ['dim','· 67ms'],
+      ['tool·','Read  apps/api/cycles/mod_a.py'],
+      ['tool·','Read  apps/api/cycles/mod_b.py'],
+      ['tool·','Read  apps/api/cycles/mod_x.py'],
+      ['tool·','Read  apps/api/cycles/mod_y.py'],
+      ['tool·','Read  apps/api/cycles/mod_z.py'],
+      ['tool·','Agent  "look for import cycles in apps/api/cycles/"'],
+      ['dim','· 22s · 1,897 chars'],
+      ['dim','· total: 56 tool calls · 113,280 chars · 132.4s'],
+      ['',''],
+      ['u','assistant: Yes, 2 cycles found. (1) mod_a ↔ mod_b. (2) mod_x → mod_y → mod_z → mod_x.']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: are there circular imports?'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 93ms'],
+      ['',''],
+      ['tool·','find_import_cycles  {}'],
+      ['dim','· 253ms · 140 chars'],
+      ['r',' → cycle[0]: apps/api/cycles/mod_a.py ↔ apps/api/cycles/mod_b.py'],
+      ['r',' → cycle[1]: apps/api/cycles/mod_x.py → mod_y.py → mod_z.py → mod_x.py'],
+      ['',''],
+      ['u','assistant: 2 cycles. (1) mod_a ↔ mod_b. (2) mod_x → mod_y → mod_z → mod_x.']
+    ]
+  },
+  43: {
+    prompt:'In apps/api/services/, identify public functions (non-underscore) that accept more than one parameter. Give name and signature, file by file.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: find public functions with >1 param in apps/api/services/'],
+      ['',''],
+      ['tool·','Glob  apps/api/services/*.py'],
+      ['r',' → 13 files'],
+      ['tool·','Read  apps/api/services/audit.py  (17,849 chars)'],
+      ['tool·','Read  apps/api/services/auth.py   (18,895 chars)'],
+      ['tool·','Read  apps/api/services/billing.py (20,258 chars)'],
+      ['tool·','Read  apps/api/services/exports.py (18,499 chars)'],
+      ['tool·','Read  apps/api/services/integrations.py'],
+      ['tool·','Read  apps/api/services/members.py'],
+      ['tool·','Read  apps/api/services/notifications.py'],
+      ['tool·','Read  apps/api/services/reports.py'],
+      ['tool·','Read  apps/api/services/sessions.py'],
+      ['tool·','Read  apps/api/services/webhooks.py'],
+      ['dim','· ... 3 more Reads'],
+      ['tool·','Agent  "extract public signatures"'],
+      ['dim','· total: 17 tool calls · 196,882 chars · 159.2s'],
+      ['',''],
+      ['u','assistant: 44 public functions across 13 files, all with signature (payload: dict, user_id: int = 0).']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: find public functions with >1 param in apps/api/services/'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 103ms'],
+      ['',''],
+      ['tool·','list_files  pattern="apps/api/services/*.py"'],
+      ['dim','· 284ms · 13 files'],
+      ['',''],
+      ['tool·','get_functions  file_path="apps/api/services/audit.py"'],
+      ['dim','· 70ms · 1,815 chars → 4 public, all (payload, user_id)'],
+      ['tool·','get_functions  file_path="apps/api/services/auth.py"'],
+      ['dim','· 108ms · 1,844 chars → 4 public'],
+      ['tool·','get_functions  file_path="apps/api/services/billing.py"'],
+      ['dim','· 91ms · 2,036 chars → 4 public'],
+      ['dim','· ... 10 more get_functions (all <120ms)'],
+      ['dim','· total: 14 tool calls · 20,680 chars · 58.3s'],
+      ['',''],
+      ['u','assistant: 44 public functions, all signature (payload, user_id). audit: log_action, query_logs, purge_old_logs, export_audit_trail. auth: issue_token, revoke_token, hash_password, verify_password. billing: calculate_invoice, apply_discount ...']
+    ]
+  },
+  47: {
+    prompt:'Which files are directly imported by apps/api/services/auth.py? List all local imports (not third-party packages).',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: list local imports of apps/api/services/auth.py'],
+      ['',''],
+      ['tool·','Read  apps/api/services/auth.py  (entire file)'],
+      ['dim','· 18,895 chars ingested'],
+      ['r',' → parsing imports from top of file ...'],
+      ['',''],
+      ['bad','assistant: imports identified — apps/api/db, apps/api/models/auth, apps/api/config, apps/api/utils/logging, apps/api/utils/errors ...'],
+      ['dim','· scored 0/2 — returned imported symbols instead of resolved file paths'],
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: list local imports of apps/api/services/auth.py'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 98ms'],
+      ['',''],
+      ['tool·','get_file_dependencies  file_path="apps/api/services/auth.py"'],
+      ['dim','· 291ms · 120 chars'],
+      ['r',' → apps/api/config.py'],
+      ['r',' → apps/api/db.py'],
+      ['r',' → apps/api/models/auth.py'],
+      ['r',' → apps/api/utils/errors.py'],
+      ['r',' → apps/api/utils/logging.py'],
+      ['',''],
+      ['u','assistant: 5 local imports — config.py, db.py, models/auth.py, utils/errors.py, utils/logging.py.']
+    ]
+  },
+  52: {
+    prompt:'Identify the communities (strongly-connected symbol clusters) in the project. For each community, name principal symbols and a functional theme.',
+    A:[
+      ['#','agent a · plain'],
+      ['> ','user: detect symbol communities with themes'],
+      ['',''],
+      ['tool·','Bash  find apps packages -name "*.py" -o -name "*.ts" | head'],
+      ['tool·','Bash  grep -rn "^from\\\\|^import" apps/ --include="*.py"'],
+      ['dim','· 2,469 chars'],
+      ['tool·','Glob  apps/api/services/*.py'],
+      ['tool·','Read  apps/api/services/auth.py'],
+      ['tool·','Read  apps/api/services/billing.py'],
+      ['tool·','Read  apps/api/services/members.py'],
+      ['dim','· ... 33 more Read calls'],
+      ['tool·','Bash  node scripts/build-import-graph.js'],
+      ['dim','· 5,423 chars'],
+      ['tool·','Agent  "cluster the graph by connectivity"'],
+      ['dim','· 38s · 20,456 chars'],
+      ['dim','· total: 50 tool calls · 190,723 chars · 133.9s'],
+      ['',''],
+      ['u','assistant: identified 6 business-domain communities + infra cluster. Billing, Auth, Members, Webhooks, Notifications, Reports ...']
+    ],
+    B:[
+      ['#','agent b · token savior'],
+      ['> ','user: detect symbol communities with themes'],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· 121ms'],
+      ['',''],
+      ['tool·','get_leiden_stats  {}'],
+      ['dim','· 78ms · Q=0.408 · 28 communities · 213 symbols'],
+      ['',''],
+      ['tool·','get_community  name="main__n32"'],
+      ['dim','· 38ms · main + Dispatcher + gen_api_* + plant_bugs/cycles/dupes'],
+      ['tool·','get_community  name="apiClient__n31"'],
+      ['dim','· 64ms · apiClient + CRUD frontend verbs'],
+      ['tool·','get_community  name="Sidebar__n22"'],
+      ['dim','· 53ms · React nav/layout'],
+      ['dim','· 6 more get_community (<90ms each)'],
+      ['dim','· total: 11 tool calls · 3,381 chars · 42.3s'],
+      ['',''],
+      ['u','assistant: 28 communities, Q=0.408. Top 10: main__n32 (bench pipeline), apiClient__n31 (frontend CRUD), Sidebar__n22 (nav), hub_util__n13 (dispatch utilities), billing_admin_db__n7 (billing persistence) ...']
+    ]
+  }
+};
+
+// ─── tile grid ───
+function classify(t){
+  if(!t.hasA || !t.hasB) return 'pending';
+  if(t.sb>t.sa){ return t.sa===0 ? 'impossible' : 'win'; }
+  if(t.sb<t.sa) return 'loss';
+  return 'tie';
+}
+const grid = document.getElementById('grid');
+function renderTiles(){
+  grid.innerHTML = '';
+  TASKDATA.forEach(t=>{
+    const d = document.createElement('div');
+    const cls = classify(t);
+    d.className = 'tile '+cls;
+    const wa = t.hasA ? `${t.wa}s` : '—';
+    const wb = t.hasB ? `${t.wb}s` : '—';
+    const sa = t.hasA ? `${t.sa}/2` : '—';
+    const sb = t.hasB ? `${t.sb}/2` : '—';
+    d.title = `${t.tid} · ${t.slug}\n${wa} → ${wb} · ${t.ca} → ${t.cb} chars · ${sa} → ${sb}`;
+    d.dataset.id = t.id;
+    d.addEventListener('click',()=>{ loadTask(t.id); replay(); });
+    grid.appendChild(d);
+  });
+}
+
+// ─── load a task ───
+let currentTid = 26;
+const npid = document.getElementById('npid'), npdesc = document.getElementById('npdesc');
+const termA = document.getElementById('termA'), termB = document.getElementById('termB');
+const metaA = document.getElementById('metaA');
+const wallA=document.getElementById('wallA'),wallB=document.getElementById('wallB');
+const tokA=document.getElementById('tokA'),tokB=document.getElementById('tokB');
+const chA=document.getElementById('chA'),chB=document.getElementById('chB');
+const scA=document.getElementById('scA'),scB=document.getElementById('scB');
+const deltaWall=document.getElementById('deltaWall'),deltaTok=document.getElementById('deltaTok'),deltaCh=document.getElementById('deltaCh'),deltaSc=document.getElementById('deltaSc');
+const playBtn = document.getElementById('play');
+
+const DESCRIPTIONS = {
+  1:'Locate the definition of function `lonely_util`.',
+  2:'Find every caller of `shared_util`.',
+  3:'Where is the env var DATABASE_URL used in code?',
+  4:'Find the route handler serving POST /api/v1/login.',
+  5:'Which schema field holds the user email?',
+  6:'Find all usages of the `Sidebar` React component.',
+  7:'Give me the exhaustive list of files that call `lonely_util`.',
+  8:'Exhaustive callers of a symbol with 3 call sites.',
+  9:'Exhaustive callers of a symbol with 8 call sites.',
+  10:'Exhaustive callers of a symbol with 20 call sites.',
+  11:'Shortest call chain α: from entry_alpha to target_alpha.',
+  12:'Shortest call chain β: routing-path through middleware.',
+  13:'Shortest call chain γ: through 4+ hops.',
+  14:'Impact: rename `hub_util(payload)` → `hub_util(context)`.',
+  15:'Files impacted if `apps/api/db.py` changes.',
+  16:'Tests to re-run after touching `auth.py`.',
+  17:'Rename symbol `OldService` → `NewService` across the repo.',
+  18:'Add field `archived_at` to model `Member`.',
+  19:'Extract magic number 3600 into a constant.',
+  20:'Move module `apps/api/utils/errors.py` to `packages/errors/`.',
+  21:'Summarize the diff on feature/billing branch.',
+  22:'Assess risk of current PR vs main.',
+  23:'Detect breaking changes vs base ref.',
+  24:'Audit dead code: functions never called.',
+  25:'Audit complexity hotspots.',
+  26:'Detect import cycles in the project.',
+  27:'Find env vars defined but never read.',
+  28:'Find env vars read but not declared.',
+  29:'Detect hardcoded secrets.',
+  30:'Audit the Dockerfile for issues.',
+  31:'Cross-check infra files for consistency.',
+  32:'Select impacted unit tests for a given change.',
+  33:'Select impacted tests since last commit.',
+  34:'Locate the pagination bug.',
+  35:'Locate the auth bug (token expiry).',
+  36:'Detect duplicated code/logic.',
+  37:'One-paragraph project overview.',
+  38:'One-paragraph module overview (billing).',
+  39:'Map TypeScript type ↔ Python dataclass.',
+  40:'Cross-check config.py ↔ config.ts consistency.',
+  41:'Explain the billing module in depth.',
+  42:'List all public functions in apps/api/services/auth.py.',
+  43:'Public multi-param functions in apps/api/services/.',
+  44:'Trace the webhook dispatch chain end-to-end.',
+  45:'Find every file that imports auth utilities.',
+  46:'List billing hotspots by complexity.',
+  47:'Direct local imports of apps/api/services/auth.py.',
+  48:'Reverse: files importing apps/api/db.py.',
+  49:'Deep call chain: 6+ hops.',
+  50:'Backward slice from a target symbol.',
+  51:'Find all entry points (main, CLI, server).',
+  52:'Community detection: clusters + themes.',
+  53:'Semantic duplicates: near-identical functions.',
+  54:'Fix the buggy paginate() function.',
+  55:'Insert a new field near an existing symbol.',
+  56:'Checkpoint & restore: undo an edit.',
+  57:'Select impacted tests, via MCP.',
+  58:'Performance hotspots (allocation analysis).',
+  59:'Git status: structured report.',
+  60:'Changed symbols since main.',
+};
+
+function fmt(n){ if(n==null||n===0) return '—'; return n.toLocaleString('en-US'); }
+function fmtSec(s){ return s==null||s===0 ? '—' : s+'s'; }
+function pct(a,b){ if(a===0||a==null) return null; return Math.round((b-a)/a*100); }
+
+function markCell(cell, isWin, isLose){
+  cell.classList.remove('win','lose','eq');
+  if(isWin) cell.classList.add('win');
+  else if(isLose) cell.classList.add('lose');
+  else cell.classList.add('eq');
+}
+
+function setDelta(el, pa, pb, lowerIsBetter){
+  if(pa==null||pa===0||pb==null){ el.textContent='—'; el.className='sc-delta eq'; return; }
+  const d = Math.round((pb-pa)/pa*100);
+  if(d===0){ el.textContent='· 0%'; el.className='sc-delta eq'; return; }
+  const improved = lowerIsBetter ? d<0 : d>0;
+  const glyph = d>0 ? '▲' : '▼';
+  const sign = d>0 ? '+' : '';
+  el.className = 'sc-delta ' + (improved ? 'dn' : 'up');
+  el.textContent = glyph + ' ' + sign + d + '%';
+}
+
+function loadTask(id){
+  const t = TASKDATA.find(x=>x.id===id); if(!t) return;
+  currentTid = id;
+  document.querySelectorAll('.tile').forEach(el=>el.classList.toggle('active', +el.dataset.id===id));
+  npid.textContent = t.tid;
+  npdesc.textContent = t.prompt || DESCRIPTIONS[id] || t.slug.replace(/-/g,' ');
+  metaA.textContent = t.ca>50000 ? 'Read · Grep · Bash · Agent' : 'Read · Grep · Bash';
+
+  // raw values
+  wallA.textContent = fmtSec(t.wa); wallB.textContent = fmtSec(t.wb);
+  tokA.textContent = fmt(t.ta);     tokB.textContent = fmt(t.tb);
+  chA.textContent  = fmt(t.ca);     chB.textContent  = fmt(t.cb);
+  scA.textContent  = t.hasA ? t.sa+'/2' : '—';
+  scB.textContent  = t.hasB ? t.sb+'/2' : '—';
+
+  // color-code winners (lower is better for wall/tokens/chars; higher for score)
+  const pairs = [
+    [wallA, wallB, t.wa, t.wb, true],
+    [tokA,  tokB,  t.ta, t.tb, true],
+    [chA,   chB,   t.ca, t.cb, true],
+    [scA,   scB,   t.sa, t.sb, false],
+  ];
+  pairs.forEach(([eA,eB,vA,vB,lower])=>{
+    if(vA===0 && vB===0){ markCell(eA,false,false); markCell(eB,false,false); return; }
+    if(vA===0){ markCell(eA,false,false); markCell(eB,true,false); return; }
+    if(vB===0){ markCell(eA,true,false); markCell(eB,false,false); return; }
+    const aWin = lower ? vA<vB : vA>vB;
+    const bWin = lower ? vB<vA : vB>vA;
+    markCell(eA, aWin, bWin && !aWin);
+    markCell(eB, bWin, aWin && !bWin);
+  });
+
+  // Δ TS vs plain — one badge per metric
+  setDelta(deltaWall, t.wa, t.wb, true);
+  setDelta(deltaTok,  t.ta, t.tb, true);
+  setDelta(deltaCh,   t.ca, t.cb, true);
+  setDelta(deltaSc,   t.sa, t.sb, false);
+
+  termA.innerHTML=''; termB.innerHTML='';
+  const promptTxt = t.prompt || DESCRIPTIONS[id] || t.slug;
+  const pl = `<div class="ln"><span class="p">&gt;</span> <span class="u">user:</span> ${esc(promptTxt)}</div><div class="ln"></div>`;
+  termA.innerHTML = pl + `<div class="ln dim">press ▶ replay to play trace</div>`;
+  termB.innerHTML = pl + `<div class="ln dim">press ▶ replay to play trace</div>`;
+  playBtn.disabled = !(t.hasA && t.hasB);
+  playBtn.textContent = TRACES[id] ? '▶ replay full trace' : (playBtn.disabled ? 'run pending' : '▶ replay summary');
+}
+
+let playing = false;
+let playToken = 0;
+async function replay(){
+  const myToken = ++playToken;
+  playing = true; playBtn.disabled = true; playBtn.textContent = 'replaying ...';
+  termA.innerHTML=''; termB.innerHTML='';
+  const tr = TRACES[currentTid];
+  if(tr){
+    const linesA = tr.A, linesB = tr.B;
+    const stepA = Math.max(80, Math.min(180, 4000/linesA.length));
+    const stepB = Math.max(60, Math.min(150, 3000/linesB.length));
+    await Promise.all([
+      renderLines(termA, linesA, stepA, myToken),
+      renderLines(termB, linesB, stepB, myToken),
+    ]);
+  } else {
+    const t = TASKDATA.find(x=>x.id===currentTid);
+    const catA = t.ca>50000?'heavy':(t.ca>10000?'moderate':'light');
+    const linesA = [
+      ['> ','user: '+(DESCRIPTIONS[t.id]||t.slug)],
+      ['',''],
+      ['tool·', catA==='heavy'?'Bash  grep -rn ...':'Grep  pattern=...'],
+      ['dim', `· ${Math.round(t.wa*1000/3)}ms · ${t.ca.toLocaleString()} chars`],
+      catA==='heavy' ? ['tool·','Read  target_file.py (large)'] : null,
+      catA==='heavy' ? ['dim',`· ${Math.round(t.wa*1000/2)}ms`] : null,
+      catA!=='light' ? ['tool·','Read  referenced_file.py'] : null,
+      ['',''],
+      ['dim',`· total: ${t.wa}s · ${t.ca.toLocaleString()} chars · score ${t.sa}/2`],
+      [t.sa===2?'u':(t.sa===0?'bad':'r'), 'assistant: '+(t.sa===2?'answered correctly.':t.sa===0?'failed — incomplete or wrong.':'partial answer.')]
+    ].filter(Boolean);
+    const linesB = [
+      ['> ','user: '+(DESCRIPTIONS[t.id]||t.slug)],
+      ['',''],
+      ['tool·','switch_project  name="tsbench"'],
+      ['dim','· ~100ms'],
+      ['tool·', guessTSCall(t)],
+      ['dim', `· ${Math.round(t.wb*1000/2)}ms · ${t.cb.toLocaleString()} chars`],
+      ['',''],
+      ['dim',`· total: ${t.wb}s · ${t.cb.toLocaleString()} chars · score ${t.sb}/2`],
+      [t.sb===2?'u':(t.sb===0?'bad':'r'), 'assistant: '+(t.sb===2?'answered correctly.':t.sb===0?'failed — incomplete.':'partial answer.')]
+    ];
+    await Promise.all([ renderLines(termA, linesA, 160, myToken), renderLines(termB, linesB, 140, myToken) ]);
+  }
+  if(myToken !== playToken) return;
+  playing = false; playBtn.disabled = false;
+  playBtn.textContent = '▶ replay again';
+}
+
+function guessTSCall(t){
+  const map = {
+    'localisation':'find_symbol  name="..."',
+    'dépendants':'get_dependents  name="..."',
+    'call_chain':'get_call_chain  source=... target=...',
+    'impact':'get_change_impact  name="..."',
+    'edit':'replace_symbol_source  name="..."',
+    'review':'get_changed_symbols  {}',
+    'audit':'find_dead_code  / find_hotspots / find_import_cycles',
+    'config':'analyze_config  checks=["orphans","secrets"]',
+    'infra':'analyze_docker  {}',
+    'testing':'find_impacted_test_files  {}',
+    'debug':'get_full_context  name="..."',
+    'onboarding':'get_project_summary  {}',
+    'cross-language':'find_cross_project_deps  {}',
+    'heavy_read':'get_functions / get_class_source',
+    'navigation':'get_file_dependencies / get_dependents',
+    'git':'get_git_status / get_changed_symbols',
+  };
+  return map[t.cat] || 'structural query';
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderLines(el, lines, delay, token){
+  return new Promise(done=>{
+    let i=0;
+    function step(){
+      if(token!==undefined && token!==playToken){ done(); return; }
+      if(i>=lines.length){ done(); return; }
+      const [cls, txt] = lines[i];
+      const d = document.createElement('div');
+      d.className = 'ln' + (cls==='dim'?' dim':'');
+      let html = '';
+      if(cls==='#') html = `<span class="m"># ${esc(txt)}</span>`;
+      else if(cls==='> ') html = `<span class="p">&gt;</span> ${esc(txt).replace(/^user:/,'<span class="u">user:</span>')}`;
+      else if(cls==='tool·') html = `<span class="t">◆</span> <span class="u">${esc(txt.split('  ')[0])}</span>  <span class="m">${esc(txt.split('  ').slice(1).join('  '))}</span>`;
+      else if(cls==='r') html = `<span class="r">${esc(txt)}</span>`;
+      else if(cls==='ok') html = `<span class="ok">${esc(txt)}</span>`;
+      else if(cls==='bad') html = `<span class="bad">${esc(txt)}</span>`;
+      else if(cls==='u') html = `<span class="ok">✓</span> ${esc(txt).replace(/^assistant:/,'<span class="u">assistant:</span>')}`;
+      else if(cls==='dim') html = esc(txt);
+      else html = esc(txt);
+      d.innerHTML = html;
+      el.appendChild(d);
+      el.scrollTop = el.scrollHeight;
+      i++;
+      setTimeout(step, delay);
+    }
+    step();
+  });
+}
+
+playBtn.addEventListener('click', replay);
+
+/* ═══ DYNAMIC RENDER ═══ */
+const heroEyebrow = document.getElementById('heroEyebrow');
+const pendingBanner = document.getElementById('pendingBanner');
+const hActive = document.getElementById('hActive');
+const hWall   = document.getElementById('hWall');
+const hAcc    = document.getElementById('hAcc');
+const hWTL    = document.getElementById('hWTL');
+const aActive = document.getElementById('aActive');
+const aWall   = document.getElementById('aWall');
+const aAcc    = document.getElementById('aAcc');
+const aScore  = document.getElementById('aScore');
+const bActive = document.getElementById('bActive');
+const bWall   = document.getElementById('bWall');
+const bAcc    = document.getElementById('bAcc');
+const bScore  = document.getElementById('bScore');
+const cAccA = document.getElementById('cAccA');
+const cAccB = document.getElementById('cAccB');
+const tWins = document.getElementById('tWins');
+const tTies = document.getElementById('tTies');
+const tLosses = document.getElementById('tLosses');
+const accTip = document.getElementById('accTip');
+const tiesTip = document.getElementById('tiesTip');
+
+function fmtMin(s){
+  if(!s) return '—';
+  const m = Math.floor(s/60), sec = Math.round(s%60);
+  return m ? `${m}m ${sec}s` : `${sec}s`;
+}
+function fmtPctDrop(p){ return (p>0?'−':'+') + Math.abs(p).toFixed(1) + '%'; }
+
+function renderHero(pair){
+  const leftLbl = MODEL_LABEL_FULL[leftModel], rightLbl = MODEL_LABEL_FULL[rightModel];
+  const same = leftModel === rightModel;
+  heroEyebrow.textContent = same
+    ? `v4.3 · ${leftLbl} · 97.9% on tsbench + ~20K tokens/week real`
+    : `96 tasks · ${MODEL_LABEL[leftModel]} (base) vs ${MODEL_LABEL[rightModel]} (+TS)`;
+  if(!pair || !pair.n_paired){
+    hActive.textContent = '—'; hWall.textContent = '—'; hAcc.textContent = '—'; hWTL.textContent = '—';
+    return;
+  }
+  const accDelta = pair.accuracy_delta_pp;
+  const ratioWall = pair.wall_seconds_ts   > 0 ? pair.wall_seconds_base   / pair.wall_seconds_ts   : null;
+  const ratioTok  = pair.active_tokens_ts  > 0 ? pair.active_tokens_base  / pair.active_tokens_ts  : null;
+  const fmtRatio = r => {
+    if(r == null) return '—';
+    if(r >= 1) return r.toFixed(r >= 10 ? 0 : 1) + '×';
+    // TS slower/heavier than base (cross-model where base is cheaper) → show fraction
+    return '÷' + (1/r).toFixed(1);
+  };
+  hWall.textContent   = fmtRatio(ratioWall);
+  hActive.textContent = fmtRatio(ratioTok);
+  hAcc.textContent    = (accDelta>=0?'+':'') + accDelta + 'pp';
+  hWTL.textContent    = `${pair.wins_base}`;
+}
+
+function renderScorecard(sBase, sTs, pair){
+  const setSide = (els, summary)=>{
+    if(!summary || !summary.n_tasks){
+      els.active.textContent='—'; els.wall.textContent='—';
+      els.acc.textContent='—'; els.score.textContent='—'; return;
+    }
+    els.active.textContent = summary.active_tokens_total.toLocaleString('en-US');
+    els.wall.textContent   = fmtMin(summary.wall_time_total);
+    els.acc.textContent    = summary.score_pct.toFixed(1) + '%';
+    els.score.textContent  = `${summary.score_total}/${summary.score_max_total}`;
+  };
+  setSide({active:aActive,wall:aWall,acc:aAcc,score:aScore}, sBase);
+  setSide({active:bActive,wall:bWall,acc:bAcc,score:bScore}, sTs);
+
+  // Re-label the vs-side cards with the picked models
+  const aLabel = document.querySelector('.vs-side.a .vs-name');
+  const bLabel = document.querySelector('.vs-side.b .vs-name');
+  const aTitle = document.querySelector('.vs-side.a .vs-title');
+  const bTitle = document.querySelector('.vs-side.b .vs-title');
+  if(aLabel) aLabel.innerHTML = `<i></i>${MODEL_LABEL[leftModel]} · plain`;
+  if(bLabel) bLabel.innerHTML = `<i></i>${MODEL_LABEL[rightModel]} · token savior`;
+  if(aTitle) aTitle.textContent = `${MODEL_LABEL_FULL[leftModel]}.`;
+  if(bTitle) bTitle.textContent = `${MODEL_LABEL_FULL[rightModel]} + graph.`;
+
+  if(sBase && sBase.n_tasks){
+    cAccA.textContent = sBase.score_pct.toFixed(1) + '%';
+  } else cAccA.textContent = '—';
+  if(sTs && sTs.n_tasks){
+    cAccB.textContent = sTs.score_pct.toFixed(1) + '%';
+  } else cAccB.textContent = '—';
+
+  if(pair && pair.n_paired){
+    tWins.textContent   = `+${pair.wins_ts} wins`;
+    tTies.firstChild.nodeValue = `${pair.ties} ties`;
+    tLosses.textContent = `${pair.wins_base} losses`;
+    const sameModel = leftModel === rightModel;
+    const label = sameModel
+      ? MODEL_LABEL_FULL[leftModel]
+      : `${MODEL_LABEL[leftModel]} (base) vs ${MODEL_LABEL[rightModel]} (+TS)`;
+    accTip.setAttribute('data-tip', `${label}: ${pair.score_base}/${pair.score_max} vs ${pair.score_ts}/${pair.score_max} over ${pair.n_paired} paired tasks.`);
+    tiesTip.setAttribute('data-tip', `A "tie" means both agents hit the scoring rubric — Token Savior usually reaches it with fewer tokens and less wall time.`);
+  } else {
+    tWins.textContent='—'; tLosses.textContent='—';
+    tTies.firstChild.nodeValue = '—';
+  }
+}
+
+function renderRadar(sBase, sTs){
+  const c = document.getElementById('radar'); if(!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height, cx = W/2, cy = H/2, R = Math.min(W,H)/2 - 80;
+  ctx.clearRect(0,0,W,H);
+  const cats = CATS.filter(k => (sBase && sBase.by_category && sBase.by_category[k]) || (sTs && sTs.by_category && sTs.by_category[k]));
+  if(!cats.length) return;
+  const N = cats.length;
+  const angle = i => -Math.PI/2 + i * (Math.PI*2/N);
+
+  // grid rings
+  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
+  for(let ring=1; ring<=4; ring++){
+    ctx.beginPath();
+    for(let i=0;i<N;i++){
+      const r = R * ring/4;
+      const x = cx + Math.cos(angle(i))*r, y = cy + Math.sin(angle(i))*r;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath(); ctx.stroke();
+  }
+  // spokes + labels
+  ctx.fillStyle = 'rgba(160,160,174,.8)';
+  ctx.font = '500 22px "Geist Mono", monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for(let i=0;i<N;i++){
+    const x2 = cx + Math.cos(angle(i))*R, y2 = cy + Math.sin(angle(i))*R;
+    ctx.strokeStyle='rgba(255,255,255,.06)';
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x2,y2); ctx.stroke();
+    const lx = cx + Math.cos(angle(i))*(R+44), ly = cy + Math.sin(angle(i))*(R+44);
+    ctx.fillText(CAT_LABEL[cats[i]] || cats[i], lx, ly);
+  }
+
+  const plotPoly = (summary, fill, stroke, dot) => {
+    if(!summary || !summary.by_category) return;
+    ctx.beginPath();
+    for(let i=0;i<N;i++){
+      const cat = summary.by_category[cats[i]];
+      const v = cat ? (cat.pct || 0) / 100 : 0;
+      const r = R * v;
+      const x = cx + Math.cos(angle(i))*r, y = cy + Math.sin(angle(i))*r;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke();
+    for(let i=0;i<N;i++){
+      const cat = summary.by_category[cats[i]];
+      const v = cat ? (cat.pct || 0) / 100 : 0;
+      const r = R * v;
+      const x = cx + Math.cos(angle(i))*r, y = cy + Math.sin(angle(i))*r;
+      ctx.fillStyle = dot;
+      ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill();
+    }
+  };
+  plotPoly(sBase, 'rgba(244,63,94,.14)',  'rgba(244,63,94,.75)',  '#f43f5e');
+  plotPoly(sTs,   'rgba(163,230,53,.18)', 'rgba(163,230,53,.85)', '#a3e635');
+}
+
+function renderBars(sBase, sTs){
+  const host = document.getElementById('bars'); if(!host) return;
+  host.innerHTML = '';
+  const cats = CATS.filter(k => (sBase?.by_category?.[k]) || (sTs?.by_category?.[k]));
+  if(!cats.length) return;
+  const maxChars = cats.reduce((m,k)=>{
+    const a = sBase?.by_category?.[k]?.chars || 0;
+    const b = sTs?.by_category?.[k]?.chars || 0;
+    return Math.max(m, a, b);
+  }, 0);
+  if(!maxChars) return;
+
+  cats.forEach(k=>{
+    const a = sBase?.by_category?.[k]?.chars || 0;
+    const b = sTs?.by_category?.[k]?.chars || 0;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `
+      <div class="lb">${CAT_LABEL[k]||k}</div>
+      <div>
+        <div class="bar-tr"><div class="bar-a" style="width:${Math.max(2, a/maxChars*100).toFixed(1)}%"></div></div>
+        <div class="bar-tr" style="margin-top:4px"><div class="bar-b" style="width:${Math.max(1, b/maxChars*100).toFixed(1)}%;bottom:0;top:0"></div></div>
+      </div>
+      <div class="vv">${(a/1000).toFixed(0)}k→${(b/1000).toFixed(0)}k</div>`;
+    host.appendChild(row);
+  });
+}
+
+function renderLegend(pair){
+  const map = { wins: pair?.wins_ts ?? 0, ties: pair?.ties ?? 0, losses: pair?.wins_base ?? 0 };
+  const impossible = TASKDATA.filter(t => t.hasA && t.hasB && t.sa===0 && t.sb>0).length;
+  map.impossible = impossible;
+  document.querySelectorAll('[data-legend]').forEach(el=>{
+    el.textContent = map[el.dataset.legend] ?? '—';
+  });
+}
+
+function renderPicker(){
+  document.querySelectorAll('.cp-btn[data-side][data-model]').forEach(btn=>{
+    const model = btn.dataset.model, side = btn.dataset.side;
+    const key = side === 'left' ? `${model}-base` : `${model}-ts`;
+    const s = MATRIX.summary[key];
+    const n = s?.n_tasks || 0;
+    const dot = btn.querySelector('.cp-dot');
+    dot.className = 'cp-dot ' + (n>=90 ? 'ok' : (n>0 ? 'pending' : 'empty'));
+    const picked = side === 'left' ? leftModel : rightModel;
+    btn.classList.toggle('active', model === picked);
+  });
+}
+
+function renderPending(sBase, sTs){
+  const nB = sBase?.n_tasks || 0, nT = sTs?.n_tasks || 0;
+  if(nB>=90 && nT>=90){
+    pendingBanner.classList.remove('show'); pendingBanner.textContent=''; return;
+  }
+  const lL = MODEL_LABEL_FULL[leftModel], rL = MODEL_LABEL_FULL[rightModel];
+  if(!nB && !nT){
+    pendingBanner.innerHTML = `<b>${lL} (base)</b> vs <b>${rL} (+TS)</b> — runs pending.`;
+  } else {
+    pendingBanner.innerHTML = `<b>${lL}</b> base ${nB}/90 · <b>${rL}</b> ts ${nT}/90 — showing what we have.`;
+  }
+  pendingBanner.classList.add('show');
+}
+
+/* ═══ MATCHUP TABLE ═══ */
+let mtSortKey = 'id', mtSortDir = 1, mtFilter = 'all';
+const mtBody = document.getElementById('mtBody');
+const mtSummary = document.getElementById('mtSummary');
+
+function outcomeOf(t){
+  if(!t.hasA || !t.hasB) return 'pending';
+  if(t.sb > t.sa) return t.sa === 0 ? 'impossible' : 'win';
+  if(t.sb < t.sa) return 'loss';
+  return 'tie';
+}
+function deltaPct(a, b){ if(!a || a===0) return null; return Math.round((b-a)/a*1000)/10; }
+function fmtDelta(d){
+  if(d==null) return { txt:'—', cls:'eq' };
+  if(d===0) return { txt:'0%', cls:'eq' };
+  const sign = d>0?'+':'';
+  const cls = d<0 ? 'dn' : 'up';
+  return { txt:`${sign}${d.toFixed(d%1?1:0)}%`, cls };
+}
+const OUT_RANK = { win:0, impossible:1, tie:2, loss:3, pending:4 };
+
+function renderSummaryBar(pair){
+  if(!pair){ mtSummary.innerHTML = '<span>no paired data for this combo yet</span>'; return; }
+  const red = (v) => (v>0?'−':'+') + Math.abs(v).toFixed(1) + '%';
+  const acc = (pair.accuracy_delta_pp>=0?'+':'') + pair.accuracy_delta_pp + 'pp';
+  mtSummary.innerHTML = `
+    <span>${pair.n_paired} paired</span>
+    <span class="w"><b>+${pair.wins_ts}</b> wins</span>
+    <span class="t"><b>${pair.ties}</b> ties</span>
+    <span class="l"><b>${pair.wins_base}</b> losses</span>
+    <span class="i"><b>${TASKDATA.filter(t=>t.hasA&&t.hasB&&t.sa===0&&t.sb>0).length}</b> impossible w/o TS</span>
+    <span>tokens <b>${red(pair.reduction_active_pct)}</b></span>
+    <span>wall <b>${red(pair.reduction_wall_pct)}</b></span>
+    <span>chars <b>${red(pair.reduction_chars_pct)}</b></span>
+    <span>accuracy <b>${acc}</b></span>`;
+}
+
+function mtRowValue(t, key){
+  if(key==='id') return t.id;
+  if(key==='cat') return t.cat || '';
+  if(key==='slug') return t.slug || '';
+  if(key==='sa') return t.sa==null ? -1 : t.sa;
+  if(key==='sb') return t.sb==null ? -1 : t.sb;
+  if(key==='dtok') { const d = deltaPct(t.ta, t.tb); return d==null?  Infinity*mtSortDir : d; }
+  if(key==='dwall'){ const d = deltaPct(t.wa, t.wb); return d==null?  Infinity*mtSortDir : d; }
+  if(key==='dchar'){ const d = deltaPct(t.ca, t.cb); return d==null?  Infinity*mtSortDir : d; }
+  if(key==='out')  return OUT_RANK[outcomeOf(t)] ?? 5;
+  return 0;
+}
+
+function renderTable(){
+  // filter
+  let rows = TASKDATA.slice();
+  if(mtFilter !== 'all') rows = rows.filter(t => outcomeOf(t) === mtFilter);
+  // sort
+  rows.sort((a,b)=>{
+    const va = mtRowValue(a, mtSortKey), vb = mtRowValue(b, mtSortKey);
+    if(typeof va === 'string') return mtSortDir * va.localeCompare(vb);
+    return mtSortDir * (va - vb);
+  });
+  // build
+  if(!rows.length){
+    mtBody.innerHTML = `<tr><td colspan="9" class="mt-empty">No tasks match this filter.</td></tr>`;
+  } else {
+    const frag = rows.map(t => {
+      const out = outcomeOf(t);
+      const dtok  = fmtDelta(deltaPct(t.ta, t.tb));
+      const dwall = fmtDelta(deltaPct(t.wa, t.wb));
+      const dchar = fmtDelta(deltaPct(t.ca, t.cb));
+      const sa = t.hasA ? t.sa+'/2' : '—';
+      const sb = t.hasB ? t.sb+'/2' : '—';
+      let saCls = 'eq', sbCls = 'eq';
+      if(t.hasA && t.hasB){
+        if(t.sa>t.sb){ saCls='win'; sbCls='loss'; }
+        else if(t.sb>t.sa){ sbCls='win'; saCls='loss'; }
+      }
+      const prompt = esc(t.slug || '').replace(/-/g,' ');
+      const active = t.id === currentTid ? ' class="active"' : '';
+      return `<tr data-id="${t.id}"${active}>
+        <td><span class="tid">${t.tid}</span></td>
+        <td class="hide-sm"><span class="cat">${CAT_LABEL[t.cat]||t.cat||'—'}</span></td>
+        <td><span class="slug" title="${esc(t.prompt||prompt)}">${prompt}</span></td>
+        <td class="num"><span class="mt-score ${saCls}">${sa}</span></td>
+        <td class="num"><span class="mt-score ${sbCls}">${sb}</span></td>
+        <td class="num hide-sm"><span class="mt-delta ${dtok.cls}">${dtok.txt}</span></td>
+        <td class="num hide-sm"><span class="mt-delta ${dwall.cls}">${dwall.txt}</span></td>
+        <td class="num hide-sm"><span class="mt-delta ${dchar.cls}">${dchar.txt}</span></td>
+        <td class="num"><span class="mt-out ${out}">${out}</span></td>
+      </tr>`;
+    }).join('');
+    mtBody.innerHTML = frag;
+  }
+  // header arrows
+  document.querySelectorAll('#mtTable th[data-sort]').forEach(th=>{
+    const k = th.dataset.sort;
+    th.classList.toggle('sorted', k === mtSortKey);
+    const so = th.querySelector('.so');
+    if(so) so.textContent = k === mtSortKey ? (mtSortDir>0?'↑':'↓') : '↕';
+  });
+}
+
+function render(){
+  TASKDATA = buildTaskdata();
+  const pair  = computePair();
+  const sBase = sideSummary(pair, 'a');
+  const sTs   = sideSummary(pair, 'b');
+  renderPicker();
+  renderPending(MATRIX.summary[baseCfg()], MATRIX.summary[tsCfg()]);
+  renderHero(pair);
+  renderScorecard(sBase, sTs, pair);
+  renderRadar(sBase, sTs);
+  renderBars(sBase, sTs);
+  renderTiles();
+  renderLegend(pair);
+  renderSummaryBar(pair);
+  renderTable();
+  const fallback = TASKDATA.find(x=>x.id===currentTid) || TASKDATA.find(x=>x.hasA && x.hasB) || TASKDATA[0];
+  if(fallback) loadTask(fallback.id);
+}
+
+async function init(){
+  try {
+    const res = await fetch('./matrix.json', { cache: 'no-store' });
+    MATRIX = await res.json();
+  } catch (e) {
+    console.error('matrix.json fetch failed', e);
+    pendingBanner.textContent = 'Benchmark data failed to load.';
+    pendingBanner.classList.add('show');
+    return;
+  }
+  // default: most complete model for each side
+  const priority = ['opus','sonnet'];
+  leftModel  = priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>=90)) || priority.find(m => (MATRIX.summary[`${m}-base`]?.n_tasks>0)) || 'opus';
+  rightModel = priority.find(m => (MATRIX.summary[`${m}-ts`]?.n_tasks>=90))   || priority.find(m => (MATRIX.summary[`${m}-ts`]?.n_tasks>0))   || 'opus';
+
+  document.querySelectorAll('.cp-btn[data-side][data-model]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const m = btn.dataset.model, side = btn.dataset.side;
+      if(side==='left'){ if(m===leftModel) return; leftModel = m; }
+      else { if(m===rightModel) return; rightModel = m; }
+      render();
+    });
+  });
+
+  // matchup filters + sort
+  document.querySelectorAll('.mt-chip[data-filter]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.mt-chip').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      mtFilter = btn.dataset.filter;
+      renderTable();
+    });
+  });
+  document.querySelectorAll('#mtTable th[data-sort]').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const k = th.dataset.sort;
+      if(k === mtSortKey) mtSortDir = -mtSortDir;
+      else { mtSortKey = k; mtSortDir = (k==='id'||k==='cat'||k==='slug') ? 1 : -1; }
+      renderTable();
+    });
+  });
+  // click row → load task in replay
+  mtBody.addEventListener('click', e=>{
+    const tr = e.target.closest('tr[data-id]');
+    if(!tr) return;
+    const id = +tr.dataset.id;
+    loadTask(id);
+    document.getElementById('replay')?.scrollIntoView({behavior:'smooth', block:'start'});
+    replay();
+  });
+
+  render();
+}
+init();
+
+</script>
+</body>
+</html>

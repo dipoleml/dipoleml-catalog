@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.2akouwu.reverify",
+  "type": "mcp",
+  "name": "Reverify",
+  "slug": "reverify",
+  "vendor": "2akouwu",
+  "description": "Stop your AI from making things up — it proposes, deterministic tools decide, every claim checked against ground truth with evidence. Grounded facts and context survive resets. Reverse engineering is the proving ground. MCP server + CLI.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/2akouwu/reverify",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-coding",
+    "anti-hallucination",
+    "binary-analysis",
+    "context-engineering",
+    "ctf",
+    "developer-tools",
+    "disassembler",
+    "grounding"
+  ],
+  "tags": [
+    "ai",
+    "ai-agents",
+    "ai-coding",
+    "anti-hallucination",
+    "binary-analysis",
+    "context-engineering",
+    "ctf",
+    "developer-tools",
+    "disassembler",
+    "grounding",
+    "hallucination",
+    "hallucination-detection",
+    "llm",
+    "malware-analysis",
+    "mcp",
+    "mcp-server",
+    "python",
+    "reverse-engineering",
+    "security-tools",
+    "verification"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "2akouwu",
+    "brandName": "2akouwu",
+    "source": "https://github.com/2akouwu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:34Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "2akouwu/reverify",
+    "url": "https://github.com/2akouwu/reverify",
+    "commit": "f32ea84ccd6bb2aff90eca711ccfdbf04e6b8923",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1318,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "reverify"
+    ],
+    "env": [
+      "REVERIFY_ROLLOVER_TOKENS"
+    ],
+    "credentials": [
+      "REVERIFY_ROLLOVER_TOKENS"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

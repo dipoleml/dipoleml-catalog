@@ -1,0 +1,159 @@
+package oauth
+
+import (
+	"context"
+	"crypto/x509"
+	"fmt"
+	"net/http"
+	"os"
+	"slices"
+	"sync/atomic"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/config"
+	"github.com/containers/kubernetes-mcp-server/pkg/tlsutil"
+	"github.com/coreos/go-oidc/v3/oidc"
+)
+
+// Snapshot is an immutable point-in-time capture of OAuth-related state.
+// It is swapped atomically via State so all consumers see a consistent view.
+type Snapshot struct {
+	OIDCProvider                     *oidc.Provider
+	HTTPClient                       *http.Client
+	AuthorizationURL                 string
+	CertificateAuthority             string
+	TLSMinVersion                    string
+	TLSCipherSuites                  []string
+	OAuthScopes                      []string
+	DisableDynamicClientRegistration bool
+}
+
+// HasProviderConfigChanged reports whether the fields that require OIDC provider
+// and HTTP client recreation have changed between two snapshots.
+func (s *Snapshot) HasProviderConfigChanged(other *Snapshot) bool {
+	if s == nil || other == nil {
+		return s != other
+	}
+	return s.AuthorizationURL != other.AuthorizationURL ||
+		s.CertificateAuthority != other.CertificateAuthority ||
+		s.TLSMinVersion != other.TLSMinVersion ||
+		!slices.Equal(s.TLSCipherSuites, other.TLSCipherSuites)
+}
+
+// HasWellKnownConfigChanged reports whether any WellKnown-serving fields changed.
+func (s *Snapshot) HasWellKnownConfigChanged(other *Snapshot) bool {
+	if s == nil || other == nil {
+		return s != other
+	}
+	if s.HasProviderConfigChanged(other) {
+		return true
+	}
+	if s.DisableDynamicClientRegistration != other.DisableDynamicClientRegistration {
+		return true
+	}
+	if !slices.Equal(s.OAuthScopes, other.OAuthScopes) {
+		return true
+	}
+	return false
+}
+
+// State holds the current OAuth snapshot and allows atomic, lock-free reads.
+type State struct {
+	ref atomic.Pointer[Snapshot]
+}
+
+// NewState creates a new State initialized with the given snapshot.
+func NewState(snap *Snapshot) *State {
+	s := &State{}
+	s.ref.Store(snap)
+	return s
+}
+
+// Load returns the current snapshot. Safe for concurrent use.
+func (s *State) Load() *Snapshot {
+	return s.ref.Load()
+}
+
+// Store atomically replaces the current snapshot.
+func (s *State) Store(snap *Snapshot) {
+	s.ref.Store(snap)
+}
+
+// SnapshotFromConfig extracts OAuth-relevant fields from a Config and
+// pairs them with the corresponding OIDC provider and HTTP client.
+func SnapshotFromConfig(cfg *config.Config, provider *oidc.Provider, httpClient *http.Client) *Snapshot {
+	return &Snapshot{
+		OIDCProvider:                     provider,
+		HTTPClient:                       httpClient,
+		AuthorizationURL:                 cfg.AuthorizationURL.Get(),
+		CertificateAuthority:             cfg.CertificateAuthority.Get(),
+		TLSMinVersion:                    cfg.TLSMinVersion.Get(),
+		TLSCipherSuites:                  append([]string(nil), cfg.TLSCipherSuites.Get()...),
+		OAuthScopes:                      cfg.OAuthScopes.Get(),
+		DisableDynamicClientRegistration: cfg.DisableDynamicClientRegistration.Get(),
+	}
+}
+
+// SnapshotForReload builds the OAuth snapshot that must be published together
+// with a reloaded Config. If provider-relevant fields changed, it performs
+// OIDC discovery. On error the caller must not commit the new Config.
+func SnapshotForReload(current *Snapshot, cfg *config.Config) (*Snapshot, error) {
+	if current == nil {
+		current = &Snapshot{}
+	}
+	next := SnapshotFromConfig(cfg, current.OIDCProvider, current.HTTPClient)
+	if !current.HasProviderConfigChanged(next) {
+		return next, nil
+	}
+	provider, client, err := CreateOIDCProviderAndClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	next.OIDCProvider = provider
+	next.HTTPClient = client
+	return next, nil
+}
+
+// CreateOIDCProviderAndClient builds an OIDC provider and HTTP client from config.
+// Returns (nil, nil, nil) when AuthorizationURL is empty (OAuth not configured).
+func CreateOIDCProviderAndClient(cfg *config.Config) (*oidc.Provider, *http.Client, error) {
+	if cfg.AuthorizationURL.Get() == "" {
+		return nil, nil, nil
+	}
+
+	ctx := context.Background()
+
+	// Build TLS options for outbound client
+	var tlsOpts []tlsutil.TLSConfigOption
+
+	if cfg.CertificateAuthority.Get() != "" {
+		caCert, err := os.ReadFile(cfg.CertificateAuthority.Get())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read CA certificate from %s: %w", cfg.CertificateAuthority.Get(), err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, nil, fmt.Errorf("failed to append CA certificate from %s to pool", cfg.CertificateAuthority.Get())
+		}
+		tlsOpts = append(tlsOpts, tlsutil.WithRootCAs(caCertPool))
+	}
+
+	// Build TLS config from config getters (env/TOML already resolved).
+	tlsConfig, err := tlsutil.BuildTLSConfig(cfg.TLSMinVersion.Get(), cfg.TLSCipherSuites.Get(), tlsOpts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build TLS config: %w", err)
+	}
+
+	var transport http.RoundTripper = &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+	transport = config.NewTLSEnforcingTransport(transport, func() bool { return cfg.RequireTLS.Get() })
+	httpClient := &http.Client{Transport: transport}
+
+	ctx = oidc.ClientContext(ctx, httpClient)
+	provider, err := oidc.NewProvider(ctx, cfg.AuthorizationURL.Get())
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to setup OIDC provider: %w", err)
+	}
+
+	return provider, httpClient, nil
+}

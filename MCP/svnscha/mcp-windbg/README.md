@@ -1,0 +1,243 @@
+# MCP Server for WinDbg Crash Analysis
+
+[![CI](https://github.com/svnscha/mcp-windbg/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/svnscha/mcp-windbg/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/github/deployments/svnscha/mcp-windbg/github-pages?label=docs)](https://svnscha.github.io/mcp-windbg/)
+[![PyPI](https://img.shields.io/pypi/v/mcp-windbg)](https://pypi.org/project/mcp-windbg/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB)
+
+A Model Context Protocol server that bridges AI models with WinDbg for crash dump analysis, user-mode remote debugging, and kernel debugging.
+
+> [!TIP]
+> **Looking for AI debugging built into WinDbg itself?** Microsoft now ships an official
+> WinDbg MCP, starting with WinDbg 1.2610.1001.0. You enable it in WinDbg's MCP service
+> settings, and chat with your active debugging session from VS Code with GitHub Copilot or
+> from the GitHub Copilot CLI. If that is what you want, start there:
+>
+> - [Introducing WinDbg MCP](https://devblogs.microsoft.com/performance-diagnostics/introducing-windbg-mcp-debug-with-natural-language-grounded-in-evidence/) (announcement)
+> - [Set up WinDbg MCP](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/set-up-windbg-mcp) and the [overview](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/windbg-mcp-overview)
+> - [Get the latest WinDbg](https://aka.ms/windbg/download)
+>
+> This project is an independent, community-built alternative. It runs `cdb.exe` / `kd.exe`
+> headless, so it fits when you want to use another MCP client, drive a debugger from another machine over HTTP, or script triage across many
+> dumps without opening the WinDbg UI.
+
+<!-- mcp-name: io.github.svnscha/mcp-windbg -->
+
+## Overview
+
+This server drives the Windows debuggers - [CDB](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/opening-a-crash-dump-file-using-cdb) for user mode (dumps and `-remote`) and **KD** for kernel targets (`-k`) - so you can debug in natural language: *"Show me the call stack and explain this access violation"* or *"Open a kernel session and tell me which driver bugchecked."*
+
+It is not a magical auto-fix. It is a Python wrapper around `cdb.exe` / `kd.exe` that lets an LLM run real debugger commands and reason about the output.
+
+## Features
+
+- **Crash dump analysis** - open a `.dmp`/`.mdmp`/`.hdmp` and get automated triage (`!analyze -v`, stacks, modules, threads) in a single call.
+- **User-mode remote debugging** - attach to a live `cdb`/WinDbg debug server (`-remote`) over TCP, a named pipe, or COM, and break in on demand.
+- **Kernel debugging** - attach to a kernel target (`-k`, driven by `kd.exe`) over KDNET, a named pipe, or serial; the server waits for the target and breaks in for you.
+- **Run any WinDbg/KD command** - drive an open session with arbitrary commands (`kb`, `!process 0 0`, `!heap`, `lm`, ...) described in natural language.
+- **Session ids** - every open returns a session id; several sessions (dumps, remote, kernel) can be open at once and are addressed independently.
+- **Resilient live sessions** - per-call timeouts, and a slow live command that outruns its timeout is broken into with CTRL+BREAK and the session resynchronized instead of wedging.
+- **Multi-dump triage** - discover and compare many dumps across a directory.
+- **Text filter hooks** - a `--filter-script` can redact PII/secrets from tool arguments and output before they leave the machine.
+- **stdio or HTTP** - run locally over stdio, or as a streamable-HTTP service you drive from another machine.
+
+## Use cases
+
+| You have | You want to | Guide |
+| --- | --- | --- |
+| A `.dmp` from a crash or a blue screen | Root-cause it: exception or bugcheck, faulting frame, why it happened | [Analyze a crash dump](https://svnscha.github.io/mcp-windbg/scenarios/crash-dump/) |
+| A live user-mode process (via `cdb -server`) | Break in and inspect a hang or live state | [Debug a remote target](https://svnscha.github.io/mcp-windbg/scenarios/remote-debugging/) |
+| A KD-enabled machine or VM | Debug drivers, bugchecks, and boot-time issues | [Debug a kernel target](https://svnscha.github.io/mcp-windbg/scenarios/kernel-debugging/) |
+| A folder full of dumps | Triage the batch and find the common signature | [Triage multiple dumps](https://svnscha.github.io/mcp-windbg/scenarios/triage/) |
+| A debugging host, but you work elsewhere | Drive it over HTTP from another machine | [Debug from another machine](https://svnscha.github.io/mcp-windbg/scenarios/http-service/) |
+| Dumps with secrets or PII | Scrub tool output before it leaves the box | [Redact sensitive data](https://svnscha.github.io/mcp-windbg/scenarios/redaction/) |
+
+## Tools
+
+Every `open_*` tool returns an opaque **`session_id`** (e.g. `cdb-1a2b3c4d`); pass it to the matching `run_*`, `close_*`, `send_ctrl_break`, and `wait_for_break` calls. User-mode targets (dumps and `-remote`) run under `cdb.exe`; kernel targets and kernel dumps run under `kd.exe`.
+
+| Tool | Purpose |
+|------|---------|
+| `list_dumps` | List crash dump files in a directory |
+| `open_cdb_dump` | Open and triage a crash dump |
+| `open_cdb_remote` | Attach to a user-mode remote debug server (`-remote`) |
+| `open_kd_session` | Attach to a kernel target (`-k`, KDNET / named pipe / serial) |
+| `open_kd_dump` | Open and triage a kernel crash dump (`MEMORY.DMP`, minidump) |
+| `run_cdb_command` | Run a command on a user-mode session |
+| `run_kd_command` | Run a command on a kernel session |
+| `close_cdb_session` | Close a user-mode session |
+| `close_kd_session` | Close a kernel session (resumes the target machine) |
+| `send_ctrl_break` | Break into a running live session |
+| `wait_for_break` | Wait for a target you resumed with `g` to stop again |
+
+Parameters, timeouts, and the built-in triage prompts are in the [tools reference](https://svnscha.github.io/mcp-windbg/reference/tools/).
+
+## Quick start
+
+> [!NOTE]
+> **Claude Code in enterprise environments:** when managed settings define `allowedMcpServers`,
+> plugin-bundled MCP servers may be silently skipped ([Claude Code issue #32882](https://github.com/anthropics/claude-code/issues/32882)).
+> I recommend [installing and registering the server manually](#registering-the-server-yourself),
+> then optionally adding the [skills](#skills-for-an-existing-server) or [agents](#agents-for-an-existing-server) plugin.
+> The server must still be permitted by your organization's MCP policy.
+
+**Prerequisites**
+
+- Windows with [Debugging Tools for Windows](https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/) or [WinDbg from the Microsoft Store](https://apps.microsoft.com/detail/9pgjgd53tn86), which ship `cdb.exe` and `kd.exe` (auto-detected).
+- Any MCP-compatible client (Claude Code, GitHub Copilot, Claude Desktop, Cursor, Windsurf, Cline, ...).
+
+Python is not a prerequisite in itself. Each route below states what it needs.
+
+## Install in Claude Code
+
+Install the server plugin if needed, then optionally add skills, agents, or both:
+
+| Plugin | Server | Included workflows |
+| --- | --- | --- |
+| `mcp-windbg-uvx` | Launched by the plugin with uvx | MCP tools only |
+| `mcp-windbg-skills` | Uses the uvx plugin or your own MCP connection | Four optional skills |
+| `mcp-windbg-agents` | Uses the uvx plugin or your own MCP connection | Optional `crash-analyst` agent |
+
+### Server with uvx
+
+The shortest path: two lines, no `pip install`, no MCP configuration to edit. Adds the
+eleven tools, with symbols preconfigured. Skills and agents are installed separately.
+
+```
+/plugin marketplace add svnscha/mcp-windbg
+/plugin install mcp-windbg-uvx@mcp-windbg
+```
+
+Needs [uv](https://docs.astral.sh/uv/), which supplies `uvx`: `winget install astral-sh.uv`. The
+plugin uses it to fetch the pinned server from PyPI on first use, so there is nothing else to
+install. See the [plugin README](plugins/mcp-windbg/README.md) for symbols and options.
+
+### Registering the server yourself
+
+If you would rather not use the plugin, or you already run the package:
+
+```bash
+pip install mcp-windbg
+claude mcp add mcp-windbg -s user -e _NT_SYMBOL_PATH="SRV*C:\Symbols*https://msdl.microsoft.com/download/symbols" -- python -m mcp_windbg
+```
+
+Needs Python 3.10 or higher. Add either optional plugin below for guided workflows or an agent.
+
+### Skills for an existing server
+
+After installing the uvx plugin or registering mcp-windbg yourself, optionally add the four skills:
+
+```text
+/plugin marketplace add svnscha/mcp-windbg
+/plugin install mcp-windbg-skills@mcp-windbg
+```
+
+Invoke `/mcp-windbg-skills:analyze-dump`, `/mcp-windbg-skills:debug-remote`,
+`/mcp-windbg-skills:kernel-debug`, or `/mcp-windbg-skills:windbg-doctor`.
+This plugin uses your configured MCP connection and adds no server, runtime,
+symbol settings, or `crash-analyst` agent. It works with a native executable,
+Python installation, or HTTP service exposing the mcp-windbg tools.
+Install this plugin alongside uvx for the server and skills together, or omit it to use just the tools.
+When upgrading from a version that bundled skills, install this plugin to keep the workflows;
+their invocation prefix changes from `/mcp-windbg:` to `/mcp-windbg-skills:`.
+The server's [built-in MCP prompts](https://svnscha.github.io/mcp-windbg/reference/prompts/)
+remain available independently of these plugins. See the
+[plugin guide](https://svnscha.github.io/mcp-windbg/reference/plugin/) for updating or switching plugins.
+
+### Agents for an existing server
+
+```text
+/plugin marketplace add svnscha/mcp-windbg
+/plugin install mcp-windbg-agents@mcp-windbg
+```
+
+Ask: *"Use the mcp-windbg-agents:crash-analyst agent on C:\dumps\app.dmp"*.
+It investigates the dump and returns a verdict, evidence, and next steps through
+your existing MCP connection. It requires neither uvx nor the skills plugin.
+When upgrading from a version that bundled the agent, install this plugin to keep it.
+
+## Install without Python
+
+Every [release](https://github.com/svnscha/mcp-windbg/releases/latest) attaches
+`mcp-windbg.exe`: one signed executable carrying its own interpreter and every dependency.
+`cdb.exe` is still required. Point your client's `command` at the file and give it no `args`.
+
+The release also publishes `SHA256SUMS`, and the binary is code signed, so both are checkable:
+
+```powershell
+(Get-FileHash .\mcp-windbg.exe -Algorithm SHA256).Hash
+Get-AuthenticodeSignature .\mcp-windbg.exe | Format-List Status, SignerCertificate
+```
+
+`Status` should read `Valid`. The signer is Liasoft GmbH, which sponsors the signing
+certificate; the project is written by Sven Scharmentke.
+
+## Install in another client
+
+```bash
+pip install mcp-windbg
+```
+
+Needs Python 3.10 or higher. Then point the client at `python -m mcp_windbg`. For VS Code
+(GitHub Copilot), press `F1` and select **MCP: Open User Configuration** to enable it in every
+workspace:
+
+```json
+{
+    "servers": {
+        "mcp_windbg": {
+            "type": "stdio",
+            "command": "python",
+            "args": ["-m", "mcp_windbg"],
+            "env": {
+                "_NT_SYMBOL_PATH": "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols"
+            }
+        }
+    }
+}
+```
+
+See the [client configuration guide](https://svnscha.github.io/mcp-windbg/reference/clients/) for
+Claude Desktop, Copilot CLI, Autohand Code, HTTP, and from-source setups.
+
+## Start debugging
+
+Restart your client, then ask for what you want:
+
+```text
+Analyze the crash dump at C:\dumps\app.dmp
+Connect to tcp:Port=5005,Server=192.168.0.100 and show me the current thread state
+Open a kernel session on net:port=50000,key=1.2.3.4, run !analyze -v, and tell me which driver bugchecked
+```
+
+Server options (`--cdb-path`, `--kd-path`, `--symbols-path`, `--filter-script`, `--transport`, ...) are documented in the [command-line reference](https://svnscha.github.io/mcp-windbg/reference/cli/).
+
+## Documentation
+
+**[svnscha.github.io/mcp-windbg](https://svnscha.github.io/mcp-windbg/)**
+
+| Topic | Description |
+|-------|-------------|
+| **[Getting started](https://svnscha.github.io/mcp-windbg/getting-started/)** | Setup and your first crash dump analysis |
+| **[Analyze a crash dump](https://svnscha.github.io/mcp-windbg/scenarios/crash-dump/)** | Root-cause an exception: faulting frame, why it happened |
+| **[Debug a remote target](https://svnscha.github.io/mcp-windbg/scenarios/remote-debugging/)** | Break into a live user-mode process and inspect a hang |
+| **[Debug a kernel target](https://svnscha.github.io/mcp-windbg/scenarios/kernel-debugging/)** | Drivers, bugchecks, and boot-time issues over KDNET or a pipe |
+| **[Triage multiple dumps](https://svnscha.github.io/mcp-windbg/scenarios/triage/)** | Scan a folder and find the common signature |
+| **[Debug from another machine](https://svnscha.github.io/mcp-windbg/scenarios/http-service/)** | Run the server over HTTP and drive it remotely |
+| **[Redact sensitive data](https://svnscha.github.io/mcp-windbg/scenarios/redaction/)** | Scrub secrets from tool output before it leaves the box |
+| **[Reference](https://svnscha.github.io/mcp-windbg/reference/)** | Tools, prompts, CLI options, and client configuration |
+| **[Troubleshooting](https://svnscha.github.io/mcp-windbg/troubleshooting/)** | Common issues and solutions |
+| **[Development](https://svnscha.github.io/mcp-windbg/development/)** | Run from a local checkout and point a client at the dev build |
+
+## Blog
+
+Read about the development journey: [The Future of Crash Analysis: AI Meets WinDbg](https://svnscha.de/posts/ai-meets-windbg/)
+
+- [Reddit: I taught Copilot to analyze Windows Crash Dumps](https://www.reddit.com/r/programming/comments/1kes3wq/i_taught_copilot_to_analyze_windows_crash_dumps/)
+- [Hackernews: AI Meets WinDbg](https://news.ycombinator.com/item?id=43892096)
+
+## License
+
+MIT

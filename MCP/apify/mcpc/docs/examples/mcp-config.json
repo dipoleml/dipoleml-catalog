@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    },
+
+    "fs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${PWD}"]
+    },
+
+    "apify-public": {
+      "url": "https://mcp.apify.com/?tools=docs,search-actors"
+    },
+
+    "apify-bearer": {
+      "url": "https://mcp.apify.com",
+      "headers": {
+        "Authorization": "Bearer ${APIFY_TOKEN}"
+      }
+    },
+
+    "apify-oauth": {
+      "url": "https://mcp.apify.com"
+    }
+  }
+}

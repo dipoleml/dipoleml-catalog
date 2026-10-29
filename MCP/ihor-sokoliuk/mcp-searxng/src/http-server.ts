@@ -1,0 +1,1464 @@
+import express from "express";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
+import { randomUUID } from "crypto";
+import {
+  SUPPORTED_PROTOCOL_VERSIONS,
+  createMcpHandler,
+  isInitializeRequest,
+  isLegacyRequest,
+  type McpServer,
+  type OAuthTokenVerifier,
+} from "@modelcontextprotocol/server";
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from "@modelcontextprotocol/node";
+import { logMessage } from "./logging.js";
+import { packageVersion } from "./version.js";
+import { createOAuthProtection } from "./oauth-http.js";
+import {
+  sanitizeDiagnosticText,
+  sanitizeDiagnosticValue,
+  sanitizeErrorForTransport,
+} from "./diagnostic-sanitizer.js";
+import { createStatefulLifecycleDiagnostics, writeDiagnostic } from "./diagnostic-output.js";
+import { parseStrictInteger } from "./env-int.js";
+import {
+  getHttpSecurityConfig,
+  isOriginAllowed,
+  isRequestAuthorized,
+  validateHttpSecurityConfig,
+} from "./http-security.js";
+
+type LifecycleDiagnostics = ReturnType<typeof createStatefulLifecycleDiagnostics>;
+
+interface Session {
+  transport: NodeStreamableHTTPServerTransport;
+  mcpServer: McpServer;
+  oauthPrincipal?: string;
+  idle?: SessionIdleActivity;
+  work: SessionWork;
+  invalidate: () => void;
+  finalize: () => Promise<void>;
+  released: Promise<void>;
+}
+
+interface SessionWork {
+  post: number;
+  get: number;
+  releases: Set<() => void>;
+  responses: Map<express.Response, "post" | "get">;
+}
+
+function createStatefulFinalizer(
+  release: () => void,
+  resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer },
+  diagnostics: LifecycleDiagnostics,
+): () => Promise<void> {
+  let closing: Promise<void> | undefined;
+  return () => {
+    release();
+    if (!closing) {
+      const closeTransport = resources.transport?.close.bind(resources.transport);
+      const transportClosed = Promise.resolve().then(() => closeTransport?.());
+      // McpServer.close also closes its transport. Share the in-progress close
+      // so both resources can start cleanup independently without double close.
+      if (resources.transport) resources.transport.close = () => transportClosed;
+      closing = Promise.allSettled([
+        transportClosed,
+        Promise.resolve().then(() => resources.mcpServer?.close()),
+      ]).then(outcomes => {
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") diagnostics.record("close_failure");
+        }
+      });
+    }
+    return closing;
+  };
+}
+
+interface ShutdownSession {
+  initializing: boolean;
+  work: SessionWork;
+  finalize: () => Promise<void>;
+}
+
+function rejectShutdown(res: express.Response): void {
+  res.set("Retry-After", "5").status(503).json({
+    jsonrpc: "2.0", error: { code: -32000, message: "Server shutting down" }, id: null,
+  });
+}
+
+function finishShutdownResponse(res: express.Response, kind: "post" | "get", hardStop = false): void {
+  if (res.destroyed || res.writableFinished) return;
+  if (res.writableEnded && !hardStop) return;
+  if (kind === "get" || res.headersSent) res.destroy();
+  else rejectShutdown(res);
+}
+
+function createStatefulShutdown(diagnostics: LifecycleDiagnostics) {
+  const entries = new Set<ShutdownSession>();
+  const started = new Set<ShutdownSession>();
+  const responses = new Map<express.Response, "post" | "get">();
+  let stopped = false;
+  let finished = false;
+  let pending = 0;
+  let promise: Promise<void> | undefined;
+  let resolveShutdown: () => void;
+  let drainTimer: NodeJS.Timeout | undefined;
+  let hardTimer: NodeJS.Timeout | undefined;
+  const finish = (hardStop = false): void => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(drainTimer);
+    clearTimeout(hardTimer);
+    for (const [res, kind] of responses) finishShutdownResponse(res, kind, hardStop);
+    responses.clear();
+    started.clear();
+    diagnostics.close();
+    resolveShutdown();
+  };
+  const checkComplete = (): void => {
+    if (stopped && entries.size === 0 && pending === 0 && responses.size === 0) finish();
+  };
+  const start = (entry: ShutdownSession): void => {
+    if (started.has(entry)) return;
+    started.add(entry);
+    pending++;
+    // Preserve the shutdown response before SDK close can end or destroy it.
+    // Active POSTs reach this point only after their drain window expires.
+    for (const [res, kind] of entry.work.responses) finishShutdownResponse(res, kind);
+    // Invalidate synchronously, even when resource closure will never settle.
+    let closing: Promise<void>;
+    try { closing = entry.finalize(); }
+    catch (error) { closing = Promise.reject(error); }
+    void closing.catch(() => diagnostics.record("close_failure"))
+      .finally(() => { pending--; checkComplete(); });
+  };
+  const changed = (): void => {
+    if (!stopped || finished) return;
+    for (const entry of entries) {
+      if (!entry.initializing && entry.work.post === 0) start(entry);
+    }
+    queueMicrotask(checkComplete);
+  };
+  return {
+    add: (entry: ShutdownSession) => { entries.add(entry); },
+    remove: (entry: ShutdownSession) => {
+      entries.delete(entry);
+      // Let the current terminal event write its own response (for example a
+      // request-timeout 504) before shutdown finishes any remaining responses.
+      queueMicrotask(checkComplete);
+    },
+    changed,
+    reject(res: express.Response): boolean {
+      if (!stopped) return false;
+      rejectShutdown(res);
+      return true;
+    },
+    shutdown(): Promise<void> {
+      if (promise) return promise;
+      stopped = true;
+      diagnostics.drain();
+      promise = new Promise<void>(resolve => { resolveShutdown = resolve; });
+      for (const entry of entries) {
+        for (const [res, kind] of entry.work.responses) {
+          responses.set(res, kind);
+          const completed = (): void => {
+            responses.delete(res);
+            res.off("finish", completed);
+            res.off("close", completed);
+            queueMicrotask(checkComplete);
+          };
+          res.once("finish", completed);
+          res.once("close", completed);
+          if (res.destroyed || res.writableFinished) completed();
+          if (kind === "get" && !res.destroyed) res.destroy();
+        }
+      }
+      // Native timers use monotonic elapsed time. Both budgets start together.
+      drainTimer = setTimeout(() => {
+        if ([...entries].some(entry => !started.has(entry))) diagnostics.record("forced_shutdown");
+        for (const entry of entries) start(entry);
+      }, 4000);
+      hardTimer = setTimeout(() => {
+        diagnostics.record("forced_shutdown");
+        for (const entry of entries) start(entry);
+        finish(true);
+      }, 5000);
+      drainTimer.unref();
+      hardTimer.unref();
+      changed();
+      return promise;
+    },
+  };
+}
+
+export function resolveHttpSessionRequestTimeoutMs(): number {
+  if (process.env.MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS?.trim() === "0") return 0;
+  return parseBoundedStatelessEnv("MCP_HTTP_SESSION_REQUEST_TIMEOUT_MS", 0, 1000, 2147483647);
+}
+
+function finishStatefulResponse(res: express.Response, kind: "post" | "get", timeoutId?: unknown): void {
+  if (res.destroyed || res.writableFinished) return;
+  if (kind === "get" || res.headersSent) { res.destroy(); return; }
+  const failure = timeoutId === undefined
+    ? { status: 404, code: -32001, message: "Session not found", id: null }
+    : { status: 504, code: -32000, message: "Stateful request timed out", id: timeoutId };
+  res.status(failure.status).json({
+    jsonrpc: "2.0",
+    error: { code: failure.code, message: failure.message },
+    id: failure.id,
+  });
+}
+
+function observeInitializeResponse(work: SessionWork, res: express.Response): void {
+  const release = (): void => {
+    work.responses.delete(res);
+    work.releases.delete(release);
+    res.off("finish", release);
+    res.off("close", release);
+  };
+  work.responses.set(res, "post");
+  work.releases.add(release);
+  res.once("finish", release);
+  res.once("close", release);
+}
+
+function trackStatefulDeadline(session: Session, req: express.Request, res: express.Response, timeoutMs: number, diagnostics: LifecycleDiagnostics): () => void {
+  if (!timeoutMs) return () => {};
+  const stop = (): void => {
+    clearTimeout(timer);
+    session.work.releases.delete(stop);
+    req.off("aborted", stop);
+    res.off("finish", stop);
+    res.off("close", stop);
+  };
+  // Node timers use monotonic elapsed time; wall-clock adjustments cannot extend
+  // an admitted request. Keep the timer until the response ends, including SSE.
+  const timer = setTimeout(() => {
+    if (res.writableFinished || res.destroyed) { stop(); return; }
+    diagnostics.record("post_timeout");
+    const responses = [...session.work.responses];
+    session.invalidate();
+    finishStatefulResponse(res, "post", scalarRequestId(req.body));
+    for (const [sibling, kind] of responses) {
+      if (sibling !== res) finishStatefulResponse(sibling, kind);
+    }
+    void session.finalize();
+  }, timeoutMs);
+  timer.unref();
+  session.work.releases.add(stop);
+  req.once("aborted", stop);
+  res.once("finish", stop);
+  res.once("close", stop);
+  return stop;
+}
+
+export function resolveHttpConcurrencyConfig() {
+  return {
+    postPerSession: parseBoundedStatelessEnv("MCP_HTTP_MAX_IN_FLIGHT_PER_SESSION", 16, 1, 256),
+    getPerSession: parseBoundedStatelessEnv("MCP_HTTP_MAX_GET_STREAMS_PER_SESSION", 4, 1, 32),
+    postTotal: parseBoundedStatelessEnv("MCP_HTTP_MAX_IN_FLIGHT_TOTAL", 256, 1, 4096),
+    getTotal: parseBoundedStatelessEnv("MCP_HTTP_MAX_GET_STREAMS_TOTAL", 256, 1, 4096),
+  };
+}
+
+function rejectCapacity(res: express.Response): void {
+  res.set("Retry-After", "1").status(503).json({
+    jsonrpc: "2.0", error: { code: -32000, message: "Server busy" }, id: null,
+  });
+}
+
+function statefulCapacityExceeded(
+  config: ReturnType<typeof resolveHttpConcurrencyConfig>,
+  totals: { post: number; get: number; initializing: number },
+  kind: "post" | "get",
+  work: SessionWork | undefined,
+  hasSessions: boolean,
+): boolean {
+  const totalLimit = kind === "post" ? config.postTotal : config.getTotal;
+  const sessionLimit = kind === "post" ? config.postPerSession : config.getPerSession;
+  // Keep at least one slot for established sessions. A one-slot deployment
+  // can initialize only while it has no established session.
+  const initializeLimit = config.postTotal === 1 ? (hasSessions ? 0 : 1)
+    : config.postTotal - Math.max(1, Math.floor(config.postTotal / 4));
+  return totals[kind] >= totalLimit || (work ? work[kind] >= sessionLimit : totals.initializing >= initializeLimit);
+}
+
+function createStatefulAdmission(config: ReturnType<typeof resolveHttpConcurrencyConfig>, onRelease: () => void, diagnostics: LifecycleDiagnostics) {
+  const totals = { post: 0, get: 0, initializing: 0 };
+  return (kind: "post" | "get", req: express.Request, res: express.Response, work?: SessionWork, hasSessions = false): (() => void) | undefined => {
+    if ((req.destroyed && !req.complete) || res.destroyed) return undefined;
+    if (statefulCapacityExceeded(config, totals, kind, work, hasSessions)) {
+      diagnostics.record("capacity_rejection");
+      rejectCapacity(res);
+      return undefined;
+    }
+    totals[kind]++;
+    if (work) work[kind]++;
+    else totals.initializing++;
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      totals[kind]--;
+      if (work) { work[kind]--; work.releases.delete(release); work.responses.delete(res); }
+      else totals.initializing--;
+      req.off("aborted", release);
+      res.off("finish", release);
+      res.off("close", release);
+      onRelease();
+    };
+    work?.releases.add(release);
+    work?.responses.set(res, kind);
+    req.once("aborted", release);
+    res.once("finish", release);
+    res.once("close", release);
+    return release;
+  };
+}
+
+interface SessionIdleActivity {
+  phase: "initializing" | "active" | "closing" | "closed";
+  initializeDelivered: boolean;
+  lastActivity: number;
+  posts: number;
+  releases: Set<() => void>;
+}
+
+export const DEFAULT_STATELESS_MAX_IN_FLIGHT = 16;
+export const DEFAULT_HTTP_MAX_SESSIONS = 1000;
+export const MAX_HTTP_MAX_SESSIONS = 10000;
+export const DEFAULT_HTTP_INITIALIZE_TIMEOUT_MS = 30000;
+export const DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP = 8;
+export const DEFAULT_STATELESS_REQUEST_TIMEOUT_MS = 900000;
+export const MAX_STATELESS_MAX_IN_FLIGHT = 256;
+const MIN_STATELESS_REQUEST_TIMEOUT_MS = 1000;
+const MAX_STATELESS_REQUEST_TIMEOUT_MS = 2147483647;
+const STATELESS_CLEANUP_DEADLINE_MS = 5000;
+const STATELESS_WARNING_INTERVAL_MS = 60000;
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function echoableRequestId(request: Record<string, unknown>): string | number | null | undefined {
+  if (!Object.hasOwn(request, "id")) return undefined;
+  const id = request.id;
+  if (typeof id === "string" || id === null) return id;
+  return typeof id === "number" && Number.isFinite(id) ? id : undefined;
+}
+
+export interface StatelessHttpConfig {
+  enabled: boolean;
+  maxInFlight: number;
+  maxInFlightPerIp: number;
+  requestTimeoutMs: number;
+}
+
+function warnDiagnostic(message: string, data?: unknown): void {
+  if (data === undefined) {
+    writeDiagnostic("warn", sanitizeDiagnosticText(message));
+    return;
+  }
+  writeDiagnostic(
+    "warn",
+    sanitizeDiagnosticText(message),
+    sanitizeDiagnosticValue(data),
+  );
+}
+
+/**
+ * Resolves the bind host from the MCP_HTTP_HOST environment variable.
+ * Falls back to "127.0.0.1" (localhost only) when the variable is absent or whitespace-only.
+ * Set MCP_HTTP_HOST=0.0.0.0 to expose on all interfaces (e.g. Docker, remote access).
+ */
+export function resolveBindHost(envValue: string | undefined): string {
+  const trimmed = envValue?.trim();
+  if (!trimmed) {
+    return "127.0.0.1";
+  }
+  return trimmed;
+}
+
+/**
+ * Parses a positive-integer rate-limit setting from the environment.
+ * Absent/blank → fallback silently. Present-but-invalid or non-positive →
+ * fallback plus a one-line console.warn so an operator typo cannot silently
+ * disable rate limiting (a fail-open control). Uses console.warn, not the MCP
+ * logMessage path, because makeRateLimiters runs without an McpServer in scope.
+ */
+export function parseRateLimitEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const parsed = parseStrictInteger(raw);
+  if (parsed === undefined || parsed <= 0) {
+    warnDiagnostic(
+      `⚠️  Ignoring invalid ${name}. Expected a positive integer. Using default ${fallback}.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+function parseBoundedStatelessEnv(
+  name: string,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+  const parsed = parseStrictInteger(raw);
+  if (parsed === undefined || parsed < minimum || parsed > maximum) {
+    warnDiagnostic(
+      `⚠️  Ignoring invalid ${name}. Expected an integer from ${minimum} through ${maximum}. Using default ${fallback}.`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+function resolveStatelessEnabled(): boolean {
+  const raw = process.env.MCP_HTTP_STATELESS;
+  const value = raw?.trim();
+  if (!value || value === "false") return false;
+  if (value === "true") return true;
+  warnDiagnostic(
+    "⚠️  Ignoring invalid MCP_HTTP_STATELESS. Expected true or false. Using false.",
+  );
+  return false;
+}
+
+export function resolveStatelessHttpConfig(): StatelessHttpConfig {
+  const maxInFlight = parseBoundedStatelessEnv(
+    "MCP_HTTP_STATELESS_MAX_IN_FLIGHT",
+    DEFAULT_STATELESS_MAX_IN_FLIGHT,
+    1,
+    MAX_STATELESS_MAX_IN_FLIGHT,
+  );
+  const requestedPerIp = parseBoundedStatelessEnv(
+    "MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP",
+    DEFAULT_STATELESS_MAX_IN_FLIGHT_PER_IP,
+    1,
+    MAX_STATELESS_MAX_IN_FLIGHT,
+  );
+  const maxInFlightPerIp = Math.min(requestedPerIp, maxInFlight);
+  if (requestedPerIp > maxInFlight) {
+    warnDiagnostic(
+      `⚠️  Ignoring invalid MCP_HTTP_STATELESS_MAX_IN_FLIGHT_PER_IP. Expected a value no greater than MCP_HTTP_STATELESS_MAX_IN_FLIGHT. Using ${maxInFlight}.`,
+    );
+  }
+  const requestTimeoutMs = parseBoundedStatelessEnv(
+    "MCP_HTTP_STATELESS_REQUEST_TIMEOUT_MS",
+    DEFAULT_STATELESS_REQUEST_TIMEOUT_MS,
+    MIN_STATELESS_REQUEST_TIMEOUT_MS,
+    MAX_STATELESS_REQUEST_TIMEOUT_MS,
+  );
+
+  return {
+    enabled: resolveStatelessEnabled(),
+    maxInFlight,
+    maxInFlightPerIp,
+    requestTimeoutMs,
+  };
+}
+
+export function resolveHttpMaxSessions(): number {
+  return parseBoundedStatelessEnv("MCP_HTTP_MAX_SESSIONS", DEFAULT_HTTP_MAX_SESSIONS, 1, MAX_HTTP_MAX_SESSIONS);
+}
+
+export function resolveHttpSessionIdleTtlMs(): number {
+  const raw = process.env.MCP_HTTP_SESSION_IDLE_TTL_MS;
+  if (raw === undefined || raw.trim() === "") return 0;
+  const parsed = parseStrictInteger(raw);
+  if (parsed === 0 || (parsed !== undefined && parsed >= 1000 && parsed <= 2147483647)) return parsed;
+  warnDiagnostic("⚠️  Ignoring invalid MCP_HTTP_SESSION_IDLE_TTL_MS. Expected 0 or an integer from 1000 through 2147483647. Using default 0.");
+  return 0;
+}
+
+function touchSession(idle: SessionIdleActivity | undefined): void {
+  if (idle && idle.phase !== "closed") idle.lastActivity = performance.now();
+}
+
+function releaseSessionActivity(idle: SessionIdleActivity | undefined): void {
+  if (!idle) return;
+  idle.phase = "closed";
+  for (const release of idle.releases) release();
+}
+
+function observeSessionSends(session: Session): void {
+  const { transport, idle } = session;
+  if (!idle) return;
+  const send = transport.send;
+  transport.send = async (message, options) => {
+    await send.call(transport, message, options);
+    touchSession(idle);
+  };
+}
+
+function trackSessionPost(idle: SessionIdleActivity | undefined, req: express.Request, res: express.Response): () => void {
+  if (!idle) return () => {};
+  touchSession(idle);
+  idle.posts++;
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    idle.posts--;
+    idle.releases.delete(release);
+    req.off("aborted", release);
+    res.off("finish", release);
+    res.off("close", release);
+  };
+  idle.releases.add(release);
+  req.once("aborted", release);
+  res.once("finish", release);
+  res.once("close", release);
+  return release;
+}
+
+function observeEstablishedGet(idle: SessionIdleActivity | undefined, res: express.Response): () => void {
+  if (!idle) return () => {};
+  const original = res.writeHead;
+  const restore = (): void => { res.writeHead = original; };
+  res.writeHead = function (this: express.Response, ...args: Parameters<typeof original>) {
+    const result = original.apply(this, args);
+    restore();
+    if (this.statusCode === 200) touchSession(idle);
+    return result;
+  } as typeof original;
+  return restore;
+}
+
+function scalarRequestId(body: unknown): string | number | null {
+  const request = objectRecord(body);
+  return request ? echoableRequestId(request) ?? null : null;
+}
+
+function observeInitializeSend(
+  transport: NodeStreamableHTTPServerTransport,
+  id: string | number | null,
+  onResponse: () => void,
+): () => void {
+  let observer: (() => void) | undefined = onResponse;
+  const originalSend = transport.send;
+  const trackedSend: typeof transport.send = async (message, options) => {
+    await originalSend.call(transport, message, options);
+    if ("id" in message && message.id === id && ("result" in message || "error" in message)) observer?.();
+  };
+  transport.send = trackedSend;
+  return () => {
+    // A wrapper installed later may retain trackedSend: clear the request-local
+    // observer even when that newer wrapper must remain installed.
+    observer = undefined;
+    if (transport.send === trackedSend) transport.send = originalSend;
+  };
+}
+
+export function resolveHttpInitializeTimeoutMs(): number {
+  return parseBoundedStatelessEnv("MCP_HTTP_INITIALIZE_TIMEOUT_MS", DEFAULT_HTTP_INITIALIZE_TIMEOUT_MS, 1000, 2147483647);
+}
+
+function makeRateLimiters() {
+  const windowMs = parseRateLimitEnv("MCP_RATE_WINDOW_MS", 60000);
+
+  const initLimiter = rateLimit({
+    windowMs,
+    max: parseRateLimitEnv("MCP_RATE_INIT_MAX", 20),
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      jsonrpc: "2.0",
+      error: { code: -32029, message: "Too many requests" },
+      id: null,
+    },
+  });
+
+  const sessionLimiter = rateLimit({
+    windowMs,
+    max: parseRateLimitEnv("MCP_RATE_SESSION_MAX", 300),
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      jsonrpc: "2.0",
+      error: { code: -32029, message: "Too many requests" },
+      id: null,
+    },
+  });
+
+  const healthLimiter = rateLimit({
+    windowMs: 60000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  return { initLimiter, sessionLimiter, healthLimiter };
+}
+
+export async function createHttpServer(
+  createMcpServer: (modern?: boolean) => McpServer,
+  port?: number,
+  oauthVerifier?: OAuthTokenVerifier,
+): Promise<express.Application & { shutdownStateful: () => Promise<void> }> {
+  const app = express();
+  const security = getHttpSecurityConfig(port);
+  const stateless = resolveStatelessHttpConfig();
+  const maxSessions = resolveHttpMaxSessions();
+  const initializeTimeoutMs = resolveHttpInitializeTimeoutMs();
+  const sessionIdleTtlMs = resolveHttpSessionIdleTtlMs();
+  const sessionRequestTimeoutMs = resolveHttpSessionRequestTimeoutMs();
+  const lifecycleDiagnostics = createStatefulLifecycleDiagnostics();
+  const statefulShutdown = createStatefulShutdown(lifecycleDiagnostics);
+  const admitStateful = createStatefulAdmission(resolveHttpConcurrencyConfig(), statefulShutdown.changed, lifecycleDiagnostics);
+  validateHttpSecurityConfig(security);
+  const oauth = security.oauth ? createOAuthProtection(security.oauth, oauthVerifier) : undefined;
+  if (security.trustProxy !== false) {
+    app.set('trust proxy', security.trustProxy);
+  }
+
+  const originBoundary: express.RequestHandler = (req, res, next) => {
+    if (!isOriginAllowed(req.headers.origin, security)) {
+      res.status(403).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Invalid Origin header" },
+        id: null,
+      });
+      return;
+    }
+    next();
+  };
+
+  app.use('/mcp', originBoundary);
+  app.use((_req, res, next) => {
+    res.vary('Origin');
+    next();
+  });
+  app.use(express.json());
+  
+  // Add CORS support for web clients
+  app.use(cors({
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin, security)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    exposedHeaders: ["Mcp-Session-Id", "Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name", ...(oauth ? ["WWW-Authenticate"] : [])],
+    allowedHeaders: ["Content-Type", "mcp-session-id", "authorization", "mcp-protocol-version", "mcp-method", "mcp-name"],
+  }));
+
+  function rejectUnauthorized(res: express.Response) {
+    res.status(401).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32001,
+        message: "Unauthorized: missing or invalid HTTP auth token",
+      },
+      id: null,
+    });
+  }
+
+  async function authorize(req: express.Request, res: express.Response): Promise<boolean> {
+    if (oauth) {
+      const failure = await oauth.authorize(req.headers.authorization);
+      if (typeof failure === "string") {
+        res.locals.oauthPrincipal = failure;
+        return true;
+      }
+      failure.headers.forEach((value, name) => res.setHeader(name, value));
+      res.status(failure.status).json(await failure.json());
+      return false;
+    }
+    if (isRequestAuthorized(req.headers.authorization, security)) return true;
+    rejectUnauthorized(res);
+    return false;
+  }
+
+  function rejectSessionPrincipal(session: Session, res: express.Response): boolean {
+    if (!oauth || session.oauthPrincipal === res.locals.oauthPrincipal) return false;
+    res.status(403).json({ jsonrpc: "2.0", error: { code: -32001, message: "Session not authorized" }, id: null });
+    return true;
+  }
+
+  function rejectInvalidHostHeader(
+    req: express.Request,
+    res: express.Response,
+  ): boolean {
+    if (!security.enableDnsRebindingProtection) {
+      return false;
+    }
+    const host = req.headers.host;
+    if (security.allowedHosts.length > 0 && (!host || !security.allowedHosts.includes(host))) {
+      res.status(403).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Invalid Host header" },
+        id: null,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  function rejectInvalidPost(
+    req: express.Request,
+    res: express.Response,
+    sessionId: string | undefined,
+  ) {
+    warnDiagnostic(`⚠️  POST request rejected - invalid request:`, {
+      clientIP: req.ip || req.socket.remoteAddress,
+      sessionId: sessionId || 'undefined',
+      hasInitializeRequest: isInitializeRequest(req.body),
+      userAgent: req.headers['user-agent'],
+      contentType: req.headers['content-type'],
+      accept: req.headers['accept']
+    });
+    const hasSessionId = Boolean(sessionId?.trim());
+    res.status(hasSessionId ? 404 : 400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: hasSessionId ? -32001 : -32000,
+        message: hasSessionId ? 'Session not found' : 'Bad Request: No valid session ID provided',
+      },
+      id: null,
+    });
+  }
+
+  async function handleTransportRequest(
+    transport: NodeStreamableHTTPServerTransport,
+    req: express.Request,
+    res: express.Response,
+  ) {
+    try {
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('accept')) {
+        warnDiagnostic(`⚠️  Connection rejected due to missing headers:`, {
+          clientIP: req.ip || req.socket.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          contentType: req.headers['content-type'],
+          accept: req.headers['accept'],
+          error: error.message
+        });
+      }
+      throw sanitizeErrorForTransport(error);
+    }
+  }
+
+  const { initLimiter, sessionLimiter, healthLimiter } = makeRateLimiters();
+  if (oauth) {
+    app.get(oauth.metadataPath, healthLimiter, (req, res) => {
+      if (!rejectInvalidHostHeader(req, res)) res.json(oauth.metadata);
+    });
+  }
+
+  // Map to store sessions by session ID
+  const sessions = new Map<string, Session>();
+  let retainedSessions = 0;
+  let idleTimer: NodeJS.Timeout | undefined;
+  let sweepingIdle = false;
+  let lastCapacitySweep = -Infinity;
+
+  function stopUnusedIdleTimer(): void {
+    if (retainedSessions === 0 && idleTimer) {
+      clearInterval(idleTimer);
+      idleTimer = undefined;
+    }
+  }
+
+  async function sweepIdleSessions(): Promise<void> {
+    if (sweepingIdle) return;
+    sweepingIdle = true;
+    try {
+      const now = performance.now();
+      const expired: Array<{ id: string; session: Session }> = [];
+      for (const [id, session] of sessions) {
+        const idle = session.idle;
+        if (!idle || idle.phase !== "active" || idle.posts !== 0 || now - idle.lastActivity < sessionIdleTtlMs) continue;
+        idle.phase = "closing";
+        sessions.delete(id);
+        expired.push({ id, session });
+        lifecycleDiagnostics.record("idle_reclaim");
+      }
+      await Promise.all(expired.map(async ({ id, session }) => {
+        try { await session.transport.close(); }
+        catch {
+          if (session.idle?.phase === "closing") {
+            session.idle.phase = "active";
+            sessions.set(id, session);
+          }
+          lifecycleDiagnostics.record("close_failure");
+        }
+      }));
+    } finally { sweepingIdle = false; }
+  }
+
+  function reclaimIdleCapacity(): void {
+    if (!sessionIdleTtlMs || retainedSessions < maxSessions) return;
+    const now = performance.now();
+    if (now - lastCapacitySweep < 1000) return;
+    lastCapacitySweep = now;
+    void sweepIdleSessions();
+  }
+
+  function reserveStatefulSession() {
+    reclaimIdleCapacity();
+    if (retainedSessions >= maxSessions) return undefined;
+    retainedSessions++;
+    if (sessionIdleTtlMs && !idleTimer) {
+      idleTimer = setInterval(sweepIdleSessions, 60000);
+      idleTimer.unref();
+    }
+    let signalRelease!: () => void;
+    const releasedSignal = new Promise<void>(resolve => { signalRelease = resolve; });
+    // These long-lived callbacks capture only session state, never an HTTP request.
+    const reservation = {
+      released: false,
+      releasedSignal,
+      activeId: undefined as string | undefined,
+      session: undefined as Session | undefined,
+      onRelease: undefined as (() => void) | undefined,
+      onEnd: undefined as (() => void) | undefined,
+      activate(sessionId: string): void {
+        if (reservation.released || !reservation.session) throw new Error("Initialization was aborted");
+        reservation.activeId = sessionId;
+        sessions.set(sessionId, reservation.session);
+        logMessage(reservation.session.mcpServer, "debug", `Session initialized: ${sessionId}`);
+      },
+      release(): void {
+        if (reservation.released) return;
+        reservation.released = true;
+        reservation.onEnd?.();
+        reservation.onEnd = undefined;
+        signalRelease();
+        retainedSessions--;
+        for (const release of reservation.session?.work.releases ?? []) release();
+        releaseSessionActivity(reservation.session?.idle);
+        stopUnusedIdleTimer();
+        if (reservation.activeId) sessions.delete(reservation.activeId);
+        reservation.session = undefined;
+        const onRelease = reservation.onRelease;
+        reservation.onRelease = undefined;
+        onRelease?.();
+      },
+    };
+    return reservation;
+  }
+
+  async function initializeStatefulSession(req: express.Request, res: express.Response): Promise<void> {
+    const releasePost = admitStateful("post", req, res, undefined, sessions.size > 0);
+    if (!releasePost) return;
+    const reservation = reserveStatefulSession();
+    if (!reservation) {
+      lifecycleDiagnostics.record("capacity_rejection");
+      releasePost();
+      rejectCapacity(res);
+      return;
+    }
+    let transport: NodeStreamableHTTPServerTransport | undefined;
+    let mcpServer: McpServer | undefined;
+    const resources: { transport?: NodeStreamableHTTPServerTransport; mcpServer?: McpServer } = {};
+    const finalize = createStatefulFinalizer(reservation.release, resources, lifecycleDiagnostics);
+    const lifecycle: ShutdownSession = {
+      initializing: true, work: { post: 0, get: 0, releases: new Set(), responses: new Map() }, finalize,
+    };
+    reservation.onEnd = () => statefulShutdown.remove(lifecycle);
+    statefulShutdown.add(lifecycle);
+    observeInitializeResponse(lifecycle.work, res);
+    const deadlineAt = performance.now() + initializeTimeoutMs;
+    let deadlineTimer: NodeJS.Timeout | undefined;
+    let delivered = false;
+    let timedOut = false;
+    let restoreSend = (): void => {};
+    const cancelDeadline = (): void => {
+      releasePost();
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      deadlineTimer = undefined;
+      reservation.onRelease = undefined;
+      restoreSend();
+    };
+    const detachRequest = (): void => {
+      req.off("aborted", abort);
+      res.off("close", responseClosed);
+      res.off("finish", responseFinished);
+    };
+    const cleanup = (): Promise<void> => {
+      reservation.release();
+      detachRequest();
+      return finalize();
+    };
+    const abort = (): void => { void cleanup(); };
+    const expire = (): void => {
+      if (delivered || timedOut || reservation.released) return;
+      timedOut = true;
+      lifecycleDiagnostics.record("initialize_timeout");
+      // Invalidate the identifier/capacity before writing a terminal response.
+      reservation.release();
+      if (!res.headersSent && !res.destroyed) {
+        res.status(504).json({
+          jsonrpc: "2.0", error: { code: -32000, message: "Initialization timed out" },
+          id: scalarRequestId(req.body),
+        });
+      } else if (!res.destroyed) res.destroy();
+      void cleanup();
+    };
+    const deadlineExpired = (): boolean => {
+      if (!delivered && performance.now() >= deadlineAt) expire();
+      return timedOut || reservation.released;
+    };
+    const completeDelivery = (): void => {
+      if (deadlineExpired()) return;
+      delivered = true;
+      lifecycle.initializing = false;
+      if (reservation.session?.idle) {
+        const idle = reservation.session.idle;
+        idle.initializeDelivered = true;
+        if (idle.phase === "initializing") idle.phase = "active";
+        touchSession(idle);
+      }
+      cancelDeadline();
+      detachRequest();
+      statefulShutdown.changed();
+    };
+    const isEventStream = (): boolean => String(res.getHeader("content-type") ?? "").toLowerCase().startsWith("text/event-stream");
+    const responseClosed = (): void => {
+      if (delivered) return;
+      if (!res.writableFinished || !reservation.activeId || res.statusCode >= 400) abort();
+    };
+    const responseFinished = (): void => {
+      if (!reservation.activeId || res.statusCode >= 400) abort();
+      // A successfully delivered initialize response no longer owns the session.
+      // The configured transport sends SSE. An absent cached header must not
+      // substitute response finish for the pending SDK send fulfillment.
+      else if (res.getHeader("content-type") && !isEventStream()) completeDelivery();
+    };
+    req.once("aborted", abort);
+    res.once("close", responseClosed);
+    res.once("finish", responseFinished);
+    reservation.onRelease = cancelDeadline;
+    deadlineTimer = setTimeout(expire, initializeTimeoutMs);
+    deadlineTimer.unref();
+    try {
+      mcpServer = createMcpServer();
+      resources.mcpServer = mcpServer;
+      if (deadlineExpired()) { await cleanup(); return; }
+      transport = new NodeStreamableHTTPServerTransport({
+        enableJsonResponse: false,
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: reservation.activate,
+        enableDnsRebindingProtection: security.enableDnsRebindingProtection,
+        allowedHosts: security.allowedHosts,
+        allowedOrigins: security.allowedOrigins,
+      });
+      resources.transport = transport;
+      reservation.session = {
+        transport, mcpServer, oauthPrincipal: res.locals.oauthPrincipal,
+        work: lifecycle.work,
+        invalidate: reservation.release,
+        finalize,
+        released: reservation.releasedSignal,
+        ...(sessionIdleTtlMs ? { idle: { phase: "initializing" as const, initializeDelivered: false, lastActivity: performance.now(), posts: 0, releases: new Set<() => void>() } } : {}),
+      };
+      observeSessionSends(reservation.session);
+      transport.onclose = reservation.release;
+      restoreSend = observeInitializeSend(transport, scalarRequestId(req.body), () => {
+        // This transport is explicitly SSE; adapters may not cache writeHead headers.
+        if (!res.getHeader("content-type") || isEventStream()) completeDelivery();
+      });
+      // Promise.race observes late rejection too, without retaining this handler
+      // until an uncooperative connect or request promise eventually settles.
+      await Promise.race([mcpServer.connect(transport), reservation.releasedSignal]);
+      if (deadlineExpired() || res.destroyed) { void cleanup(); return; }
+      await Promise.race([handleTransportRequest(transport, req, res), reservation.releasedSignal]);
+      if (reservation.released) return;
+      if (!reservation.activeId || res.statusCode >= 400) await cleanup();
+    } catch (error) {
+      await cleanup();
+      if (timedOut) return;
+      throw error;
+    }
+  }
+
+  function findStatefulSession(
+    method: "GET" | "DELETE",
+    req: express.Request,
+    res: express.Response,
+  ): Session | undefined {
+    const header = req.headers['mcp-session-id'];
+    const sessionId = typeof header === 'string' ? header : undefined;
+    if (!sessionId?.trim()) {
+      warnDiagnostic(`⚠️  ${method} request rejected - missing session ID:`, {
+        clientIP: req.ip || req.socket.remoteAddress,
+        sessionId: 'undefined',
+        userAgent: req.headers['user-agent'],
+      });
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+        id: null,
+      });
+      return undefined;
+    }
+
+    const session = sessions.get(sessionId);
+    if (session) return session;
+    warnDiagnostic(`⚠️  ${method} request rejected - unknown session ID:`, {
+      clientIP: req.ip || req.socket.remoteAddress,
+      sessionId,
+      userAgent: req.headers['user-agent'],
+    });
+    res.status(404).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Session not found' },
+      id: null,
+    });
+    return undefined;
+  }
+
+  function rejectUnsupportedProtocolVersion(req: express.Request, res: express.Response): boolean {
+    const header = req.headers['mcp-protocol-version'];
+    if (header === undefined || (typeof header === 'string' && SUPPORTED_PROTOCOL_VERSIONS.includes(header))) {
+      return false;
+    }
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32602,
+        message: `Bad Request: Unsupported protocol version: ${String(header)} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`,
+      },
+      id: null,
+    });
+    return true;
+  }
+
+  let statelessInFlight = 0;
+  const statelessInFlightByIp = new Map<string, number>();
+  let lastCapacityWarningAt = 0;
+  let suppressedCapacityWarnings = 0;
+
+  function resolvedClientIp(req: express.Request): string {
+    return req.ip || req.socket.remoteAddress || "unknown";
+  }
+
+  function warnStatelessCapacity(reason: "per-ip" | "global"): void {
+    const now = Date.now();
+    if (now - lastCapacityWarningAt < STATELESS_WARNING_INTERVAL_MS) {
+      suppressedCapacityWarnings += 1;
+      return;
+    }
+    warnDiagnostic("⚠️  Stateless HTTP capacity exhausted.", {
+      reason,
+      inFlight: statelessInFlight,
+      maxInFlight: stateless.maxInFlight,
+      suppressedSinceLastWarning: suppressedCapacityWarnings,
+    });
+    lastCapacityWarningAt = now;
+    suppressedCapacityWarnings = 0;
+  }
+
+  function admitStatelessRequest(
+    req: express.Request,
+    res: express.Response,
+  ): (() => void) | undefined {
+    const clientIp = resolvedClientIp(req);
+    const clientInFlight = statelessInFlightByIp.get(clientIp) ?? 0;
+    const reason = clientInFlight >= stateless.maxInFlightPerIp
+      ? "per-ip"
+      : statelessInFlight >= stateless.maxInFlight
+        ? "global"
+        : undefined;
+    if (reason) {
+      warnStatelessCapacity(reason);
+      res.set("Retry-After", "1").status(503).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Server busy" },
+        id: null,
+      });
+      return undefined;
+    }
+
+    statelessInFlight += 1;
+    statelessInFlightByIp.set(clientIp, clientInFlight + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      statelessInFlight -= 1;
+      const remaining = (statelessInFlightByIp.get(clientIp) ?? 1) - 1;
+      if (remaining <= 0) statelessInFlightByIp.delete(clientIp);
+      else statelessInFlightByIp.set(clientIp, remaining);
+    };
+  }
+
+  const postRateLimiter: express.RequestHandler = async (req, res, next) => {
+    if (!req.is("application/json")) {
+      // Invalid media types still consume the hostile/initialization bucket,
+      // but never enter protocol classification before the fixed 415 response.
+      res.locals.mcpModernRequest = false;
+      initLimiter(req, res, next);
+      return;
+    }
+    const modern = !(await isLegacyRequest(await toWebRequest(req, req.body), req.body));
+    res.locals.mcpModernRequest = modern;
+    if (stateless.enabled) {
+      const selectedLimiter = isInitializeRequest(req.body)
+        ? initLimiter
+        : sessionLimiter;
+      selectedLimiter(req, res, next);
+      return;
+    }
+    const sessionId = req.headers['mcp-session-id'];
+    // Node comma-joins duplicate custom headers. Only one exact live session ID
+    // on a retained legacy request selects the generous bucket. Modern requests
+    // are sessionless and cannot borrow capacity through a legacy session header.
+    const selectedLimiter = !modern
+      && typeof sessionId === 'string'
+      && sessions.has(sessionId)
+      ? sessionLimiter
+      : initLimiter;
+    selectedLimiter(req, res, next);
+  };
+
+  // Handle POST requests for client-to-server communication
+  app.post('/mcp', postRateLimiter, async (req, res) => {
+    if (!await authorize(req, res)) {
+      return;
+    }
+
+    if (rejectInvalidHostHeader(req, res)) return;
+
+    if (!req.is("application/json")) {
+      res.status(415).json({
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Unsupported Media Type" },
+        id: null,
+      });
+      return;
+    }
+
+    const modern = res.locals.mcpModernRequest === true;
+    if (modern) {
+      const releaseCapacity = admitStatelessRequest(req, res);
+      if (!releaseCapacity) return;
+      const handler = createMcpHandler(() => createMcpServer(true), { legacy: "reject" });
+      let requestTimer: NodeJS.Timeout | undefined;
+      let cleanupPromise: Promise<void> | undefined;
+      let requestTimedOut = false;
+      const cleanup = (): Promise<void> => {
+        if (cleanupPromise) return cleanupPromise;
+        cleanupPromise = (async () => {
+          if (requestTimer) clearTimeout(requestTimer);
+          let cleanupDeadline: NodeJS.Timeout | undefined;
+          try {
+            await Promise.race([
+              handler.close(),
+              new Promise<never>((_resolve, reject) => {
+                cleanupDeadline = setTimeout(
+                  () => reject(new Error("Stateless resource cleanup timed out")),
+                  STATELESS_CLEANUP_DEADLINE_MS,
+                );
+                cleanupDeadline.unref();
+              }),
+            ]);
+          } catch (error) {
+            warnDiagnostic("⚠️  Stateless HTTP cleanup did not complete normally.", error);
+          } finally {
+            if (cleanupDeadline) clearTimeout(cleanupDeadline);
+            releaseCapacity();
+          }
+        })();
+        return cleanupPromise;
+      };
+      const handleTimeout = (): void => {
+        if (requestTimedOut) return;
+        requestTimedOut = true;
+        if (!res.headersSent && !res.destroyed) {
+          res.status(504).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Stateless request timed out" },
+            id: null,
+          });
+        } else if (!res.destroyed) {
+          res.destroy();
+        }
+        void cleanup();
+      };
+      res.once("finish", () => { void cleanup(); });
+      res.once("close", () => { void cleanup(); });
+      requestTimer = setTimeout(handleTimeout, stateless.requestTimeoutMs);
+      requestTimer.unref();
+      try {
+        await toNodeHandler(handler)(req, res, req.body);
+        await cleanup();
+      } catch (error) {
+        await cleanup();
+        if (requestTimedOut) return;
+        throw error;
+      }
+      return;
+    }
+
+    if (stateless.enabled) {
+      const releaseCapacity = admitStatelessRequest(req, res);
+      if (!releaseCapacity) return;
+
+      let mcpServer: McpServer | undefined;
+      let transport: NodeStreamableHTTPServerTransport | undefined;
+      let requestTimer: NodeJS.Timeout | undefined;
+      let cleanupPromise: Promise<void> | undefined;
+      let requestTimedOut = false;
+      const requestDeadline = Date.now() + stateless.requestTimeoutMs;
+      const cleanup = (): Promise<void> => {
+        if (cleanupPromise) return cleanupPromise;
+        cleanupPromise = (async () => {
+          if (requestTimer) clearTimeout(requestTimer);
+          const closeResources = async () => {
+            const errors: unknown[] = [];
+            try {
+              await transport?.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            try {
+              await mcpServer?.close();
+            } catch (error) {
+              errors.push(error);
+            }
+            if (errors.length) throw new AggregateError(errors, "Stateless resource cleanup failed");
+          };
+          let cleanupDeadline: NodeJS.Timeout | undefined;
+          try {
+            await Promise.race([
+              closeResources(),
+              new Promise<never>((_resolve, reject) => {
+                cleanupDeadline = setTimeout(
+                  () => reject(new Error("Stateless resource cleanup timed out")),
+                  STATELESS_CLEANUP_DEADLINE_MS,
+                );
+                cleanupDeadline.unref();
+              }),
+            ]);
+          } catch (error) {
+            warnDiagnostic("⚠️  Stateless HTTP cleanup did not complete normally.", error);
+          } finally {
+            if (cleanupDeadline) clearTimeout(cleanupDeadline);
+            releaseCapacity();
+          }
+        })();
+        return cleanupPromise;
+      };
+      const handleStatelessTimeout = (): void => {
+        if (requestTimedOut) return;
+        requestTimedOut = true;
+        warnDiagnostic("⚠️  Stateless HTTP request reached its lifetime limit.", {
+          timeoutMs: stateless.requestTimeoutMs,
+        });
+        if (!res.headersSent && !res.destroyed) {
+          res.status(504).json({
+            jsonrpc: "2.0",
+            error: { code: -32000, message: "Stateless request timed out" },
+            id: null,
+          });
+        } else if (!res.destroyed) {
+          res.destroy();
+        }
+        void cleanup();
+      };
+      const cleanupAfterResponse = () => {
+        void cleanup();
+      };
+      res.once('finish', cleanupAfterResponse);
+      res.once('close', cleanupAfterResponse);
+      requestTimer = setTimeout(handleStatelessTimeout, stateless.requestTimeoutMs);
+      requestTimer.unref();
+      try {
+        mcpServer = createMcpServer();
+        transport = new NodeStreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableDnsRebindingProtection: security.enableDnsRebindingProtection,
+          allowedHosts: security.allowedHosts,
+          allowedOrigins: security.allowedOrigins,
+        });
+        if (Date.now() >= requestDeadline) {
+          handleStatelessTimeout();
+          await cleanup();
+          return;
+        }
+        await mcpServer.connect(transport);
+        await handleTransportRequest(transport, req, res);
+      } catch (error) {
+        await cleanup();
+        if (requestTimedOut) return;
+        throw error;
+      }
+      return;
+    }
+
+    if (statefulShutdown.reject(res)) return;
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    let transport: NodeStreamableHTTPServerTransport;
+    let mcpServer: McpServer;
+    let releasePost: () => void;
+    let releaseCapacity: () => void;
+    let stopDeadline: () => void;
+    let sessionReleased: Promise<void>;
+
+    if (sessionId && sessions.has(sessionId)) {
+      // Reuse existing session
+      const session = sessions.get(sessionId)!;
+      if (rejectSessionPrincipal(session, res)) return;
+      const admitted = admitStateful("post", req, res, session.work);
+      if (!admitted) return;
+      releaseCapacity = admitted;
+      releasePost = trackSessionPost(session.idle, req, res);
+      stopDeadline = trackStatefulDeadline(session, req, res, sessionRequestTimeoutMs, lifecycleDiagnostics);
+      sessionReleased = session.released;
+      transport = session.transport;
+      mcpServer = session.mcpServer;
+      logMessage(mcpServer, "debug", `Reusing session: ${sessionId}`);
+    } else if (isInitializeRequest(req.body)) {
+      await initializeStatefulSession(req, res);
+      return;
+    } else {
+      rejectInvalidPost(req, res, sessionId);
+      return;
+    }
+
+    try {
+      const handling = handleTransportRequest(transport, req, res);
+      if (sessionRequestTimeoutMs) await Promise.race([handling, sessionReleased]);
+      else await handling;
+    }
+    catch (error) { stopDeadline(); releaseCapacity(); throw error; }
+    finally {
+      releasePost();
+      if (res.writableFinished || res.destroyed) releaseCapacity();
+    }
+  });
+
+  // Handle GET requests for server-to-client notifications via SSE
+  app.get('/mcp', sessionLimiter, async (req, res) => {
+    if (!await authorize(req, res)) {
+      return;
+    }
+
+    if (rejectInvalidHostHeader(req, res)) return;
+
+    if (stateless.enabled) {
+      res.set('Allow', 'POST').status(405).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed' },
+        id: null,
+      });
+      return;
+    }
+
+    if (statefulShutdown.reject(res)) return;
+    const session = findStatefulSession("GET", req, res);
+    if (!session) return;
+    const sessionId = req.headers['mcp-session-id'] as string;
+    if (rejectSessionPrincipal(session, res)) return;
+    const releaseGet = admitStateful("get", req, res, session.work);
+    if (!releaseGet) return;
+    const restoreGet = observeEstablishedGet(session.idle, res);
+    try {
+      await session.transport.handleRequest(req, res);
+    } catch (error) {
+      releaseGet();
+      warnDiagnostic(`⚠️  GET request failed:`, {
+        clientIP: req.ip || req.socket.remoteAddress,
+        sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw sanitizeErrorForTransport(error);
+    } finally {
+      restoreGet();
+      if (res.writableFinished || res.destroyed) releaseGet();
+    }
+  });
+
+  // Handle DELETE requests for session termination
+  app.delete('/mcp', sessionLimiter, async (req, res) => {
+    if (!await authorize(req, res)) {
+      return;
+    }
+
+    if (rejectInvalidHostHeader(req, res)) return;
+
+    if (stateless.enabled) {
+      res.set('Allow', 'POST').status(405).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed' },
+        id: null,
+      });
+      return;
+    }
+
+    if (statefulShutdown.reject(res)) return;
+    const session = findStatefulSession("DELETE", req, res);
+    if (!session) return;
+    const sessionId = req.headers['mcp-session-id'] as string;
+    if (rejectSessionPrincipal(session, res)) return;
+    if (rejectUnsupportedProtocolVersion(req, res)) return;
+    touchSession(session.idle);
+    const previousPhase = session.idle?.phase;
+    if (session.idle) session.idle.phase = "closing";
+    try {
+      await session.transport.close();
+      sessions.delete(sessionId);
+      if (!res.headersSent) res.status(204).end();
+    } catch (error) {
+      if (session.idle?.phase === "closing" && previousPhase) {
+        session.idle.phase = previousPhase === "initializing" && session.idle.initializeDelivered ? "active" : previousPhase;
+      }
+      lifecycleDiagnostics.record("close_failure");
+      throw sanitizeErrorForTransport(error);
+    }
+  });
+
+  // Health check endpoint
+  app.get('/health', healthLimiter, (_req, res) => {
+    res.json({ 
+      status: 'healthy',
+      server: 'ihor-sokoliuk/mcp-searxng',
+      version: packageVersion,
+      transport: 'http'
+    });
+  });
+
+  // Express catches rejected async route handlers here. Keep this after every
+  // route so session creation/connect failures cannot fall through to
+  // Express's development error page, which includes the raw stack.
+  app.use((
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    const safeError = sanitizeErrorForTransport(error);
+    warnDiagnostic("HTTP request failed:", safeError);
+    if (res.headersSent) {
+      next(safeError);
+      return;
+    }
+    res.status(500).json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32603,
+        message: "Internal server error",
+      },
+      id: null,
+    });
+  });
+
+  const noStatefulShutdown = Promise.resolve();
+  return Object.assign(app, {
+    shutdownStateful: stateless.enabled ? () => noStatefulShutdown : statefulShutdown.shutdown,
+  });
+}

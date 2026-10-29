@@ -1,0 +1,104 @@
+import { NextResponse } from "next/server";
+import { env } from "@/env";
+import { log } from "@/lib/log";
+
+import type { Stripe } from "@agentset/stripe";
+import { stripe } from "@agentset/stripe";
+import {
+  DEPLOYMENT_REGION,
+  isEuRegion,
+  logError,
+  summarizeError,
+} from "@agentset/utils";
+
+import { checkoutSessionCompleted } from "./checkout-session-completed";
+import { customerSubscriptionDeleted } from "./customer-subscription-deleted";
+import { customerSubscriptionUpdated } from "./customer-subscription-updated";
+import { invoicePaymentFailed } from "./invoice-payment-failed";
+import { invoicePaymentSucceeded } from "./invoice-payment-succeeded";
+import { getStripeEventRegion } from "./region";
+
+const relevantEvents = new Set([
+  "checkout.session.completed",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.payment_failed",
+  "invoice.paid",
+]);
+
+// POST /api/stripe/webhook – listen to Stripe webhooks
+export const POST = async (req: Request) => {
+  const buf = await req.text();
+  const sig = req.headers.get("Stripe-Signature") as string;
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+  let event: Stripe.Event;
+  try {
+    if (!sig || !webhookSecret) return;
+    event = stripe.webhooks.constructEvent(buf, sig, webhookSecret);
+  } catch (err: any) {
+    console.log(`❌ Error message: ${err.message}`);
+    return new Response(`Webhook Error: ${err.message}`, {
+      status: 400,
+    });
+  }
+
+  // Ignore unsupported events
+  if (!relevantEvents.has(event.type)) {
+    return new Response("Unsupported event, skipping...", {
+      status: 200,
+    });
+  }
+
+  // Events tagged for the other region belong to its deployment. Untagged
+  // events are handled everywhere: handlers skip organizations that aren't in
+  // this region's database
+  const eventRegion = getStripeEventRegion(event);
+  if (eventRegion && eventRegion !== DEPLOYMENT_REGION) {
+    return NextResponse.json({ received: true, ignored: "other region" });
+  }
+
+  try {
+    switch (event.type) {
+      case "checkout.session.completed":
+        await checkoutSessionCompleted(event);
+        break;
+      case "customer.subscription.updated":
+        await customerSubscriptionUpdated(event);
+        break;
+      case "customer.subscription.deleted":
+        await customerSubscriptionDeleted(event);
+        break;
+      case "invoice.payment_failed":
+        await invoicePaymentFailed(event);
+        break;
+      case "invoice.paid":
+        await invoicePaymentSucceeded(event);
+        break;
+    }
+  } catch (error: any) {
+    if (isEuRegion) {
+      await log({
+        message: `Stripe webhook failed. Event: \`${event.id}\` (\`${event.type}\`). Error: ${summarizeError(error).name}`,
+        type: "errors",
+      });
+
+      logError("Stripe webhook failed", error, {
+        eventId: event.id,
+        eventType: event.type,
+      });
+    } else {
+      await log({
+        message: `Stripe webhook failed. Error: ${error.message}`,
+        type: "errors",
+      });
+
+      console.error(`Stripe webhook failed. Error: ${error.message}`);
+    }
+
+    return new Response('Webhook error: "Webhook handler failed. View logs."', {
+      status: 400,
+    });
+  }
+
+  return NextResponse.json({ received: true });
+};

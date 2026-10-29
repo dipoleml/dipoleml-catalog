@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "aseprite": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "-m",
+        "aseprite_mcp"
+      ],
+      "env": {}
+    }
+  }
+}

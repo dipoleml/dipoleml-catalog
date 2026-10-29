@@ -1,0 +1,134 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.stumason.coolify-mcp",
+  "type": "mcp",
+  "name": "Coolify MCP",
+  "slug": "coolify-mcp",
+  "vendor": "stumason",
+  "description": "MCP server for Coolify — 42 optimized tools for managing self-hosted PaaS through AI assistants",
+  "version": "3.9.0",
+  "homepage": "https://github.com/StuMason/coolify-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "coolify",
+    "deployment",
+    "devops",
+    "infrastructure",
+    "model-context-protocol",
+    "paas",
+    "self-hosted"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "coolify",
+    "deployment",
+    "devops",
+    "infrastructure",
+    "mcp",
+    "model-context-protocol",
+    "paas",
+    "self-hosted",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "stumason",
+    "brandName": "stumason",
+    "source": "https://github.com/StuMason.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "StuMason/coolify-mcp",
+    "url": "https://github.com/StuMason/coolify-mcp",
+    "commit": "f8f98284407b6edd095ca888dea8f02ef979f1f7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 617,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:24Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@masonator/coolify-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@masonator/coolify-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "@masonator/coolify-mcp"
+    ],
+    "env": [
+      "COOLIFY_BASE_URL",
+      "COOLIFY_ACCESS_TOKEN",
+      "CF_ACCESS_CLIENT_SECRET",
+      "DATABASE_URL"
+    ],
+    "credentials": [
+      "COOLIFY_ACCESS_TOKEN",
+      "CF_ACCESS_CLIENT_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

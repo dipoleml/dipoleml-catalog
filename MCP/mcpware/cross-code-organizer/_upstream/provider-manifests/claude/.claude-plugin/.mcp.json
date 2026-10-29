@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cross-code-organizer": {
+      "command": "npx",
+      "args": ["-y", "@mcpware/cross-code-organizer"]
+    }
+  }
+}

@@ -1,0 +1,1326 @@
+{
+  "colors": {
+    "all": [
+      {
+        "hex": "#171717",
+        "rgb": {
+          "r": 23,
+          "g": 23,
+          "b": 23,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 9
+        },
+        "count": 3031,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#ebebeb",
+        "rgb": {
+          "r": 235,
+          "g": 235,
+          "b": 235,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 92
+        },
+        "count": 2416,
+        "contexts": [
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#4d4d4d",
+        "rgb": {
+          "r": 77,
+          "g": 77,
+          "b": 77,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 30
+        },
+        "count": 565,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#ffffff",
+        "rgb": {
+          "r": 255,
+          "g": 255,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 100
+        },
+        "count": 124,
+        "contexts": [
+          "background",
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#666666",
+        "rgb": {
+          "r": 102,
+          "g": 102,
+          "b": 102,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 40
+        },
+        "count": 67,
+        "contexts": [
+          "text"
+        ]
+      },
+      {
+        "hex": "#000000",
+        "rgb": {
+          "r": 0,
+          "g": 0,
+          "b": 0,
+          "a": 0.08
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 0
+        },
+        "count": 49,
+        "contexts": [
+          "border"
+        ]
+      },
+      {
+        "hex": "#7d7d7d",
+        "rgb": {
+          "r": 125,
+          "g": 125,
+          "b": 125,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 49
+        },
+        "count": 20,
+        "contexts": [
+          "text"
+        ]
+      },
+      {
+        "hex": "#a8a8a8",
+        "rgb": {
+          "r": 168,
+          "g": 168,
+          "b": 168,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 66
+        },
+        "count": 13,
+        "contexts": [
+          "border",
+          "text"
+        ]
+      },
+      {
+        "hex": "#8f8f8f",
+        "rgb": {
+          "r": 143,
+          "g": 143,
+          "b": 143,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 56
+        },
+        "count": 9,
+        "contexts": [
+          "background",
+          "text"
+        ]
+      },
+      {
+        "hex": "#0068d6",
+        "rgb": {
+          "r": 0,
+          "g": 104,
+          "b": 214,
+          "a": 1
+        },
+        "hsl": {
+          "h": 211,
+          "s": 100,
+          "l": 42
+        },
+        "count": 4,
+        "contexts": [
+          "text",
+          "background"
+        ]
+      },
+      {
+        "hex": "#52aeff",
+        "rgb": {
+          "r": 82,
+          "g": 174,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 208,
+          "s": 100,
+          "l": 66
+        },
+        "count": 4,
+        "contexts": [
+          "background",
+          "text"
+        ]
+      },
+      {
+        "hex": "#0070f3",
+        "rgb": {
+          "r": 0,
+          "g": 112,
+          "b": 243,
+          "a": 1
+        },
+        "hsl": {
+          "h": 212,
+          "s": 100,
+          "l": 48
+        },
+        "count": 3,
+        "contexts": [
+          "text",
+          "background"
+        ]
+      },
+      {
+        "hex": "#e5484d",
+        "rgb": {
+          "r": 229,
+          "g": 72,
+          "b": 77,
+          "a": 1
+        },
+        "hsl": {
+          "h": 358,
+          "s": 75,
+          "l": 59
+        },
+        "count": 3,
+        "contexts": [
+          "background",
+          "text"
+        ]
+      },
+      {
+        "hex": "#45dec5",
+        "rgb": {
+          "r": 69,
+          "g": 222,
+          "b": 197,
+          "a": 1
+        },
+        "hsl": {
+          "h": 170,
+          "s": 70,
+          "l": 57
+        },
+        "count": 3,
+        "contexts": [
+          "background",
+          "text"
+        ]
+      },
+      {
+        "hex": "#bd2864",
+        "rgb": {
+          "r": 189,
+          "g": 40,
+          "b": 100,
+          "a": 1
+        },
+        "hsl": {
+          "h": 336,
+          "s": 65,
+          "l": 45
+        },
+        "count": 3,
+        "contexts": [
+          "text"
+        ]
+      },
+      {
+        "hex": "#ebf5ff",
+        "rgb": {
+          "r": 235,
+          "g": 245,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 210,
+          "s": 100,
+          "l": 96
+        },
+        "count": 2,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#ffb224",
+        "rgb": {
+          "r": 255,
+          "g": 178,
+          "b": 36,
+          "a": 1
+        },
+        "hsl": {
+          "h": 39,
+          "s": 100,
+          "l": 57
+        },
+        "count": 2,
+        "contexts": [
+          "text"
+        ]
+      },
+      {
+        "hex": "#297a3a",
+        "rgb": {
+          "r": 41,
+          "g": 122,
+          "b": 58,
+          "a": 1
+        },
+        "hsl": {
+          "h": 133,
+          "s": 50,
+          "l": 32
+        },
+        "count": 2,
+        "contexts": [
+          "text"
+        ]
+      },
+      {
+        "hex": "#7820bc",
+        "rgb": {
+          "r": 120,
+          "g": 32,
+          "b": 188,
+          "a": 1
+        },
+        "hsl": {
+          "h": 274,
+          "s": 71,
+          "l": 43
+        },
+        "count": 2,
+        "contexts": [
+          "text",
+          "background"
+        ]
+      },
+      {
+        "hex": "#cce6ff",
+        "rgb": {
+          "r": 204,
+          "g": 230,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 209,
+          "s": 100,
+          "l": 90
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#ea3e83",
+        "rgb": {
+          "r": 234,
+          "g": 62,
+          "b": 131,
+          "a": 1
+        },
+        "hsl": {
+          "h": 336,
+          "s": 80,
+          "l": 58
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#067a6e",
+        "rgb": {
+          "r": 6,
+          "g": 122,
+          "b": 110,
+          "a": 1
+        },
+        "hsl": {
+          "h": 174,
+          "s": 91,
+          "l": 25
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#ff990a",
+        "rgb": {
+          "r": 255,
+          "g": 153,
+          "b": 10,
+          "a": 1
+        },
+        "hsl": {
+          "h": 35,
+          "s": 100,
+          "l": 52
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#bf89ec",
+        "rgb": {
+          "r": 191,
+          "g": 137,
+          "b": 236,
+          "a": 1
+        },
+        "hsl": {
+          "h": 273,
+          "s": 72,
+          "l": 73
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#398e4a",
+        "rgb": {
+          "r": 57,
+          "g": 142,
+          "b": 74,
+          "a": 1
+        },
+        "hsl": {
+          "h": 132,
+          "s": 43,
+          "l": 39
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#6cda75",
+        "rgb": {
+          "r": 108,
+          "g": 218,
+          "b": 117,
+          "a": 1
+        },
+        "hsl": {
+          "h": 125,
+          "s": 60,
+          "l": 64
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#ffc96b",
+        "rgb": {
+          "r": 255,
+          "g": 201,
+          "b": 107,
+          "a": 1
+        },
+        "hsl": {
+          "h": 38,
+          "s": 100,
+          "l": 71
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      }
+    ]
+  },
+  "regions": [
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 64
+      },
+      "heading": null,
+      "buttonCount": 15,
+      "cardCount": 100,
+      "className": "header-module__6nzVrW__header"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 146,
+        "y": 17,
+        "w": 474.171875,
+        "h": 30
+      },
+      "heading": null,
+      "buttonCount": 3,
+      "cardCount": 92,
+      "className": "navigation-menu-module__AENi4G__root"
+    },
+    {
+      "role": "pricing",
+      "tag": "main",
+      "bounds": {
+        "x": 0,
+        "y": 64,
+        "w": 1280,
+        "h": 5569.046875
+      },
+      "heading": "Build and deploy on the AI Cloud.",
+      "buttonCount": 59,
+      "cardCount": 144,
+      "className": "px-4"
+    },
+    {
+      "role": "hero",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": "Build and deploy on the AI Cloud.",
+      "buttonCount": 6,
+      "cardCount": 3,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer hero-module__pXb8lW__mobile"
+    },
+    {
+      "role": "hero",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 129,
+        "w": 1079,
+        "h": 719.328125
+      },
+      "heading": "Build and deploy on the AI Cloud.",
+      "buttonCount": 6,
+      "cardCount": 3,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer hero-module__pXb8lW__root"
+    },
+    {
+      "role": "features",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 890.328125,
+        "w": 1079,
+        "h": 313
+      },
+      "heading": null,
+      "buttonCount": 7,
+      "cardCount": 15,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer"
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 1245.328125,
+        "w": 1079,
+        "h": 611
+      },
+      "heading": "Your product, delivered.",
+      "buttonCount": 14,
+      "cardCount": 28,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer h-min -mb-px"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 460.15625,
+        "y": 1245.328125,
+        "w": 358.65625,
+        "h": 176
+      },
+      "heading": "Agents",
+      "buttonCount": 2,
+      "cardCount": 1,
+      "className": "p-6 lg:p-11 lg:pb-0"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 819.8125,
+        "y": 1245.328125,
+        "w": 358.65625,
+        "h": 176
+      },
+      "heading": "AI Apps",
+      "buttonCount": 2,
+      "cardCount": 1,
+      "className": "p-6 lg:p-11 lg:pb-0"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 100.5,
+        "y": 1550.328125,
+        "w": 358.65625,
+        "h": 176
+      },
+      "heading": "Web Apps",
+      "buttonCount": 2,
+      "cardCount": 1,
+      "className": "p-6 lg:p-11 lg:pb-0"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 460.15625,
+        "y": 1550.328125,
+        "w": 358.65625,
+        "h": 176
+      },
+      "heading": "Composable Commerce",
+      "buttonCount": 2,
+      "cardCount": 1,
+      "className": "p-6 lg:p-11 lg:pb-0"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 819.8125,
+        "y": 1550.328125,
+        "w": 358.65625,
+        "h": 176
+      },
+      "heading": "Multi-tenant Platform",
+      "buttonCount": 2,
+      "cardCount": 1,
+      "className": "p-6 lg:p-11 lg:pb-0"
+    },
+    {
+      "role": "features",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 1855.328125,
+        "w": 1079,
+        "h": 264
+      },
+      "heading": "Framework-Defined Infrastructure",
+      "buttonCount": 0,
+      "cardCount": 3,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer border border-x-0 border-b-0 border-solid border-gray-400"
+    },
+    {
+      "role": "features",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 2119.328125,
+        "w": 1079,
+        "h": 553
+      },
+      "heading": null,
+      "buttonCount": 6,
+      "cardCount": 7,
+      "className": "grid-module__AMTIxG__grid"
+    },
+    {
+      "role": "features",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 2764.328125,
+        "w": 1079,
+        "h": 821.203125
+      },
+      "heading": "Deploy once, deliver everywhere.",
+      "buttonCount": 4,
+      "cardCount": 5,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer"
+    },
+    {
+      "role": "pricing",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 3535.53125,
+        "w": 1079,
+        "h": 422
+      },
+      "heading": "Fluid Compute",
+      "buttonCount": 2,
+      "cardCount": 2,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer border border-x-0 border-b-0 border-solid border-gray-200 relative top-[-26px] @md:top-[-42px] @lg:top-[-50px] mb-[-26px] @md:mb-[-42px] @lg:mb-[-50px]"
+    },
+    {
+      "role": "features",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 3957.53125,
+        "w": 1079,
+        "h": 642
+      },
+      "heading": "AI Gateway",
+      "buttonCount": 7,
+      "cardCount": 44,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer"
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 4599.53125,
+        "w": 1079,
+        "h": 710.515625
+      },
+      "heading": "Deploy your first app in seconds.",
+      "buttonCount": 0,
+      "cardCount": 24,
+      "className": "grid-module__AMTIxG__grid grid-module__AMTIxG__useContainer footer-module__q8Uzwa__root"
+    },
+    {
+      "role": "features",
+      "tag": "section",
+      "bounds": {
+        "x": 100.5,
+        "y": 5310.046875,
+        "w": 1079,
+        "h": 323
+      },
+      "heading": "Start Deploying",
+      "buttonCount": 4,
+      "cardCount": 6,
+      "className": "grid-module__4pDFEa__grid grid-module__4pDFEa__useContainer"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 0,
+        "y": 5723.046875,
+        "w": 1280,
+        "h": 610
+      },
+      "heading": "GET STARTED",
+      "buttonCount": 0,
+      "cardCount": 119,
+      "className": "max-w-[var(--ds-page-width-with-margin)] mx-auto px-[var(--geist-page-margin)] py-10 text-[14px]"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 24,
+        "y": 5763.046875,
+        "w": 1232,
+        "h": 530
+      },
+      "heading": "GET STARTED",
+      "buttonCount": 0,
+      "cardCount": 119,
+      "className": null
+    },
+    {
+      "role": "sidebar",
+      "tag": "aside",
+      "bounds": {
+        "x": 1280,
+        "y": 0,
+        "w": 0,
+        "h": 800
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "shrink-0 z-[100] sticky h-screen top-0 right-0 transition-transformation ease-in-out transition-[width] duration-250 w-0 overflow-hidden"
+    }
+  ],
+  "componentClusters": [
+    {
+      "kind": "button",
+      "structuralHash": "button>span",
+      "instanceCount": 5,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(77, 77, 77)",
+            "padding": "8px 12px 8px 12px",
+            "borderRadius": "9999px",
+            "border": "0px none rgb(77, 77, 77)",
+            "fontSize": "14px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 3
+        },
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "6px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 1
+        },
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(77, 77, 77)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "6px",
+            "border": "0px none rgb(77, 77, 77)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "a>span",
+      "instanceCount": 15,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "6px",
+            "border": "0px none rgb(23, 23, 23)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 10
+        },
+        {
+          "css": {
+            "background": "rgb(23, 23, 23)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "6px",
+            "border": "0px none rgb(255, 255, 255)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 5
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "span",
+      "instanceCount": 9,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 6
+        },
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 3
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "div>a>a",
+      "instanceCount": 2,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "span>div",
+      "instanceCount": 10,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 3
+        },
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "16px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 7
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "a>span>span",
+      "instanceCount": 4,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(23, 23, 23)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "100px",
+            "border": "0px none rgb(255, 255, 255)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 2
+        },
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 10px 0px 10px",
+            "borderRadius": "100px",
+            "border": "0px none rgb(23, 23, 23)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "span>svg",
+      "instanceCount": 4,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 2
+        },
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "span>span>span",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 6px 0px 6px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "16px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>div>div>div",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 16px 0px 16px",
+            "borderRadius": "64px",
+            "border": "0px none rgb(23, 23, 23)",
+            "fontSize": "14px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>div>div",
+      "instanceCount": 4,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 16px 0px 16px",
+            "borderRadius": "64px",
+            "border": "0px none rgb(23, 23, 23)",
+            "fontSize": "14px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 4
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "div>span>span>span",
+      "instanceCount": 4,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 4
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button",
+      "instanceCount": 3,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "14px 2px 14px 2px",
+            "borderRadius": "0px",
+            "border": "0px 0px 2px none none solid rgb(23, 23, 23)",
+            "fontSize": "14px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 3
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "div>svg",
+      "instanceCount": 2,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(77, 77, 77)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "0px solid rgb(235, 235, 235)",
+            "fontSize": "14px",
+            "fontWeight": "500"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "card",
+      "structuralHash": "div>div>div>div",
+      "instanceCount": 6,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(23, 23, 23)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "1px solid rgb(235, 235, 235)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 6
+        }
+      ]
+    }
+  ],
+  "accessibility": {
+    "remediation": [
+      {
+        "fg": "#0072f5",
+        "bg": "#ffffff",
+        "ratio": 4.44,
+        "rule": "AA-normal",
+        "suggestion": {
+          "replace": "fg",
+          "color": "#000000",
+          "newRatio": 21
+        }
+      },
+      {
+        "fg": "#0068d6",
+        "bg": "#cce6ff",
+        "ratio": 4.13,
+        "rule": "AA-normal",
+        "suggestion": {
+          "replace": "fg",
+          "color": "#000000",
+          "newRatio": 16.33
+        }
+      }
+    ]
+  },
+  "cssHealth": {
+    "sheets": [
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/1z4cu7tlksezg.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 119328,
+        "usedBytes": 31382,
+        "unusedBytes": 87946,
+        "unusedPercent": 74
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/0dtjol836ww-_.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 84095,
+        "usedBytes": 5528,
+        "unusedBytes": 78567,
+        "unusedPercent": 93
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/2ov9cmeou0nmf.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 577101,
+        "usedBytes": 528366,
+        "unusedBytes": 48735,
+        "unusedPercent": 8
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/0a-kp4278pmi5.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 120432,
+        "usedBytes": 6941,
+        "unusedBytes": 113491,
+        "unusedPercent": 94
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/44-5mmd745jwj.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 2539,
+        "usedBytes": 676,
+        "unusedBytes": 1863,
+        "unusedPercent": 73
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/37lq4pxhe4upr.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 7373,
+        "usedBytes": 74,
+        "unusedBytes": 7299,
+        "unusedPercent": 99
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/21yb5u768m1vs.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 119923,
+        "usedBytes": 15404,
+        "unusedBytes": 104519,
+        "unusedPercent": 87
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/1zqwel-u-dlj_.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 26201,
+        "usedBytes": 39,
+        "unusedBytes": 26162,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://vercel.com/",
+        "totalBytes": 103,
+        "usedBytes": 58,
+        "unusedBytes": 45,
+        "unusedPercent": 44
+      },
+      {
+        "url": "https://vercel.com/",
+        "totalBytes": 173,
+        "usedBytes": 171,
+        "unusedBytes": 2,
+        "unusedPercent": 1
+      },
+      {
+        "url": "https://vercel.com/",
+        "totalBytes": 99,
+        "usedBytes": 0,
+        "unusedBytes": 99,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/3q-cil37aaytx.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 2117,
+        "usedBytes": 0,
+        "unusedBytes": 2117,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/3s8zb7ruf0--9.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 4057,
+        "usedBytes": 3628,
+        "unusedBytes": 429,
+        "unusedPercent": 11
+      },
+      {
+        "url": "https://vercel.com/vc-ap-vercel-marketing/_next/static/chunks/1_jk2-zyrzbs-.css?dpl=dpl_AFCAdRRhUTFtL8o351VyJooZ7E4a",
+        "totalBytes": 246,
+        "usedBytes": 0,
+        "unusedBytes": 246,
+        "unusedPercent": 100
+      }
+    ],
+    "totalBytes": 1063787,
+    "usedBytes": 592267,
+    "unusedBytes": 471520,
+    "unusedPercent": 44,
+    "importantCount": 1267,
+    "duplicates": 12166,
+    "vendorPrefixes": {
+      "webkit": 317,
+      "moz": 19,
+      "ms": 11,
+      "o": 0
+    },
+    "keyframes": [],
+    "specificity": {
+      "max": [
+        2,
+        13,
+        5
+      ],
+      "average": [
+        0.01,
+        1.88,
+        0.16
+      ],
+      "count": 11266
+    },
+    "issues": [
+      "1267 !important rules",
+      "12166 duplicate declarations"
+    ]
+  }
+}

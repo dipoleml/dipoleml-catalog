@@ -1,0 +1,21 @@
+# The uv bundle ships the project source and lockfile; uv installs dependencies on first run.
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+docs/
+tests/
+scripts/
+assets/
+excel_files/
+*.mcpb
+Dockerfile
+.dockerignore
+.python-version
+AGENTS.md
+CLAUDE.md
+server.json

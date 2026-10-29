@@ -1,0 +1,562 @@
+/**
+ * Built-in workflows.
+ *
+ * These are ordinary `WorkflowSpec`s — the same thing a caller can hand to
+ * `workflow_start` — so the built-ins are not privileged over anything a user
+ * writes. Each is a builder rather than a constant because they all need the
+ * caller's task, agents, and cwd.
+ */
+
+import {
+  DEFAULT_CHECK_TIMEOUT_MS,
+  DEFAULT_HTTP_TIMEOUT_MS,
+  DEFAULT_SCREENSHOT_TIMEOUT_MS,
+  type AcceptanceContract,
+} from '../../verify/contract.js';
+import type {
+  CouncilAgentSpec,
+  CouncilNode,
+  FanoutAgentSpec,
+  FanoutNode,
+  GoalNode,
+  NodeSpec,
+  WorkflowSpec,
+} from '../types.js';
+import { DEFAULT_AGENT_TIMEOUT_MS as FANOUT_AGENT_TIMEOUT_MS } from '../../fanout.js';
+import {
+  DEFAULT_AGENT_TIMEOUT_MS as COUNCIL_AGENT_TIMEOUT_MS,
+  DEFAULT_MAX_ROUNDS,
+  EMPTY_RESPONSE_MAX_RETRIES,
+  EMPTY_RESPONSE_RETRY_DELAY_MS,
+  FOLLOWUP_MAX_RETRIES,
+  FOLLOWUP_TIMEOUT_MS,
+  INTER_ROUND_DELAY_MS,
+  SESSION_READY_TIMEOUT_MS,
+} from '../../constants.js';
+
+// A fan-out or council node's timeout is a backstop for the whole mode, not a
+// second per-agent limit. Agents past the free session slots wait for one, so a
+// node sized for a single agent timed out while the first wave was still running
+// and dropped every result. These bounds assume the worst case — one agent at a
+// time, every retry taken — and each agent is still held to its own timeout.
+
+/** Worst case for a fan-out node: each agent in turn, including its start, then synthesis. */
+export function fanoutNodeBudget(
+  agents: number,
+  synthesize: boolean | undefined,
+  agentTimeoutMs = FANOUT_AGENT_TIMEOUT_MS,
+): number {
+  return (agentTimeoutMs + SESSION_READY_TIMEOUT_MS) * (Math.max(1, agents) + (synthesize ? 1 : 0));
+}
+
+/**
+ * Worst case for a council node. Per agent per round, `Council.runSingleAgent`
+ * may start and send up to `EMPTY_RESPONSE_MAX_RETRIES + 1` times and then send
+ * `FOLLOWUP_MAX_RETRIES` follow-ups.
+ */
+export function councilNodeBudget(
+  agents: number,
+  maxRounds: number | undefined,
+  agentTimeoutMs = COUNCIL_AGENT_TIMEOUT_MS,
+): number {
+  const perAgent =
+    (EMPTY_RESPONSE_MAX_RETRIES + 1) * (agentTimeoutMs + SESSION_READY_TIMEOUT_MS + EMPTY_RESPONSE_RETRY_DELAY_MS) +
+    FOLLOWUP_MAX_RETRIES * (FOLLOWUP_TIMEOUT_MS + EMPTY_RESPONSE_RETRY_DELAY_MS);
+  return (maxRounds ?? DEFAULT_MAX_ROUNDS) * (Math.max(1, agents) * perAgent + INTER_ROUND_DELAY_MS);
+}
+
+export interface CommonArgs {
+  task: string;
+  cwd?: string;
+  contract?: AcceptanceContract;
+}
+
+export interface CouncilArgs extends CommonArgs {
+  agents: CouncilAgentSpec[];
+  /** Default `DEFAULT_MAX_ROUNDS`, as for `council_start`. */
+  maxRounds?: number;
+}
+
+/**
+ * Council, with its verdict demoted.
+ *
+ * Structurally identical to what `council_start` did, except that reaching
+ * consensus no longer ends the story: when a contract is supplied the kernel
+ * appends a verifier and the run is judged on that. The votes are still
+ * recorded on the run.
+ */
+export function councilWorkflow(args: CouncilArgs): WorkflowSpec {
+  const maxRounds = args.maxRounds ?? DEFAULT_MAX_ROUNDS;
+  return {
+    name: 'council',
+    cwd: args.cwd,
+    contract: args.contract,
+    nodes: [
+      {
+        id: 'council',
+        kind: 'council',
+        task: args.task,
+        agents: args.agents,
+        projectDir: args.cwd,
+        maxRounds,
+        agentTimeoutMs: COUNCIL_AGENT_TIMEOUT_MS,
+        timeoutMs: councilNodeBudget(args.agents.length, maxRounds),
+      },
+    ],
+  };
+}
+
+export interface FanoutArgs extends CommonArgs {
+  agents: FanoutAgentSpec[];
+  synthesize?: boolean;
+}
+
+export function fanoutWorkflow(args: FanoutArgs): WorkflowSpec {
+  return {
+    name: 'fanout',
+    cwd: args.cwd,
+    contract: args.contract,
+    nodes: [
+      {
+        id: 'fanout',
+        kind: 'fanout',
+        prompt: args.task,
+        agents: args.agents,
+        synthesize: args.synthesize,
+        cwd: args.cwd,
+        agentTimeoutMs: FANOUT_AGENT_TIMEOUT_MS,
+        timeoutMs: fanoutNodeBudget(args.agents.length, args.synthesize),
+      },
+    ],
+  };
+}
+
+export interface SolveArgs extends CommonArgs {
+  /** Agents that explore the problem in parallel before anything is written. */
+  scouts: FanoutAgentSpec[];
+  /** Engine/model that does the implementation. */
+  implementer?: { engine?: FanoutAgentSpec['engine']; model?: string; acpAgent?: string };
+  /** Reviewers that read the finished change. */
+  reviewers?: FanoutAgentSpec[];
+  /** Ask a human before writing anything. */
+  humanGate?: boolean;
+  /** How many repair attempts the router allows. Default 3. */
+  maxRepairs?: number;
+}
+
+/**
+ * The flagship: triage → (gate) → implement → (review) → verify → repair-until-green.
+ *
+ * The repair loop is the part that needs the kernel rather than a prompt: the
+ * router sends control back to the implementer while the verifier is red and the
+ * visit budget holds, and the run cannot leave in `completed` unless the last
+ * verification passed.
+ */
+export function solveWorkflow(args: SolveArgs): WorkflowSpec {
+  const maxRepairs = args.maxRepairs ?? 3;
+  const nodes: WorkflowSpec['nodes'] = [
+    {
+      id: 'triage',
+      kind: 'fanout',
+      prompt: `Investigate this task and report what you found. Do not change any files yet.\n\n${args.task}`,
+      agents: args.scouts,
+      synthesize: args.scouts.length >= 2,
+      cwd: args.cwd,
+      agentTimeoutMs: FANOUT_AGENT_TIMEOUT_MS,
+      timeoutMs: fanoutNodeBudget(args.scouts.length, args.scouts.length >= 2),
+    },
+  ];
+
+  if (args.humanGate) {
+    nodes.push({ id: 'approve', kind: 'human_gate', prompt: `Approve the plan for: ${args.task}` });
+  }
+
+  nodes.push({
+    id: 'implement',
+    kind: 'agent',
+    prompt: args.task,
+    engine: args.implementer?.engine,
+    model: args.implementer?.model,
+    acpAgent: args.implementer?.acpAgent,
+    cwd: args.cwd,
+    // A failed implementation attempt still goes to the verifier, so the
+    // evidence bundle records what was actually wrong rather than just "the
+    // agent errored".
+    onFailure: 'continue',
+  });
+
+  // Review sits BEFORE the gate, not after it.
+  //
+  // It used to come last, which put a fan-out that shares the project directory
+  // downstream of the evidence: the reviewers could edit the tree the verifier
+  // had already signed off, and the run still reported `verified`. "Reviewers
+  // only read" was a sentence in a prompt, not something the runtime could
+  // enforce. Ordering it before the gate makes the question moot — anything the
+  // reviewers change is checked, and their findings feed the repair loop.
+  if (args.reviewers?.length) {
+    nodes.push({
+      id: 'review',
+      kind: 'fanout',
+      prompt: `Review the change that was just made for this task. Report problems only.\n\n${args.task}`,
+      agents: args.reviewers,
+      synthesize: args.reviewers.length >= 2,
+      cwd: args.cwd,
+      agentTimeoutMs: FANOUT_AGENT_TIMEOUT_MS,
+      timeoutMs: fanoutNodeBudget(args.reviewers.length, args.reviewers.length >= 2),
+      onFailure: 'continue',
+    });
+  }
+
+  nodes.push({ id: 'verify', kind: 'verifier', contract: 'run', cwd: args.cwd, onFailure: 'continue' });
+
+  // Loop back only while the verifier is red AND there is repair budget left.
+  // The `visits_lt` guard is what stops this becoming an infinite retry; the
+  // kernel's visit bound is the backstop, not the mechanism.
+  //
+  // One router, not two chained ones. Chaining does not mean AND: a router
+  // whose routes all miss falls through to the NEXT node, so on a green verify
+  // the red-check missed, control fell into the budget check, and that matched
+  // on its own — measured, a first-try green run made four implement passes
+  // instead of one, each of which could also edit a tree the verifier had
+  // already signed off.
+  nodes.push({
+    id: 'repair-gate',
+    kind: 'router',
+    routes: [
+      {
+        when: {
+          type: 'and',
+          all: [
+            { type: 'node_failed', node: 'verify' },
+            { type: 'visits_lt', node: 'implement', n: maxRepairs + 1 },
+          ],
+        },
+        to: 'implement',
+      },
+    ],
+    // Budget spent and still red: fall through, leaving the failed verdict to
+    // decide the run.
+  });
+
+  // No second verifier at the end: the last `verify` visit already produced the
+  // run's verdict, and re-running a contract that shells out to a test suite
+  // would double the most expensive part of the run to learn nothing new.
+  return {
+    name: 'solve',
+    cwd: args.cwd,
+    contract: args.contract,
+    // Each repair pass revisits implement / verify / the router once. The
+    // router's own `visits_lt` guard is the real budget; this is the backstop.
+    maxNodeVisits: maxRepairs + 3,
+    nodes,
+  };
+}
+
+export interface GoalArgs extends CommonArgs {
+  /** Who runs the goal: a Codex `codex-app` thread (default) or a Claude Code session. */
+  engine?: GoalNode['engine'];
+  /** Model for the goal's thread; omitted means the engine's own default. */
+  model?: string;
+  effort?: string;
+  sandboxMode?: GoalNode['sandboxMode'];
+  /** Argv prefix the engine runs under, e.g. a sandbox wrapper. */
+  launcher?: string[];
+  /** Start on this existing thread or Claude session (its goal is replaced). */
+  threadId?: string;
+  tokenBudget?: number;
+  /** Wall-clock budget for one goal pass. Omitted means none. */
+  goalTimeoutMs?: number;
+  /** How many times a red verifier may send the goal back. Default 1. */
+  maxRepairs?: number;
+}
+
+/**
+ * A `/goal` judged by checks it did not write: goal → verify → repair.
+ *
+ * The goal runs on one thread — a Codex `codex-app` thread, or a Claude Code
+ * session — until the agent calls it complete. That is the agent's opinion;
+ * the verifier's contract is the verdict. On red, the router sends control
+ * back to the same thread with the failing checks while repair budget remains.
+ */
+export function goalWorkflow(args: GoalArgs): WorkflowSpec {
+  const maxRepairs = args.maxRepairs ?? 1;
+  const goal: GoalNode = {
+    id: 'goal',
+    kind: 'goal',
+    objective: args.task,
+    ...(args.engine ? { engine: args.engine } : {}),
+    cwd: args.cwd,
+    model: args.model,
+    effort: args.effort,
+    sandboxMode: args.sandboxMode,
+    launcher: args.launcher,
+    threadId: args.threadId,
+    tokenBudget: args.tokenBudget,
+    timeoutMs: args.goalTimeoutMs,
+    // A goal that ends out of budget or blocked still goes to the verifier, so
+    // the verdict says what state the tree was left in.
+    onFailure: 'continue',
+  };
+  return {
+    name: 'goal',
+    cwd: args.cwd,
+    contract: args.contract,
+    maxNodeVisits: maxRepairs + 3,
+    nodes: [
+      goal,
+      {
+        id: 'verify',
+        kind: 'verifier',
+        contract: 'run',
+        cwd: args.cwd,
+        onFailure: 'continue',
+        // A judge that times a training run takes hours; the kernel's 30-minute
+        // node default would cut the verdict off. Sized from the checks.
+        timeoutMs: contractBudget(args.contract),
+      },
+      {
+        id: 'repair-gate',
+        kind: 'router',
+        routes: [
+          {
+            when: {
+              type: 'and',
+              all: [
+                { type: 'node_failed', node: 'verify' },
+                { type: 'visits_lt', node: 'goal', n: maxRepairs + 1 },
+              ],
+            },
+            to: 'goal',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** Every check run once, in turn, at its own timeout, plus a margin for evidence. */
+function contractBudget(contract: AcceptanceContract | undefined): number {
+  const checks = contract?.checks ?? [];
+  const sum = checks.reduce((total, c) => {
+    const spec = ('spec' in c ? c.spec : c) as { type?: string; timeoutMs?: number };
+    const fallback =
+      spec.type === 'http'
+        ? DEFAULT_HTTP_TIMEOUT_MS
+        : spec.type === 'screenshot'
+          ? DEFAULT_SCREENSHOT_TIMEOUT_MS
+          : DEFAULT_CHECK_TIMEOUT_MS;
+    return total + (spec.timeoutMs && spec.timeoutMs > 0 ? spec.timeoutMs : fallback);
+  }, 0);
+  return Math.max(30 * 60_000, sum * ((contract?.fixOnFailureRounds ?? 0) + 1) + 5 * 60_000);
+}
+
+// ─── Legacy mode workflows ──────────────────────────────────────────────────
+//
+// The `council_*`, `fanout_*`, `ultraplan_*` and `ultrareview_*` tools keep
+// their signatures, but each now starts one of these instead of a mode-private
+// state machine. Every one uses a single node called `main`, which is what the
+// projections in `kernel/projections.ts` read.
+
+import type { EngineType, EffortLevel, PermissionMode } from '../../types.js';
+import { LEGACY_NODE } from '../projections.js';
+
+export interface LegacyCouncilArgs {
+  task: string;
+  cwd: string;
+  agents: CouncilNode['agents'];
+  maxRounds: number;
+  timeoutMs?: number;
+  maxTurnsPerAgent?: number;
+  maxBudgetUsd?: number;
+  defaultPermissionMode?: string;
+}
+
+export function legacyCouncilWorkflow(args: LegacyCouncilArgs): WorkflowSpec {
+  return {
+    name: 'council',
+    cwd: args.cwd,
+    nodes: [
+      {
+        id: LEGACY_NODE,
+        kind: 'council',
+        task: args.task,
+        agents: args.agents,
+        projectDir: args.cwd,
+        maxRounds: args.maxRounds,
+        // Explicit even when the caller set none: the executor falls back to the
+        // node timeout, which is the whole council's budget, not one agent's.
+        // `||`: a zero or negative timeout means "use the default" to Council itself.
+        agentTimeoutMs: args.timeoutMs || COUNCIL_AGENT_TIMEOUT_MS,
+        timeoutMs: councilNodeBudget(args.agents.length, args.maxRounds, args.timeoutMs || COUNCIL_AGENT_TIMEOUT_MS),
+        maxTurnsPerAgent: args.maxTurnsPerAgent,
+        maxBudgetUsd: args.maxBudgetUsd,
+        defaultPermissionMode: args.defaultPermissionMode,
+      },
+    ],
+  };
+}
+
+export interface LegacyFanoutArgs {
+  task: string;
+  cwd: string;
+  agents: FanoutNode['agents'];
+  synthesize?: boolean;
+  synthesisEngine?: FanoutNode['synthesisEngine'];
+  synthesisModel?: string;
+  synthesisAcpAgent?: string;
+  synthesisPermissionMode?: string;
+  maxTurnsPerAgent?: number;
+  maxBudgetUsd?: number;
+  timeoutMs?: number;
+  name?: string;
+}
+
+export function legacyFanoutWorkflow(args: LegacyFanoutArgs): WorkflowSpec {
+  return {
+    name: args.name ?? 'fanout',
+    cwd: args.cwd,
+    nodes: [
+      {
+        id: LEGACY_NODE,
+        kind: 'fanout',
+        prompt: args.task,
+        agents: args.agents,
+        synthesize: args.synthesize,
+        synthesisEngine: args.synthesisEngine,
+        synthesisModel: args.synthesisModel,
+        synthesisAcpAgent: args.synthesisAcpAgent,
+        synthesisPermissionMode: args.synthesisPermissionMode,
+        maxTurnsPerAgent: args.maxTurnsPerAgent,
+        maxBudgetUsd: args.maxBudgetUsd,
+        cwd: args.cwd,
+        // `||`: a zero timeout reaches the send as "use the default", so budget for that.
+        agentTimeoutMs: args.timeoutMs || FANOUT_AGENT_TIMEOUT_MS,
+        timeoutMs: fanoutNodeBudget(args.agents.length, args.synthesize, args.timeoutMs || FANOUT_AGENT_TIMEOUT_MS),
+      },
+    ],
+  };
+}
+
+/**
+ * Split per-agent custom-engine configs out of a legacy agent list.
+ *
+ * They hold credentials and the spec is written to disk, so they travel through
+ * `StartOptions.secrets` instead — keyed by agent name, which is unique within a
+ * run because both council and fan-out already require it.
+ */
+export function splitAgentSecrets<T extends { name: string; customEngine?: unknown }>(
+  agents: T[],
+): { agents: Omit<T, 'customEngine'>[]; secrets: Record<string, unknown> } {
+  const secrets: Record<string, unknown> = {};
+  const stripped = agents.map((a) => {
+    const { customEngine, ...rest } = a;
+    if (customEngine) secrets[a.name] = customEngine;
+    return rest;
+  });
+  return { agents: stripped, secrets };
+}
+
+export const ULTRAPLAN_SYSTEM_PROMPT =
+  'You are in ultraplan mode. Explore the project thoroughly, analyze feasibility, and produce a detailed, ' +
+  'actionable plan. Do NOT write code — plan only. Output your final plan in a clear markdown format.';
+
+export interface LegacyUltraplanArgs {
+  task: string;
+  cwd: string;
+  model?: string;
+  engine?: EngineType;
+  timeoutMs: number;
+}
+
+export function legacyUltraplanWorkflow(args: LegacyUltraplanArgs): WorkflowSpec {
+  return {
+    name: 'ultraplan',
+    cwd: args.cwd,
+    nodes: [
+      {
+        id: LEGACY_NODE,
+        kind: 'agent',
+        cwd: args.cwd,
+        engine: args.engine,
+        model: args.model,
+        permissionMode: 'plan' as PermissionMode,
+        effort: 'max' as EffortLevel,
+        appendSystemPrompt: ULTRAPLAN_SYSTEM_PROMPT,
+        timeoutMs: args.timeoutMs,
+        prompt:
+          `# Ultraplan Task\n\n${args.task}\n\nExplore the project, understand the codebase, analyze ` +
+          `feasibility, and produce a comprehensive implementation plan. Take your time (up to 30 minutes). ` +
+          `Be thorough.`,
+      },
+    ],
+  };
+}
+
+export type TemplateName = 'council' | 'fanout' | 'solve' | 'goal';
+
+export const TEMPLATE_NAMES: readonly TemplateName[] = ['council', 'fanout', 'solve', 'goal'];
+
+export interface UltraappArgs {
+  /** UltraApp's own run id, which its store is keyed by. */
+  appRunId: string;
+  /** Absolute per-run directory. */
+  runDir: string;
+  slug: string;
+  version: string;
+  /** Where the synthesised codebase will be, and where the build contract runs. */
+  codebasePath: string;
+  buildContract: AcceptanceContract;
+  /**
+   * Whether to deploy. Without a router there is nowhere to deploy to, and
+   * `build-complete` is the resting state — so the workflow genuinely has one
+   * fewer node rather than a node that quietly does nothing.
+   */
+  deploy: boolean;
+}
+
+/**
+ * UltraApp's build pipeline.
+ *
+ * Three nodes, and the middle one is not UltraApp's: synthesise a codebase by
+ * council, run the build contract against it (the ordinary `verifier`, with its
+ * fix-on-red loop), then deploy and check the deployed thing.
+ *
+ * There is deliberately no run-level `contract` here. A run-level contract makes
+ * the kernel append an implicit terminal verifier, and this workflow already
+ * ends in one — the deploy stage returns its own evidence, because the §7g
+ * screenshots are taken against a URL that does not exist until the deploy has
+ * run. The last verdict is the run's verdict, which is what makes `completed`
+ * mean "the deployed app passed", not "the code compiled".
+ */
+export function ultraappWorkflow(args: UltraappArgs): WorkflowSpec {
+  const nodes: NodeSpec[] = [
+    {
+      id: 'synth',
+      kind: 'ultraapp_synth',
+      appRunId: args.appRunId,
+      runDir: args.runDir,
+      slug: args.slug,
+      codebasePath: args.codebasePath,
+      // The synth stage is a three-agent, eight-round council (ultraapp/council-adapter.ts).
+      timeoutMs: councilNodeBudget(3, 8),
+    },
+    {
+      id: 'build',
+      kind: 'verifier',
+      contract: args.buildContract,
+      cwd: args.codebasePath,
+    },
+  ];
+  if (args.deploy) {
+    nodes.push({
+      id: 'deploy',
+      kind: 'ultraapp_deploy',
+      appRunId: args.appRunId,
+      runDir: args.runDir,
+      slug: args.slug,
+      version: args.version,
+      codebasePath: args.codebasePath,
+    });
+  }
+  return { name: 'ultraapp', cwd: args.runDir, nodes };
+}

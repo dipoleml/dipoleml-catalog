@@ -1,0 +1,66 @@
+{
+  "materialLanguage": {
+    "label": "material-you",
+    "confidence": 0.45,
+    "signals": [
+      {
+        "label": "material-you",
+        "weight": 0.45,
+        "detail": "pill shapes + soft shadows"
+      }
+    ],
+    "metrics": {
+      "saturation": 0.5,
+      "shadowProfile": "soft",
+      "avgShadowBlur": 0,
+      "maxShadowBlur": 0,
+      "insetShadows": 0,
+      "avgRadius": 1181.7,
+      "maxRadius": 9999,
+      "hasPill": true,
+      "hasBackdropBlur": false,
+      "gradientCount": 3
+    },
+    "alternates": []
+  },
+  "imageryStyle": {
+    "label": "flat-illustration",
+    "confidence": 0.013,
+    "counts": {
+      "total": 102,
+      "svg": 62,
+      "icon": 62,
+      "hero": 0,
+      "screenshot": 0,
+      "photoLike": 0
+    },
+    "dominantAspect": "square-ish",
+    "radiusProfile": "soft",
+    "alternates": [],
+    "signals": [
+      "svg-heavy"
+    ]
+  },
+  "backgroundPatterns": {
+    "labels": [
+      "svg-pattern"
+    ],
+    "counts": {
+      "noise": 0,
+      "dotGrid": 0,
+      "lineGrid": 0,
+      "meshCount": 0,
+      "svgPattern": 1
+    },
+    "gradientTotals": {
+      "radial": 0,
+      "linear": 3
+    },
+    "samples": [
+      {
+        "tag": "svg-pattern",
+        "value": "linear-gradient(rgba(0, 0, 0, 0.6) 0%, rgb(18, 18, 18) 100%), url(\"data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHd"
+      }
+    ]
+  }
+}

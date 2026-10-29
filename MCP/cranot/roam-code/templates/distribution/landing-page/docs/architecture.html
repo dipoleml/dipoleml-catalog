@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Architecture — Roam Docs · System design and subsystem map</title>
+  <meta name="description" content="Roam architecture: local-first analysis system. Index pipeline, storage, graph engines, retrieval, patch verifier — and how they fit together for CLI and MCP clients.">
+  <link rel="canonical" href="https://roam-code.com/docs/architecture">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#0049b7">
+  <meta name="apple-mobile-web-app-title" content="Roam">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preload" href="/fonts/space-grotesk-variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="dns-prefetch" href="//github.com">
+  <link rel="stylesheet" href="/landing.css">
+  <meta name="robots" content="index,follow">
+  <meta property="og:title" content="Architecture — Roam Docs">
+  <meta property="og:description" content="Local-first analysis system. Index, store, query, gate.">
+  <meta property="og:url" content="https://roam-code.com/docs/architecture">
+  <meta property="og:image" content="https://roam-code.com/og-code-analysis.png">
+  <meta property="og:image:width" content="1731">
+  <meta property="og:image:height" content="909">
+  <meta property="og:image:alt" content="Roam — Code analysis your agent can query. Checks it can run.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://roam-code.com/og-code-analysis.png">
+  <meta name="twitter:image:alt" content="Roam — Code analysis your agent can query. Checks it can run.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://roam-code.com/"},
+      {"@type": "ListItem", "position": 2, "name": "Docs", "item": "https://roam-code.com/docs/"},
+      {"@type": "ListItem", "position": 3, "name": "Architecture", "item": "https://roam-code.com/docs/architecture"}
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <nav class="site-nav" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a href="/" class="site-logo" aria-label="Roam — home">
+        <svg class="site-logo-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" aria-hidden="true" focusable="false">
+          <line x1="16" y1="16" x2="0" y2="8" stroke-width="1" opacity="0.55"/>
+          <line x1="16" y1="16" x2="32" y2="22" stroke-width="1" opacity="0.55"/>
+          <line x1="16" y1="16" x2="16" y2="32" stroke-width="1" opacity="0.35"/>
+          <circle cx="16" cy="16" r="4.5" fill="currentColor" stroke="none"/>
+          <circle cx="16" cy="16" r="7.5" stroke-width="1" opacity="0.30"/>
+        </svg>
+        <span>roam<span class="logo-dot">.</span></span>
+      </a>
+      <input type="checkbox" id="nav-toggle" class="nav-toggle-checkbox" aria-label="Toggle navigation menu" aria-controls="site-navigation">
+      <label for="nav-toggle" class="nav-toggle-label">
+        <span class="nav-burger" aria-hidden="true"></span><span class="visually-hidden">Menu</span>
+      </label>
+      <ul class="nav-links" id="site-navigation">
+        <li><a href="/explore">Explore the map</a></li>
+        <li><a href="/docs/" aria-current="true">Docs</a></li>
+        <li><a href="/compare">Compare</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="https://github.com/Cranot/roam-code">GitHub</a></li>
+        <li><a href="/setup" class="nav-start">Set up your agent</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <nav class="docs-subnav" aria-label="Documentation sections">
+    <div class="docs-subnav-inner">
+      <a href="/docs/getting-started">Get started</a>
+      <a href="/docs/integration-tutorials">Integrations</a>
+      <a href="/docs/command-reference">Command reference</a>
+      <a href="/docs/architecture" aria-current="page">Architecture</a>
+      <a href="/docs/agent-contract">Agent contract</a>
+      <a href="/docs/troubleshooting">Troubleshooting</a>
+    </div>
+  </nav>
+
+  <main tabindex="-1" id="main" class="docs-page">
+    <p class="eyebrow">System Design</p>
+    <h1>Roam Architecture</h1>
+    <p class="subtitle">
+      Roam builds a local code index in SQLite and exposes analysis and checks through CLI and MCP tools. Configured workflows can also record receipts, run events and evidence packets for another tool or reviewer to inspect.
+    </p>
+    <p><strong>Available source capabilities.</strong> This page explains the
+      local engine and its explicitly configured evidence workflows. Optional
+      does not mean enabled by default. Hosted Review and Cloud are
+      <strong>planned</strong>, not services provided by these modules; see
+      <a href="/pricing">current product availability</a>. Research directions
+      are separate from this implementation guide.</p>
+    <div class="callout">
+      <strong>Inside vs gateway.</strong> Roam is the <em>server</em> in the MCP layering: it emits <code>McpDecisionReceipt</code> per sensitive tool call, the HMAC-chained run ledger, and the <code>ChangeEvidence</code> packet. Hosts (Claude Code, Cursor) own per-call approval; gateways own policy + correlation + audit aggregation; Roam ships the structured evidence stream those layers consume. See the <a href="https://github.com/Cranot/roam-code/discussions/37">MCP layering discussion</a> for the full split.
+    </div>
+
+    <section id="rag-vs-substrate">
+      <h2>Search, then follow the relationships</h2>
+      <p>Roam combines lexical retrieval with indexed structure. Its retrieval
+        pipeline finds candidates through FTS5/BM25, then ranks them with
+        graph centrality, co-change, and available clone or runtime evidence.
+        PageRank is one heuristic, not a definition of importance.</p>
+      <p>Follow callers, dependencies, or related tests back to source.
+        Resolution can miss dynamic behavior, and ranking can omit relevant
+        candidates. Neither graph search nor embedding similarity guarantees relevance.</p>
+    </section>
+
+    <section id="pipeline">
+      <h2>Pipeline at a Glance</h2>
+<pre><code>Repository ──&gt; Index Pipeline ──&gt; SQLite Storage
+                                           │
+                          ┌────────────────┼────────────────┐
+                          ▼                ▼                ▼
+                 Graph Analytics    Retrieval +      CLI / MCP
+                 Rules Engine       Patch Verifier   Interfaces
+                 Security           Code Graph       JSON / SARIF
+                                    Attestation</code></pre>
+      <p>
+        Build the index with <code>roam index</code>, or use <code>roam init</code>
+        to create project configuration too. Refreshes can reuse unchanged source.
+        Many analysis commands query <code>.roam/index.db</code>; others inspect
+        current files, Git changes or imported evidence directly. Check the
+        command's scope before treating the index as its complete input.
+      </p>
+    </section>
+
+    <section id="subsystems">
+      <h2>Subsystem Responsibilities</h2>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Subsystem</th><th>Main modules</th><th>Responsibility</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Index Pipeline</td>
+            <td><code>index/indexer.py</code>, <code>index/parser.py</code>, <code>index/symbols.py</code></td>
+            <td>Build and refresh the structural index from source + git history.</td>
+          </tr>
+          <tr>
+            <td>Storage</td>
+            <td><code>db/schema.py</code>, <code>db/connection.py</code></td>
+            <td>SQLite schema, migrations, batched query helpers.</td>
+          </tr>
+          <tr>
+            <td>Graph Intelligence</td>
+            <td><code>graph/builder.py</code>, <code>graph/layers.py</code>, <code>graph/clusters.py</code>, <code>graph/pagerank.py</code></td>
+            <td>Centrality, layering, communities, cycle analysis, AST clone clustering.</td>
+          </tr>
+          <tr>
+            <td>Retrieval</td>
+            <td><code>retrieve/pipeline.py</code>, <code>retrieve/rerank.py</code></td>
+            <td>Graph-aware FTS5 + structural reranker (PageRank + co-change + clones + runtime hot).</td>
+          </tr>
+          <tr>
+            <td>Patch Verifier</td>
+            <td><code>critique/checks.py</code>, <code>critique/aggregator.py</code></td>
+            <td>Diff parsing + clones-not-edited + blast-radius + intent-alignment for <code>roam critique</code>.</td>
+          </tr>
+          <tr>
+            <td>Taint &amp; Reachability</td>
+            <td><code>security/taint_engine.py</code></td>
+            <td>Source-to-sink analysis under selected rules, with sanitizer handling and explicit evidence levels. Dataflow findings and co-occurrence leads require different follow-up checks.</td>
+          </tr>
+          <tr>
+            <td>Code Graph Attestation</td>
+            <td><code>attest/cga.py</code></td>
+            <td>in-toto v1 statement builder. Merkle root over symbol fingerprints + edge bundle digest. Cosign-signable.</td>
+          </tr>
+          <tr>
+            <td>Fleet Planner</td>
+            <td><code>fleet/manifest.py</code></td>
+            <td>Multi-agent partitioner (Louvain + co-change + PageRank anchors); emits <code>.roam-fleet.json</code>.</td>
+          </tr>
+          <tr>
+            <td>Rule Engine</td>
+            <td><code>rules/builtin.py</code>, <code>rules/engine.py</code></td>
+            <td>Built-in rules + YAML rule packs (path / symbol / AST / dataflow patterns).</td>
+          </tr>
+          <tr>
+            <td>Interfaces</td>
+            <td><code>commands/cmd_*.py</code>, <code>mcp_server.py</code>, <code>mcp_extras/</code></td>
+            <td>Deterministic queries for CLI and MCP clients. Sampling-driven compression, watcher-based invalidation, per-session memory.</td>
+          </tr>
+          <tr>
+            <td>Output Contracts</td>
+            <td><code>output/formatter.py</code>, <code>output/sarif.py</code>, <code>output/schema_registry.py</code></td>
+            <td>Structured CLI/MCP results and supported SARIF output. Inspect errors, scope and incomplete-result fields before treating a check as complete.</td>
+          </tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="index-pipeline-stages">
+      <h2>Index Pipeline Stages</h2>
+      <ol>
+        <li><strong>Discovery</strong> — collect tracked files (via <code>git ls-files</code> + <code>.gitignore</code>) and classify file roles.</li>
+        <li><strong>Parsing</strong> — tree-sitter parse per file with language routing across 28 supported languages.</li>
+        <li><strong>Extraction</strong> — symbols (classes, functions, methods, fields), signatures, docstrings, references.</li>
+        <li><strong>Resolution</strong> — convert references into graph edges (caller&rarr;callee, import chains, inheritance).</li>
+        <li><strong>Metrics</strong> — cognitive complexity, centrality (PageRank, betweenness), churn, co-change, cognitive load.</li>
+        <li><strong>Persistence</strong> — upsert into SQLite with incremental diffing; reprocess changed files and affected neighbors.</li>
+      </ol>
+<pre><code>discover -&gt; parse -&gt; extract -&gt; resolve -&gt; metrics -&gt; persist
+                 (reuse unchanged data; refresh affected neighbors)</code></pre>
+      <h3 id="index-freshness">Source freshness and Git freshness</h3>
+      <p>
+        File hashes and Git history have separate freshness checks. A normal
+        full index run checks Git metadata even if every source file is unchanged:
+        a new commit may contain content already indexed from the working tree.
+        Skipping Git-stat collection requires both an unchanged manifest HEAD and
+        that exact commit in the indexed Git history.
+      </p>
+      <p>
+        <code>roam index --force</code> rebuilds derived source data and forces
+        Git-stat collection within the configured history window. Internal light
+        indexing can omit expensive analysis; use a full <code>roam index</code>
+        before relying on history-sensitive metrics. Run manifests record
+        invocation options separately from persistent configuration identity.
+      </p>
+      <p>
+        Index ownership and lifecycle markers prevent concurrent writers and
+        distinguish a completed generation from an interrupted one. Recovery
+        requires proving an abandoned owner before rebuilding. See
+        <a href="/docs/troubleshooting#db-locked">writer-lock recovery</a> for
+        operational guidance.
+      </p>
+    </section>
+
+    <section id="command-to-data-flow">
+      <h2>Command-to-Data Flow</h2>
+      <h3>Example: <code>roam preflight AuthService</code></h3>
+<pre><code>CLI cmd_preflight
+  -&gt; ensure_index()
+  -&gt; query symbols/edges/metrics
+  -&gt; run health/rule checks
+  -&gt; aggregate verdict + risk factors
+  -&gt; render text or JSON envelope</code></pre>
+
+      <h3>Example: <code>roam cga emit --include-taint</code></h3>
+<pre><code>CLI cmd_cga
+  -&gt; ensure_index()
+  -&gt; attest.cga.build_statement()
+       -&gt; _symbol_fingerprints()       # Merkle root over (qname, kind, sig, path)
+       -&gt; _edge_bundle_digest()        # graph snapshot fingerprint
+       -&gt; security.taint_engine.run()  # graph-reach BFS, sanitizer stops
+            -&gt; _finding_to_vex_claim() # OpenVEX status + justification
+  -&gt; in-toto v1 Statement
+       (predicateType: https://roam-code.com/spec/CodeGraph/v1)
+  -&gt; write the statement and report its output path</code></pre>
+      <p>Signing is a separate, explicit option. Configure a key or keyless
+        identity with <code>roam cga emit --help</code>, then inspect the
+        returned signing result and artifact paths. Missing cosign, a skipped
+        signer, or a failed signing attempt does not produce a signed statement.
+        Keyless signing uses network services.</p>
+      <p>
+        <strong>Reproducibility</strong>: compare source, Git, builder, and
+        configuration identities before comparing structural fingerprints.
+        Whole predicates include invocation and builder metadata; even unchanged
+        source need not produce an identical predicate digest.
+      </p>
+      <p>
+        <strong>Tradeoff</strong>: static analysis can miss runtime connections.
+        <code>roam ingest-trace</code> adds observed runtime evidence, not a
+        complete model of every application behavior.
+      </p>
+    </section>
+
+    <section id="agent-os-substrate">
+      <h2>Agent OS Substrate</h2>
+      <p>
+        On top of the analysis core, Roam provides repo-local modes, coordination
+        and evidence records under <code>.roam/</code>. Configured mode checks
+        apply at Roam's tool boundary; they do not contain arbitrary shell actions
+        or grant permission to ship. Signing, connected agents and selected
+        operations have the <a href="/security#network-boundary">documented network paths</a>.
+      </p>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Package</th><th>What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>atomic_io</code></td><td>Shared helpers for atomic file replacement with <code>os.replace</code> on POSIX and Windows.</td></tr>
+          <tr><td><code>agents_md/</code></td><td>Compositional <code>AGENTS.md</code> generator; consumes the rest of the substrate.</td></tr>
+          <tr><td><code>constitution/</code></td><td>Capstone <code>.roam/constitution.yml</code> unifying laws, rules, memory, gates.</td></tr>
+          <tr><td><code>db/findings.py</code></td><td>Cross-detector finding registry (<code>roam findings list/show/count</code>); schema version owned by <code>db.connection.USER_VERSION</code>.</td></tr>
+          <tr><td><code>laws/</code></td><td>Invariant mining (<code>roam laws mine/check</code>) — self-installing.</td></tr>
+          <tr><td><code>leases/</code></td><td>Multi-agent coordination (<code>roam lease claim/release/list</code>).</td></tr>
+          <tr><td><code>memory/</code></td><td>Repo-local agent memory at <code>.roam/memory.jsonl</code>.</td></tr>
+          <tr><td><code>modes/</code></td><td>Four cumulative action modes: <code>read_only</code> / <code>safe_edit</code> / <code>migration</code> / <code>autonomous_pr</code>.</td></tr>
+          <tr><td><code>policy/</code></td><td>Graph-aware rule clauses (<code>reachable_from</code>, <code>imports_from</code>, ...).</td></tr>
+          <tr><td><code>quality/</code></td><td>Canonical metric definitions (<code>ai_rot</code>, <code>cycles</code>, <code>god_components</code>, <code>public_symbols</code>).</td></tr>
+          <tr><td><code>runs/</code></td><td>Per-run event ledger + HMAC tamper detection (<code>roam runs verify</code>).</td></tr>
+          <tr><td><code>world_model/</code></td><td>Four detectors: side-effects, idempotency, causal-graph, tx-boundaries.</td></tr>
+        </tbody>
+      </table></div>
+      <p>
+        The workflow below shows how these pieces fit together, not a complete
+        copy-and-paste recipe. Use the <a href="/docs/canonical-demo">worked
+        example</a> for full JSON commands, run binding, clone-evidence refresh,
+        missing-proof checks, and ledger verification.
+      </p>
+<pre><code>1.  roam runs start             # open run, get ROAM_RUN_ID (HMAC-signed events)
+2.  roam mode safe_edit         # declare action surface
+3.  roam pr-bundle init         # start proof bundle
+4.  roam preflight &lt;sym&gt;        # risk report before edit; not an edit blocker
+5.  roam impact &lt;sym&gt;            # blast radius
+6.  &lt;edit&gt;
+7.  roam --json critique --working-tree   # review
+7a. roam findings list          # cross-detector findings on the workspace
+8.  roam pr-bundle emit --strict # inspect required and missing evidence
+9.  roam runs end --run-id &lt;id&gt;  # choose a truthful status, then verify this ID
+10. roam replay &lt;id&gt;             # narrate the run
+11. roam agent-score            # composite 0..100 score</code></pre>
+    </section>
+
+    <section id="findings-registry">
+      <h2>Findings Registry</h2>
+      <p>
+        A normalised cross-detector table for inspecting saved findings in one
+        place. Reading the registry does not run its detectors or establish
+        current coverage. Detector-specific evidence remains attached to each
+        record for inspection and suppression management.
+      </p>
+
+      <h3>Schema</h3>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Column</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>finding_id_str</code></td>
+            <td>Stable string identifier (UNIQUE). Deterministic — rerunning a detector refreshes the same row in place. Convention: <code>"&lt;detector&gt;:&lt;subject&gt;:&lt;hash&gt;"</code>.</td>
+          </tr>
+          <tr>
+            <td><code>subject_kind</code></td>
+            <td>What kind of thing the finding is about: <code>symbol</code>, <code>file</code>, <code>edge</code>, <code>commit</code>, <code>package</code>, etc.</td>
+          </tr>
+          <tr>
+            <td><code>subject_id</code></td>
+            <td>Foreign key into the table named by <code>subject_kind</code>. Nullable — not every subject maps to a row id.</td>
+          </tr>
+          <tr>
+            <td><code>claim</code></td>
+            <td>Human-readable summary of the finding.</td>
+          </tr>
+          <tr>
+            <td><code>evidence_json</code></td>
+            <td>Detector-specific structured fields. Schema is owned by the detector, not by the registry.</td>
+          </tr>
+          <tr>
+            <td><code>confidence</code></td>
+            <td>One of <code>heuristic</code>, <code>structural</code>, <code>static_analysis</code>, <code>runtime</code>. See the tier table below.</td>
+          </tr>
+          <tr>
+            <td><code>source_detector</code></td>
+            <td>Which detector emitted the row: <code>clones</code>, <code>dead</code>, <code>complexity</code>, etc.</td>
+          </tr>
+          <tr>
+            <td><code>source_version</code></td>
+            <td>Detector version stamp. Consumers can spot rows produced under a stale detector shape.</td>
+          </tr>
+        </tbody>
+      </table></div>
+
+      <h3>Confidence tiers</h3>
+      <p>
+        Every finding carries a confidence label drawn from a closed enumeration of four tiers.
+        Detectors pick the tier that matches their evidence — never mint new strings.
+      </p>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Tier</th><th>Definition</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>heuristic</code></td>
+            <td>Name-pattern matching, length thresholds, fuzzy NLP signals.</td>
+            <td>vibe-check's <code>comment_anomalies</code> — comments don't match code semantics.</td>
+          </tr>
+          <tr>
+            <td><code>structural</code></td>
+            <td>Graph-pattern matching over the symbol / edge / call graph.</td>
+            <td>n1's loop-with-dependent-write — a loop body issues a DB call that depends on the loop variable.</td>
+          </tr>
+          <tr>
+            <td><code>static_analysis</code></td>
+            <td>Deterministic AST / CFG / dataflow analysis.</td>
+            <td>complexity scores; missing-index's unconditional-predicate finding.</td>
+          </tr>
+          <tr>
+            <td><code>runtime</code></td>
+            <td>Requires ingested runtime traces (OpenTelemetry / Jaeger / Zipkin / coverage).</td>
+            <td>hotspots's <code>UPGRADE</code> / <code>CONFIRMED</code> / <code>DOWNGRADE</code> classification.</td>
+          </tr>
+        </tbody>
+      </table></div>
+
+      <h3>CLI surface</h3>
+<pre><code>roam findings list                       # all findings on this workspace
+roam findings list --detector clones     # filter by detector
+roam findings list --subject-kind symbol # filter by subject kind
+roam findings show &lt;finding_id&gt;          # one record, full evidence
+roam findings count                      # per-detector totals</code></pre>
+      <p>
+        Full reference and flags: <a href="/docs/command-reference">command reference for <code>roam findings</code></a>.
+      </p>
+
+      <h3>Detectors that persist findings</h3>
+      <p>
+        30 detectors persist findings through configured command paths. This count
+        is checked against command modules containing an emission call; it is not
+        evidence that thirty checks ran. The registry stores last-run state per
+        detector, not a cumulative tally. An absent result does not establish a clean scan. Run
+        <code>roam findings count</code> for the live per-detector tally on your workspace.
+        The table below gives examples, including <code>boundary</code>
+        and <code>test-hermeticity</code>; consumer / aggregator detectors
+        (<code>critique</code>, <code>doctor</code>, <code>fan</code>,
+        <code>fingerprint</code>, <code>health</code>, <code>llm-smells</code>,
+        <code>dark-matter</code>) re-emit derived findings from these upstream detectors.
+      </p>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Detector</th><th>Wave</th><th>Tier</th><th>What it finds</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>clones</code></td><td>W95</td><td>structural</td><td>copy-paste / structural duplicates</td></tr>
+          <tr><td><code>dead</code></td><td>W99</td><td>structural</td><td>unreachable symbols</td></tr>
+          <tr><td><code>complexity</code></td><td>W102</td><td>static_analysis</td><td>cognitive complexity hotspots</td></tr>
+          <tr><td><code>smells</code></td><td>W109</td><td>heuristic</td><td>god class / long method / feature envy (24 kinds)</td></tr>
+          <tr><td><code>n1</code></td><td>W110</td><td>structural</td><td>loop-with-dependent-query patterns</td></tr>
+          <tr><td><code>missing-index</code></td><td>W111</td><td>static_analysis</td><td>unindexed predicate columns</td></tr>
+          <tr><td><code>over-fetch</code></td><td>W114</td><td>static_analysis</td><td>SELECT * / wildcard column reads</td></tr>
+          <tr><td><code>bus-factor</code></td><td>W115</td><td>heuristic</td><td>single-owner critical components</td></tr>
+          <tr><td><code>auth-gaps</code></td><td>W116</td><td>structural</td><td>endpoints missing auth checks</td></tr>
+          <tr><td><code>vulns</code></td><td>W117</td><td>static_analysis</td><td>reachable vulnerable dependencies</td></tr>
+          <tr><td><code>invariants</code> / <code>laws</code></td><td>W119</td><td>structural</td><td>mined invariant violations</td></tr>
+          <tr><td><code>hotspots</code></td><td>W120</td><td>runtime</td><td>runtime-trace classified hotspots</td></tr>
+          <tr><td><code>taint</code></td><td>W122</td><td>static_analysis</td><td>source &rarr; sink dataflow leaks</td></tr>
+          <tr><td><code>vibe-check</code></td><td>W125</td><td>heuristic</td><td>AI-rot anomalies (8 pattern families)</td></tr>
+          <tr><td><code>orphan-imports</code></td><td>W132</td><td>structural</td><td>imported-but-unused modules</td></tr>
+          <tr><td><code>conventions</code></td><td>W133</td><td>heuristic</td><td>naming / layout convention drift</td></tr>
+          <tr><td><code>pr-risk</code></td><td>W134</td><td>structural</td><td>per-PR risk factors</td></tr>
+          <tr><td><code>duplicates</code></td><td>W136</td><td>heuristic</td><td>near-duplicate symbol families</td></tr>
+          <tr><td><code>audit-trail-conformance</code></td><td>W145</td><td>static_analysis</td><td>audit-trail integrity checks</td></tr>
+          <tr><td><code>audit-trail-verify</code></td><td>W146</td><td>static_analysis</td><td>separate SHA-256 audit-trail verification</td></tr>
+          <tr><td><code>boundary</code></td><td>&mdash;</td><td>static_analysis / structural</td><td>public-by-accident exports, wrong-direction layer imports</td></tr>
+          <tr><td><code>test-hermeticity</code></td><td>&mdash;</td><td>structural / static_analysis</td><td>non-hermetic test calls (network, time, random, fs, env, subprocess)</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Agent loop integration</h3>
+      <p>
+        The registry slots into the canonical agent loop as step 7a — between <code>roam critique</code>
+        (review the diff) and <code>roam pr-bundle emit</code> (close the proof bundle):
+      </p>
+<pre><code>...
+7.  roam --json critique --working-tree             # review the change
+7a. roam findings list                    # cross-detector findings on the workspace
+8.  roam --json pr-bundle emit --strict   # inspect required and missing evidence
+...</code></pre>
+      <p>
+        Review saved findings before closing a bundle, then check which required
+        detectors completed on the intended scope and revision. A saved row is
+        not current defect proof, and an absent row is not evidence that a scan ran.
+      </p>
+    </section>
+
+    <section id="evidence-compiler">
+      <h2>Evidence Compiler</h2>
+      <p>
+        Roam is a local evidence compiler for AI-assisted software change. The findings
+        registry above is one input layer; the evidence compiler aggregates findings, run events,
+        policy decisions, tests, and approvals into typed <code>ChangeEvidence</code> packets.
+        The shared model supports consumers such as PR Replay and OSCAL exports.
+        Other paths, including CGA construction and command-level SARIF, retain
+        their own collection or rendering logic; not every exporter consumes one packet.
+      </p>
+
+      <h3 id="eight-evidence-questions">The eight evidence questions</h3>
+      <p>
+        Use these questions to review a report's evidence. Packet fields record
+        supplied observations and gaps, not a complete or authenticated account
+        of the work. Inspect missing producers and evidence before drawing a
+        conclusion; an absent approval record is not approval.
+      </p>
+      <ol>
+        <li><strong>Who acted?</strong> &mdash; human, agent id, MCP client id, tool id (<code>runs</code>, <code>replay</code>, MCP receipt).</li>
+        <li><strong>What authority existed?</strong> &mdash; mode, permits, leases, scopes, policy decision (<code>mode</code>, <code>permit</code>, <code>lease</code>, <code>constitution</code>).</li>
+        <li><strong>What context was read?</strong> &mdash; files, symbols, commands, handles, hashes (<code>pr-bundle</code>, <code>context</code>, <code>retrieve</code>).</li>
+        <li><strong>What changed?</strong> &mdash; diff hash, changed files, changed subjects (<code>diff</code>, <code>graph-diff</code>, <code>pr-analyze</code>).</li>
+        <li><strong>What could break?</strong> &mdash; blast radius, callers, tests, vulnerable paths (<code>impact</code>, <code>preflight</code>, <code>test-impact</code>, <code>vuln-reach</code>).</li>
+        <li><strong>What policy applied?</strong> &mdash; rules, laws, controls, exceptions (<code>rules</code>, <code>laws</code>, <code>constitution</code>).</li>
+        <li><strong>What verified it?</strong> &mdash; tests run / required, gates, attestations (<code>tests</code>, <code>critique</code>, <code>pr-bundle</code>, <code>runs verify</code>).</li>
+        <li><strong>Who accepted risk?</strong> &mdash; approval, accepted risk, reviewer, timestamp (<code>permit</code>, <code>pr-bundle</code>, run ledger).</li>
+      </ol>
+
+      <h3>Data model</h3>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Type</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChangeEvidence</code></td>
+            <td>
+              One evidence packet per code-change scope. Carries <code>evidence_id</code>,
+              <code>schema_version</code>, <code>repo_id</code>, <code>git_range</code>,
+              <code>commit_sha</code>, <code>diff_hash</code>, <code>run_ids</code>,
+              <code>mode</code>, <code>started_at</code>, <code>completed_at</code>,
+              <code>verdict</code>, <code>risk_level</code>, <code>changed_subjects</code>,
+              <code>findings</code>, <code>policy_decisions</code>, <code>tests</code>,
+              <code>approvals</code>, <code>accepted_risks</code>, <code>artifacts</code>,
+              <code>redactions</code>, and a <code>content_hash</code>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>EvidenceSubject</code></td>
+            <td>
+              Portable identifier wrapper around things Roam already sees &mdash; symbol, file,
+              endpoint, package, module, directory, commit, rule, control, run, bundle, finding,
+              test, artifact. Survives reindexing so reports, SARIF rows, and attestations stay
+              stable across rebuilds.
+            </td>
+          </tr>
+          <tr>
+            <td><code>EvidenceLink</code></td>
+            <td>
+              Typed edges inside a packet (12-member closed enumeration):
+              <code>derived_from</code>, <code>touches</code>, <code>calls</code>,
+              <code>tested_by</code>, <code>triggered</code>, <code>blocked_by</code>,
+              <code>allowed_by</code>, <code>accepted_by</code>, <code>satisfies_control</code>,
+              <code>maps_to_standard</code>, <code>supersedes</code>, <code>mitigates</code>.
+            </td>
+          </tr>
+          <tr>
+            <td><code>EvidenceArtifact</code></td>
+            <td>
+              File or data reference with a content hash and an optional path. Large artifacts are
+              referenced by hash rather than embedded so the packet stays small and redaction
+              metadata stays meaningful.
+            </td>
+          </tr>
+        </tbody>
+      </table></div>
+
+      <h3>Implemented model and consumers</h3>
+      <p>The dataclasses and closed vocabularies are implemented under
+        <code>src/roam/evidence/</code>. They record supplied observations,
+        relationships, artifacts, and gaps. Schema-valid records and canonical
+        serialization do not authenticate inputs or prove complete verification.</p>
+      <p>Choose the exporter for the required format: PR Replay reports,
+        command-specific SARIF, CodeGraph in-toto statements, or OSCAL control
+        mappings. Inspect that command's contract and resulting artifact.
+        A roadmap for consolidating exporters is not evidence that every path
+        already shares one collector or supports every proposed service.</p>
+      <p>See the <a href="https://github.com/Cranot/roam-code/blob/main/docs/concepts/verification-evidence.md">verification evidence guide</a>
+        for supplied versus executed checks, source binding, incomplete records,
+        and external consumer verification. Control mappings support review;
+        they do not certify compliance.</p>
+    </section>
+
+    <section id="slsa-src-l3">
+      <h2>CodeGraph statements and verification summaries</h2>
+      <p><code>roam cga emit</code> builds an in-toto CodeGraph statement from
+        indexed graph and Git evidence. <code>--also-vsa</code> requests a
+        sibling Verification Summary Attestation. The proof-bundle path also
+        exposes <code>roam pr-bundle emit --slsa-l3</code>. These are explicit
+        operations, not artifacts emitted for every code change.</p>
+      <p>Check the intended subject, supplied evidence, and missing prerequisites.
+        Canonical serialization of identical packet content is distinct from
+        repeat-run byte identity: invocation time and builder metadata can change
+        a statement.</p>
+      <h3>Optional signing and CI</h3>
+      <p><code>roam ci-setup --platform github --with-slsa-l3</code> previews
+        the optional workflow. Review its triggers and permissions before
+        writing it with <code>roam ci-setup --platform github --with-slsa-l3 --write</code>.
+        Keyless cosign signing uses OIDC, Fulcio,
+        and Rekor; inspect the actual signing result and verify the expected
+        identity and subject with the chosen consumer.</p>
+      <p>Names such as <code>--slsa-l3</code>, a VSA-shaped document, or a valid
+        signature do not establish that a system meets a SLSA level.
+        Qualification requires the applicable requirements, trustworthy source
+        and build controls, and the intended verifier. This page does not
+        certify external-verifier interoperability or an attained assurance level.</p>
+    </section>
+
+    <section id="why-sqlite">
+      <h2>Why SQLite</h2>
+      <ul>
+        <li><strong>Zero-dep</strong>: ships with Python; no client/server, no infrastructure.</li>
+        <li><strong>FTS5</strong>: full-text search built-in, used for symbol search and retrieval.</li>
+        <li><strong>Inspectable state</strong>: structured tables make indexed facts queryable. Git history, annotations, snapshots, and insertion history mean identical source need not produce byte-identical database files.</li>
+        <li><strong>Portable</strong>: <code>roam index-export</code> emits a tarball with manifest SHA-256 + optional cosign signature; <code>index-import</code> verifies before extracting.</li>
+        <li><strong>Local</strong>: index lives at <code>.roam/index.db</code> in your repo. Ordinary analysis does not automatically upload source; selected online features and connected agents have separate <a href="https://github.com/Cranot/roam-code/blob/main/docs/network-boundary.md">network paths</a>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>See it run</h2>
+      <p>
+        <a href="/docs/canonical-demo">The worked change-review demo</a> &mdash;
+        local queries, patch review, a saved bundle, and run-ledger verification.
+        Setup time varies with the project.
+      </p>
+      <p>
+        Want help interpreting results for your repository?
+        <a href="/audit#tiers">PR Replay reports</a> add founder interpretation of an
+        agreed <!-- product-fact:teamReplayPrCount -->30<!-- /product-fact -->-PR or <!-- product-fact:deepReplayPrCount -->90<!-- /product-fact -->-PR scope. The <a href="/audit#sample">free local sample</a>
+        instead uses <code>HEAD~5..HEAD</code>, not five identified PRs.
+        Or jump straight to <a href="/pricing">pricing</a> /
+        <a href="/governance">governance</a> / <a href="/trust">trust</a>.
+      </p>
+    </section>
+
+    <nav class="docs-footer-nav" aria-label="Pagination">
+      <a href="/docs/command-reference">
+        <span class="label">← Previous</span>
+        Command Reference
+      </a>
+      <a href="/docs/" class="next">
+        <span class="label">Back to →</span>
+        Documentation index
+      </a>
+    </nav>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-col">
+        <strong>Roam</strong>
+        <span>A local map and free static checks for coding agents.</span>
+        <span class="footer-meta">Built in Athens. Made in the EU.</span>
+      </div>
+      <div class="footer-col">
+        <a href="https://github.com/Cranot/roam-code">GitHub</a>
+        <a href="https://pypi.org/project/roam-code/">PyPI</a>
+        <a href="/docs/">Docs</a>
+      </div>
+      <div class="footer-col">
+        <a href="/setup">Setup</a>
+        <a href="/about">About</a>
+        <a href="/press">Press</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/status">Status</a>
+        <a href="/security">Security</a>
+        <a href="/accessibility">Accessibility</a>
+      </div>
+      <div class="footer-col">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/refund">Refund</a>
+        <a href="/no-cookies">No cookies</a>
+      </div>
+      <div class="footer-col">
+        <a href="mailto:hello@roam-code.com">hello@roam-code.com</a>
+        <a href="mailto:security@roam-code.com">security@roam-code.com</a>
+        <span class="footer-meta">No cookies. No analytics scripts. No ad tracking.</span>
+        <span class="footer-meta"><a href="https://github.com/Cranot/roam-code/tree/main/templates/distribution/landing-page">This page is open source</a></span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

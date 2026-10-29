@@ -1,0 +1,238 @@
+/**
+ * Markdown → HWPX 역변환
+ *
+ * 지원: 헤딩(h1~h6), 단락, 볼드, 이탤릭, 인라인코드, 코드블록,
+ *       순서/비순서 리스트, 수평선, 인용문, 테이블
+ * jszip으로 HWPX ZIP 패키징.
+ *
+ * 엔트리(markdownToHwpx)와 재수출만 남김 — 구현은 목적별 모듈로 분리:
+ *   gen-ids.ts        — NS/charPr/paraPr id 상수·테마 해석·XML 원자(escapeXml, charPr/paraPr)
+ *   md-runs.ts        — 마크다운 블록/인라인 파싱 + run/문단 XML + PrvText
+ *   gen-header.ts     — container/manifest/head.xml 생성
+ *   gen-gongmun-fit.ts — 공문 자동장평 계획 + 리스트 항목부호 선계산
+ *   gen-table.ts      — GFM/HTML(병합) 표 XML
+ *   gen-table-bf.ts   — 표 셀 위치별 borderFill 동적 레지스트리 (실측 테두리 위계)
+ *   gen-section.ts    — secPr + 본문 section0.xml 조립
+ *   gen-profile.ts    — 서식 프로필(#41) id 리맵·표 매칭
+ */
+
+import JSZip from "jszip"
+import { type GongmunOptions, needsGaejosikAssets, resolveGongmun, usesReportFonts } from "./gongmun.js"
+import { gaejosikBodyWidth } from "./gaejosik.js"
+import { type HwpxTheme, resolveTheme, charVariantBase, charPr } from "./gen-ids.js"
+import { buildPrvText, parseMarkdownToBlocks, beginInlineDoc, endInlineDoc, extractFootnoteDefs } from "./md-runs.js"
+import { type PageOptions, resolvePage } from "./gen-page.js"
+import { generateContainerXml, generateManifest, generateHeaderXml, staticBorderFillNext, staticFontNext } from "./gen-header.js"
+import { computeGongmunFitPlan, precomputeGongmunList } from "./gen-gongmun-fit.js"
+import { blocksToSectionXml, type ChartPart } from "./gen-section.js"
+import { TableBfRegistry } from "./gen-table-bf.js"
+import { buildProfileRemap, type FormatProfile } from "./gen-profile.js"
+import { docframeActive, docframeCharPrXmls, docframeIds } from "./gen-docframe.js"
+import { levelCharIds, levelFontFaces, levelCharPrXmls } from "./gen-levels.js"
+import { ImageRegistry } from "./gen-image.js"
+import { GJ_SUMMARY_FONT, planGaejosikSummary } from "./gen-gaejosik.js"
+import { StyleRegistry } from "./style-registry.js"
+import { buildGongmunSectionV5, usesV5Engine } from "./gen-gongmun.js"
+import { polishGongmunBlock } from "./gongmun-typo.js"
+import { cleanPastedMarkdown } from "./paste-clean.js"
+import { markdownToHwpxFromTemplate } from "./gen-from-template.js"
+
+export { type HwpxTheme } from "./gen-ids.js"
+export {
+  type FormatProfile, type TableProfile, type CellProfile,
+  type BorderFillDef, type BorderDef, type CharPrDef,
+} from "./gen-profile.js"
+
+/** markdownToHwpx 옵션 */
+export interface MarkdownToHwpxOptions {
+  theme?: HwpxTheme
+  /**
+   * 공문서 모드 — 지정 시 한국 행정 공문서 표준 서식으로 렌더링한다.
+   * (공식 여백, 프리셋별 본문 크기, 항목부호 체계, 행갈굼 정렬, 줄간격 등)
+   * 미지정 시 기존 범용 마크다운 변환 동작 그대로 유지.
+   */
+  gongmun?: GongmunOptions
+  /**
+   * 서식 프로필 — 표의 borderFill(테두리·음영)·열 너비·셀 글꼴을 원본 문서 없이
+   * 재현한다(이슈 #41). `hwpxToProfile()`로 추출하거나 직접 작성한 프로필을 넘기면,
+   * 문서 내 표 등장 순서(table_index)로 매칭해 셀 좌표별 서식을 적용한다.
+   * 미지정 시 기본 서식 — 공문서 모드는 실측 정부 표 문법, 그 외 단일 SOLID 테두리.
+   */
+  profile?: FormatProfile
+  /**
+   * 페이지 설정 (v4.5.0) — 용지 크기·가로 방향, 다단(columns), 머리말/꼬리말.
+   * 미지정 시 기존과 동일한 A4 세로 1단.
+   */
+  page?: PageOptions
+  /**
+   * 이미지 실데이터 (v4.5.0) — `![alt](url)`의 url을 키로 바이트를 넘기면 BinData에
+   * 실제로 임베드한다 (PNG/JPEG/GIF/BMP, 크기는 96dpi 환산·본문폭 캡). `data:image/...`
+   * URI는 이 맵 없이도 임베드. 바이트가 없는 url은 종전 placeholder 참조 보존.
+   */
+  images?: Record<string, Uint8Array | ArrayBuffer>
+  /**
+   * 경고 수집 싱크 (v5) — 생성기가 조용히 처리한 것(□ 한 줄 축소 한계 초과·제목 축소 등)을
+   * 여기에 push한다. 호출 표면(CLI stderr·MCP 응답)이 노출.
+   */
+  warnings?: string[]
+  /**
+   * 인라인 수식 (#150) — 본문·표 셀의 `$…$` 를 글 흐름 안 수식 개체(treatAsChar `<hp:equation>`)로 만든다.
+   * 기본 false: 가격 표기 같은 일반 `$` 를 수식으로 오인하지 않게 글자 그대로 둔다(블록 `$$…$$` 는 늘 수식).
+   * 켜도 짝이 맞는 `$…$` 만(여는 $ 뒤·닫는 $ 앞 공백 아님, 닫는 $ 뒤 숫자 아님, `\$`·`$$`·인라인 코드 제외).
+   */
+  inlineMath?: boolean
+  /**
+   * 부서 서식 견본 HWPX —지정하면 견본의 쪽 설정·글꼴·문단 모양·표 테두리를 그대로 쓰고 내용만 마크다운으로 채운다.
+   * 견본 문단을 역할(제목표·담당 줄·요약 상자·장/참고 띠·□○-·※·데이터 표)로 나눠 그 원형을 복제한다(gen-from-template.ts).
+   * 서식은 견본이 정하므로 gongmun·profile·page 와 함께 쓸 수 없다(오류). images·inlineMath 는 무시하고 경고.
+   */
+  template?: Uint8Array | ArrayBuffer
+  /**
+   * 견본 모드(template) 표 합계·총계·계 행 위치 — top: 머리행 바로 아래 | bottom: 맨 아래 | keep: 원고 그대로.
+   * 미지정이면 top(공문 실무 관행 — 견본에 합계 행 서식이 있으면 옮긴 합계 행에 그 서식을 씌운다). 공문서 모드는 gongmun.totalRow.
+   */
+  totalRow?: "top" | "bottom" | "keep"
+}
+
+
+/**
+ * 마크다운 텍스트를 HWPX (ArrayBuffer)로 변환.
+ */
+export async function markdownToHwpx(
+  markdown: string,
+  options?: MarkdownToHwpxOptions,
+): Promise<ArrayBuffer> {
+  if (options?.template) {
+    const clash = (["gongmun", "profile", "page"] as const).filter((k) => options[k] !== undefined)
+    if (clash.length) throw new Error(`template(부서 서식 견본)은 ${clash.join("·")} 옵션과 함께 쓸 수 없습니다 — 쪽·글꼴·표 서식은 견본이 정합니다`)
+    if (options.images) options.warnings?.push("template: 견본 모드는 이미지 임베드를 지원하지 않습니다 — images 무시")
+    if (options.inlineMath) options.warnings?.push("template: 견본 모드는 인라인 수식을 지원하지 않습니다 — 글자 그대로")
+    if (options.theme) options.warnings?.push("template: 견본 모드는 theme 을 쓰지 않습니다 — 글꼴·색은 견본이 정합니다")
+    return markdownToHwpxFromTemplate(markdown, options.template, options.warnings, options.totalRow)
+  }
+  const theme = resolveTheme(options?.theme)
+  const gongmun = options?.gongmun ? resolveGongmun(options.gongmun) : null
+  const page = resolvePage(options?.page)
+  // 인라인 채널(하이퍼링크·각주, v4.5.0) — 각주 정의 걷어내고 문서 컨텍스트 오픈.
+  // 섹션 조립이 끝나면 finally에서 닫는다 (모듈 상태 잔류 방지)
+  // 생성형 AI 채팅창 붙여넣기 흔적(보이지 않는 글자·인용 표시·이스케이프된 굵게) — 본문에 그대로 남던 것
+  const pasted = cleanPastedMarkdown(markdown)
+  if (pasted.removed > 0) options?.warnings?.push(`붙여넣기 흔적 ${pasted.removed}개 정리 (보이지 않는 글자·인용 표시·이스케이프된 굵게)`)
+  const { md, defs } = extractFootnoteDefs(pasted.md)
+  beginInlineDoc(defs, options?.inlineMath === true)
+  try {
+  // ─── v5 엔진 (기안문·보고서·계획서·통지·회의록) — outline + scheme + StyleRegistry ───
+  if (gongmun && usesV5Engine(gongmun.preset)) {
+    const blocks = parseMarkdownToBlocks(md)
+    const staticBfEnd = staticBorderFillNext(gongmun, true)
+    const charBase = charVariantBase(false, true)
+    const fontBase = staticFontNext(gongmun, true)
+    const remap = options?.profile ? buildProfileRemap(options.profile, charBase, staticBfEnd, fontBase) : null
+    const bfReg = new TableBfRegistry(staticBfEnd + (remap?.borderFillXmls.length ?? 0))
+    const reg = new StyleRegistry(charBase + (remap?.charPrXmls.length ?? 0), 8, fontBase + (remap?.fontFaces.length ?? 0), ["함초롬바탕", "함초롬돋움", "HY견고딕"])
+    const chartParts: ChartPart[] = []
+    const supplied = options?.images
+      ? new Map(Object.entries(options.images).map(([k, v]) => [k, v instanceof Uint8Array ? v : new Uint8Array(v)] as const))
+      : undefined
+    const images = new ImageRegistry(supplied)
+    const res = buildGongmunSectionV5(blocks, gongmun, { reg, bfReg, remap, images, page, chartParts }, theme)
+    if (options?.warnings) options.warnings.push(...res.warnings)
+    if (remap && remap.tables.length > 0 && remap.tables.every(t => !t.used)) {
+      // eslint-disable-next-line no-console
+      console.warn(`[kordoc] format profile: 프로필 표 ${remap.tables.length}개가 문서 표와 매칭되지 않아 미적용 (행·열/첫 셀 텍스트 불일치)`)
+    }
+    const zip = new JSZip()
+    zip.file("mimetype", "application/hwp+zip", { compression: "STORE" })
+    zip.file("META-INF/container.xml", generateContainerXml())
+    zip.file("Contents/content.hpf", generateManifest(chartParts, images.manifestItems(), "gongmun"))
+    for (const part of images.parts) zip.file(part.name, part.data)
+    zip.file("Contents/header.xml", generateHeaderXml(theme, gongmun, [],
+      [...(remap?.borderFillXmls ?? []), ...bfReg.emit()],
+      [...(remap?.charPrXmls ?? []), ...reg.charPrXmls],
+      [], [...(remap?.fontFaces ?? []), ...reg.extraFonts],
+      { paraPrXmls: reg.paraPrXmls, bodyFace: "함초롬바탕" }))
+    zip.file("Contents/section0.xml", res.xml)
+    for (const part of chartParts) zip.file(part.name, part.xml)
+    zip.file("Preview/PrvText.txt", buildPrvText(blocks))
+    return await zip.generateAsync({ type: "arraybuffer" })
+  }
+  // 실측 폰트 프리셋(개조식·보고서·계획서) — 전용 charPr 블록(11~25)이 먼저 온다 (QA-1)
+  const measured = !!gongmun && usesReportFonts(gongmun.preset)
+  const richAssets = !!gongmun && needsGaejosikAssets(gongmun)
+  // 공문서(개조식·보도자료)는 날짜·금액 묶음 빈칸과 ‘’“” 로 다듬는다 — v5 는 gen-gongmun 이 아웃라인에서 같은 처리
+  const blocks = gongmun ? parseMarkdownToBlocks(md).map(polishGongmunBlock) : parseMarkdownToBlocks(md)
+  const gongmunList = gongmun ? precomputeGongmunList(blocks, gongmun) : null
+  // 문단식(기호 없는 기사체)이 주된 기관의 보도자료에 □ 항목 원고 — 서식은 그대로 그리고 관행만 알린다
+  if (gongmun?.agency?.pressStyle === "para" && gongmunList && [...gongmunList.items.values()].some(it => it.depth === 0)) {
+    options?.warnings?.push(`agency: ${gongmun.agency.name} 보도자료 본문은 문단식(기호 없는 기사체 문단)이 주된 방식 — □ 항목 대신 문단으로 쓰는 것을 검토하세요`)
+  }
+  const fit = gongmun && gongmunList ? computeGongmunFitPlan(blocks, gongmun, gongmunList) : null
+  // id 배치: 정적 borderFill(기본 2 + 개조식 7 + 공문서 헤더음영 1) → 프로필 → 표 레지스트리.
+  // charPr는 기본(+실측 프리셋 전용) + 장평 variant 다음부터 프로필 할당.
+  // 정적 개수는 gen-header의 실제 방출 목록에서 파생 (P0-1 — 하드코딩 11/4/3 제거)
+  const staticBfEnd = staticBorderFillNext(gongmun)
+  const remap = options?.profile
+    ? buildProfileRemap(options.profile, charVariantBase(richAssets, !!gongmun) + (fit?.variants?.length ?? 0) * 4, staticBfEnd, staticFontNext(gongmun))
+    : null
+  // 표 테두리 위계 레지스트리 — 섹션 생성 중 등록된 조합을 header.xml에 함께 방출
+  const bfReg = gongmun ? new TableBfRegistry(staticBfEnd + (remap?.borderFillXmls.length ?? 0)) : null
+  // docframe(두문·결문·보고정보·공고두문·보도머리) charPr — variant·프로필 다음 id.
+  // 기능이 꺼져 있으면 미방출(기존 산출물 불변)
+  const dfActive = !!gongmun && docframeActive(gongmun)
+  const dfBase = charVariantBase(richAssets, !!gongmun) + (fit?.variants?.length ?? 0) * 4 + (remap?.charPrXmls.length ?? 0)
+  const dfIds = dfActive ? docframeIds(dfBase) : null
+  const dfXmls = dfActive ? docframeCharPrXmls(dfBase, richAssets) : []
+  // 단계별 위계 타이포(levels, v4.12.3) — docframe charPr 뒤 id, 글꼴은 프로필 append 뒤 id.
+  // 옵션이 없으면 미방출(기존 산출물 불변)
+  const lvBase = dfBase + dfXmls.length
+  const lvIds = gongmun ? levelCharIds(gongmun, lvBase) : null
+  const lvFonts = gongmun ? levelFontFaces(gongmun) : []
+  const lvXmls = gongmun ? levelCharPrXmls(gongmun, lvBase, staticFontNext(gongmun) + (remap?.fontFaces.length ?? 0), richAssets ? 4 : 0) : []
+  // 개조식 요약 상자 — levels charPr 뒤 id 한 개, 글꼴은 levels 글꼴 뒤. 요약이 없으면 미방출(기존 산출물 불변)
+  const sumPlan = gongmun ? planGaejosikSummary(blocks, gongmun, gaejosikBodyWidth(gongmun.margins)) : null
+  const sumFonts = sumPlan && !lvFonts.includes(GJ_SUMMARY_FONT) ? [GJ_SUMMARY_FONT] : []
+  const sumFontId = staticFontNext(gongmun) + (remap?.fontFaces.length ?? 0) + [...lvFonts, ...sumFonts].indexOf(GJ_SUMMARY_FONT)
+  const sumXmls = sumPlan ? [charPr(lvBase + lvXmls.length, sumPlan.height, true, false, sumFontId, undefined, sumPlan.ratio, sumFontId, sumPlan.spacing)] : []
+  const gjSummary = sumPlan ? { plan: sumPlan, charPrId: lvBase + lvXmls.length } : null
+  if (sumPlan) options?.warnings?.push(...sumPlan.warnings)
+  const chartParts: ChartPart[] = []
+  // 이미지 레지스트리 (v4.0.5 placeholder → v4.5.0 실데이터) — images 옵션 바이트·
+  // data: URI는 실제 임베드, 그 외 참조는 1×1 placeholder로 왕복 보존
+  const supplied = options?.images
+    ? new Map(Object.entries(options.images).map(([k, v]) =>
+        [k, v instanceof Uint8Array ? v : new Uint8Array(v)] as const))
+    : undefined
+  const images = new ImageRegistry(supplied)
+  const sectionXml = blocksToSectionXml(blocks, theme, gongmun, gongmunList, fit, chartParts, bfReg, remap, dfIds, images, page, lvIds, gjSummary)
+
+  // 프로필이 있었는데 한 표에도 못 붙었으면 진단 경고 — 매칭은 보수적(불일치=미적용)이라
+  // 마크다운을 크게 고쳐 쓴 경우 전멸할 수 있는데, 그걸 조용히 삼키지 않는다. 1회만.
+  if (remap && remap.tables.length > 0) {
+    const unused = remap.tables.filter(t => !t.used).length
+    if (unused === remap.tables.length) {
+      // eslint-disable-next-line no-console
+      console.warn(`[kordoc] format profile: 프로필 표 ${unused}개가 문서 표와 매칭되지 않아 미적용 (행·열/첫 셀 텍스트 불일치)`)
+    }
+  }
+
+  // borderFill 방출 순서 = id 발급 순서 (정적 → 프로필 → 레지스트리)
+  const extraBorderFills = [...(remap?.borderFillXmls ?? []), ...(bfReg?.emit() ?? [])]
+
+  const zip = new JSZip()
+  zip.file("mimetype", "application/hwp+zip", { compression: "STORE" })
+  zip.file("META-INF/container.xml", generateContainerXml())
+  zip.file("Contents/content.hpf", generateManifest(chartParts, images.manifestItems(), gongmun ? "gongmun" : "default"))
+  for (const part of images.parts) zip.file(part.name, part.data)
+  zip.file("Contents/header.xml", generateHeaderXml(theme, gongmun, fit?.variants ?? [], extraBorderFills,
+    [...(remap?.charPrXmls ?? []), ...dfXmls, ...lvXmls, ...sumXmls],
+    gongmunList?.indentVariants ?? [], [...(remap?.fontFaces ?? []), ...lvFonts, ...sumFonts]))
+  zip.file("Contents/section0.xml", sectionXml)
+  for (const part of chartParts) zip.file(part.name, part.xml)
+  // Preview/ — 한글 프로그램의 일부 버전(특히 macOS)이 존재 여부를 확인함
+  zip.file("Preview/PrvText.txt", buildPrvText(blocks))
+
+  return await zip.generateAsync({ type: "arraybuffer" })
+  } finally {
+    endInlineDoc()
+  }
+}

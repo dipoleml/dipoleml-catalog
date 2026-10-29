@@ -1,0 +1,251 @@
+package core
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+
+	"github.com/google/jsonschema-go/jsonschema"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/kubectl/pkg/metricsutil"
+	"k8s.io/utils/ptr"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/api"
+	"github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
+	"github.com/containers/kubernetes-mcp-server/pkg/mcpapps"
+)
+
+func initNodes(inspector api.ClusterInspector) []api.ServerTool {
+	return []api.ServerTool{
+		{Tool: api.Tool{
+			Name:        "nodes_log",
+			Description: "Get logs from a Kubernetes node (kubelet, kube-proxy, or other system logs). This accesses node logs through the Kubernetes API proxy to the kubelet",
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"name": {
+						Type:        "string",
+						Description: "Name of the node to get logs from",
+					},
+					"query": {
+						Type:        "string",
+						Description: `query specifies services(s) or files from which to return logs (required). Example: "kubelet" to fetch kubelet logs, "/<log-file-name>" to fetch a specific log file from the node (e.g., "/var/log/kubelet.log" or "/var/log/kube-proxy.log")`,
+					},
+					"tailLines": {
+						Type:        "integer",
+						Description: "Number of lines to retrieve from the end of the logs (Optional, 0 means all logs)",
+						Default:     api.ToRawMessage(100),
+						Minimum:     ptr.To(float64(0)),
+					},
+				},
+				Required: []string{"name", "query"},
+			},
+			Annotations: api.ToolAnnotations{
+				Title:           "Node: Log",
+				ReadOnlyHint:    ptr.To(true),
+				DestructiveHint: ptr.To(false),
+				OpenWorldHint:   ptr.To(true),
+			},
+		}, RBAC: api.RBACBounded(
+			api.RBACRequirement{
+				Verbs:        []string{"get"},
+				Target:       api.RBACTarget{Resource: &api.RBACResourceTarget{Resource: "nodes"}},
+				ResourceName: &api.RBACResourceName{Argument: "name"},
+			},
+			api.RBACRequirement{
+				Verbs: []string{"get"},
+				Target: api.RBACTarget{Resource: &api.RBACResourceTarget{
+					Resource:    "nodes",
+					Subresource: "proxy",
+				}},
+				ResourceName: &api.RBACResourceName{Argument: "name"},
+			},
+		), Handler: nodesLog},
+		{Tool: api.Tool{
+			Name:        "nodes_stats_summary",
+			Description: "Get detailed resource usage statistics from a Kubernetes node via the kubelet's Summary API. Provides comprehensive metrics including CPU, memory, filesystem, and network usage at the node, pod, and container levels. On systems with cgroup v2 and kernel 4.20+, also includes PSI (Pressure Stall Information) metrics that show resource pressure for CPU, memory, and I/O. See https://kubernetes.io/docs/reference/instrumentation/understand-psi-metrics/ for details on PSI metrics",
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"name": {
+						Type:        "string",
+						Description: "Name of the node to get stats from",
+					},
+				},
+				Required: []string{"name"},
+			},
+			Annotations: api.ToolAnnotations{
+				Title:           "Node: Stats Summary",
+				ReadOnlyHint:    ptr.To(true),
+				DestructiveHint: ptr.To(false),
+				OpenWorldHint:   ptr.To(true),
+			},
+		}, RBAC: api.RBACBounded(
+			api.RBACRequirement{
+				Verbs:        []string{"get"},
+				Target:       api.RBACTarget{Resource: &api.RBACResourceTarget{Resource: "nodes"}},
+				ResourceName: &api.RBACResourceName{Argument: "name"},
+			},
+			api.RBACRequirement{
+				Verbs: []string{"get"},
+				Target: api.RBACTarget{Resource: &api.RBACResourceTarget{
+					Resource:    "nodes",
+					Subresource: "proxy",
+				}},
+				ResourceName: &api.RBACResourceName{Argument: "name"},
+			},
+		), Handler: nodesStatsSummary},
+		{Tool: api.Tool{
+			Name:        "nodes_top",
+			Description: "List the resource consumption (CPU and memory) as recorded by the Kubernetes Metrics Server for the specified Kubernetes Nodes or all nodes in the cluster." + ListPageSentence,
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: PageProperties(map[string]*jsonschema.Schema{
+					"name": {
+						Type:        "string",
+						Description: "Name of the Node to get the resource consumption from (Optional, all Nodes if not provided)",
+					},
+					"label_selector": {
+						Type:        "string",
+						Description: "Kubernetes label selector (e.g. 'node-role.kubernetes.io/worker=') to filter nodes by label (Optional, only applicable when name is not provided)",
+						Pattern:     REGEX_LABELSELECTOR_VALID_CHARS,
+					},
+				}),
+			},
+			Annotations: api.ToolAnnotations{
+				Title:           "Nodes: Top",
+				ReadOnlyHint:    ptr.To(true),
+				DestructiveHint: ptr.To(false),
+				IdempotentHint:  ptr.To(true),
+				OpenWorldHint:   ptr.To(true),
+			},
+		}, RBAC: api.RBACBounded(
+			api.RBACRequirement{
+				Verbs: []string{"get", "list"},
+				Target: api.RBACTarget{Resource: &api.RBACResourceTarget{
+					APIGroup: "metrics.k8s.io",
+					Resource: "nodes",
+				}},
+			},
+			api.RBACRequirement{
+				// get covers the per-node allocatable lookup used when paging.
+				Verbs:  []string{"get", "list"},
+				Target: api.RBACTarget{Resource: &api.RBACResourceTarget{Resource: "nodes"}},
+			},
+		), Handler: nodesTop,
+			App: mcpapps.Metrics("ui://kubernetes-mcp-server/nodes-top", "Node metrics", mcpapps.WithDescription("Interactive CPU and memory metrics for Kubernetes nodes")),
+			TargetCompatibilityFilters: []api.TargetCompatibilityFilter{
+				kubernetes.HasNodeMetrics(inspector),
+			},
+		},
+	}
+}
+
+func nodesLog(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
+	name, ok := params.GetArguments()["name"].(string)
+	if !ok || name == "" {
+		return api.NewToolCallResult("", errors.New("failed to get node log, missing argument name")), nil
+	}
+	query, ok := params.GetArguments()["query"].(string)
+	if !ok || query == "" {
+		return api.NewToolCallResult("", errors.New("failed to get node log, missing argument query")), nil
+	}
+	tailLines := params.GetArguments()["tailLines"]
+	var tailInt int64
+	if tailLines != nil {
+		var err error
+		tailInt, err = api.ParseInt64(tailLines)
+		if err != nil {
+			return api.NewToolCallResult("", fmt.Errorf("failed to parse tailLines parameter: %w", err)), nil
+		}
+	}
+	ret, err := kubernetes.NewCore(params).NodesLog(params, name, query, tailInt)
+	if err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get node log for %s: %w", name, err)), nil
+	} else if ret == "" {
+		ret = fmt.Sprintf("The node %s has not logged any message yet or the log file is empty", name)
+	}
+	return api.NewToolCallResult(ret, nil), nil
+}
+
+func nodesStatsSummary(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
+	name, ok := params.GetArguments()["name"].(string)
+	if !ok || name == "" {
+		return api.NewToolCallResult("", errors.New("failed to get node stats summary, missing argument name")), nil
+	}
+	ret, err := kubernetes.NewCore(params).NodesStatsSummary(params, name)
+	if err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get node stats summary for %s: %w", name, err)), nil
+	}
+	return api.NewToolCallResult(ret, nil), nil
+}
+
+func nodesTop(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
+	nodesTopOptions := api.NodesTopOptions{}
+	if v, ok := params.GetArguments()["name"].(string); ok {
+		nodesTopOptions.Name = v
+	}
+	if v, ok := params.GetArguments()["label_selector"].(string); ok {
+		nodesTopOptions.LabelSelector = v
+	}
+	if err := ApplyListPage(api.WrapParams(params), &nodesTopOptions.ListOptions); err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get nodes top: %w", err)), nil
+	}
+
+	nodeMetrics, err := kubernetes.NewCore(params).NodesTop(params, nodesTopOptions)
+	if err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to get nodes top: %w", ListErr(err))), nil
+	}
+
+	availableResources := make(map[string]v1.ResourceList)
+	paging := nodesTopOptions.Limit > 0 || nodesTopOptions.Continue != ""
+	if paging {
+		// Allocatable data is per node on this page. Listing every node can
+		// exceed the backend cap on its own.
+		for _, node := range nodeMetrics.Items {
+			n, getErr := params.CoreV1().Nodes().Get(params, node.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return api.NewToolCallResult("", fmt.Errorf("failed to get node %s: %w", node.Name, getErr)), nil
+			}
+			addNodeAllocatable(availableResources, *n)
+		}
+	} else {
+		nodeList, nodesErr := params.CoreV1().Nodes().List(params, metav1.ListOptions{
+			LabelSelector: nodesTopOptions.LabelSelector,
+		})
+		if nodesErr != nil {
+			return api.NewToolCallResult("", fmt.Errorf("failed to list nodes: %w", ListErr(nodesErr))), nil
+		}
+		for _, n := range nodeList.Items {
+			addNodeAllocatable(availableResources, n)
+		}
+	}
+
+	buf := new(bytes.Buffer)
+	printer := metricsutil.NewTopCmdPrinter(buf, true)
+	err = printer.PrintNodeMetrics(nodeMetrics.Items, availableResources, false, "")
+	if err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to print node metrics: %w", err)), nil
+	}
+
+	items := make([]map[string]any, 0, len(nodeMetrics.Items))
+	for _, node := range nodeMetrics.Items {
+		items = append(items, map[string]any{
+			"Name":   node.Name,
+			"CPU":    node.Usage.Cpu().String(),
+			"Memory": node.Usage.Memory().String(),
+		})
+	}
+	text, structured := WithListPage(buf.String(), map[string]any{"columns": []string{"Name", "CPU", "Memory"}, "items": items}, nodeMetrics)
+	return api.NewToolCallResultFull(text, structured, nil), nil
+}
+
+func addNodeAllocatable(available map[string]v1.ResourceList, n v1.Node) {
+	available[n.Name] = n.Status.Allocatable
+	if n.Status.NodeInfo.Swap != nil && n.Status.NodeInfo.Swap.Capacity != nil {
+		swapCapacity := *n.Status.NodeInfo.Swap.Capacity
+		available[n.Name]["swap"] = *resource.NewQuantity(swapCapacity, resource.BinarySI)
+	}
+}

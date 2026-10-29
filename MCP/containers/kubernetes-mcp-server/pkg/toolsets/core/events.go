@@ -1,0 +1,84 @@
+package core
+
+import (
+	"fmt"
+	"maps"
+
+	"github.com/google/jsonschema-go/jsonschema"
+	"k8s.io/utils/ptr"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/api"
+	"github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
+	"github.com/containers/kubernetes-mcp-server/pkg/mcpapps"
+	"github.com/containers/kubernetes-mcp-server/pkg/output"
+)
+
+func initEvents() []api.ServerTool {
+	return []api.ServerTool{
+		{Tool: api.Tool{
+			Name:        "events_list",
+			Description: "List Kubernetes events (warnings, errors, state changes) for debugging and troubleshooting in the current cluster from all namespaces." + ListPageSentence,
+			InputSchema: &jsonschema.Schema{
+				Type: "object",
+				Properties: PageProperties(map[string]*jsonschema.Schema{
+					"namespace": {
+						Type:        "string",
+						Description: "Optional Namespace to retrieve the events from. If not provided, will list events from all namespaces",
+					},
+					"fieldSelector": {
+						Type:        "string",
+						Description: "Optional Kubernetes field selector to filter events by field values (e.g. 'type=Warning', 'involvedObject.name=my-pod'). Supported fields: involvedObject.kind, involvedObject.name, involvedObject.namespace, involvedObject.uid, involvedObject.apiVersion, involvedObject.resourceVersion, involvedObject.fieldPath, reason, reportingComponent, source, type. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/",
+						Pattern:     REGEX_FIELDSELECTOR,
+					},
+				}),
+			},
+			Annotations: api.ToolAnnotations{
+				Title:           "Events: List",
+				ReadOnlyHint:    ptr.To(true),
+				DestructiveHint: ptr.To(false),
+				OpenWorldHint:   ptr.To(true),
+			},
+		}, RBAC: api.RBACBounded(api.RBACRequirement{
+			Verbs:     []string{"list"},
+			Target:    api.RBACTarget{Resource: &api.RBACResourceTarget{Resource: "events"}},
+			Namespace: &api.RBACNamespace{Argument: "namespace"},
+		}), Handler: eventsList,
+			App: mcpapps.Table("ui://kubernetes-mcp-server/events-list", "Events list", mcpapps.WithDescription("Interactive table of Kubernetes events"))},
+	}
+}
+
+func eventsList(params api.ToolHandlerParams) (*api.ToolCallResult, error) {
+	p := api.WrapParams(params)
+	namespace := p.OptionalString("namespace", "")
+	options := api.ListOptions{}
+	options.FieldSelector = p.OptionalString("fieldSelector", "")
+	if err := ApplyListPage(p, &options.ListOptions); err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to list events in all namespaces: %w", err)), nil
+	}
+	eventMap, meta, err := kubernetes.NewCore(params).EventsList(params, namespace, options)
+	if err != nil {
+		return api.NewToolCallResult("", fmt.Errorf("failed to list events in all namespaces: %w", ListErr(err))), nil
+	}
+	rows := make([]map[string]any, 0, len(eventMap))
+	for _, event := range eventMap {
+		row := maps.Clone(event)
+		if object, ok := event["InvolvedObject"].(map[string]string); ok {
+			row["InvolvedObject"] = object["Kind"] + "/" + object["Name"]
+		}
+		rows = append(rows, row)
+	}
+	structured := map[string]any{
+		"columns": []string{"Namespace", "Timestamp", "Type", "Reason", "InvolvedObject", "Message"},
+		"items":   rows,
+	}
+	text := "# No events found"
+	if len(eventMap) > 0 {
+		yamlEvents, marshalErr := output.MarshalYaml(eventMap)
+		if marshalErr != nil {
+			return api.NewToolCallResult("", fmt.Errorf("failed to list events in all namespaces: %w", marshalErr)), nil
+		}
+		text = fmt.Sprintf("# The following events (YAML format) were found:\n%s", yamlEvents)
+	}
+	text, paged := attachContinue(text, structured, meta.Continue, meta.RemainingItemCount)
+	return api.NewToolCallResultFull(text, paged, nil), nil
+}

@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.vibheksoni.stealth-browser-mcp",
+  "type": "mcp",
+  "name": "Stealth Browser MCP",
+  "slug": "stealth-browser-mcp",
+  "vendor": "vibheksoni",
+  "description": "Stealth browser automation for AI agents over MCP and the Chrome DevTools Protocol: navigation, network hooks, DOM extraction, and pixel-accurate UI cloning.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/vibheksoni/stealth-browser-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-agent-tools",
+    "anthropic",
+    "anti-bot-bypass",
+    "automation-tools",
+    "browser-automation",
+    "chrome-devtools",
+    "claude-mcp",
+    "cloudflare-bypass"
+  ],
+  "tags": [
+    "ai-agent-tools",
+    "ai-tools",
+    "anthropic",
+    "anti-bot-bypass",
+    "automation-tools",
+    "browser-automation",
+    "chrome-devtools",
+    "claude-mcp",
+    "cloudflare-bypass",
+    "developer-tools",
+    "fastmcp",
+    "mcp-server",
+    "model-context-protocol",
+    "network-interception",
+    "nodriver",
+    "python",
+    "stealth-browser",
+    "undetectable-browser",
+    "web-automation",
+    "web-scraping"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "googlechrome",
+    "brandName": "googlechrome",
+    "source": "https://cdn.simpleicons.org/googlechrome",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:45Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "vibheksoni/stealth-browser-mcp",
+    "url": "https://github.com/vibheksoni/stealth-browser-mcp",
+    "commit": "7e6a81c9bd7a7376816e04454065636c51789b3f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3298,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:57Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "browserstealthmcp"
+    ],
+    "env": [
+      "STEALTH_BROWSER_MCP_AUTH_TOKEN",
+      "MCP_AUTH_TOKEN"
+    ],
+    "credentials": [
+      "STEALTH_BROWSER_MCP_AUTH_TOKEN",
+      "MCP_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

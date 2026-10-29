@@ -1,0 +1,96 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Hero from '../components/Hero.astro';
+import ProofBand from '../components/ProofBand.astro';
+import Feature from '../components/Feature.astro';
+import MiniRow from '../components/MiniRow.astro';
+import InvariantsStrip from '../components/InvariantsStrip.astro';
+import Footer from '../components/Footer.astro';
+import FaqList from '../components/FaqList.astro';
+import { homepageSchemas, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+
+const faqs: FaqItem[] = [
+  {
+    question: 'What is NorthCinder?',
+    answer: 'NorthCinder is open-source MCP software that compares disclosed product offers against a buyer\'s brief, explains the ranking, reports store coverage, and requires a separate approval before automated checkout.',
+  },
+  {
+    question: 'Does NorthCinder sell sponsored placement?',
+    answer: 'No. Store-supplied or synthetic demonstration sponsorship stays labeled and below every organic result. Seller payment and affiliate data are not ranking inputs.',
+  },
+  {
+    question: 'Does the NorthCinder maintainer receive shopping data?',
+    answer: 'No. Buyers run the software. Searches, settings, profiles, orders, and local audit history are not returned to the repository maintainer.',
+  },
+];
+---
+
+<Layout
+  title={SITE_PAGES.home.title}
+  description={SITE_PAGES.home.description}
+  schemas={homepageSchemas(faqs)}
+>
+  <Nav />
+  <main id="main-content" tabindex="-1">
+    <Hero />
+    <ProofBand />
+
+    <section class="features" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <h2 id="features-title" class="visually-hidden">Capabilities</h2>
+        <Feature
+        eyebrow="Price watches"
+        title="Set a target. A watch never buys."
+        copy="Watches notify you when a price or standing query is hit. No code path runs from a watch to checkout. An architectural test enforces that boundary."
+      >
+        <MiniRow l="Allbirds Tree Runner ↓ price" r="≤ 95.00 USD" />
+        <MiniRow l={'"merino wool travel loafer"'} r="≤ 150.00 USD" />
+        <MiniRow l="Patagonia Down Sweater ↓ price" r="cancelled" />
+      </Feature>
+
+        <Feature
+        reverse
+        eyebrow="Cross-store, by construction"
+        title="One ranking, honest coverage."
+        copy="Configured Shopify, WooCommerce, eBay, Etsy, and buyer-owned Amazon session adapters use the same open ranking. Missing access stays visible. Sponsored offers are labeled below organic, and NorthCinder does not sell sponsored placement."
+      >
+        <MiniRow l="rothys.com" r="searched" />
+        <MiniRow l="allbirds.com" r="searched" />
+        <MiniRow l="ebay" r="blocked" />
+        <MiniRow l="etsy" r="not_configured" />
+      </Feature>
+
+        <Feature
+        eyebrow="Your own accounts"
+        title="Checkout finishes where your money already lives."
+        copy="A signed, single-use purchase mandate authorizes a hard spending cap. Checkout can then use ACP with a delegated token or hand you a cart to finish in your own logged-in session."
+      >
+        <MiniRow l="Hard spending cap" r="150.00 USD" />
+        <MiniRow l="Confirmation code" r="A1B2" />
+        <MiniRow l="Order fingerprint" r="24FB" />
+      </Feature>
+
+        <Feature
+        reverse
+        eyebrow="Post-purchase, without an inbox habit"
+        title="Orders, shipments, and return windows in one record."
+        copy="Checkout records merge with deterministically parsed order, shipping, and return-window messages. Unattended live IMAP remains disabled until authenticated provider metadata exists; the local drop path is explicit."
+      >
+        <MiniRow l="SHP-88213 · Rothy's" r="delivered" />
+        <MiniRow l="UPS in transit" r="Jul 09" />
+        <MiniRow l="Return by" r="Aug 05" />
+        </Feature>
+      </div>
+    </section>
+
+    <InvariantsStrip />
+    <section class="home-faq">
+      <div class="wrap">
+        <FaqList items={faqs} />
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

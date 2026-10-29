@@ -1,0 +1,233 @@
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Attributes;
+using Sbroenne.ExcelMcp.Core.Models;
+
+namespace Sbroenne.ExcelMcp.Core.Commands;
+
+/// <summary>
+/// Data Model (Power Pivot) - DAX measures and table management.
+///
+/// CRITICAL: WORKSHEET TABLES AND DATA MODEL ARE SEPARATE!
+/// - After table append changes, Data Model still has OLD data
+/// - MUST call refresh to sync changes
+/// - Power Query refresh auto-syncs (no manual refresh needed)
+///
+/// PREREQUISITE: Tables must be added to the Data Model first.
+/// Use table add-to-data-model for worksheet tables,
+/// or powerquery to import and load data directly to the Data Model.
+///
+/// DAX MEASURES:
+/// - Create with DAX formulas like 'SUM(Sales[Amount])'
+/// - DAX formulas are preserved exactly by default
+/// - Set formatDax=true only with user consent; it sends formulas to daxformatter.com
+/// - Inputs and measure read/list use comma separators and decimal points regardless of Excel locale
+///
+/// DAX EVALUATE QUERIES:
+/// - Use evaluate to execute DAX EVALUATE queries against the Data Model
+/// - Returns tabular results from queries like 'EVALUATE TableName'
+/// - Supports complex DAX: SUMMARIZE, FILTER, CALCULATETABLE, TOPN, etc.
+///
+/// DMV (DYNAMIC MANAGEMENT VIEW) QUERIES:
+/// - Use execute-dmv to query Data Model metadata via SQL-like syntax
+/// - Syntax: SELECT * FROM $SYSTEM.SchemaRowset (ONLY SELECT * supported)
+/// - Use DISCOVER_SCHEMA_ROWSETS to list all available DMVs
+///
+/// Use datamodelrelationship for relationships between tables.
+/// </summary>
+[ServiceCategory("DataModel")]
+[McpTool("datamodel", Title = "Data Model Operations", Destructive = true, Category = "analysis",
+    Description = "Create/update/delete DAX measures, rename or remove Data Model tables, and refresh the model. Worksheet Tables and Data Model tables are separate: refresh the model after changing a worksheet source. Power Query refresh synchronizes data loaded to the model. DAX is preserved by default; formatDax=true sends formulas to daxformatter.com and requires user consent. daxFormulaFile supports longer measure expressions. Use datamodel_relationship for relationships and table add-to-data-model to add worksheet data.")]
+[McpReadOnlyActions("list-tables", "list-columns", "read-table", "read-info", "read-connection", "list-measures", "read", "evaluate", "execute-dmv")]
+public interface IDataModelCommands
+{
+    /// <summary>
+    /// Lists all tables in the Data Model. Failed metadata reads fail the operation rather than inventing empty names or zero row counts.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <returns>Result containing list of tables with metadata</returns>
+    [ServiceAction("list-tables")]
+    DataModelTableListResult ListTables(IExcelBatch batch);
+
+    /// <summary>
+    /// Lists all columns in a Data Model table.
+    /// The isCalculated field is null (unknown): Excel does not expose a supported column-calculation flag.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="tableName">Name of the table to list columns from</param>
+    /// <returns>Result containing list of columns with metadata</returns>
+    [ServiceAction("list-columns")]
+    DataModelTableColumnsResult ListColumns(IExcelBatch batch, [RequiredParameter] string tableName);
+
+    /// <summary>
+    /// Gets complete table details including columns and measures.
+    /// Each column's isCalculated field is null (unknown), not false.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="tableName">Name of the table to get</param>
+    /// <returns>Result containing complete table information</returns>
+    [ServiceAction("read-table")]
+    DataModelTableViewResult ReadTable(IExcelBatch batch, [RequiredParameter] string tableName);
+
+    /// <summary>
+    /// Gets overall Data Model summary statistics
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <returns>Result containing model metadata (table count, measure count, etc.)</returns>
+    [ServiceAction("read-info")]
+    DataModelInfoResult ReadInfo(IExcelBatch batch);
+
+    /// <summary>
+    /// Gets metadata for the workbook's embedded Data Model connection.
+    /// Returns the model and connection names, connection and command types, and model table names.
+    /// The underlying ADO connection is intentionally not exposed because it may contain sensitive connection details.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <returns>Result containing embedded model connection metadata</returns>
+    [ServiceAction("read-connection")]
+    DataModelConnectionResult ReadConnection(IExcelBatch batch);
+
+    /// <summary>
+    /// Lists DAX measures in the model. When a valid table filter has no measures,
+    /// returns an empty list with a message naming tables where measures are stored.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="tableName">Optional: Filter measures by table name</param>
+    /// <returns>Result containing list of measures with formula previews</returns>
+    [ServiceAction("list-measures")]
+    DataModelMeasureListResult ListMeasures(IExcelBatch batch, string? tableName = null);
+
+    /// <summary>
+    /// Gets complete measure details and DAX formula.
+    /// Returns DAX with comma argument separators and decimal points.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="measureName">Name of the measure to get</param>
+    /// <returns>Result containing complete measure information with DAX formula</returns>
+    [ServiceAction("read")]
+    DataModelMeasureViewResult Read(IExcelBatch batch, [RequiredParameter] string measureName);
+
+    /// <summary>
+    /// Deletes a DAX measure from the Data Model
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="measureName">Name of the measure to delete</param>
+    /// <exception cref="ArgumentException">Thrown when measureName is invalid</exception>
+    /// <exception cref="InvalidOperationException">Thrown when measure not found or deletion fails</exception>
+    [ServiceAction("delete-measure")]
+    OperationResult DeleteMeasure(IExcelBatch batch, [RequiredParameter] string measureName);
+
+    /// <summary>
+    /// Deletes a table from the Data Model.
+    /// Use this to remove orphaned tables created when Power Query is deleted and recreated
+    /// with a different name, leaving stale tables in the Data Model.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="tableName">Name of the table to delete</param>
+    /// <exception cref="ArgumentException">Thrown when tableName is invalid</exception>
+    /// <exception cref="InvalidOperationException">Thrown when table not found or deletion fails</exception>
+    [ServiceAction("delete-table")]
+    OperationResult DeleteTable(IExcelBatch batch, [RequiredParameter] string tableName);
+
+    /// <summary>
+    /// Validates a Data Model table rename request. Excel model table names are immutable;
+    /// a non-no-op request fails before changing queries, connections, or model tables.
+    /// Names are trimmed before comparison; identical names including casing return no-op success.
+    /// Conflict detection is case-insensitive, excluding the target table. Case-only renames also fail.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="oldName">Current name of the table</param>
+    /// <param name="newName">New name for the table</param>
+    /// <returns>RenameResult with ObjectType="data-model-table"</returns>
+    [ServiceAction("rename-table")]
+    RenameResult RenameTable(IExcelBatch batch, [RequiredParameter] string oldName, [RequiredParameter] string newName);
+
+    /// <summary>
+    /// Refreshes entire Data Model or specific table. Excel failures retain their details and do not imply that model-level refresh is unsupported.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="tableName">Optional: Specific table to refresh (if null, refreshes entire model)</param>
+    /// <param name="timeout">Maximum caller wait in whole seconds from 1 through 2147483; defaults to 1800 seconds. Expiry preserves the session and does not stop Excel.</param>
+    /// <exception cref="InvalidOperationException">Thrown when refresh operation fails</exception>
+    [ServiceAction("refresh")]
+    OperationResult Refresh(IExcelBatch batch, string? tableName = null, TimeSpan? timeout = null);
+
+    /// <summary>
+    /// Creates a new DAX measure in the Data Model.
+    /// Supply native DAX with comma argument separators and decimal points.
+    /// When Windows uses a decimal comma, spaces are added around commas that touch numbers so Excel keeps the formula intact; the result message reports this.
+    /// Uses Excel COM API: ModelMeasures.Add method (Office 2016+)
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="tableName">Name of the table to add the measure to</param>
+    /// <param name="measureName">Name of the new measure</param>
+    /// <param name="daxFormula">DAX formula. Public callers must supply either inline daxFormula or a readable daxFormulaFile, not both.</param>
+    /// <param name="formatType">Optional format type: General, Currency, Decimal, Percentage, or WholeNumber (case-insensitive). Null or empty defaults to General on create and keeps the existing format on update. An unavailable requested format fails; it is not substituted with General.</param>
+    /// <param name="description">Optional: Description of the measure</param>
+    /// <param name="formatDax">Whether to send the DAX formula to the remote daxformatter.com service before saving. Defaults to false to preserve privacy.</param>
+    /// <exception cref="ArgumentException">Thrown when parameters are invalid, including an unknown formatType</exception>
+    /// <exception cref="InvalidOperationException">Thrown when table not found or creation fails</exception>
+    [ServiceAction("create-measure")]
+    OperationResult CreateMeasure(
+        IExcelBatch batch,
+        [RequiredParameter] string tableName,
+        [RequiredParameter] string measureName,
+        [RequiredParameter, FileOrValue] string daxFormula,
+        string? formatType = null,
+        string? description = null,
+        bool formatDax = false);
+
+    /// <summary>
+    /// Updates an existing DAX measure in the Data Model.
+    /// Supply native DAX with comma argument separators and decimal points.
+    /// When Windows uses a decimal comma, spaces are added around commas that touch numbers so Excel keeps the formula intact; the result message reports this.
+    /// Uses Excel COM API: ModelMeasure properties (Formula, Description, FormatInformation - all Read/Write)
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="measureName">Name of the measure to update</param>
+    /// <param name="daxFormula">Optional new DAX formula. Public callers may supply inline daxFormula or a readable daxFormulaFile, not both.</param>
+    /// <param name="formatType">Optional format type: General, Currency, Decimal, Percentage, or WholeNumber (case-insensitive). Null or empty defaults to General on create and keeps the existing format on update. An unavailable requested format fails; it is not substituted with General.</param>
+    /// <param name="description">Optional: New description (null to keep existing)</param>
+    /// <param name="formatDax">Whether to send the DAX formula to the remote daxformatter.com service before saving. Defaults to false to preserve privacy.</param>
+    /// <exception cref="ArgumentException">Thrown when measureName is invalid, formatType is unknown, or all update parameters are null</exception>
+    /// <exception cref="InvalidOperationException">Thrown when measure not found or update fails</exception>
+    [ServiceAction("update-measure")]
+    OperationResult UpdateMeasure(
+        IExcelBatch batch,
+        [RequiredParameter] string measureName,
+        [FileOrValue] string? daxFormula = null,
+        string? formatType = null,
+        string? description = null,
+        bool formatDax = false);
+
+    /// <summary>
+    /// Executes a DAX EVALUATE query against the Data Model and returns the results.
+    /// The query should start with EVALUATE and return a table result.
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="daxQuery">DAX EVALUATE query. Public callers must supply either inline daxQuery or a readable daxQueryFile, not both.</param>
+    /// <returns>Result containing column names and data rows from the DAX query</returns>
+    /// <exception cref="ArgumentException">Thrown when daxQuery is empty</exception>
+    /// <exception cref="InvalidOperationException">Thrown when workbook has no Data Model or query execution fails</exception>
+    [ServiceAction("evaluate")]
+    DaxEvaluateResult Evaluate(IExcelBatch batch, [RequiredParameter, FileOrValue] string daxQuery);
+
+    /// <summary>
+    /// Executes a DMV (Dynamic Management View) query against the Data Model and returns the results.
+    /// DMV queries retrieve metadata about the Data Model (tables, columns, measures, relationships, etc.).
+    /// </summary>
+    /// <param name="batch">Excel batch context for accessing workbook</param>
+    /// <param name="dmvQuery">DMV query in SQL-like syntax. Public callers must supply either inline dmvQuery or a readable dmvQueryFile, not both.</param>
+    /// <returns>Result containing column names and data rows from the DMV query</returns>
+    /// <exception cref="ArgumentException">Thrown when dmvQuery is empty</exception>
+    /// <exception cref="InvalidOperationException">Thrown when workbook has no Data Model or query execution fails</exception>
+    /// <remarks>
+    /// Common DMV queries for Excel PowerPivot:
+    /// - $SYSTEM.TMSCHEMA_TABLES - List all tables
+    /// - $SYSTEM.TMSCHEMA_COLUMNS - List all columns
+    /// - $SYSTEM.TMSCHEMA_MEASURES - List all measures
+    /// - $SYSTEM.TMSCHEMA_RELATIONSHIPS - List all relationships
+    /// - $SYSTEM.DISCOVER_CALC_DEPENDENCY - Show calculation dependencies
+    /// </remarks>
+    [ServiceAction("execute-dmv")]
+    DmvQueryResult ExecuteDmv(IExcelBatch batch, [RequiredParameter, FileOrValue] string dmvQuery);
+}

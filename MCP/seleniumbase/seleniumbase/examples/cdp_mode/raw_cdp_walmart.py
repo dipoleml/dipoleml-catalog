@@ -1,0 +1,35 @@
+from seleniumbase import sb_cdp
+
+sb = sb_cdp.Chrome(locale="en", guest=True)
+sb.goto("https://www.walmart.com/")
+sb.sleep(1.2)
+sb.click('input[aria-label="Search"]')
+sb.sleep(1.2)
+search = "Settlers of Catan Board Game"
+required_text = "Catan"
+sb.press_keys('input[aria-label="Search"]', search + "\n")
+sb.sleep(3.8)
+sb.remove_elements('[data-testid="skyline-ad"]')
+sb.remove_elements('[data-testid="sba-container"]')
+print('*** Walmart Search for "%s":' % search)
+print('    (Results must contain "%s".)' % required_text)
+unique_item_text = []
+sb.click_if_visible('[data-automation-id="sb-btn-close-mark"]')
+items = sb.find_elements('[data-item-id]')
+for item in items:
+    if required_text.lower() in item.text.lower():
+        description = item.query_selector(
+            '[data-automation-id="product-title"]'
+        )
+        if description and description.text not in unique_item_text:
+            unique_item_text.append(description.text)
+            print("* " + description.text)
+            price = item.query_selector(
+                '[data-testid="unified-global-product-price"]'
+            )
+            if price and price.text.strip():
+                price_text = price.text.strip()
+                price_text = price_text.split("current price ")[-1]
+                print("  (" + price_text + ")")
+            item.scroll_into_view()
+sb.quit()

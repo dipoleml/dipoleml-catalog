@@ -1,0 +1,57 @@
+/**
+ * 헬스 체크 공통 타입
+ */
+
+export type HealthCheckStatus = 'ok' | 'degraded' | 'fail' | 'skipped';
+export type HealthCheckMode = 'quick' | 'deep' | 'full';
+
+export interface HealthCheckDefinition {
+  id: string;
+  service: string;
+  target: string;
+  mode: 'quick' | 'deep';
+  path: string;
+  kind?: 'api' | 'cli-contract';
+  collectionKey?:
+    | 'products'
+    | 'stores'
+    | 'theaters'
+    | 'movies'
+    | 'showtimes'
+    | 'inventoryProducts'
+    | 'inventoryItems'
+    | 'inventoryStores';
+  requiredFields?: string[];
+  degradedFailurePatterns?: string[];
+  allowEmpty?: boolean;
+}
+
+export interface HealthCheckResult {
+  id: string;
+  service: string;
+  target: string;
+  status: HealthCheckStatus;
+  durationMs: number;
+  message: string;
+  httpStatus?: number;
+  errorCode?: string;
+  upstreamStatus?: number;
+  quotaReason?: 'minute' | 'daily' | 'consumer' | 'consumer-busy';
+  retryAfter?: number;
+  sample?: {
+    first?: string;
+  };
+}
+
+export interface HealthCheckSummary {
+  status: HealthCheckStatus;
+  checkedAt: string;
+  durationMs: number;
+  cached: boolean;
+  filters: {
+    service: string | null;
+    check: string | null;
+    mode: HealthCheckMode;
+  };
+  checks: HealthCheckResult[];
+}

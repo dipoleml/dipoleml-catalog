@@ -1,0 +1,235 @@
+import asyncio
+import json
+import subprocess
+from typing import Any
+
+from mcp.server.fastmcp import FastMCP
+from pydantic import Field
+
+from dbt_mcp.config.config import DbtCodegenConfig
+from dbt_mcp.dbt_cli.binary_type import get_color_disable_flag
+from dbt_mcp.dbt_cli.subprocess_env import get_dbt_subprocess_env
+from dbt_mcp.prompts.prompts import get_prompt
+from dbt_mcp.tools.access import AccessPolicy
+from dbt_mcp.tools.annotations import create_tool_annotations
+from dbt_mcp.tools.definitions import ToolDefinition
+from dbt_mcp.tools.register import register_tools
+from dbt_mcp.tools.tool_names import ToolName
+from dbt_mcp.tools.toolsets import Toolset
+
+
+def create_dbt_codegen_tool_definitions(
+    config: DbtCodegenConfig,
+    dbt_lock: asyncio.Lock | None = None,
+) -> list[ToolDefinition]:
+    """Build the dbt-codegen tool definitions.
+
+    dbt writes target/ without locking, so tools run their dbt commands under the
+    shared ``dbt_lock``. The lock spans the await, not the child process: one left
+    running by a timeout or a cancellation outlives it.
+    """
+    lock = asyncio.Lock() if dbt_lock is None else dbt_lock
+
+    def _run_codegen_operation(
+        macro_name: str,
+        args: dict[str, Any] | None = None,
+    ) -> str:
+        """Execute a dbt-codegen macro using dbt run-operation."""
+        try:
+            # Build the dbt run-operation command
+            command = ["run-operation", macro_name]
+
+            # Add arguments if provided
+            if args:
+                # Convert args to JSON string for dbt
+                args_json = json.dumps(args)
+                command.extend(["--args", args_json])
+
+            full_command = command.copy()
+            # Add --quiet flag to reduce output verbosity
+            main_command = full_command[0]
+            command_args = full_command[1:] if len(full_command) > 1 else []
+            full_command = [main_command, "--quiet", *command_args]
+
+            # Add appropriate color disable flag based on binary type
+            color_flag = get_color_disable_flag(config.binary_type)
+            args_list = [config.dbt_path, color_flag, *full_command]
+
+            process = subprocess.Popen(
+                args=args_list,
+                cwd=config.project_dir,
+                env=get_dbt_subprocess_env(config.project_dir, config.profiles_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                text=True,
+            )
+            stdout, stderr = process.communicate(timeout=config.dbt_cli_timeout)
+
+            # Use returncode as the success signal so noise on stderr (e.g.
+            # urllib3 deprecation warnings under externalbrowser auth) can't
+            # masquerade as the result of a successful command. On failure
+            # we surface stderr too, since some dbt errors only appear there.
+            if process.returncode != 0:
+                parts = []
+                if stdout:
+                    parts.append(f"--- stdout ---\n{stdout.rstrip()}")
+                if stderr:
+                    parts.append(f"--- stderr ---\n{stderr.rstrip()}")
+                combined = "\n".join(parts)
+                detail = combined or f"exit code {process.returncode} (no output)"
+                if "dbt found" in combined and "resource" in combined:
+                    return (
+                        "Error: dbt-codegen package may not be installed. "
+                        f"Run 'dbt deps' to install it.\n{detail}"
+                    )
+                return f"Error running dbt-codegen macro: {detail}"
+
+            return stdout or "OK"
+
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            return f"Timeout: dbt-codegen operation took longer than {config.dbt_cli_timeout} seconds."
+        except Exception as e:
+            return str(e)
+
+    async def generate_source(
+        schema_name: str = Field(
+            description=get_prompt("dbt_codegen/args/schema_name")
+        ),
+        database_name: str | None = Field(
+            default=None, description=get_prompt("dbt_codegen/args/database_name")
+        ),
+        table_names: list[str] | None = Field(
+            default=None, description=get_prompt("dbt_codegen/args/table_names")
+        ),
+        generate_columns: bool = Field(
+            default=False, description=get_prompt("dbt_codegen/args/generate_columns")
+        ),
+        include_descriptions: bool = Field(
+            default=False,
+            description=get_prompt("dbt_codegen/args/include_descriptions"),
+        ),
+    ) -> str:
+        args: dict[str, Any] = {"schema_name": schema_name}
+        if database_name:
+            args["database_name"] = database_name
+        if table_names:
+            args["table_names"] = table_names
+        args["generate_columns"] = generate_columns
+        args["include_descriptions"] = include_descriptions
+
+        async with lock:
+            return await asyncio.to_thread(
+                _run_codegen_operation, "generate_source", args
+            )
+
+    async def generate_model_yaml(
+        model_names: list[str] = Field(
+            description=get_prompt("dbt_codegen/args/model_names")
+        ),
+        upstream_descriptions: bool = Field(
+            default=False,
+            description=get_prompt("dbt_codegen/args/upstream_descriptions"),
+        ),
+        include_data_types: bool = Field(
+            default=True, description=get_prompt("dbt_codegen/args/include_data_types")
+        ),
+    ) -> str:
+        args: dict[str, Any] = {
+            "model_names": model_names,
+            "upstream_descriptions": upstream_descriptions,
+            "include_data_types": include_data_types,
+        }
+
+        async with lock:
+            return await asyncio.to_thread(
+                _run_codegen_operation, "generate_model_yaml", args
+            )
+
+    async def generate_staging_model(
+        source_name: str = Field(
+            description=get_prompt("dbt_codegen/args/source_name")
+        ),
+        table_name: str = Field(description=get_prompt("dbt_codegen/args/table_name")),
+        leading_commas: bool = Field(
+            default=False, description=get_prompt("dbt_codegen/args/leading_commas")
+        ),
+        case_sensitive_cols: bool = Field(
+            default=False,
+            description=get_prompt("dbt_codegen/args/case_sensitive_cols"),
+        ),
+        materialized: str | None = Field(
+            default=None, description=get_prompt("dbt_codegen/args/materialized")
+        ),
+    ) -> str:
+        args: dict[str, Any] = {
+            "source_name": source_name,
+            "table_name": table_name,
+            "leading_commas": leading_commas,
+            "case_sensitive_cols": case_sensitive_cols,
+        }
+        if materialized:
+            args["materialized"] = materialized
+
+        async with lock:
+            return await asyncio.to_thread(
+                _run_codegen_operation, "generate_base_model", args
+            )
+
+    return [
+        ToolDefinition(
+            fn=generate_source,
+            requirements=(AccessPolicy.LOCAL,),
+            title="Generate Source",
+            description=get_prompt("dbt_codegen/generate_source"),
+            annotations=create_tool_annotations(
+                read_only_hint=True,
+                destructive_hint=False,
+                idempotent_hint=True,
+            ),
+        ),
+        ToolDefinition(
+            fn=generate_model_yaml,
+            requirements=(AccessPolicy.LOCAL,),
+            title="Generate Model YAML",
+            description=get_prompt("dbt_codegen/generate_model_yaml"),
+            annotations=create_tool_annotations(
+                read_only_hint=True,
+                destructive_hint=False,
+                idempotent_hint=True,
+            ),
+        ),
+        ToolDefinition(
+            fn=generate_staging_model,
+            requirements=(AccessPolicy.LOCAL,),
+            title="Generate Staging Model",
+            description=get_prompt("dbt_codegen/generate_staging_model"),
+            annotations=create_tool_annotations(
+                read_only_hint=True,
+                destructive_hint=False,
+                idempotent_hint=True,
+            ),
+        ),
+    ]
+
+
+def register_dbt_codegen_tools(
+    dbt_mcp: FastMCP,
+    config: DbtCodegenConfig,
+    *,
+    disabled_tools: set[ToolName],
+    enabled_tools: set[ToolName] | None,
+    enabled_toolsets: set[Toolset],
+    disabled_toolsets: set[Toolset],
+    dbt_lock: asyncio.Lock | None = None,
+) -> None:
+    register_tools(
+        dbt_mcp,
+        tool_definitions=create_dbt_codegen_tool_definitions(config, dbt_lock),
+        disabled_tools=disabled_tools,
+        enabled_tools=enabled_tools,
+        enabled_toolsets=enabled_toolsets,
+        disabled_toolsets=disabled_toolsets,
+    )

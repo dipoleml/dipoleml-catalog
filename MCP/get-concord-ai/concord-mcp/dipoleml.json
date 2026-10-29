@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.get-concord-ai.concord-mcp",
+  "type": "mcp",
+  "name": "Concord MCP",
+  "slug": "concord-mcp",
+  "vendor": "get-concord-ai",
+  "description": "Live messaging for coding agents",
+  "version": "0.18.0",
+  "homepage": "https://github.com/Get-Concord-AI/concord-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-coding",
+    "code-review",
+    "codex",
+    "coding-agents",
+    "cursor",
+    "developer-tools",
+    "devtools",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "agentic-coding",
+    "ai-agents",
+    "claude-code",
+    "code-review",
+    "codex",
+    "coding-agents",
+    "cursor",
+    "developer-tools",
+    "devtools",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "get-concord-ai",
+    "brandName": "get-concord-ai",
+    "source": "https://github.com/Get-Concord-AI.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Get-Concord-AI/concord-mcp",
+    "url": "https://github.com/Get-Concord-AI/concord-mcp",
+    "commit": "a5d4d95dff9498b474bb20c3433cfe89d0287e99",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 753,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@concord-ai/concord-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@concord-ai/concord-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.12"
+    ],
+    "packages": [
+      "@concord-ai/concord-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

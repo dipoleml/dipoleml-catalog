@@ -1,0 +1,16 @@
+{
+  "name": "cross-code-organizer",
+  "displayName": "Cross Code Organizer",
+  "version": "0.20.0",
+  "description": "Inspect and organize DipoleML memories, skills, MCP servers, hooks, and project context from a local dashboard",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mcpware"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/mcpware/cross-code-organizer",
+  "repository": "https://github.com/mcpware/cross-code-organizer",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,50 @@
+# Idea Reality Check (idea-reality-mcp)
+
+> MCP tool that scans GitHub, Hacker News, npm, PyPI, and Product Hunt before you build. Returns a 0-100 reality signal with evidence.
+
+## What It Does
+
+Idea Reality Check is a pre-build validation tool designed for AI coding agents. Instead of relying on LLM knowledge (which may be outdated), it searches 5 real databases and returns structured evidence about existing competition and market activity.
+
+## Install
+
+### Claude Desktop
+Add to claude_desktop_config.json:
+{
+  "mcpServers": {
+    "idea-reality": {
+      "command": "uvx",
+      "args": ["idea-reality-mcp"]
+    }
+  }
+}
+
+### Claude Code
+claude mcp add idea-reality -- uvx idea-reality-mcp
+
+### pip
+pip install idea-reality-mcp
+
+## Key Features
+
+- **Quick mode**: GitHub + HN (2 sources, fast)
+- **Deep mode**: All 5 sources in parallel (GitHub, HN, npm, PyPI, Product Hunt)
+- **0-100 reality signal**: Higher = more competition
+- **Evidence-based**: Returns actual repos, posts, packages found
+- **Pivot hints**: LLM-powered suggestions based on real competitor data
+- **Chinese support**: 150+ term mappings for keyword extraction
+
+## Architecture
+
+- Entry: `python -m idea_reality_mcp` (MCP stdio)
+- API: `https://idea-reality-mcp.onrender.com` (REST + MCP Streamable HTTP)
+- Scoring: Weighted formula across sources, intentionally simple and explainable
+- Sources: Each in `src/idea_reality_mcp/sources/` as independent adapter
+
+## Links
+
+- [GitHub](https://github.com/mnemox-ai/idea-reality-mcp)
+- [PyPI](https://pypi.org/project/idea-reality-mcp/)
+- [Live Demo](https://mnemox.ai/check)
+- [MCP Registry](https://registry.modelcontextprotocol.io): io.github.mnemox-ai/idea-reality-mcp
+- [Parent: Mnemox](https://mnemox.ai)

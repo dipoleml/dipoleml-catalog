@@ -1,0 +1,45 @@
+# Configuration for domain-specific element removal
+# Add CSS selectors to ignore for each domain
+
+[domain_selectors]
+"www.tigerdata.com" = [
+  "script",
+  "style",
+  "nav",
+  "footer",
+  "#plan-availability",
+  ".sr-only",
+  ".code-block-copy-button",
+  # Breadcrumbs plus the "Copy Markdown" / "Open in Claude|ChatGPT|Cursor"
+  # action menu that sits above the page title. This is UI boilerplate that
+  # otherwise becomes the first chunk of nearly every page.
+  ".stl-page-nav-container"
+]
+
+# PostGIS official documentation (postgis.net)
+# The manual pages use DocBook-generated HTML with specific navigation elements
+"postgis.net" = [
+  "script",
+  "style",
+  "header",                    # Navigation header with prev/next links
+  "footer",
+  ".navheader",                # DocBook navigation header table
+  ".navfooter",                # DocBook navigation footer table
+  ".toc",                      # Table of contents (can be very long)
+  ".titlepage .abstract img",  # Logo images in abstract
+  "img[src*='note.png']",      # Note/warning icons
+  "img[src*='tip.png']",       # Tip icons
+  "img[src*='warning.png']",   # Warning icons
+  "img[src*='caution.png']"    # Caution icons
+]
+
+# Add more domains as needed
+
+# Default selectors applied to all domains
+[default_selectors]
+selectors = [
+  "script",
+  "style",
+  "nav",
+  "footer"
+]

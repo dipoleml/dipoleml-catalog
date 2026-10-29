@@ -1,0 +1,264 @@
+import { isFreshOperationalRequest } from './operationalFreshness.js';
+import { hasInvalidCinemaQuery, CINEMA_INVALID_INPUT } from '../services/cgv/validation.js';
+import { geocodeBindings } from '../utils/geocode.js';
+/**
+ * CGV GET API 핸들러
+ */
+
+import {
+  fetchCgvMovies,
+  fetchCgvTheaters,
+  fetchCgvTimetable,
+  toYyyymmdd,
+} from '../services/cgv/client.js';
+import { ServiceError } from '../core/errors.js';
+import { cgvTransportFromBindings } from '../services/cgv/relayTransport.js';
+import { fetchCgvNearbyTheaters, resolveCgvNearestTheater } from '../services/cgv/location.js';
+import { filterAndSortTimetable } from '../services/cgv/timetable.js';
+import {
+  type ApiContext,
+  errorResponse,
+  serviceErrorResponse,
+  successResponse,
+} from './response.js';
+
+function parseOptionalNumber(value: string | undefined): number | undefined {
+  return value === undefined ? undefined : Number(value);
+}
+
+/**
+ * CGV 극장 목록 조회 API 핸들러
+ * GET /api/cgv/theaters?playDate={YYYYMMDD}&regionCode={지역코드}
+ */
+export async function handleCgvFindTheaters(c: ApiContext) {
+  if (hasInvalidCinemaQuery((key) => c.req.query(key)))
+    return errorResponse(c, 'INVALID_INPUT', CINEMA_INVALID_INPUT, 400);
+  const playDate = c.req.query('playDate') || toYyyymmdd();
+  const regionCode = c.req.query('regionCode') || undefined;
+  const keyword = c.req.query('keyword') || undefined;
+  const latitude = parseOptionalNumber(c.req.query('lat'));
+  const longitude = parseOptionalNumber(c.req.query('lng'));
+  const limit = parseInt(c.req.query('limit') || '30');
+  const timeoutMs = parseInt(c.req.query('timeoutMs') || '15000');
+
+  try {
+    if (keyword || typeof latitude === 'number' || typeof longitude === 'number') {
+      const result = await fetchCgvNearbyTheaters(
+        {
+          playDate,
+          regionCode,
+          keyword,
+          latitude,
+          longitude,
+          limit,
+          timeout: timeoutMs,
+        },
+        {
+          timeout: timeoutMs,
+          zyteApiKey: c.env?.ZYTE_API_KEY,
+          ...cgvTransportFromBindings(c.env),
+          bypassCache: await isFreshOperationalRequest(c),
+          ...geocodeBindings(c.env),
+        },
+      );
+
+      return successResponse(c, result, { total: result.count, pageSize: limit });
+    }
+
+    const theaters = await fetchCgvTheaters({
+      playDate,
+      regionCode,
+      timeout: timeoutMs,
+      zyteApiKey: c.env?.ZYTE_API_KEY,
+      ...cgvTransportFromBindings(c.env),
+      bypassCache: await isFreshOperationalRequest(c),
+    });
+
+    const sliced = theaters.slice(0, limit);
+
+    return successResponse(
+      c,
+      {
+        playDate,
+        filters: {
+          regionCode: regionCode || null,
+          keyword: keyword || null,
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
+        },
+        theaters: sliced,
+      },
+      { total: sliced.length, pageSize: limit },
+    );
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      return serviceErrorResponse(c, error, 'theaters');
+    }
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return errorResponse(c, 'CGV_THEATER_SEARCH_FAILED', message, 500);
+  }
+}
+
+/**
+ * CGV 영화 목록 조회 API 핸들러
+ * GET /api/cgv/movies?playDate={YYYYMMDD}&theaterCode={극장코드}
+ */
+export async function handleCgvSearchMovies(c: ApiContext) {
+  if (hasInvalidCinemaQuery((key) => c.req.query(key)))
+    return errorResponse(c, 'INVALID_INPUT', CINEMA_INVALID_INPUT, 400);
+  const playDate = c.req.query('playDate') || toYyyymmdd();
+  let theaterCode = c.req.query('theaterCode') || undefined;
+  const keyword = c.req.query('keyword') || undefined;
+  const latitude = parseOptionalNumber(c.req.query('lat'));
+  const longitude = parseOptionalNumber(c.req.query('lng'));
+  const timeoutMs = parseInt(c.req.query('timeoutMs') || '15000');
+
+  try {
+    let resolvedTheater = null;
+
+    if (
+      !theaterCode &&
+      (keyword || typeof latitude === 'number' || typeof longitude === 'number')
+    ) {
+      const resolved = await resolveCgvNearestTheater(
+        {
+          playDate,
+          keyword,
+          latitude,
+          longitude,
+          timeout: timeoutMs,
+        },
+        {
+          timeout: timeoutMs,
+          zyteApiKey: c.env?.ZYTE_API_KEY,
+          ...cgvTransportFromBindings(c.env),
+          bypassCache: await isFreshOperationalRequest(c),
+          ...geocodeBindings(c.env),
+        },
+      );
+      resolvedTheater = resolved.theater;
+      theaterCode = resolved.theater?.theaterCode;
+    }
+
+    const shouldReturnEmpty =
+      !theaterCode && (keyword || typeof latitude === 'number' || typeof longitude === 'number');
+    const movies = shouldReturnEmpty
+      ? []
+      : await fetchCgvMovies({
+          playDate,
+          theaterCode,
+          timeout: timeoutMs,
+          zyteApiKey: c.env?.ZYTE_API_KEY,
+          ...cgvTransportFromBindings(c.env),
+          bypassCache: await isFreshOperationalRequest(c),
+        });
+
+    return successResponse(
+      c,
+      {
+        playDate,
+        filters: {
+          theaterCode: theaterCode || null,
+          keyword: keyword || null,
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
+        },
+        resolvedTheater,
+        movies,
+      },
+      { total: movies.length },
+    );
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      return serviceErrorResponse(c, error, 'movies');
+    }
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return errorResponse(c, 'CGV_MOVIE_SEARCH_FAILED', message, 500);
+  }
+}
+
+/**
+ * CGV 시간표 조회 API 핸들러
+ * GET /api/cgv/timetable?playDate={YYYYMMDD}&theaterCode={극장코드}&movieCode={영화코드}
+ */
+export async function handleCgvGetTimetable(c: ApiContext) {
+  if (hasInvalidCinemaQuery((key) => c.req.query(key)))
+    return errorResponse(c, 'INVALID_INPUT', CINEMA_INVALID_INPUT, 400);
+  const playDate = c.req.query('playDate') || toYyyymmdd();
+  let theaterCode = c.req.query('theaterCode') || undefined;
+  const movieCode = c.req.query('movieCode') || undefined;
+  const keyword = c.req.query('keyword') || undefined;
+  const latitude = parseOptionalNumber(c.req.query('lat'));
+  const longitude = parseOptionalNumber(c.req.query('lng'));
+  const limit = parseInt(c.req.query('limit') || '50');
+  const timeoutMs = parseInt(c.req.query('timeoutMs') || '15000');
+
+  try {
+    let resolvedTheater = null;
+
+    if (
+      !theaterCode &&
+      (keyword || typeof latitude === 'number' || typeof longitude === 'number')
+    ) {
+      const resolved = await resolveCgvNearestTheater(
+        {
+          playDate,
+          keyword,
+          latitude,
+          longitude,
+          timeout: timeoutMs,
+        },
+        {
+          timeout: timeoutMs,
+          zyteApiKey: c.env?.ZYTE_API_KEY,
+          ...cgvTransportFromBindings(c.env),
+          bypassCache: await isFreshOperationalRequest(c),
+          ...geocodeBindings(c.env),
+        },
+      );
+      resolvedTheater = resolved.theater;
+      theaterCode = resolved.theater?.theaterCode;
+    }
+
+    const shouldReturnEmpty =
+      !theaterCode && (keyword || typeof latitude === 'number' || typeof longitude === 'number');
+    const timetable = shouldReturnEmpty
+      ? []
+      : await fetchCgvTimetable({
+          playDate,
+          theaterCode,
+          movieCode,
+          timeout: timeoutMs,
+          zyteApiKey: c.env?.ZYTE_API_KEY,
+          ...cgvTransportFromBindings(c.env),
+          bypassCache: await isFreshOperationalRequest(c),
+        });
+
+    const filtered = filterAndSortTimetable(timetable, { theaterCode, movieCode, limit });
+    const filterRelaxed = false;
+
+    return successResponse(
+      c,
+      {
+        playDate,
+        filters: {
+          theaterCode: theaterCode || null,
+          movieCode: movieCode || null,
+          keyword: keyword || null,
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
+        },
+        resolvedTheater,
+        filterRelaxed,
+        timetable: filtered,
+      },
+      { total: filtered.length, pageSize: limit },
+    );
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      return serviceErrorResponse(c, error, 'timetable');
+    }
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return errorResponse(c, 'CGV_TIMETABLE_FETCH_FAILED', message, 500);
+  }
+}

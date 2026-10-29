@@ -1,0 +1,16 @@
+{
+  "name": "arxiv-mcp-server",
+  "displayName": "Arxiv MCP Server",
+  "version": "0.8.2",
+  "description": "Search, download, read, and analyze arXiv papers through MCP.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Blazickjp"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/blazickjp/arxiv-mcp-server",
+  "repository": "https://github.com/blazickjp/arxiv-mcp-server",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

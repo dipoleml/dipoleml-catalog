@@ -1,0 +1,40 @@
+import type { MyUIMessage } from "@/types/ai";
+import { useNamespace } from "@/hooks/use-namespace";
+import { DefaultChatTransport } from "ai";
+import { useChat } from "ai-sdk-zustand";
+import { toast } from "sonner";
+
+import { DEFAULT_CHAT_SETTINGS, useChatSettings } from "./chat-settings.store";
+
+export function useNamespaceChat() {
+  const namespace = useNamespace();
+
+  return useChat<MyUIMessage>({
+    transport: new DefaultChatTransport({
+      api: `/api/chat?namespaceId=${namespace.id}`,
+      prepareSendMessagesRequest({ messages, body }) {
+        const settings =
+          useChatSettings.getState().namespaces[namespace.id] ??
+          DEFAULT_CHAT_SETTINGS;
+
+        return {
+          body: {
+            messages,
+            ...body,
+            topK: settings.topK,
+            rerankLimit: settings.rerankLimit,
+            rerankModel: settings.rerankModel,
+            llmModel: settings.llmModel,
+            temperature: settings.temperature,
+            mode: settings.mode,
+            systemPrompt: settings.systemPrompt ?? undefined,
+          },
+        };
+      },
+    }),
+    experimental_throttle: 100,
+    onError: () => {
+      toast.error("An error occurred, please try again!");
+    },
+  });
+}

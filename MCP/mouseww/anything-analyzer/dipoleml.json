@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mouseww.anything-analyzer",
+  "type": "mcp",
+  "name": "Anything Analyzer",
+  "slug": "anything-analyzer",
+  "vendor": "mouseww",
+  "description": "全能协议分析工具：浏览器抓包 + MITM 代理 + 指纹伪装 + AI 分析 + MCP Server 无缝对接 AI Agent/IDE   |  All-in-one protocol analysis toolkit — built-in browser capture, MITM proxy, JS hooks, fingerprint spoofing, AI analysis & MCP server for agent integration",
+  "version": "3.7.0",
+  "homepage": "https://github.com/Mouseww/anything-analyzer",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "2api",
+    "analysis-cli",
+    "api-analysis",
+    "automation-tools",
+    "blackbox-testing",
+    "network-analysis",
+    "protocol-analysis",
+    "reverse-engineering"
+  ],
+  "tags": [
+    "2api",
+    "ai-tools",
+    "analysis-cli",
+    "api-analysis",
+    "automation-tools",
+    "blackbox-testing",
+    "network-analysis",
+    "protocol-analysis",
+    "reverse-engineering",
+    "traffic-analysis"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mouseww",
+    "brandName": "mouseww",
+    "source": "https://github.com/Mouseww.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:21Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Mouseww/anything-analyzer",
+    "url": "https://github.com/Mouseww/anything-analyzer",
+    "commit": "6ae7becb256428407e3297f9fa35611ef8711e01",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3802,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "anything-analyzer"
+    ],
+    "env": [
+      "CSC_KEY_PASSWORD",
+      "RAPID10"
+    ],
+    "credentials": [
+      "CSC_KEY_PASSWORD"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

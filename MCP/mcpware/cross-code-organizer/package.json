@@ -1,0 +1,86 @@
+{
+  "name": "@mcpware/cross-code-organizer",
+  "version": "0.20.0",
+  "description": "Cross-Code Organizer (CCO, formerly Claude Code Organizer) — manage AI coding tool configs across Claude Code, Codex CLI, OpenCode, DeepSeek Harness, and more. Memories, skills, MCP servers, commands, agents, rules, and hooks across global and project scopes",
+  "type": "module",
+  "files": [
+    "bin/",
+    "src/",
+    "!src/session-distiller-v2.mjs",
+    "!src/session-distiller-v3.mjs",
+    "!src/session-distiller-v4.mjs",
+    "!src/session-distiller-v5.mjs",
+    "LICENSE",
+    "PRIVACY.md",
+    "README.md"
+  ],
+  "bin": {
+    "cross-code-organizer": "bin/cli.mjs"
+  },
+  "scripts": {
+    "start": "node bin/cli.mjs",
+    "mcp": "node src/mcp-server.mjs",
+    "test": "npx playwright test --config tests/e2e/playwright.config.mjs",
+    "test:headed": "npx playwright test --config tests/e2e/playwright.config.mjs --headed",
+    "test:unit": "node --test tests/unit/*.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp-server",
+    "claude-memory",
+    "claude-skills",
+    "anthropic",
+    "scope-management",
+    "drag-and-drop",
+    "developer-tools",
+    "dashboard",
+    "config-manager",
+    "ai-tools",
+    "open-source",
+    "claude-code-plugin",
+    "organizer",
+    "cli",
+    "cross-code-organizer",
+    "claude-code-organizer",
+    "codex-cli",
+    "openai-codex",
+    "opencode",
+    "deepseek-harness",
+    "dsh",
+    "multi-harness",
+    "cross-harness",
+    "ai-coding-harness",
+    "harness-config",
+    "mcp-security",
+    "claude-config",
+    "codex-config",
+    "cursor-config",
+    "windsurf-config",
+    "aider-config",
+    "ai-config-dashboard",
+    "harness-organizer"
+  ],
+  "publishConfig": {
+    "provenance": true
+  },
+  "mcpName": "io.github.mcpware/cross-code-organizer",
+  "author": "ithiria894",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mcpware/cross-code-organizer.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "@modelcontextprotocol/sdk": "^1.32.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  },
+  "optionalDependencies": {
+    "ai-tokenizer": "^1.0.7"
+  }
+}

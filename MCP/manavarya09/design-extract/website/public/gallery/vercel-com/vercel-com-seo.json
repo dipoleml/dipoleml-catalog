@@ -1,0 +1,107 @@
+{
+  "openGraph": {
+    "title": "Vercel: Build and deploy the best web experiences with the AI Cloud – Vercel",
+    "description": "Vercel gives developers the frameworks, workflows, and infrastructure to build a faster, more personalized web.",
+    "url": "https://vercel.com/home",
+    "site_name": "Vercel",
+    "locale": "en_US",
+    "image": "https://assets.vercel.com/image/upload/contentful/image/e5382hct74si/4JmubmYDJnFtstwHbaZPev/0c3576832aae5b1a4d98c8c9f98863c3/Vercel_Home_OG.png",
+    "type": "website"
+  },
+  "twitter": {
+    "card": "summary_large_image",
+    "title": "Vercel: Build and deploy the best web experiences with the AI Cloud",
+    "description": "Vercel gives developers the frameworks, workflows, and infrastructure to build a faster, more personalized web.",
+    "image": "https://assets.vercel.com/image/upload/contentful/image/e5382hct74si/4JmubmYDJnFtstwHbaZPev/0c3576832aae5b1a4d98c8c9f98863c3/Vercel_Home_OG.png",
+    "image:width": "1200",
+    "image:height": "628"
+  },
+  "description": "Vercel gives developers the frameworks, workflows, and infrastructure to build a faster, more personalized web.",
+  "canonical": null,
+  "themeColor": "#FAFAFA",
+  "viewport": "width=device-width, initial-scale=1, maximum-scale=1",
+  "favicons": [
+    {
+      "rel": "icon shortcut",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/favicon.ico",
+      "sizes": "",
+      "type": "image/x-icon"
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-57x57.png",
+      "sizes": "57x57",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-60x60.png",
+      "sizes": "60x60",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-72x72.png",
+      "sizes": "72x72",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-76x76.png",
+      "sizes": "76x76",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-114x114.png",
+      "sizes": "114x114",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-120x120.png",
+      "sizes": "120x120",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-144x144.png",
+      "sizes": "144x144",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-152x152.png",
+      "sizes": "152x152",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-180x180.png",
+      "sizes": "180x180",
+      "type": ""
+    }
+  ],
+  "manifest": "https://vercel.com/manifest.webmanifest",
+  "structuredData": [
+    {
+      "type": "SoftwareApplication",
+      "name": "Vercel",
+      "sample": "{\"@context\":\"https://schema.org\",\"@type\":\"SoftwareApplication\",\"name\":\"Vercel\",\"description\":\"Vercel provides the developer tools and cloud infrastructure to build, scale, and secure a faster, more personalized web.\",\"url\":\"https://vercel.com/\",\"applicationCategory\":\"DeveloperApplication\",\"operatingSystem\":\"Web\",\"offers\":{\"@type\":\"Offer\",\"price\":\"0\",\"priceCurrency\":\"USD\",\"availability\":\"https://sc"
+    },
+    {
+      "type": "Organization",
+      "name": "Vercel Inc.",
+      "sample": "{\"@context\":\"https://schema.org\",\"@type\":\"Organization\",\"name\":\"Vercel Inc.\",\"legalName\":\"Vercel Inc.\",\"url\":\"https://vercel.com/\",\"logo\":{\"@type\":\"ImageObject\",\"url\":\"https://lishhsx6kmthaacj.public.blob.vercel-storage.com/vercel-wordmark.svg\"},\"foundingDate\":\"2015-11-04\",\"founder\":{\"@type\":\"Person\",\"name\":\"Guillermo Rauch\",\"sameAs\":\"https://x.com/rauchg\"},\"description\":\"Vercel provides the devel"
+    }
+  ],
+  "score": {
+    "hasOg": true,
+    "hasTwitter": true,
+    "hasDescription": true,
+    "hasCanonical": false,
+    "hasStructuredData": true,
+    "hasFavicon": true,
+    "hasThemeColor": true
+  }
+}

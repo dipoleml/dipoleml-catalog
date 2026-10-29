@@ -1,0 +1,55 @@
+# Kubernetes MCP Server Documentation
+
+Welcome to the Kubernetes MCP Server documentation! This directory contains guides to help you set up and use the Kubernetes MCP Server with your Kubernetes cluster and Claude Code CLI.
+
+## Getting Started Guides
+
+Choose the guide that matches your needs:
+
+| Guide | Description | Best For |
+|-------|-------------|----------|
+| **[Getting Started with Kubernetes](getting-started-kubernetes.md)** | Base setup: Create ServiceAccount, token, and kubeconfig | Everyone - **start here first** |
+| **[Using with Claude Code CLI](getting-started-claude-code.md)** | Configure MCP server with Claude Code CLI | Claude Code CLI users |
+
+## Recommended Workflow
+
+1. **Complete the base setup**: Start with [Getting Started with Kubernetes](getting-started-kubernetes.md) to create a ServiceAccount and kubeconfig file
+2. **Configure Claude Code**: Then follow the [Claude Code CLI guide](getting-started-claude-code.md)
+
+## Configuration
+
+- **[Configuration Reference](configuration.md)** - Complete reference for TOML configuration files, including all options, drop-in configuration, and dynamic reload
+- **[Configuration Changes](configuration-changes.md)** - Versioned record of configuration migrations between releases
+- **[Tool Requirements](tool-requirements.md)** - Cluster APIs, resources, and permissions required for tool availability
+
+## Toolset Guides
+
+- **[Kiali](KIALI.md)** - Tools for Kiali ServiceMesh with Istio
+- **[NetObserv](NETOBSERV.md)** - Network observability flows, metrics, and alerts (Helm on OpenShift)
+- **[KubeVirt](kubevirt.md)** - KubeVirt virtual machine management tools
+- **[Tekton](tekton.md)** - Tekton PipelineRun, TaskRun, and troubleshooting tools
+
+## Feature Specifications
+
+Living documentation for implemented and planned features:
+
+| Spec | Description | Status |
+|------|-------------|--------|
+| **[Validation](specs/validation.md)** | Pre-execution validation layer (resource existence, schema, RBAC) | Implemented |
+| **[Structured Tool Output](specs/structured-output.md)** | Conventions for tools that emit `structuredContent` | Implemented |
+| **[Config Option Framework](specs/config.md)** | Unified `Option[T]` config: vectors, precedence, provenance | Implemented |
+| **[Memory bounds](specs/memory-bounds.md)** | Caps on Kubernetes responses, tool results, and in-flight calls | Implemented |
+| **[MCP Apps](mcp-apps.md)** | Interactive UI resources associated with MCP tools | Implemented |
+
+## Advanced Topics
+
+- **[MCP Logging](logging.md)** - Structured logging to MCP clients with automatic K8s error categorization and secret redaction
+- **[OpenTelemetry Observability](OTEL.md)** - Distributed tracing and metrics configuration
+- **[MCP Prompts](prompts.md)** - Custom workflow templates for AI assistants
+- **[Tool RBAC Metadata](tool-rbac-metadata.md)** - Permission metadata for scoped authorization and sandboxing
+- **[Keycloak OIDC Setup](KEYCLOAK_OIDC_SETUP.md)** - Developer guide for local Keycloak environment and testing with MCP Inspector
+
+## Reference
+
+- **[Main README](../README.md)** - Project overview and general information
+

@@ -1,0 +1,201 @@
+# Resources
+
+Resources are static or dynamic data sources that AI agents can read. They're like read-only files or databases that tools can reference. In mcp-nest, resources are defined using the `@Resource()` decorator on `@McpController()` methods.
+
+## Basic Resource
+
+A static resource with a fixed URI:
+
+```typescript
+import { McpController, Resource } from '@rekog/mcp-nest';
+import { Payload } from '@nestjs/microservices';
+
+@McpController()
+export class GreetingResource {
+  @Resource({
+    name: 'languages-informal-greetings',
+    description: 'Languages and their informal greeting phrases',
+    mimeType: 'application/json',
+    uri: 'mcp://languages/informal-greetings',
+  })
+  getLanguagesInformalGreetings(@Payload() { uri }: { uri: string }) {
+    const languages = {
+      en: 'Hey',
+      es: 'Qué tal',
+      fr: 'Salut',
+      de: 'Hi',
+      it: 'Ciao',
+      pt: 'Oi',
+      ja: 'やあ',
+      ko: '안녕',
+      zh: '嗨',
+    };
+
+    return {
+      contents: [
+        {
+          uri: uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(languages, null, 2),
+        },
+      ],
+    };
+  }
+}
+```
+
+## Key Properties
+
+- **name**: Human-readable name for the resource
+- **title** (optional): Display name returned as the top-level `title` in `resources/list`. Clients can show it instead of `name`
+- **description**: What this resource contains
+- **mimeType**: Content type (e.g., `application/json`, `text/plain`, `text/markdown`)
+- **uri**: Unique identifier using `mcp://` scheme
+
+Register the class in a module's `controllers` array (not `providers`) so NestJS scans it when the strategy is connected. See [Server Examples](server-examples.md) for the full bootstrap. For request-scoped behavior, read headers/user via `ctx.getRawRequest()`.
+
+## Method Signature
+
+Resource methods receive:
+
+- `@Payload()` — an object with the `uri` parameter
+- `@Ctx() ctx: McpContext` — the MCP execution context, if needed (use `ctx.getRawRequest()` for the raw HTTP request)
+
+They must return:
+
+- `contents`: Array of content objects
+- Each content object has: `uri`, `mimeType`, `text`
+
+## Different Content Types
+
+### JSON Resource
+
+```typescript
+@Resource({
+  name: 'config-data',
+  description: 'Application configuration',
+  mimeType: 'application/json',
+  uri: 'mcp://config/app',
+})
+getConfig(@Payload() { uri }: { uri: string }) {
+  return {
+    contents: [{
+      uri,
+      mimeType: 'application/json',
+      text: JSON.stringify({ version: '1.0', debug: true }),
+    }],
+  };
+}
+```
+
+### Plain Text Resource
+
+```typescript
+@Resource({
+  name: 'help-text',
+  description: 'Help documentation',
+  mimeType: 'text/plain',
+  uri: 'mcp://help/usage',
+})
+getHelp(@Payload() { uri }: { uri: string }) {
+  return {
+    contents: [{
+      uri,
+      mimeType: 'text/plain',
+      text: 'This is how you use the application...',
+    }],
+  };
+}
+```
+
+### Markdown Resource
+
+```typescript
+@Resource({
+  name: 'readme',
+  description: 'Project documentation',
+  mimeType: 'text/markdown',
+  uri: 'mcp://docs/readme',
+})
+getReadme(@Payload() { uri }: { uri: string }) {
+  return {
+    contents: [{
+      uri,
+      mimeType: 'text/markdown',
+      text: '# My Project\n\nThis project does amazing things...',
+    }],
+  };
+}
+```
+
+## Testing Your Resources
+
+### 1. Start the Server
+
+Run the example server:
+
+```bash
+cd examples/resources && npm install && npm start
+```
+
+Server listens on `http://localhost:3000/mcp`.
+
+### 2. List Available Resources
+
+```bash
+npx @modelcontextprotocol/inspector@0.16.2 --cli http://localhost:3000/mcp --transport http --method resources/list
+```
+
+Expected output:
+
+```json
+{
+  "resources": [
+    {
+      "name": "languages-informal-greetings",
+      "description": "Languages and their informal greeting phrases",
+      "mimeType": "application/json",
+      "uri": "mcp://languages/informal-greetings"
+    }
+  ]
+}
+```
+
+### 3. Read a Specific Resource
+
+```bash
+npx @modelcontextprotocol/inspector@0.16.2 --cli http://localhost:3000/mcp --transport http --method resources/read --uri "mcp://languages/informal-greetings"
+```
+
+Expected output:
+
+```json
+{
+  "contents": [
+    {
+      "uri": "mcp://languages/informal-greetings",
+      "mimeType": "application/json",
+      "text": "{\n  \"en\": \"Hey\",\n  \"es\": \"Qué tal\",\n  \"fr\": \"Salut\",\n  \"de\": \"Hi\",\n  \"it\": \"Ciao\",\n  \"pt\": \"Oi\",\n  \"ja\": \"やあ\",\n  \"ko\": \"안녕\",\n  \"zh\": \"嗨\"\n}"
+    }
+  ]
+}
+```
+
+### 4. Interactive Testing
+
+For interactive testing, use the MCP Inspector UI:
+
+```bash
+npx @modelcontextprotocol/inspector@0.16.2
+```
+
+Connect to `http://localhost:3000/mcp` and browse the resources to see your data.
+
+## Example Location
+
+See the complete example at: `examples/resources/src/greeting.resource.ts`
+
+## Related
+
+- For dynamic resources with parameters, see [Resource Templates](resource-templates.md)
+- For executable functions, see [Tools](tools.md)

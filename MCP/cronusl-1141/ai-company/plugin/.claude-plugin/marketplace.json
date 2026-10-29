@@ -1,0 +1,28 @@
+{
+  "name": "ai-team-os-marketplace",
+  "description": "AI Team OS plugin marketplace entry",
+  "plugins": [
+    {
+      "name": "ai-team-os",
+      "version": "1.16.0",
+      "description": "Shared tasks, project memory, reports, channels and Dashboard for Claude Code and Codex. This package installs the Claude Code plugin; Codex connects through its independent MCP and hook setup.",
+      "author": "CronusL-1141",
+      "source": "./",
+      "homepage": "https://github.com/CronusL-1141/AI-company",
+      "repository": "https://github.com/CronusL-1141/AI-company",
+      "license": "MIT",
+      "category": "productivity",
+      "tags": [
+        "team",
+        "agents",
+        "automation",
+        "project-management",
+        "ecosystem-research",
+        "github-discovery",
+        "code-mining",
+        "progressive-funnel",
+        "self-learning"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+id: drag
+module: mcp/tools/ui-automation/drag
+names:
+  mcp: drag
+  cli: drag
+description: >-
+  Drag from a visible runtime elementRef in a direction, then return a refreshed runtime UI snapshot. Use this for exposed sheet grabbers or real scroll/list content refs when nextSteps suggests dragging; do not use raw screen coordinates.
+outputSchema:
+  schema: mobilebuildmcp.output.ui-action-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Drag
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Refresh after UI action
+    toolId: snapshot_ui
+    when: success
+    condition: ui_action_needs_refresh

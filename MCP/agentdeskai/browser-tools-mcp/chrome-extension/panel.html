@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>BrowserTools MCP</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --border: #d8dee4;
+        --bg: #ffffff;
+        --accent: #0969da;
+        --ok: #1a7f37;
+        --warn: #9a6700;
+        --bad: #cf222e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #e6edf3;
+          --muted: #9198a1;
+          --border: #3d444d;
+          --bg: #0d1117;
+          --accent: #4493f8;
+          --ok: #3fb950;
+          --warn: #d29922;
+          --bad: #f85149;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        color: var(--fg);
+        background: var(--bg);
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin: 20px 0 8px;
+      }
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 4px;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+      .dot.connected {
+        background: var(--ok);
+      }
+      .dot.connecting {
+        background: var(--warn);
+      }
+      .dot.disconnected {
+        background: var(--bad);
+      }
+      .detail {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 8px 0 0;
+        white-space: pre-wrap;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .field span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      input[type="text"],
+      input[type="number"],
+      select {
+        padding: 5px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+        min-width: 0;
+      }
+      input[type="text"],
+      input[type="number"] {
+        width: 130px;
+      }
+      button {
+        padding: 6px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--fg);
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: color-mix(in srgb, var(--fg) 8%, transparent);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+      }
+      .note {
+        border-left: 3px solid var(--border);
+        padding-left: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>BrowserTools MCP</h1>
+    <p>Streams this tab's console, network activity and screenshots to your local MCP server.</p>
+
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <strong id="state">Starting…</strong>
+      <span id="server" class="detail" style="margin: 0"></span>
+    </div>
+    <p class="detail" id="detail"></p>
+
+    <div class="row">
+      <button id="reconnect">Reconnect</button>
+      <button id="cookies">Enable cookie access</button>
+    </div>
+
+    <h2>Connection</h2>
+    <div class="row">
+      <label class="field"><span>Host</span><input type="text" id="host" /></label>
+      <label class="field"><span>Port</span><input type="number" id="port" /></label>
+      <button id="save">Save</button>
+    </div>
+    <p class="note">
+      Loopback addresses only. The extension will not send captured data to any other host.
+    </p>
+
+    <h2>Input on this tab</h2>
+    <label><input type="checkbox" id="allowPanelInput" /> Allow click, type, and script evaluation on this tab</label>
+    <p class="note">
+      Off until you turn it on, and off again when you quit the browser. The server still has to be
+      started with <code>--allow-input</code> or <code>--allow-eval</code>. Tabs without DevTools open
+      use the toolbar popup. This does not hide the debugging banner.
+    </p>
+
+    <h2>Capture</h2>
+    <div class="row">
+      <label class="field">
+        <span>Console capture</span>
+        <select id="captureMode">
+          <option value="debugger">DevTools protocol (richer, shows a debug banner)</option>
+          <option value="inject">Wrap page console (no banner, works in Firefox)</option>
+        </select>
+      </label>
+    </div>
+    <div class="grid">
+      <label><input type="checkbox" id="captureConsole" /> Capture console</label>
+      <label><input type="checkbox" id="captureNetwork" /> Capture network</label>
+      <label><input type="checkbox" id="captureResponseBodies" /> Capture response bodies</label>
+      <label><input type="checkbox" id="showRequestHeaders" /> Send request headers</label>
+      <label><input type="checkbox" id="showResponseHeaders" /> Send response headers</label>
+    </div>
+
+    <h2>Limits</h2>
+    <div class="grid">
+      <label class="field"><span>Entries kept</span><input type="number" id="logLimit" /></label>
+      <label class="field"><span>Response budget</span><input type="number" id="queryLimit" /></label>
+      <label class="field"><span>Max string length</span><input type="number" id="stringSizeLimit" /></label>
+    </div>
+
+    <p class="note" style="margin-top: 20px">
+      Values that look like credentials are replaced with <code>[REDACTED]</code> before they leave
+      the browser. Headers are only sent when the boxes above are ticked.
+    </p>
+
+    <script src="shared.js"></script>
+    <script src="panel.js"></script>
+  </body>
+</html>

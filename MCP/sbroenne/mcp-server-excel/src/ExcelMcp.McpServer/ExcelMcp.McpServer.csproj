@@ -1,0 +1,190 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- Assembly and Namespace Configuration -->
+    <AssemblyName>Sbroenne.ExcelMcp.McpServer</AssemblyName>
+    <RootNamespace>Sbroenne.ExcelMcp.McpServer</RootNamespace>
+
+    <!-- MCP Server doesn't need XML documentation warnings - API docs are in MCP schema -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- Emit source generator output to disk for debugging -->
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- Version inherited from Directory.Build.props; overridden by CI via -p:Version -->
+
+    <!-- NuGet Package Configuration (secondary distribution — primary is standalone exe) -->
+    <PackageId>Sbroenne.ExcelMcp.McpServer</PackageId>
+    <!-- Note: McpServer type is added via _AddMcpServerPackageType target below
+         because .NET 8 SDK unconditionally sets PackageType=DotnetTool when PackAsTool=true -->
+    <Title>MCP Server for Excel</Title>
+    <Description>Excel automation for AI assistants - manage Sheets, Power Query, DAX, VBA, Tables, Ranges, Formatting, Validation and more. Requires Excel to be installed. Only runs on Windows.</Description>
+    <PackageTags>mcp;model-context-protocol;excel;microsoft;office;spreadsheet;automation;power-query;m-language;dax;data-model;power-pivot;vba;macro;table;copilot;ai;github-copilot;data-analysis</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>See https://github.com/sbroenne/mcp-server-excel/releases for release notes</PackageReleaseNotes>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+
+    <!-- .NET Tool Configuration -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>mcp-excel</ToolCommandName>
+
+    <!-- Multi-Architecture Support: NuGet tool publishes as portable (no RID).
+         Standalone exe builds in CI use separate publish args (RID flag + SelfContained=true).
+         IMPORTANT: Do NOT declare <RuntimeIdentifiers> here — combined with PackAsTool it forces
+         the pack flow to look for RID-qualified build output (bin/Release/net10.0-windows/win-x64/),
+         but `dotnet build` without a RID produces plain bin/Release/net10.0-windows/, breaking
+         `dotnet pack` with the no-build switch in CI. -->
+    <PublishSelfContained>false</PublishSelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!-- Package Validation -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+
+    <!-- Application Insights Connection String - embedded at build time from environment variable -->
+    <!-- CI/CD sets APPINSIGHTS_CONNECTION_STRING before build; local dev builds get empty string (telemetry disabled) -->
+    <AppInsightsConnectionString Condition="'$(AppInsightsConnectionString)' == ''">$(APPINSIGHTS_CONNECTION_STRING)</AppInsightsConnectionString>
+  </PropertyGroup>
+
+  <!-- Workaround: .NET SDK unconditionally sets PackageType=DotnetTool when PackAsTool=true,
+       preventing us from also setting McpServer type. This target appends McpServer before Pack.
+       Note: <PackageType>McpServer</PackageType> alone cannot be set because PackAsTool overrides it. -->
+  <Target Name="_AddMcpServerPackageType" BeforeTargets="GenerateNuspec;Pack">
+    <PropertyGroup>
+      <PackageType>$(PackageType);McpServer</PackageType>
+    </PropertyGroup>
+  </Target>
+
+  <!-- Workaround for NETSDK1146: PackAsTool doesn't support net10.0-windows -->
+  <!-- See: https://github.com/dotnet/sdk/issues/12055#issuecomment-2125927648 -->
+  <Target Name="HackBeforePackToolValidation" BeforeTargets="_PackToolValidation">
+    <PropertyGroup>
+      <TargetPlatformIdentifier></TargetPlatformIdentifier>
+      <TargetPlatformMoniker></TargetPlatformMoniker>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="HackAfterPackToolValidation" AfterTargets="_PackToolValidation" BeforeTargets="PackTool">
+    <PropertyGroup>
+      <TargetPlatformIdentifier>Windows</TargetPlatformIdentifier>
+    </PropertyGroup>
+  </Target>
+
+  <!-- Inline task: Write text to file (semicolons safe, unlike WriteLinesToFile) -->
+  <UsingTask TaskName="WriteTextFile" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <FilePath ParameterType="System.String" Required="true" />
+      <Content ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs">
+        System.IO.File.WriteAllText(FilePath, Content);
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="GenerateTelemetryConfig" BeforeTargets="BeforeCompile;CoreCompile">
+    <PropertyGroup>
+      <TelemetryConfigFile>$(IntermediateOutputPath)TelemetryConfig.g.cs</TelemetryConfigFile>
+      <TelemetryConfigContent>// Auto-generated at build time - do not edit
+namespace Sbroenne.ExcelMcp.McpServer.Telemetry%3B
+
+internal static class TelemetryConfig
+{
+    public const string ConnectionString = "$(AppInsightsConnectionString)"%3B
+}
+</TelemetryConfigContent>
+    </PropertyGroup>
+    <WriteTextFile FilePath="$(TelemetryConfigFile)" Content="$(TelemetryConfigContent)" />
+    <ItemGroup>
+      <Compile Include="$(TelemetryConfigFile)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Release Build Optimizations -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- Disable debug symbols in Release builds -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+
+    <!-- Generate XML docs for analyzers but exclude from publish -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- Additional optimization flags -->
+    <Optimize>true</Optimize>
+    <TieredCompilation>true</TieredCompilation>
+    <TieredCompilationQuickJit>true</TieredCompilationQuickJit>
+  </PropertyGroup>
+
+  <!-- Exclude XML and PDB files from publish output -->
+  <Target Name="RemoveXmlAndPdbFromPublish" AfterTargets="Publish" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <XmlFilesToDelete Include="$(PublishDir)**\*.xml" />
+      <PdbFilesToDelete Include="$(PublishDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(XmlFilesToDelete)" />
+    <Delete Files="@(PdbFilesToDelete)" />
+    <Message Text="Removed XML documentation and PDB files from publish output" Importance="high" />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ExcelMcp.Core\ExcelMcp.Core.csproj">
+      <Private>true</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\ExcelMcp.Service\ExcelMcp.Service.csproj" />
+
+    <!-- MCP Tool Generator - generates [McpServerToolType] classes from Core [ServiceCategory] interfaces -->
+    <ProjectReference Include="..\ExcelMcp.Generators.Mcp\ExcelMcp.Generators.Mcp.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+
+  </ItemGroup>
+
+  <Target Name="IncludeCoreToolDocumentation" BeforeTargets="CoreCompile" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <CoreDocumentationAssembly Include="@(ReferenceCopyLocalPaths)"
+                                 Condition="'%(Filename)' == 'Sbroenne.ExcelMcp.Core' and '%(Extension)' == '.dll'" />
+      <AdditionalFiles Include="@(CoreDocumentationAssembly->'%(RootDir)%(Directory)%(Filename).xml')" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Allow test project to access internal members (e.g., McpProgressAdapter) -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sbroenne.ExcelMcp.McpServer.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="Azure.Monitor.OpenTelemetry.Exporter" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\TelemetrySettings.cs" Link="Telemetry\TelemetrySettings.cs" />
+    <Compile Include="..\Shared\UsageTelemetry.cs" Link="Telemetry\UsageTelemetry.cs" />
+    <Compile Include="..\Shared\UsageRecord.cs" Link="Telemetry\UsageRecord.cs" />
+    <Compile Include="..\Shared\TelemetryUserIdentity.cs" Link="Telemetry\TelemetryUserIdentity.cs" />
+    <!-- Include MCP Server Configuration -->
+    <Content Include=".mcp/server.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>.mcp/server.json</PackagePath>
+    </Content>
+
+    <!-- Include README and LICENSE in package -->
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

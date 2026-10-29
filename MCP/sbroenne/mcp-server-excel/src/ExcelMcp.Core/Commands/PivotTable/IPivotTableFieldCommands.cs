@@ -1,0 +1,377 @@
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Attributes;
+using Sbroenne.ExcelMcp.Core.Models;
+
+namespace Sbroenne.ExcelMcp.Core.Commands.PivotTable;
+
+/// <summary>
+/// PivotTable field management: add/remove/configure fields, filtering, sorting, and grouping.
+/// Use pivottable for lifecycle, pivottablecalc for calculated fields and layout.
+///
+/// IMPORTANT: Field operations modify structure only. Call pivottable refresh after
+/// configuring fields to update the visual display, especially for OLAP/Data Model PivotTables.
+///
+/// FIELD AREAS:
+/// - Row fields: Group data by categories (add-row-field)
+/// - Column fields: Create column headers (add-column-field)
+/// - Value fields: Aggregate numeric data with Sum, Count, Average, etc. (add-value-field)
+/// - Filter fields: Add report-level filters (add-filter-field)
+///
+/// AGGREGATION FUNCTIONS: Sum, Count, Average, Max, Min, Product, CountNumbers, StdDev, StdDevP, Var, VarP
+///
+/// GROUPING:
+/// - Date fields: Group by Days, Months, Quarters, Years (group-by-date)
+/// - Numeric fields: Group by ranges with start/end/interval (group-by-numeric)
+///
+/// NUMBER FORMAT: Use US format codes like '#,##0.00' for currency or '0.00%' for percentages.
+/// </summary>
+[ServiceCategory("PivotTableField")]
+[McpTool("pivottable_field", Title = "PivotTable Field Operations", Destructive = true, Category = "analysis",
+    Description = "PivotTable field management: add/remove/configure fields, filtering, sorting, and grouping. Use the targeted read action for bounded, exact OLAP/Data Model report-filter state and set-report-filter to change one PivotTable's member selection. Use the exact hierarchy unique name returned by field listing, not a level-qualified name. IMPORTANT: Field placement modifies structure only - call pivottable(refresh) after configuring, especially for OLAP/Data Model PivotTables. FIELD AREAS: Row (categories), Column (headers), Value (aggregation: Sum/Count/Average/Max/Min/etc.), Filter (report-level). SHOW VALUES AS: set-field-calculation targets an exact displayed Values name, independently of aggregation, and verifies native settings. OLAP/Data Model BaseField/BaseItem are unavailable; ignored native calculations fail with source-measure guidance. GROUPING: date (Days/Months/Quarters/Years), numeric (start/end/interval). NUMBER FORMAT: US format codes. Use pivottable for lifecycle, pivottable_calc for calculated fields.")]
+[McpReadOnlyActions("list-fields", "get-field-filters", "get-report-filter", "get-item-expansion", "get-field-options", "get-subtotal-functions")]
+public interface IPivotTableFieldCommands
+{
+    // === FIELD MANAGEMENT (WITH IMMEDIATE VALIDATION) ===
+
+    /// <summary>
+    /// Lists all available fields and their current placement.
+    /// valueFields reads every displayed Values instance, including repeated source fields,
+    /// native aggregation, Show Values As, and applicable base settings without a cap.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <returns>Field names, data types, current areas, aggregation functions</returns>
+    [ServiceAction("list-fields")]
+    PivotFieldListResult ListFields(IExcelBatch batch, string pivotTableName);
+
+    /// <summary>
+    /// Adds field to Row area with position validation
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field to add</param>
+    /// <param name="position">Optional position in row area (1-based)</param>
+    /// <returns>Updated field layout with new position</returns>
+    [ServiceAction("add-row-field")]
+    PivotFieldResult AddRowField(IExcelBatch batch, string pivotTableName,
+        string fieldName, int? position = null);
+
+    /// <summary>
+    /// Adds field to Column area with position validation
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field to add</param>
+    /// <param name="position">Optional position in column area (1-based)</param>
+    /// <returns>Updated field layout</returns>
+    [ServiceAction("add-column-field")]
+    PivotFieldResult AddColumnField(IExcelBatch batch, string pivotTableName,
+        string fieldName, int? position = null);
+
+    /// <summary>
+    /// Adds field to Values area with aggregation function.
+    ///
+    /// For OLAP PivotTables, supports TWO modes:
+    /// 1. Pre-existing measure: fieldName = "Total Sales" or "[Measures].[Total Sales]"
+    ///    - Adds an existing Data Model or external cube measure without creating a duplicate
+    ///    - aggregationFunction ignored (measure formula defines aggregation)
+    /// 2. Auto-create measure: fieldName = "[SalesTable].[Sales]" (exact Data Model column CubeField name)
+    ///    - Creates a new workbook DAX measure with the specified aggregation function; external cube columns cannot create workbook measures
+    ///    - customName becomes the measure name
+    ///
+    /// For Regular PivotTables: Adds column with aggregation function.
+    /// Reports failure if Excel leaves the PivotTable collapsed to a #SPILL! cell.
+    /// The field change is not rolled back; inspect pivottable read/list layoutError and nearby cells before recovery.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Field/column name OR existing measure name (OLAP)</param>
+    /// <param name="aggregationFunction">Aggregation function (for Regular and OLAP auto-create mode)</param>
+    /// <param name="customName">Optional custom name for the field/measure</param>
+    /// <returns>Field configuration with applied function and custom name</returns>
+    [ServiceAction("add-value-field")]
+    PivotFieldResult AddValueField(IExcelBatch batch, string pivotTableName,
+        string fieldName, [FromString] AggregationFunction aggregationFunction = AggregationFunction.Sum,
+        string? customName = null);
+
+    /// <summary>
+    /// Adds field to Filter area (Page field)
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field to add</param>
+    /// <returns>Field configuration with available filter items</returns>
+    [ServiceAction("add-filter-field")]
+    PivotFieldResult AddFilterField(IExcelBatch batch, string pivotTableName,
+        string fieldName);
+
+    /// <summary>
+    /// Removes field from any area
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field to remove</param>
+    /// <returns>Updated layout after removal</returns>
+    [ServiceAction("remove-field")]
+    PivotFieldResult RemoveField(IExcelBatch batch, string pivotTableName,
+        string fieldName);
+
+    // === FIELD CONFIGURATION (WITH RESULT VERIFICATION) ===
+
+    /// <summary>
+    /// Sets aggregation function for a value field. For Data Model measures, changes only a single aggregation of one column.
+    /// Compound DAX formulas must be changed explicitly with datamodel update-measure; external cube measures must be changed on the cube server.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field</param>
+    /// <param name="aggregationFunction">Aggregation function to set</param>
+    /// <returns>Applied function and sample calculation result</returns>
+    [ServiceAction("set-field-function")]
+    PivotFieldResult SetFieldFunction(IExcelBatch batch, string pivotTableName,
+        string fieldName, [FromString] AggregationFunction aggregationFunction);
+
+    /// <summary>
+    /// Sets native Show Values As on one displayed Values instance, independently of aggregation.
+    /// Use list-fields valueFields.fieldName, not a source name shared by repeated value fields.
+    /// Normal resets additional calculation. Base-dependent calculations require a row/column field;
+    /// OLAP/Data Model BaseField/BaseItem are unavailable. Native failures do not promise rollback.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Exact PivotTable name</param>
+    /// <param name="fieldName">Exact displayed value-field name from list-fields valueFields</param>
+    /// <param name="calculation">Native additional calculation; Normal preserves aggregation</param>
+    /// <param name="baseFieldName">Required exact row/column field for differences, running totals, parent-field percentage, and ranks; otherwise omit</param>
+    /// <param name="baseItemKind">Required for DifferenceFrom, PercentOf, PercentDifferenceFrom: Named, Previous, or Next; otherwise omit</param>
+    /// <param name="baseItemName">Exact native item name, required only with Named; never a numeric index</param>
+    /// <returns>Actual native calculation and applicable base settings</returns>
+    [ServiceAction("set-field-calculation")]
+    PivotFieldCalculationResult SetFieldCalculation(IExcelBatch batch, string pivotTableName,
+        string fieldName, [FromString] PivotFieldCalculation calculation, string? baseFieldName = null,
+        [FromString] PivotCalculationBaseItemKind? baseItemKind = null, string? baseItemName = null);
+
+    /// <summary>
+    /// Sets custom name for field in any area
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field</param>
+    /// <param name="customName">Custom name to set</param>
+    /// <returns>Applied name and field reference</returns>
+    [ServiceAction("set-field-name")]
+    PivotFieldResult SetFieldName(IExcelBatch batch, string pivotTableName,
+        string fieldName, string customName);
+
+    /// <summary>
+    /// Sets an invariant number format for a value field without changing the shared Data Model measure.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Field name. OLAP measures accept the exact cube-field name, bare measure name, or exact displayed value-field or cube caption.</param>
+    /// <param name="numberFormat">Invariant/en-US number format string, including custom currency formats. Excel displays local numeric separators.</param>
+    /// <returns>Applied format read back from Excel, with the selected OLAP value field's first displayed data cell when available.</returns>
+    [ServiceAction("set-field-format")]
+    PivotFieldResult SetFieldFormat(IExcelBatch batch, string pivotTableName,
+        string fieldName, string numberFormat);
+
+    // === ANALYSIS OPERATIONS (WITH DATA VALIDATION) ===
+
+    /// <summary>
+    /// Sets filter for field with validation of filter items
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field to filter</param>
+    /// <param name="selectedValues">Values to show (others will be hidden)</param>
+    /// <returns>Applied filter state and affected row count</returns>
+    [ServiceAction("set-field-filter")]
+    PivotFieldFilterResult SetFieldFilter(IExcelBatch batch, string pivotTableName,
+        string fieldName, List<string> selectedValues);
+
+    /// <summary>
+    /// Sets the selected members of an OLAP/Data Model report filter on one PivotTable.
+    /// Pass an empty selectedItems list to show all members. Member names must be exact
+    /// unique names returned by Excel. fieldName must be the exact hierarchy unique name
+    /// returned by list-fields, not a level-qualified name. This operation does not
+    /// change the Data Model or other PivotTables. A failed write may have partially
+    /// changed the filter; RequestedItems and SelectedItems distinguish the request
+    /// from successfully read actual state.
+    /// </summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="sheetName">Exact worksheet containing the target PivotTable. Required because PivotTable names may repeat on different worksheets.</param>
+    /// <param name="pivotTableName">Exact PivotTable name on the worksheet.</param>
+    /// <param name="fieldName">Exact OLAP CubeField hierarchy unique name.</param>
+    /// <param name="selectedItems">JSON string array of exact OLAP/Data Model member unique names to show, not displayed captions; empty means show all. This differs from set-field-filter's selectedValues.</param>
+    /// <returns>The request, actual selected member names, All state, selection mode, and failure phase.</returns>
+    [ServiceAction("set-report-filter")]
+    PivotReportFilterResult SetReportFilter(IExcelBatch batch, string sheetName,
+        string pivotTableName, string fieldName, List<string> selectedItems);
+
+    /// <summary>
+    /// Reads the exact state of one placed OLAP/Data Model report filter.
+    /// The result is limited to the selected hierarchy; it does not list hidden
+    /// fields or every Values instance.
+    /// </summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="sheetName">Exact worksheet containing the target PivotTable. Required because PivotTable names may repeat on different worksheets.</param>
+    /// <param name="pivotTableName">Exact PivotTable name on the worksheet.</param>
+    /// <param name="fieldName">Exact hierarchy unique name returned by list-fields, not a level name.</param>
+    /// <returns>Exact selected member unique names, All state, selection mode, and placement for this hierarchy.</returns>
+    [ServiceAction("get-report-filter")]
+    PivotReportFilterResult GetReportFilter(
+        IExcelBatch batch, string sheetName, string pivotTableName, string fieldName);
+
+    /// <summary>Reads every native calculated filter on a placed regular field or OLAP row/column field. Excel may omit the value-field name when reading OLAP filters. Manual item visibility is separate.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed field caption; for OLAP, the exact hierarchy name or placed row/column level name.</param>
+    [ServiceAction("get-field-filters")]
+    PivotFiltersResult GetFieldFilters(IExcelBatch batch, string pivotTableName, string fieldName);
+
+    /// <summary>Adds a native label, value, top/bottom, or date filter without clearing existing filters. OLAP date filters require a source date level recognized by Excel and the provider; a date-looking caption alone is insufficient.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed field caption; for OLAP, the exact hierarchy name or placed row/column level name.</param>
+    /// <param name="filterOptions">Filter criteria: type selects a Caption, Value, Top/Bottom, or Date filter; Caption uses text1 and optional text2, Value/Top/Bottom uses dataFieldName and number1 plus number2 for intervals, and Date filters use ISO date1 plus date2 for intervals. OLAP date support depends on the source date level and provider. OLAP dataFieldName accepts the displayed value caption or its [Measures] unique name.</param>
+    [ServiceAction("add-field-filter")]
+    PivotFiltersResult AddFieldFilter(IExcelBatch batch, string pivotTableName, string fieldName, PivotFilterOptions filterOptions);
+
+    /// <summary>Deletes only native calculated filters from the selected regular field or OLAP row/column field. Does not clear manual item visibility or filters on other fields.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed field caption; for OLAP, the exact hierarchy name or placed row/column level name.</param>
+    [ServiceAction("clear-field-filters")]
+    PivotFiltersResult ClearFieldFilters(IExcelBatch batch, string pivotTableName, string fieldName);
+
+    /// <summary>Reads a regular PivotTable parent item's native expansion state. OLAP/provider-dependent expansion is unsupported.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Placed non-innermost row or column field.</param>
+    /// <param name="itemName">Exact item caption.</param>
+    [ServiceAction("get-item-expansion")]
+    PivotItemExpansionResult GetItemExpansion(IExcelBatch batch, string pivotTableName, string fieldName, string itemName);
+
+    /// <summary>Expands or collapses only the named regular PivotTable parent item.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Placed non-innermost row or column field.</param>
+    /// <param name="itemName">Exact item caption.</param>
+    /// <param name="expanded">True expands; false collapses.</param>
+    [ServiceAction("set-item-expansion")]
+    PivotItemExpansionResult SetItemExpansion(IExcelBatch batch, string pivotTableName, string fieldName, string itemName, bool expanded);
+
+    /// <summary>
+    /// Sorts a field by its labels or, when dataFieldName is supplied, by a displayed value or measure.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the field to sort</param>
+    /// <param name="direction">Sort direction</param>
+    /// <returns>Applied sort configuration and preview of changes</returns>
+    /// <param name="dataFieldName">Optional exact displayed Values caption; OLAP also accepts the [Measures] unique name.</param>
+    [ServiceAction("sort-field")]
+    PivotFieldResult SortField(IExcelBatch batch, string pivotTableName,
+        string fieldName, [FromString] SortDirection direction = SortDirection.Ascending, string? dataFieldName = null);
+
+    /// <summary>Reads a regular row/column field's setting for showing items with no data.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed row/column field caption.</param>
+    [ServiceAction("get-field-options")]
+    PivotFieldOptionsResult GetFieldOptions(IExcelBatch batch, string pivotTableName, string fieldName);
+
+    /// <summary>Shows or hides items with no data in a regular row/column field. OLAP uses layoutOptions.showEmptyRows/showEmptyColumns instead.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed row/column field caption.</param>
+    /// <param name="showAllItems">Include cached items even when the current report has no data for them.</param>
+    [ServiceAction("set-field-options")]
+    PivotFieldOptionsResult SetFieldOptions(IExcelBatch batch, string pivotTableName, string fieldName, bool showAllItems);
+
+    /// <summary>Reads all selected native subtotal functions on a regular row/column field.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed row/column field caption.</param>
+    [ServiceAction("get-subtotal-functions")]
+    PivotSubtotalResult GetSubtotalFunctions(IExcelBatch batch, string pivotTableName, string fieldName);
+
+    /// <summary>Replaces subtotal functions on a regular row/column field. Empty list hides subtotals; Automatic cannot be combined with others. OLAP supports only automatic subtotals through set-subtotals.</summary>
+    /// <param name="batch">Excel batch session.</param>
+    /// <param name="pivotTableName">Selected PivotTable.</param>
+    /// <param name="fieldName">Exact placed row/column field caption.</param>
+    /// <param name="functions">Array of selected subtotal function names. CLI uses a JSON array string.</param>
+    [ServiceAction("set-subtotal-functions")]
+    PivotSubtotalResult SetSubtotalFunctions(IExcelBatch batch, string pivotTableName, string fieldName,
+        List<PivotSubtotalFunction> functions);
+
+    // === GROUPING OPERATIONS (DATE AND NUMERIC) ===
+
+    /// <summary>
+    /// Groups date/time field by specified interval (Month, Quarter, Year)
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Name of the date/time field to group</param>
+    /// <param name="interval">Grouping interval (Months, Quarters, Years)</param>
+    /// <returns>Applied grouping configuration and resulting group count</returns>
+    /// <remarks>
+    /// Creates automatic date hierarchy in PivotTable (e.g., Years > Quarters > Months).
+    /// Works for both regular and OLAP PivotTables.
+    /// Example: Group "OrderDate" by Months to see monthly sales trends.
+    /// </remarks>
+    [ServiceAction("group-by-date")]
+    PivotFieldResult GroupByDate(IExcelBatch batch, string pivotTableName,
+        string fieldName, [FromString] DateGroupingInterval interval);
+
+    /// <summary>
+    /// Groups a numeric field by specified interval (e.g., 0-100, 100-200, 200-300).
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of PivotTable</param>
+    /// <param name="fieldName">Field to group</param>
+    /// <param name="start">Starting value (null = use field minimum)</param>
+    /// <param name="endValue">Ending value (null = use field maximum)</param>
+    /// <param name="intervalSize">Size of each group (e.g., 100 for groups of 100)</param>
+    /// <returns>Grouping result with created groups</returns>
+    /// <remarks>
+    /// Creates numeric range groups in PivotTable for analysis.
+    /// Use cases: Age groups (0-20, 20-40), price ranges (0-100, 100-200), score bands (0-50, 50-100).
+    /// Works for regular PivotTables. OLAP PivotTables require grouping in Data Model.
+    /// Example: Group "Sales" by 100 to analyze sales distribution across price ranges.
+    /// </remarks>
+    [ServiceAction("group-by-numeric")]
+    PivotFieldResult GroupByNumeric(IExcelBatch batch, string pivotTableName,
+        string fieldName, double? start, double? endValue, double intervalSize);
+
+    /// <summary>
+    /// Manually groups two or more visible items in a regular PivotTable field.
+    /// Manual grouping is not supported for OLAP/Data Model PivotTables.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="fieldName">Placed row or column field containing the items</param>
+    /// <param name="itemNames">Exact item captions to group</param>
+    /// <param name="groupName">Caption for the new group</param>
+    /// <returns>The generated grouped field and grouped items</returns>
+    [ServiceAction("group-items")]
+    PivotItemGroupResult GroupItems(
+        IExcelBatch batch,
+        string pivotTableName,
+        string fieldName,
+        List<string> itemNames,
+        string groupName);
+
+    /// <summary>
+    /// Removes manual grouping from a grouped field in a regular PivotTable.
+    /// Use the grouped field name returned by group-items.
+    /// </summary>
+    /// <param name="batch">Excel batch session</param>
+    /// <param name="pivotTableName">Name of the PivotTable</param>
+    /// <param name="groupedFieldName">Generated grouped field name</param>
+    /// <returns>Operation result</returns>
+    [ServiceAction("ungroup-field")]
+    OperationResult UngroupField(
+        IExcelBatch batch,
+        string pivotTableName,
+        string groupedFieldName);
+}

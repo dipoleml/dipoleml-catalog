@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sbroenne/mcp-server-excel",
+  "title": "MCP Server for Excel",
+  "description": "Excel automation for AI - Sheets, Power Query, DAX, VBA, Tables, Ranges and more. Windows only.",
+  "version": "2.5.7",
+  "websiteUrl": "https://excelmcpserver.dev/",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "identifier": "Sbroenne.ExcelMcp.McpServer",
+      "version": "2.5.7",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [],
+      "environmentVariables": []
+    },
+    {
+      "registryType": "npm",
+      "identifier": "@sbroenne/mcp-server-excel",
+      "version": "2.5.7",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [],
+      "environmentVariables": []
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/sbroenne/mcp-server-excel",
+    "source": "github"
+  }
+}

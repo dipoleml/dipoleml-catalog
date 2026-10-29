@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.adhikasp.mcp-client-cli",
+  "type": "mcp",
+  "name": "MCP Client CLI",
+  "slug": "mcp-client-cli",
+  "vendor": "adhikasp",
+  "description": "A simple CLI to run LLM prompt and implement MCP client.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/adhikasp/mcp-client-cli",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "langchain",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "langchain",
+    "llm",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "adhikasp",
+    "brandName": "adhikasp",
+    "source": "https://github.com/adhikasp.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "adhikasp/mcp-client-cli",
+    "url": "https://github.com/adhikasp/mcp-client-cli",
+    "commit": "808972daf5f542de4a44c75d9243a45372edd5e9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 675,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:20Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp_client_cli"
+    ],
+    "env": [
+      "BRAVE_API_KEY",
+      "LLM_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "BRAVE_API_KEY",
+      "LLM_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

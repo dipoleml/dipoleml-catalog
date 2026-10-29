@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.winfactorai.mykeys",
+  "type": "mcp",
+  "name": "Mykeys",
+  "slug": "mykeys",
+  "vendor": "winfactorai",
+  "description": "MyKeys — local-first credential vault for AI agents: encrypted secrets on your machine, short-lived tokens for AI use, per-purpose usage audit. DipoleML plugin / MCP server.",
+  "version": "0.2.0",
+  "homepage": "https://github.com/WinFactorAI/MyKeys",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "winfactorai",
+    "brandName": "winfactorai",
+    "source": "https://github.com/WinFactorAI.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:46Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "WinFactorAI/MyKeys",
+    "url": "https://github.com/WinFactorAI/MyKeys",
+    "commit": "54b622a6122c9ba29bc8e6302d3001a536f884d0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 0,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:16Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "zcode",
+    "changes": [
+      {
+        "file": ".zcode-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/zcode/.zcode-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Mykeys | MyKeys — local-first credential vault for AI agents: encrypted secrets on your machine, short-lived tokens for AI use, per-purpose usage audit. ZCode plugin / MCP server.",
+        "after": "Mykeys | MyKeys — local-first credential vault for AI agents: encrypted secrets on your machine, short-lived tokens for AI use, per-purpose usage audit. DipoleML plugin / MCP server.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "MyKeys — local-first credential vault for ZCode: manage passwords/keys for various systems, verify logins and issue temporary tokens for AI use, with per-purpose usage statistics.",
+        "after": "MyKeys — local-first credential vault for DipoleML: manage passwords/keys for various systems, verify logins and issue temporary tokens for AI use, with per-purpose usage statistics.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/server/index.js"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mkeys"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "bin/mykeys.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "mkeys"
+    ],
+    "env": [
+      "MKEYS_ALLOW_REVEAL",
+      "ORDERS_CLIENT_SECRET",
+      "MKEYS_ADMIN_TOKEN",
+      "MKEYS_HOME",
+      "MKEYS_MASTER_KEY",
+      "MKEYS_ALLOW_PRIVATE_ENDPOINTS",
+      "MKEYS_DEBUG"
+    ],
+    "credentials": [
+      "MKEYS_ALLOW_REVEAL",
+      "ORDERS_CLIENT_SECRET",
+      "MKEYS_ADMIN_TOKEN",
+      "MKEYS_HOME",
+      "MKEYS_MASTER_KEY",
+      "MKEYS_ALLOW_PRIVATE_ENDPOINTS",
+      "MKEYS_DEBUG"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "zcode"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

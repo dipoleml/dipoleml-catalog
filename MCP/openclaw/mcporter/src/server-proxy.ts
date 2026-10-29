@@ -1,0 +1,492 @@
+import { createCallResult } from './result-utils.js';
+import type { CallOptions, ListToolsOptions, Runtime, ServerToolInfo } from './runtime.js';
+import { readSchemaCache, writeSchemaCache } from './schema-cache.js';
+
+export type ToolCallOptions = CallOptions & { args?: unknown };
+type ToolArguments = CallOptions['args'];
+
+export type ServerProxy = {
+  call(toolName: string, options?: ToolCallOptions): Promise<ReturnType<typeof createCallResult>>;
+  listTools(options?: ListToolsOptions): Promise<ServerToolInfo[]>;
+};
+
+type ToolSchemaInfo = {
+  schema: Record<string, unknown>;
+  orderedKeys: string[];
+  requiredKeys: string[];
+  propertySet: Set<string>;
+};
+
+const KNOWN_OPTION_KEYS = new Set([
+  'disableOAuth',
+  'tailLog',
+  'timeout',
+  'timeoutMs',
+  'stream',
+  'streamLog',
+  'mimeType',
+  'metadata',
+  'log',
+]);
+
+export interface ServerProxyOptions {
+  readonly mapPropertyToTool?: (property: string | symbol) => string;
+  readonly cacheSchemas?: boolean;
+  readonly initialSchemas?: Record<string, unknown>;
+}
+
+// defaultToolNameMapper converts camelCase property access into kebab-case tool names.
+function defaultToolNameMapper(propertyKey: string | symbol): string {
+  if (typeof propertyKey !== 'string') {
+    throw new TypeError('Tool name must be a string when using server proxy.');
+  }
+  return propertyKey.replace(/([a-z\d])([A-Z])/g, '$1-$2').toLowerCase();
+}
+
+// canonicalizeToolName strips punctuation for loose matching of tool names.
+function canonicalizeToolName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// isPlainObject narrows unknown values to plain object records.
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isProxyOptionKey(key: string): boolean {
+  return key === 'args' || KNOWN_OPTION_KEYS.has(key);
+}
+
+function inferMetadataOptions(callArgs: unknown[]): {
+  options: { autoAuthorize?: false; disableOAuth?: boolean };
+  optionObjects: Set<Record<string, unknown>>;
+} {
+  const options: { autoAuthorize?: false; disableOAuth?: boolean } = {};
+  const optionObjects = new Set<Record<string, unknown>>();
+
+  for (const [index, arg] of callArgs.entries()) {
+    if (!isPlainObject(arg) || arg.disableOAuth !== true) {
+      continue;
+    }
+    const keys = Object.keys(arg);
+    const isOptionsOnlyObject = keys.length > 0 && keys.every(isProxyOptionKey);
+    const hasClearlySeparateToolArgs = callArgs.some((other, otherIndex) => {
+      if (otherIndex === index) {
+        return false;
+      }
+      if (!isPlainObject(other)) {
+        return false;
+      }
+      return Object.hasOwn(other, 'args') || Object.keys(other).some((key) => !isProxyOptionKey(key));
+    });
+    // `args` plus proxy options is reserved envelope syntax; use proxy.call()
+    // when a tool schema itself owns both `args` and `disableOAuth`.
+    const hasExplicitArgsEnvelope = Object.hasOwn(arg, 'args');
+    // A sole object can be a tool argument whose schema owns `disableOAuth`.
+    // Multi-argument calls suppress discovery defensively, then let the schema
+    // classify option-only objects unless another argument is clearly tool input.
+    const isUnambiguousOptionsObject = isOptionsOnlyObject && (hasClearlySeparateToolArgs || hasExplicitArgsEnvelope);
+    if (isUnambiguousOptionsObject) {
+      options.disableOAuth = true;
+    } else if (isOptionsOnlyObject && callArgs.length > 1 && options.disableOAuth !== true) {
+      options.autoAuthorize = false;
+    }
+    if (isUnambiguousOptionsObject) {
+      optionObjects.add(arg);
+    }
+  }
+  return { options, optionObjects };
+}
+
+// createToolSchemaInfo normalizes schema metadata used for argument mapping.
+function createToolSchemaInfo(schemaRaw: unknown): ToolSchemaInfo | undefined {
+  if (!schemaRaw || typeof schemaRaw !== 'object') {
+    return undefined;
+  }
+  const schema = schemaRaw as Record<string, unknown>;
+  const propertiesRaw = schema.properties;
+  const propertyKeys =
+    propertiesRaw && typeof propertiesRaw === 'object' ? Object.keys(propertiesRaw as Record<string, unknown>) : [];
+  const requiredKeys = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  const orderedKeys: string[] = [];
+  const seen = new Set<string>();
+
+  for (const key of requiredKeys) {
+    if (typeof key === 'string' && !seen.has(key)) {
+      orderedKeys.push(key);
+      seen.add(key);
+    }
+  }
+
+  for (const key of propertyKeys) {
+    if (!seen.has(key)) {
+      orderedKeys.push(key);
+      seen.add(key);
+    }
+  }
+
+  return {
+    schema,
+    orderedKeys,
+    requiredKeys,
+    propertySet: new Set([...propertyKeys, ...requiredKeys]),
+  };
+}
+
+// applyDefaults merges JSON-schema default values into the provided arguments.
+function applyDefaults(meta: ToolSchemaInfo, args?: ToolArguments): ToolArguments {
+  const propertiesRaw = meta.schema.properties;
+  if (!propertiesRaw || typeof propertiesRaw !== 'object') {
+    return args;
+  }
+
+  const result = new Map(Object.entries(isPlainObject(args) ? args : {}));
+
+  for (const [key, value] of Object.entries(propertiesRaw as Record<string, unknown>)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      'default' in (value as Record<string, unknown>) &&
+      result.get(key) === undefined
+    ) {
+      result.set(key, (value as Record<string, unknown>).default);
+    }
+  }
+
+  if (result.size === 0 && !isPlainObject(args)) {
+    return args;
+  }
+
+  return Object.fromEntries(result);
+}
+
+// validateRequired ensures all schema-required fields are present before invocation.
+function validateRequired(meta: ToolSchemaInfo, args?: ToolArguments): void {
+  if (meta.requiredKeys.length === 0) {
+    return;
+  }
+  if (!isPlainObject(args)) {
+    throw new Error(`Missing required arguments: ${meta.requiredKeys.join(', ')}`);
+  }
+  const missing = meta.requiredKeys.filter((key) => !Object.hasOwn(args, key) || args[key] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`Missing required arguments: ${missing.join(', ')}`);
+  }
+}
+
+// createServerProxy returns a proxy that maps property access to MCP tool invocations.
+export function createServerProxy(
+  runtime: Runtime,
+  serverName: string,
+  mapOrOptions?: ((property: string | symbol) => string) | ServerProxyOptions,
+  maybeOptions?: ServerProxyOptions
+): ServerProxy {
+  let mapPropertyToTool = defaultToolNameMapper;
+  let options: ServerProxyOptions | undefined;
+
+  if (typeof mapOrOptions === 'function') {
+    mapPropertyToTool = mapOrOptions;
+    options = maybeOptions;
+  } else if (mapOrOptions) {
+    options = mapOrOptions;
+    if (typeof mapOrOptions.mapPropertyToTool === 'function') {
+      mapPropertyToTool = mapOrOptions.mapPropertyToTool;
+    }
+  }
+
+  const cacheSchemas = options?.cacheSchemas ?? true;
+  const initialSchemas = options?.initialSchemas ?? undefined;
+
+  const toolSchemaCache = new Map<string, ToolSchemaInfo>();
+  const persistedSchemas = new Map<string, Record<string, unknown>>();
+  const toolAliasMap = new Map<string, string>();
+  const schemaFetches = new Map<string, Promise<void>>();
+  let diskLoad: Promise<void> | null = null;
+  let persistPromise: Promise<void> | null = null;
+  let refreshPending = false;
+
+  let definitionForCache: ReturnType<Runtime['getDefinition']> | undefined;
+  if (cacheSchemas) {
+    try {
+      definitionForCache = runtime.getDefinition(serverName);
+    } catch {
+      definitionForCache = undefined;
+    }
+  }
+
+  if (cacheSchemas && !initialSchemas && definitionForCache) {
+    diskLoad = loadSchemasFromDisk(definitionForCache);
+    refreshPending = true;
+  }
+
+  if (initialSchemas) {
+    for (const [key, schemaRaw] of Object.entries(initialSchemas)) {
+      storeSchema(key, schemaRaw);
+    }
+    persistPromise = persistSchemas();
+  }
+
+  // consumePersist waits for any in-flight disk persistence to finish before reading from cache maps.
+  async function consumePersist(): Promise<void> {
+    if (!persistPromise) {
+      return;
+    }
+    try {
+      await persistPromise;
+    } finally {
+      persistPromise = null;
+    }
+  }
+
+  // ensureMetadata loads schema information for the requested tool, optionally refreshing from the server.
+  // Unambiguous proxy options use cache-friendly OAuth suppression. Ambiguous
+  // option-shaped arguments use an uncached no-authorize fetch so discovery
+  // cannot launch OAuth or change the runtime's active connection posture.
+  async function ensureMetadata(
+    toolName: string,
+    metadataOptions: { autoAuthorize?: false; disableOAuth?: boolean } = {}
+  ): Promise<ToolSchemaInfo | undefined> {
+    await consumePersist();
+    const cached = toolSchemaCache.get(toolName);
+    if (cached && !refreshPending) {
+      return cached;
+    }
+
+    if (diskLoad) {
+      try {
+        await diskLoad;
+      } finally {
+        diskLoad = null;
+      }
+      if (toolSchemaCache.has(toolName) && !refreshPending) {
+        return toolSchemaCache.get(toolName);
+      }
+    }
+
+    const disableOAuth = metadataOptions.disableOAuth === true;
+    const schemaFetchKey = disableOAuth
+      ? 'disable-oauth'
+      : metadataOptions.autoAuthorize === false
+        ? 'no-authorize'
+        : 'default';
+    let schemaFetch = schemaFetches.get(schemaFetchKey);
+    if (!schemaFetch) {
+      const listToolsOptions: {
+        includeSchema: true;
+        autoAuthorize?: false;
+        disableOAuth?: boolean;
+      } = {
+        includeSchema: true,
+      };
+      if (disableOAuth) {
+        listToolsOptions.disableOAuth = true;
+      } else if (metadataOptions.autoAuthorize === false) {
+        listToolsOptions.autoAuthorize = false;
+      }
+      schemaFetch = runtime
+        .listTools(serverName, listToolsOptions)
+        .then((tools) => {
+          for (const tool of tools) {
+            if (!tool.inputSchema || typeof tool.inputSchema !== 'object') {
+              continue;
+            }
+            storeSchema(tool.name, tool.inputSchema);
+          }
+          persistPromise = persistSchemas();
+          refreshPending = false;
+        })
+        .catch((error) => {
+          if (schemaFetches.get(schemaFetchKey) === schemaFetch) {
+            schemaFetches.delete(schemaFetchKey);
+          }
+          throw error;
+        });
+      schemaFetches.set(schemaFetchKey, schemaFetch);
+    }
+
+    await schemaFetch;
+    await consumePersist();
+    return toolSchemaCache.get(toolName);
+  }
+
+  // storeSchema caches schema info locally and records aliases for lookup.
+  function storeSchema(key: string, schemaRaw: unknown) {
+    const info = createToolSchemaInfo(schemaRaw);
+    if (!info) {
+      return;
+    }
+    const canonical = mapPropertyToTool(key);
+    // Keep schemas under exact names; a mapped alias may name a different real tool.
+    toolSchemaCache.set(key, info);
+    const canonicalAlias = canonicalizeToolName(key);
+    if (!toolAliasMap.has(canonicalAlias)) {
+      toolAliasMap.set(canonicalAlias, key);
+    }
+    const mapperAlias = canonicalizeToolName(canonical);
+    if (!toolAliasMap.has(mapperAlias)) {
+      toolAliasMap.set(mapperAlias, key);
+    }
+    if (cacheSchemas && definitionForCache && isPlainObject(schemaRaw)) {
+      persistedSchemas.set(key, schemaRaw);
+    }
+  }
+
+  // loadSchemasFromDisk hydrates the in-memory cache from the persisted schema snapshot.
+  async function loadSchemasFromDisk(definition: ReturnType<Runtime['getDefinition']>): Promise<void> {
+    try {
+      const snapshot = await readSchemaCache(definition);
+      if (!snapshot) {
+        return;
+      }
+      for (const [key, schemaRaw] of Object.entries(snapshot.tools)) {
+        storeSchema(key, schemaRaw);
+      }
+    } catch {
+      // ignore cache read failures
+    }
+  }
+
+  // persistSchemas writes cached schema data to disk when enabled.
+  function persistSchemas(): Promise<void> | null {
+    if (!cacheSchemas || !definitionForCache || persistedSchemas.size === 0) {
+      return null;
+    }
+    const definition = definitionForCache;
+    const snapshot = {
+      updatedAt: new Date().toISOString(),
+      tools: Object.fromEntries(persistedSchemas.entries()),
+    };
+    return writeSchemaCache(definition, snapshot).catch(() => {
+      // best-effort persistence
+    });
+  }
+
+  const base: ServerProxy = {
+    call: async (toolName: string, callOptions?: ToolCallOptions) => {
+      const result = await runtime.callTool(serverName, toolName, callOptions ?? {});
+      return createCallResult(result);
+    },
+    listTools: (listOptions) => runtime.listTools(serverName, listOptions),
+  };
+
+  return new Proxy(base as ServerProxy & Record<string | symbol, unknown>, {
+    get(target, property, receiver) {
+      if (Object.hasOwn(target, property)) {
+        return Reflect.get(target, property, receiver);
+      }
+      const propertyKey = property;
+      const canonicalKey = typeof propertyKey === 'string' ? canonicalizeToolName(propertyKey) : null;
+      let resolvedToolName =
+        typeof propertyKey === 'string' && canonicalKey
+          ? mapPropertyToTool === defaultToolNameMapper && toolSchemaCache.has(propertyKey)
+            ? propertyKey
+            : (toolAliasMap.get(canonicalKey) ?? mapPropertyToTool(propertyKey))
+          : mapPropertyToTool(propertyKey);
+
+      return async (...callArgs: unknown[]) => {
+        const { options: metadataOptions, optionObjects } = inferMetadataOptions(callArgs);
+
+        let schemaInfo: ToolSchemaInfo | undefined;
+        try {
+          schemaInfo = await ensureMetadata(resolvedToolName, metadataOptions);
+        } catch {
+          schemaInfo = undefined;
+        }
+        if (typeof propertyKey === 'string' && canonicalKey) {
+          // Exact advertised names must survive punctuation-insensitive alias collisions.
+          const alias =
+            mapPropertyToTool === defaultToolNameMapper && toolSchemaCache.has(propertyKey)
+              ? propertyKey
+              : toolAliasMap.get(canonicalKey);
+          if (alias && alias !== resolvedToolName) {
+            resolvedToolName = alias;
+            try {
+              schemaInfo = await ensureMetadata(resolvedToolName, metadataOptions);
+            } catch {
+              // ignore and keep prior schema if available
+            }
+          }
+        }
+
+        const positional: unknown[] = [];
+        const argsAccumulator = Object.create(null) as Record<string, unknown>;
+        const optionsAccumulator = Object.create(null) as ToolCallOptions;
+
+        for (const arg of callArgs) {
+          if (isPlainObject(arg)) {
+            const keys = Object.keys(arg);
+            const treatAsArgs =
+              !optionObjects.has(arg) &&
+              keys.length > 0 &&
+              (schemaInfo
+                ? keys.every((key) => schemaInfo.propertySet.has(key)) ||
+                  keys.every((key) => !KNOWN_OPTION_KEYS.has(key))
+                : keys.every((key) => !isProxyOptionKey(key)));
+
+            if (treatAsArgs) {
+              Object.assign(argsAccumulator, arg as Record<string, unknown>);
+            } else {
+              Object.assign(optionsAccumulator, arg as ToolCallOptions);
+            }
+          } else {
+            positional.push(arg);
+          }
+        }
+
+        const explicitArgs = optionsAccumulator.args as ToolArguments | undefined;
+        if (explicitArgs !== undefined) {
+          delete (optionsAccumulator as Record<string, unknown>).args;
+        }
+
+        const finalOptions: ToolCallOptions = { ...optionsAccumulator };
+        let combinedArgs: ToolArguments | undefined = explicitArgs;
+
+        if (schemaInfo) {
+          const schema = schemaInfo;
+
+          if (positional.length > schema.orderedKeys.length) {
+            throw new Error(`Too many positional arguments for tool "${resolvedToolName}"`);
+          }
+
+          if (positional.length > 0) {
+            combinedArgs = Object.fromEntries([
+              ...Object.entries(isPlainObject(combinedArgs) ? combinedArgs : {}),
+              ...schema.orderedKeys.slice(0, positional.length).map((key, index) => [key, positional[index]]),
+            ]);
+          }
+
+          if (Object.keys(argsAccumulator).length > 0) {
+            const baseArgs = isPlainObject(combinedArgs) ? { ...(combinedArgs as Record<string, unknown>) } : {};
+            combinedArgs = { ...baseArgs, ...argsAccumulator };
+          }
+
+          if (combinedArgs !== undefined) {
+            combinedArgs = applyDefaults(schema, combinedArgs);
+          } else {
+            const defaults = applyDefaults(schema, undefined);
+            if (defaults && typeof defaults === 'object') {
+              combinedArgs = defaults as ToolArguments;
+            }
+          }
+
+          validateRequired(schema, combinedArgs);
+        } else {
+          if (positional.length > 0) {
+            combinedArgs = positional as unknown as ToolArguments;
+          }
+          if (Object.keys(argsAccumulator).length > 0) {
+            const baseArgs = isPlainObject(combinedArgs) ? { ...(combinedArgs as Record<string, unknown>) } : {};
+            combinedArgs = { ...baseArgs, ...argsAccumulator };
+          }
+        }
+
+        if (combinedArgs !== undefined) {
+          finalOptions.args = combinedArgs;
+        }
+
+        const result = await runtime.callTool(serverName, resolvedToolName, finalOptions);
+        return createCallResult(result);
+      };
+    },
+  });
+}

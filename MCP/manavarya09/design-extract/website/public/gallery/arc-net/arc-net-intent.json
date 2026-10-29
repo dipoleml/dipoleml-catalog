@@ -1,0 +1,262 @@
+{
+  "pageIntent": {
+    "type": "landing",
+    "confidence": 0.29,
+    "path": "/",
+    "title": "Arc from The Browser Company",
+    "description": "Experience a calmer, more personal internet in this browser designed for you. Let go of the clicks, the clutter, the distractions with the Arc browser.",
+    "signals": [
+      {
+        "kind": "dom",
+        "type": "legal",
+        "weight": 0.4
+      },
+      {
+        "kind": "url",
+        "type": "landing",
+        "weight": 0.45,
+        "detail": "root-path"
+      }
+    ],
+    "alternates": [
+      {
+        "type": "legal",
+        "score": 0.4
+      }
+    ],
+    "needsSmart": true
+  },
+  "sectionRoles": {
+    "sections": [
+      {
+        "index": 0,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 32,
+          "y": 30,
+          "w": 465.21875,
+          "h": 36
+        },
+        "buttonCount": 0,
+        "cardCount": 5,
+        "slots": {
+          "lede": "Max\nMobile\nDevelopers\nStudents\nBlog"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 1,
+        "tag": "main",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Arc is the Chrome  replacement I've been  waiting for.",
+        "bounds": {
+          "x": 0,
+          "y": 90,
+          "w": 1280,
+          "h": 4739.984375
+        },
+        "buttonCount": 4,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Arc is the Chrome  replacement I've been  waiting for.",
+          "subheadings": [
+            "Arc is the Chrome replacement I've been waiting for."
+          ],
+          "ctaCount": 4,
+          "lede": "Meet Dia, the next evolution of Arc"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 2,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Arc is the Chrome  replacement I've been  waiting for.",
+        "bounds": {
+          "x": 0,
+          "y": 707,
+          "w": 1280,
+          "h": 820
+        },
+        "buttonCount": 4,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Arc is the Chrome  replacement I've been  waiting for.",
+          "subheadings": [
+            "Arc is the Chrome replacement I've been waiting for."
+          ],
+          "ctaCount": 4,
+          "lede": "Arc is the Chrome replacement I've been waiting for.\nDownload Arc for Mac\nDownload Arc for Windows\nMORE\nDETAILS"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 3,
+        "tag": "aside",
+        "role": "sidebar",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 1527,
+          "w": 1280,
+          "h": 67
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {},
+        "needsSmart": true
+      },
+      {
+        "index": 4,
+        "tag": "section",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 1722,
+          "w": 1280,
+          "h": 972.828125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "A browser that doesn’t just meet your needs — it anticipates them."
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 5,
+        "tag": "section",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 2694.828125,
+          "w": 1280,
+          "h": 933.828125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "Space for the different sides of you."
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 6,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 3628.65625,
+          "w": 1280,
+          "h": 933.828125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "Your perfect setup."
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 7,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 4562.484375,
+          "w": 1280,
+          "h": 139.5
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "The comfort of privacy."
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 8,
+        "tag": "footer",
+        "role": "footer",
+        "subrole": null,
+        "confidence": 0.95,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 5202.984375,
+          "w": 1280,
+          "h": 501.796875
+        },
+        "buttonCount": 2,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 2,
+          "lede": "Enter your new home on the internet\nDownload Arc for Mac\nPRODUCT\nDownload\nPrivacy Policy\nTerms of Use\nSecurity\nArc Max\nArc for iPhone\nIntegrations\nCredits\nRESOURCES\nResource Center\nRelease Notes\nStudents\nFAQ\nCareers @ BCNY"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 9,
+        "tag": "aside",
+        "role": "sidebar",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 5202.984375,
+          "w": 1280,
+          "h": 229.796875
+        },
+        "buttonCount": 2,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 2,
+          "lede": "Enter your new home on the internet\nDownload Arc for Mac"
+        },
+        "needsSmart": true
+      }
+    ],
+    "counts": {
+      "nav": 1,
+      "testimonial": 3,
+      "content": 3,
+      "sidebar": 2,
+      "footer": 1
+    },
+    "readingOrder": [
+      "nav",
+      "testimonial",
+      "content",
+      "sidebar",
+      "testimonial",
+      "testimonial",
+      "content",
+      "content",
+      "footer",
+      "sidebar"
+    ]
+  }
+}

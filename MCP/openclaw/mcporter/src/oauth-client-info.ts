@@ -1,0 +1,36 @@
+import type { OAuthClientInformationMixed } from '@modelcontextprotocol/client';
+import type { ServerDefinition } from './config.js';
+
+export function buildStaticClientInformation(
+  definition: ServerDefinition,
+  options: { redirectUrl?: URL | string } = {}
+): OAuthClientInformationMixed | undefined {
+  if (!definition.oauthClientId) {
+    return undefined;
+  }
+  const clientSecret = resolveOAuthClientSecret(definition);
+  return {
+    client_id: definition.oauthClientId,
+    ...(clientSecret ? { client_secret: clientSecret } : {}),
+    ...(options.redirectUrl ? { redirect_uris: [options.redirectUrl.toString()] } : {}),
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    ...(definition.oauthTokenEndpointAuthMethod
+      ? { token_endpoint_auth_method: definition.oauthTokenEndpointAuthMethod }
+      : {}),
+  } as OAuthClientInformationMixed;
+}
+
+export function resolveOAuthClientSecret(
+  definition: ServerDefinition,
+  options: { rejectBlank?: boolean } = {}
+): string | undefined {
+  if (definition.oauthClientSecretEnv) {
+    const value = (definition.env ?? process.env)[definition.oauthClientSecretEnv];
+    if (!value || (options.rejectBlank && value.trim().length === 0)) {
+      throw new Error(`Environment variable '${definition.oauthClientSecretEnv}' is required for OAuth client secret.`);
+    }
+    return value;
+  }
+  return definition.oauthClientSecret;
+}

@@ -1,0 +1,2045 @@
+---
+---
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mcpm.sh - Server Registry</title>
+    {% include favicon.html %}
+
+    <!-- Primary Meta Tags -->
+    <meta name="title" content="mcpm.sh - Server Registry">
+    <meta name="description" content="The single open source MCP registry we all need. Discover and explore MCP servers for your projects.">
+    <meta name="keywords" content="MCP, server registry, AI, machine learning, open source">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mcpm.sh/registry/">
+    <meta property="og:title" content="mcpm.sh - Server Registry">
+    <meta property="og:description"
+        content="The single open source MCP registry we all need. Discover and explore MCP servers for your projects.">
+    <meta property="og:image" content="https://mcpm.sh/assets/images/mcpm-social.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://mcpm.sh/registry/">
+    <meta property="twitter:title" content="mcpm.sh - Server Registry">
+    <meta property="twitter:description"
+        content="The single open source MCP registry we all need. Discover and explore MCP servers for your projects.">
+    <meta property="twitter:image" content="https://mcpm.sh/assets/images/mcpm-social.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Highlight.js for JSON syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/json.min.js"></script>
+    <!-- JSON formatter for collapsible view -->
+    <script src="https://cdn.jsdelivr.net/npm/json-formatter-js@2.3.4/dist/json-formatter.umd.min.js"></script>
+
+    <style>
+        {% include colors.css %}
+        {% include common.css %}
+
+        /* Modern redesign with consistent theme */
+        :root {
+            --primary-bg: #0a0e13;
+            --secondary-bg: #151b22;
+            --surface-bg: #1e2429;
+            --surface-elevated: #252d34;
+            --accent-primary: #00d9ff;
+            --accent-secondary: #00b8d4;
+            --accent-tertiary: #0097b3;
+            --text-primary: #ffffff;
+            --text-secondary: #b3bac1;
+            --text-muted: #6b7280;
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-accent: rgba(0, 217, 255, 0.2);
+            --gradient-primary: linear-gradient(135deg, #00d9ff 0%, #0097b3 100%);
+            --gradient-secondary: linear-gradient(135deg, #1e2429 0%, #252d34 100%);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+            --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+            --animation-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.7;
+            color: var(--text-primary);
+            background: var(--primary-bg);
+            overflow-x: hidden;
+        }
+
+        /* Background gradient and particle effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(0, 217, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 184, 212, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(0, 151, 179, 0.08) 0%, transparent 50%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        main {
+            padding: 2rem 0 4rem;
+        }
+
+        /* Header Section */
+        .header-section {
+            text-align: center;
+            padding: 3rem 0 4rem;
+            position: relative;
+        }
+
+        .header-section::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+        }
+
+        h1 {
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 800;
+            margin: 0 0 1rem;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: clamp(1rem, 2vw, 1.25rem);
+            color: var(--text-secondary);
+            margin: 0 0 2rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Tab Navigation */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin: 2rem 0;
+            background: var(--surface-elevated);
+            padding: 0.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            max-width: 400px;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .tab-button:hover {
+            background: rgba(0, 217, 255, 0.1);
+            color: var(--accent-primary);
+        }
+
+        .tab-button.active {
+            background: var(--accent-primary);
+            color: var(--primary-bg);
+            box-shadow: 0 4px 12px rgba(0, 217, 255, 0.3);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeInUp 0.3s ease;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Search and Filter Section */
+        .search-filter-section {
+            background: var(--surface-bg);
+            border-radius: 16px;
+            padding: 2rem;
+            margin: 2rem 0;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-subtle);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .search-filter-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-primary);
+        }
+
+        .search-container {
+            margin-bottom: 2rem;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: inherit;
+            background-color: var(--surface-elevated);
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.1);
+            background-color: var(--primary-bg);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .tag-filters-container {
+            margin-bottom: 0;
+        }
+
+        .tag-filters-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .tag-filters-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: 1rem;
+        }
+
+        .toggle-tags-btn {
+            background: transparent;
+            border: 1px solid var(--border-subtle);
+            color: var(--accent-primary);
+            cursor: pointer;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .toggle-tags-btn:hover {
+            background-color: var(--accent-primary);
+            color: var(--primary-bg);
+            border-color: var(--accent-primary);
+        }
+
+        .tag-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            max-height: 3rem;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .tag-filters.expanded {
+            max-height: 300px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .tag-filters.expanded::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .tag-filters.expanded::-webkit-scrollbar-track {
+            background: var(--surface-elevated);
+            border-radius: 10px;
+        }
+
+        .tag-filters.expanded::-webkit-scrollbar-thumb {
+            background: var(--border-subtle);
+            border-radius: 10px;
+        }
+
+        .tag-filters.expanded::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        .tag-filter {
+            background-color: var(--surface-elevated);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border-subtle);
+            transition: all 0.2s ease;
+            line-height: 1.2;
+        }
+
+        .tag-filter:hover,
+        .tag-filter.active {
+            background-color: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: var(--primary-bg);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 217, 255, 0.2);
+        }
+
+        /* Server Grid */
+        .servers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .server-card {
+            background: var(--surface-bg);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+            transition: all 0.3s var(--animation-bounce);
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border-subtle);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .server-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-primary);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .server-card:hover {
+            transform: translateY(-8px);
+            box-shadow: var(--shadow-xl);
+            border-color: var(--border-accent);
+        }
+
+        .server-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .server-content {
+            padding: 2rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .server-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .server-card h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.3;
+            margin: 0;
+            flex: 1;
+        }
+
+        .server-card .description {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            flex: 1;
+            line-height: 1.5;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-height: 4.5rem;
+        }
+
+        .server-card .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .server-card .tag {
+            background-color: var(--surface-elevated);
+            color: var(--text-primary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            border: 1px solid var(--border-subtle);
+            transition: all 0.2s ease;
+        }
+
+        .server-card .tag:hover {
+            background-color: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: var(--primary-bg);
+            transform: translateY(-1px);
+        }
+
+        .server-card .category {
+            background: transparent;
+            color: var(--accent-primary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid var(--accent-primary);
+            transition: all 0.2s ease;
+        }
+
+        .server-card .category:hover {
+            background-color: var(--accent-primary);
+            color: var(--primary-bg);
+            transform: translateY(-1px);
+        }
+
+        .server-card .meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--border-subtle);
+            padding-top: 1rem;
+            margin-top: auto;
+        }
+        
+        .install-button {
+            background: var(--gradient-primary);
+            color: var(--primary-bg);
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            box-shadow: 0 4px 12px rgba(0, 217, 255, 0.3);
+        }
+        
+        .install-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 217, 255, 0.4);
+        }
+        
+        .install-button svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .server-card .meta .author {
+            color: var(--accent-primary);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .server-card .meta .stars {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+
+        .server-card .meta .stars:hover {
+            color: var(--accent-primary);
+        }
+
+        .author-placeholder,
+        .stars-placeholder {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        /* Badges */
+        .official-badge {
+            display: inline-block;
+            background: var(--gradient-primary);
+            color: var(--primary-bg);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .archived-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background-color: #60491a;
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+            font-weight: 600;
+            border-radius: 6px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .docker-icon {
+            display: inline-block;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+            color: #2496ed;
+            transition: opacity 0.2s ease;
+        }
+
+        .docker-icon:hover {
+            opacity: 0.8;
+        }
+
+        /* API Tab Styles */
+        .json-container {
+            background: var(--surface-bg);
+            border-radius: 16px;
+            overflow: hidden;
+            margin: 2rem 0;
+            border: 1px solid var(--border-subtle);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .json-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            background: var(--surface-elevated);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .json-title {
+            color: var(--text-primary);
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .json-header-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .json-action-btn {
+            color: var(--text-primary);
+            background: var(--surface-bg);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.875rem;
+        }
+
+        .json-action-btn:hover {
+            background: var(--accent-primary);
+            color: var(--primary-bg);
+            border-color: var(--accent-primary);
+        }
+
+        .json-content {
+            overflow-x: auto;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+            padding: 2rem;
+        }
+
+        .api-url-container {
+            background: var(--surface-bg);
+            border-radius: 12px;
+            margin: 2rem 0;
+            padding: 1.5rem;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .api-url-container h3 {
+            margin: 0 0 1rem;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .api-url {
+            display: flex;
+            align-items: center;
+            background: var(--primary-bg);
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-accent);
+            overflow-x: auto;
+        }
+
+        .api-url code {
+            font-family: 'JetBrains Mono', monospace;
+            word-break: break-all;
+            flex: 1;
+            color: var(--accent-primary);
+            font-size: 0.875rem;
+        }
+
+        .copy-button {
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            cursor: pointer;
+            white-space: nowrap;
+            margin-left: 1rem;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .copy-button:hover {
+            background: var(--accent-primary);
+            transform: translateY(-1px);
+            color: var(--primary-bg);
+            border-color: var(--accent-primary);
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .modal-content {
+            background: var(--surface-bg);
+            border-radius: 16px;
+            max-width: 900px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 2rem;
+            position: relative;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid var(--border-subtle);
+        }
+
+        #modalTitle {
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .close-button {
+            position: absolute;
+            top: 1.5rem;
+            right: 2rem;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: color 0.2s ease;
+        }
+
+        .close-button:hover {
+            color: var(--text-primary);
+        }
+
+        .manifest-info {
+            margin: 1.5rem 0;
+        }
+
+        .manifest-info h3 {
+            color: var(--accent-primary);
+            font-size: 1.1rem;
+            margin: 1.5rem 0 1rem;
+            font-weight: 600;
+        }
+
+        .details-section {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: var(--surface-elevated);
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .details-section h3 {
+            color: var(--accent-primary);
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .collapsible .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 0.5rem 0;
+        }
+
+        .collapsible .section-header h3 {
+            margin: 0;
+            border: none;
+            padding: 0;
+        }
+
+        .toggle-icon {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            transition: transform 0.2s ease;
+        }
+
+        .collapsible.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        .section-content {
+            display: none;
+            padding: 1rem;
+            background: var(--primary-bg);
+            border-radius: 8px;
+            margin-top: 0.75rem;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .collapsible:not(.collapsed) .section-content {
+            display: block;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            font-size: 0.875rem;
+        }
+
+        .meta-label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .meta-value {
+            color: var(--text-secondary);
+            word-break: break-word;
+        }
+
+        .meta-value a {
+            color: var(--accent-primary);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .meta-value a:hover {
+            color: var(--accent-secondary);
+            text-decoration: underline;
+        }
+
+        #detailCategories,
+        #detailTags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        #detailCategories .category,
+        #detailTags .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        #detailCategories .category {
+            background: transparent;
+            color: var(--accent-primary);
+            border: 1px solid var(--accent-primary);
+        }
+
+        #detailTags .tag {
+            background: var(--surface-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+            
+            .header-section {
+                padding: 2rem 0 3rem;
+            }
+            
+            .servers-grid {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+            
+            .tabs {
+                flex-direction: column;
+                max-width: none;
+            }
+            
+            .search-filter-section {
+                padding: 1.5rem;
+            }
+            
+            .tag-filters {
+                gap: 0.5rem;
+            }
+            
+            .modal {
+                padding: 1rem;
+            }
+            
+            .modal-content {
+                padding: 1.5rem;
+            }
+        }
+
+        /* Animations */
+        .animate-on-scroll {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s ease;
+        }
+
+        .animate-on-scroll.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* JSON Formatter Overrides */
+        #jsonFormatterContainer {
+            background: var(--primary-bg);
+            border-radius: 8px;
+            padding: 1.5rem;
+            color: var(--text-primary);
+        }
+
+        .json-formatter-row,
+        .json-formatter-row a,
+        .json-formatter-row a:hover {
+            color: var(--text-primary) !important;
+        }
+
+        .json-formatter-row .json-formatter-key {
+            color: var(--accent-primary) !important;
+            font-weight: 600;
+        }
+
+        .json-formatter-row .json-formatter-string {
+            color: #fca5a5 !important;
+        }
+
+        .json-formatter-row .json-formatter-number {
+            color: #c4b5fd !important;
+        }
+
+        .json-formatter-row .json-formatter-boolean {
+            color: #f9a8d4 !important;
+        }
+
+        .json-formatter-row .json-formatter-null {
+            color: var(--text-muted) !important;
+        }
+
+        /* Syntax highlighting adjustments */
+        .hljs {
+            color: var(--text-primary) !important;
+            background: var(--primary-bg) !important;
+        }
+
+        .hljs-attr {
+            color: var(--accent-primary) !important;
+            font-weight: bold;
+        }
+
+        .hljs-string {
+            color: #fca5a5 !important;
+        }
+
+        .hljs-number {
+            color: #c4b5fd !important;
+        }
+
+        .hljs-boolean {
+            color: #f9a8d4 !important;
+            font-weight: bold;
+        }
+
+        .hljs-null {
+            color: var(--text-muted) !important;
+        }
+    </style>
+</head>
+
+<body>
+    {% include nav.html %}
+
+    <main>
+        <div class="container">
+            <!-- Header Section -->
+            <section class="header-section">
+                <h1>MCP Server Registry</h1>
+                <p class="subtitle">The single open source MCP registry we all need. Discover and explore MCP servers for your projects.</p>
+            </section>
+
+            <!-- Tab Navigation -->
+            <div class="tabs">
+                <button class="tab-button active" data-tab="registry">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="7" r="4"></circle>
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    </svg>
+                    Registry
+                </button>
+                <button class="tab-button" data-tab="json">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="10" rx="2" ry="2"></rect>
+                        <circle cx="12" cy="5" r="2"></circle>
+                        <path d="M12 7v4"></path>
+                        <line x1="8" y1="16" x2="8" y2="16"></line>
+                        <line x1="16" y1="16" x2="16" y2="16"></line>
+                        <line x1="12" y1="15" x2="12" y2="17"></line>
+                    </svg>
+                    API
+                </button>
+            </div>
+
+            <!-- Registry Tab -->
+            <div id="registryTab" class="tab-content active">
+                <!-- Search and Filter Section -->
+                <section class="search-filter-section">
+                    <div class="search-container">
+                        <input type="text" id="searchInput" class="search-input" placeholder="Search servers by name, description, or tags...">
+                    </div>
+
+                    <div class="tag-filters-container">
+                        <div class="tag-filters-header">
+                            <span class="tag-filters-title">Filter by tag:</span>
+                            <button id="toggleTagsBtn" class="toggle-tags-btn">Show more</button>
+                        </div>
+                        <div class="tag-filters" id="tagFilters">
+                            <span class="tag-filter active" data-tag="all">All</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Server Grid -->
+                <div class="servers-grid" id="serversGrid">
+                    <!-- Server cards are populated dynamically -->
+                </div>
+            </div>
+
+            <!-- API Tab -->
+            <div id="jsonTab" class="tab-content">
+                <div class="json-container">
+                    <div class="json-header">
+                        <span class="json-title">mcpm.sh API</span>
+                        <div class="json-header-actions">
+                            <button id="expandAllBtn" class="json-action-btn">Expand All</button>
+                            <button id="collapseAllBtn" class="json-action-btn">Collapse All</button>
+                            <button id="copyJsonBtn" class="json-action-btn">Copy JSON</button>
+                        </div>
+                    </div>
+
+                    <div class="api-url-container">
+                        <h3>Servers Manifest API Endpoint:</h3>
+                        <div class="api-url">
+                            <code id="combinedApiUrl"></code>
+                            <button id="copyCombinedUrl" class="copy-button">Copy</button>
+                        </div>
+                    </div>
+
+                    <div id="jsonFormatterContainer" class="json-content"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    {% include footer.html %}
+    {% include github-corner.html %}
+
+    <!-- Server Detail Modal -->
+    <div id="serverModal" class="modal">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2 id="modalTitle">Server Manifest</h2>
+            <div class="manifest-info">
+                <h3>Server Information</h3>
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <span class="meta-label">Name:</span>
+                        <span class="meta-value" id="detailName"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Display Name:</span>
+                        <span class="meta-value" id="detailDisplayName"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Version:</span>
+                        <span class="meta-value" id="detailVersion"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">License:</span>
+                        <span class="meta-value" id="detailLicense"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Author:</span>
+                        <span class="meta-value" id="detailAuthorName"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Repository:</span>
+                        <span class="meta-value" id="detailRepoUrl"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Homepage:</span>
+                        <span class="meta-value" id="detailHomepage"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Description:</span>
+                        <span class="meta-value" id="detailDescription"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Categories:</span>
+                        <div class="meta-value" id="detailCategories"></div>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Tags:</span>
+                        <div class="meta-value" id="detailTags"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="details-section collapsible collapsed">
+                <div class="section-header">
+                    <h3>Arguments</h3>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content">
+                    <div id="detailArguments" class="argument-list"></div>
+                </div>
+            </div>
+
+            <div class="details-section collapsible collapsed">
+                <div class="section-header">
+                    <h3>MCP Tools</h3>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content">
+                    <div id="detailTools" class="tool-list"></div>
+                </div>
+            </div>
+
+            <div class="details-section collapsible collapsed">
+                <div class="section-header">
+                    <h3>Resources</h3>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content">
+                    <div id="detailResources" class="resource-list"></div>
+                </div>
+            </div>
+
+            <div class="details-section collapsible collapsed">
+                <div class="section-header">
+                    <h3>Prompts</h3>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content">
+                    <div id="detailPrompts" class="prompt-list"></div>
+                </div>
+            </div>
+
+            <div class="api-url-container">
+                <h3>Server API Endpoint:</h3>
+                <div class="api-url">
+                    <code id="apiUrl"></code>
+                    <button id="copyUrl" class="copy-button">Copy</button>
+                </div>
+            </div>
+
+            <div class="json-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;">Raw Manifest:</h3>
+                    <button id="copyContent" class="copy-button">Copy JSON</button>
+                </div>
+                <pre id="jsonContent"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Lucien servers configuration -->
+    
+    <script>
+        {% include lucien-servers.js %}
+        // Server data - to be loaded from the combined JSON file (as a map with server names as keys)
+        let serversMap = {};
+        let serversArray = []; // Also keep an array version for rendering
+
+        // Fetch all servers data
+        const serverDataUrl = '/api/servers.json';
+        const searchParams = new URLSearchParams(window.location.search);
+        const sortRule = {
+            'isPinned': 0,
+            'isOfficial': 1,
+            'others': 2,
+            'archived': 3,
+        }
+        const isLucien = searchParams.get('source') === 'lucien'
+        const sourceProtocol = searchParams.get('protocol') || 'lucien'
+        
+        // Use the Lucien specified servers from the external JS file
+        const defaultSpecifiedServers = []
+        if (isLucien) {
+            // Get servers based on whether we're in staging or production
+            defaultSpecifiedServers.push(...lucienSpecifiedServers);
+        }
+
+        function serverSortRule(serverA, serverB) {
+
+            function determineServerType(server) {
+                // Archived servers get lowest priority regardless of other factors
+                if (server.is_archived) {
+                    return 'archived';
+                }
+                if (defaultSpecifiedServers.includes(server.name)) {
+                    return 'isPinned';
+                }
+                if (server.is_official) {
+                    return 'isOfficial';
+                }
+                return 'others';
+            }
+
+            const serverAType = determineServerType(serverA);
+            const serverBType = determineServerType(serverB);
+            return sortRule[serverAType] - sortRule[serverBType];
+        }
+
+        // First load GitHub star counts, then fetch server data
+        loadGitHubStarCounts()
+            .then(() => fetch(serverDataUrl))
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Server data request failed with status ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                serversMap = data;
+                serversArray = Object.values(serversMap);
+                // sort servers by sortRule
+                serversArray.sort(serverSortRule);
+
+                // Generate tag filters dynamically from server data
+                generateTagFilters(serversArray);
+
+                // Initialize the UI after data is loaded
+                renderServerCards(serversArray);
+            })
+            .catch(error => {
+                console.error('Error loading servers:', error);
+                document.getElementById('serversGrid').innerHTML = `
+                    <div class="error-message">
+                        <p>Unable to load server data. Please try again later.</p>
+                        <p><small>Error details: ${error.message}</small></p>
+                    </div>
+                `;
+            });
+
+        // Get server data from the already loaded servers map
+        function getServerByName(name) {
+            return serversMap[name];
+        }
+
+        // Helper function to format numbers (1000 → 1k)
+        function formatNumber(num) {
+            if (num < 1000) return num.toString();
+            if (num < 10000) return (num / 1000).toFixed(1) + 'k';
+            return Math.floor(num / 1000) + 'k';
+        }
+
+        // Object to store star counts from stars.json
+        let githubStarCounts = {};
+
+        // Load GitHub star counts from stars.json
+        async function loadGitHubStarCounts() {
+            try {
+                const response = await fetch('/api/stars.json');
+                if (response.ok) {
+                    githubStarCounts = await response.json();
+                }
+            } catch (error) {
+                // Silently fail - stars just won't be displayed
+            }
+        }
+
+        // Function to update star count element with the pre-fetched data
+        function updateStarCount(serverName, starCountElement) {
+            const starCount = githubStarCounts[serverName];
+            if (starCount !== undefined) {
+                // Add star icon and count
+                starCountElement.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>${formatNumber(starCount)}`;
+                starCountElement.classList.remove('stars-placeholder');
+                starCountElement.style.opacity = '1';
+                starCountElement.classList.add('stars');
+            } else {
+                // If no star count available, remove the element
+                starCountElement.remove();
+            }
+        }
+
+        // Open modal with server manifest details
+        function openServerModal(server) {
+            const modal = document.getElementById('serverModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const jsonContent = document.getElementById('jsonContent');
+
+            if (!modal || !modalTitle || !jsonContent) {
+                console.error('Required modal elements not found');
+                return;
+            }
+
+            // Set modal title
+            modalTitle.textContent = `${server.display_name || server.name} Manifest`;
+
+            // Set API URL
+            const apiUrlElement = document.getElementById('apiUrl');
+            if (apiUrlElement) {
+                const fullApiUrl = `${window.location.origin}/api/servers/${server.name}.json`;
+                apiUrlElement.textContent = fullApiUrl;
+            }
+
+            // Helper function to safely set text content
+            const safeSetText = (id, value) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value || 'N/A';
+                }
+            };
+
+            // Helper function to safely set HTML content
+            const safeSetHTML = (id, value) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.innerHTML = value || 'N/A';
+                }
+            };
+
+            // Populate basic information
+            safeSetText('detailName', server.name);
+            safeSetText('detailDisplayName', server.display_name);
+            safeSetText('detailDescription', server.description);
+            safeSetText('detailVersion', server.version);
+            safeSetText('detailLicense', server.license);
+
+            // Populate categories
+            const categoriesContainer = document.getElementById('detailCategories');
+            if (categoriesContainer) {
+                categoriesContainer.innerHTML = '';
+                if (server.categories && server.categories.length > 0) {
+                    server.categories.forEach(category => {
+                        const categorySpan = document.createElement('span');
+                        categorySpan.className = 'category';
+                        categorySpan.textContent = category;
+                        categoriesContainer.appendChild(categorySpan);
+                    });
+                } else {
+                    categoriesContainer.textContent = 'N/A';
+                }
+            }
+
+            // Populate tags
+            const tagsContainer = document.getElementById('detailTags');
+            if (tagsContainer) {
+                tagsContainer.innerHTML = '';
+                if (server.tags && server.tags.length > 0) {
+                    server.tags.forEach(tag => {
+                        const tagSpan = document.createElement('span');
+                        tagSpan.className = 'tag';
+                        tagSpan.textContent = tag;
+                        tagsContainer.appendChild(tagSpan);
+                    });
+                } else {
+                    tagsContainer.textContent = 'N/A';
+                }
+            }
+
+            // Populate author
+            safeSetText('detailAuthorName', server.author?.name);
+
+            // Populate repository URL
+            const repoUrl = document.getElementById('detailRepoUrl');
+            if (repoUrl) {
+                if (server.repository?.url) {
+                    repoUrl.innerHTML = `<a href="${server.repository.url}" target="_blank">${server.repository.url}</a>`;
+                } else {
+                    repoUrl.textContent = 'N/A';
+                }
+            }
+
+            // Populate homepage
+            const homepageLink = document.getElementById('detailHomepage');
+            if (homepageLink) {
+                if (server.links?.homepage) {
+                    homepageLink.innerHTML = `<a href="${server.links.homepage}" target="_blank">${server.links.homepage}</a>`;
+                } else if (server.repository?.url) {
+                    homepageLink.innerHTML = `<a href="${server.repository.url}" target="_blank">${server.repository.url}</a>`;
+                } else {
+                    homepageLink.textContent = 'N/A';
+                }
+            }
+
+            // Helper function to safely populate a list section
+            const populateListSection = (containerId, items, itemRenderer) => {
+                const container = document.getElementById(containerId);
+                if (!container) return;
+
+                container.innerHTML = '';
+                if (!items || items.length === 0) {
+                    container.textContent = 'None defined';
+                    return;
+                }
+
+                const ul = document.createElement('ul');
+                items.forEach((item, index) => {
+                    const li = document.createElement('li');
+                    itemRenderer(li, item, index);
+                    ul.appendChild(li);
+                });
+                container.appendChild(ul);
+            };
+
+            // Populate arguments
+            populateListSection('detailArguments', Object.entries(server.arguments || {}), (li, [key, value]) => {
+                if (typeof value === 'object' && value !== null) {
+                    const details = document.createElement('details');
+                    const summary = document.createElement('summary');
+                    summary.textContent = key;
+                    details.appendChild(summary);
+
+                    const subUl = document.createElement('ul');
+                    Object.entries(value).forEach(([subKey, subValue]) => {
+                        const subLi = document.createElement('li');
+                        if (typeof subValue === 'object' && subValue !== null) {
+                            subLi.innerHTML = `${subKey}: <pre>${JSON.stringify(subValue, null, 2)}</pre>`;
+                        } else {
+                            subLi.textContent = `${subKey}: ${subValue}`;
+                        }
+                        subUl.appendChild(subLi);
+                    });
+                    details.appendChild(subUl);
+                    li.appendChild(details);
+                } else {
+                    li.textContent = `${key}: ${value}`;
+                }
+            });
+
+            // Populate tools
+            populateListSection('detailTools', server.tools, (li, tool, index) => {
+                if (typeof tool === 'object' && tool !== null) {
+                    const details = document.createElement('details');
+                    const summary = document.createElement('summary');
+                    summary.textContent = tool.name || `Tool ${index + 1}`;
+                    details.appendChild(summary);
+
+                    const subUl = document.createElement('ul');
+                    Object.entries(tool).forEach(([key, value]) => {
+                        const subLi = document.createElement('li');
+                        if (key === 'inputSchema' && typeof value === 'object') {
+                            subLi.innerHTML = `${key}:<pre>${JSON.stringify(value, null, 2)}</pre>`;
+                        } else {
+                            subLi.textContent = `${key}: ${value}`;
+                        }
+                        subUl.appendChild(subLi);
+                    });
+                    details.appendChild(subUl);
+                    li.appendChild(details);
+                } else {
+                    li.textContent = tool;
+                }
+            });
+
+            // Populate resources
+            populateListSection('detailResources', server.resources, (li, resource, index) => {
+                if (typeof resource === 'object' && resource !== null) {
+                    const details = document.createElement('details');
+                    const summary = document.createElement('summary');
+                    summary.textContent = resource.name || `Resource ${index + 1}`;
+                    details.appendChild(summary);
+
+                    const subUl = document.createElement('ul');
+                    Object.entries(resource).forEach(([key, value]) => {
+                        const subLi = document.createElement('li');
+                        if (typeof value === 'object' && value !== null) {
+                            subLi.innerHTML = `${key}:<pre>${JSON.stringify(value, null, 2)}</pre>`;
+                        } else {
+                            subLi.textContent = `${key}: ${value}`;
+                        }
+                        subUl.appendChild(subLi);
+                    });
+                    details.appendChild(subUl);
+                    li.appendChild(details);
+                } else {
+                    li.textContent = resource;
+                }
+            });
+
+            // Populate prompts
+            populateListSection('detailPrompts', server.prompts, (li, prompt, index) => {
+                if (typeof prompt === 'object' && prompt !== null) {
+                    const details = document.createElement('details');
+                    const summary = document.createElement('summary');
+                    summary.textContent = prompt.name || `Prompt ${index + 1}`;
+                    details.appendChild(summary);
+
+                    const subUl = document.createElement('ul');
+                    Object.entries(prompt).forEach(([key, value]) => {
+                        const subLi = document.createElement('li');
+                        if (typeof value === 'object' && value !== null) {
+                            subLi.innerHTML = `${key}:<pre>${JSON.stringify(value, null, 2)}</pre>`;
+                        } else {
+                            subLi.textContent = `${key}: ${value}`;
+                        }
+                        subUl.appendChild(subLi);
+                    });
+                    details.appendChild(subUl);
+                    li.appendChild(details);
+                } else {
+                    li.textContent = prompt;
+                }
+            });
+
+            // Initialize all collapsible sections as expanded
+            document.querySelectorAll('.collapsible').forEach(section => {
+                section.classList.remove('collapsed');
+            });
+
+            // Add click handlers for collapsible sections
+            document.querySelectorAll('.section-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const section = header.parentElement;
+                    section.classList.toggle('collapsed');
+                });
+            });
+
+            // Display the raw JSON
+            const formattedJson = JSON.stringify(server, null, 2);
+            jsonContent.textContent = formattedJson;
+            jsonContent.classList.add('language-json');
+            hljs.highlightElement(jsonContent);
+
+            // Display modal
+            modal.style.display = 'flex';
+        }
+
+        // Copy text to clipboard - using simple, compatible method
+        function copyToClipboard(text, button) {
+            // Create a temporary textarea element
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+
+            // Make the textarea out of the user's sight but still technically visible
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            textArea.style.top = '0';
+            textArea.style.opacity = '0';
+
+            document.body.appendChild(textArea);
+            textArea.select();
+
+            try {
+                // Execute copy command
+                const successful = document.execCommand('copy');
+
+                if (successful) {
+                    // Provide visual feedback
+                    const originalText = button.textContent;
+                    button.textContent = 'Copied!';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                    }, 1500);
+                }
+            } catch (err) {
+                console.log('Simple copy failed:', err);
+            }
+
+            // Remove the temporary element
+            document.body.removeChild(textArea);
+        }
+
+        // Modal functions
+        document.addEventListener('DOMContentLoaded', () => {
+            const modal = document.getElementById('serverModal');
+            const closeButton = document.querySelector('.close-button');
+            const copyUrlButton = document.getElementById('copyUrl');
+            const copyContentButton = document.getElementById('copyContent');
+            const copyCombinedUrlButton = document.getElementById('copyCombinedUrl');
+
+            if (closeButton) {
+                closeButton.addEventListener('click', () => {
+                    modal.style.display = 'none';
+                });
+            }
+
+            // Close modal when clicking outside of it
+            window.addEventListener('click', (event) => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+
+            // Copy URL button
+            if (copyUrlButton) {
+                copyUrlButton.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    const apiUrl = document.getElementById('apiUrl')?.textContent;
+                    if (apiUrl) {
+                        copyToClipboard(apiUrl, copyUrlButton);
+                    }
+                });
+            }
+
+            // Copy JSON content button
+            if (copyContentButton) {
+                copyContentButton.addEventListener('click', () => {
+                    const jsonContent = document.getElementById('jsonContent')?.textContent;
+                    if (jsonContent) {
+                        copyToClipboard(jsonContent, copyContentButton);
+                    }
+                });
+            }
+
+            // Copy combined API URL button
+            if (copyCombinedUrlButton) {
+                copyCombinedUrlButton.addEventListener('click', () => {
+                    const combinedApiUrl = document.getElementById('combinedApiUrl')?.textContent;
+                    if (combinedApiUrl) {
+                        copyToClipboard(combinedApiUrl, copyCombinedUrlButton);
+                    }
+                });
+            }
+        });
+
+        // Render server cards
+        function renderServerCards(serversToRender) {
+            const serversGrid = document.getElementById('serversGrid');
+            serversGrid.innerHTML = '';
+
+            if (serversToRender.length === 0) {
+                serversGrid.innerHTML = '<p>No servers found matching your search criteria.</p>';
+                return;
+            }
+
+            serversToRender.forEach(server => {
+                const serverCard = document.createElement('div');
+                serverCard.className = 'server-card';
+                serverCard.setAttribute('data-name', server.name);
+
+                const serverContent = document.createElement('div');
+                serverContent.className = 'server-content';
+
+                // Create header with title and stars
+                const serverHeader = document.createElement('div');
+                serverHeader.className = 'server-header';
+
+                const heading = document.createElement('h3');
+                heading.textContent = server.display_name || server.name;
+
+                if (server.docker_url) {
+                    const dockerIcon = document.createElement('span');
+                    dockerIcon.className = 'docker-icon';
+                    dockerIcon.innerHTML = '<img src="/assets/images/docker-mark-blue.svg" alt="Docker" width="16" height="16">';
+                    dockerIcon.style.cursor = 'pointer';
+                    dockerIcon.title = 'Docker';
+
+                    // Open Docker Hub link in new tab
+                    dockerIcon.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        window.open(server.docker_url, '_blank');
+                    });
+
+                    // Add Docker icon to heading
+                    heading.appendChild(dockerIcon);
+                }
+
+                // Add official badge if the server is marked as official
+                if (server.is_official) {
+                    const officialBadge = document.createElement('span');
+                    officialBadge.className = 'official-badge';
+                    officialBadge.textContent = 'Official';
+                    heading.appendChild(officialBadge);
+                }
+
+                if (server.is_archived) {
+                    const archivedBadge = document.createElement('span');
+                    archivedBadge.className = 'archived-badge';
+                    archivedBadge.textContent = 'Archived';
+                    heading.appendChild(archivedBadge);
+                }
+
+                serverHeader.appendChild(heading);
+
+                // Add install button with click function for deeplink
+                if (isLucien) {
+                    const installButton = document.createElement('button');
+                    installButton.className = 'install-button';
+                    installButton.type = 'button';
+                    
+                    // Add download icon
+                    installButton.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Install
+                    `;
+
+                    // Handle click event to build search params and trigger deeplink
+                    installButton.addEventListener('click', (event) => {
+                        // Prevent the modal from opening
+                        event.stopPropagation();
+                        
+                        // Build search params with server install info
+                        const params = new URLSearchParams();
+                        params.append('name', server.name.replace(/-/g, '_'));
+                        params.append('action', 'install');
+                        
+                        const installInfo = Object.values(server.installations)[0];
+                        // No remote for now, only stdio
+                        params.append('command', installInfo.command);
+                        params.append('args', encodeURIComponent(installInfo.args.join(' ')));
+                        if (installInfo.env) {
+                            params.append('env', JSON.stringify(installInfo.env));
+                        }
+
+                        // Create and trigger the deeplink
+                        const deeplink = `${sourceProtocol}://mcpm?${params.toString()}`;
+                        window.location.href = deeplink;
+                    });
+                    
+                    serverHeader.appendChild(installButton);
+                }
+
+                // Add placeholder for GitHub stars in the header
+                const starCount = document.createElement('span');
+                starCount.className = 'stars stars-placeholder';
+                starCount.textContent = 'Loading stars...';
+                starCount.style.opacity = '0';
+                serverHeader.appendChild(starCount);
+
+                serverContent.appendChild(serverHeader);
+
+                const description = document.createElement('p');
+                description.className = 'description';
+                description.textContent = server.description;
+                serverContent.appendChild(description);
+
+                // Create tags container
+                const tagsContainer = document.createElement('div');
+                tagsContainer.className = 'tags';
+
+                // Add regular tags (if any)
+                if (server.tags && server.tags.length > 0) {
+                    server.tags.slice(0, 4).forEach(tag => {
+                        const tagSpan = document.createElement('span');
+                        tagSpan.className = 'tag';
+                        tagSpan.textContent = tag;
+                        tagsContainer.appendChild(tagSpan);
+                    });
+                }
+
+                // Append tags container to server content
+                serverContent.appendChild(tagsContainer);
+
+                const meta = document.createElement('div');
+                meta.className = 'meta';
+
+                // Add placeholder for author that will be populated later
+                const authorMeta = document.createElement('span');
+                authorMeta.className = 'author author-placeholder';
+                authorMeta.textContent = 'Loading author...';
+                authorMeta.style.opacity = '0';
+                meta.appendChild(authorMeta);
+
+                // Add categories if they exist
+                if (server.categories && server.categories.length > 0) {
+                    const categorySpan = document.createElement('span');
+                    categorySpan.className = 'category';
+                    categorySpan.textContent = server.categories[0]; // Display first category
+                    meta.appendChild(categorySpan);
+                }
+
+                // Update author information directly from server data (no need to fetch)
+                if (server.author && server.author.name) {
+                    // Add user icon before author name
+                    authorMeta.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>' + server.author.name;
+                    authorMeta.classList.remove('author-placeholder');
+                    authorMeta.style.opacity = '1';
+                } else {
+                    // Remove placeholder if no author found
+                    authorMeta.remove();
+                }
+
+                // Use the star count element created in the header
+
+                serverContent.appendChild(meta);
+                
+                const linksContainer = document.createElement('div');
+                linksContainer.className = 'server-links';
+
+                // Docs and GitHub buttons removed as requested
+
+                // Extract GitHub repo info from repository URL for star count
+                if (server.repository && server.repository.url && server.repository.url.includes('github.com')) {
+                    const repoUrlParts = server.repository.url.replace('https://github.com/', '').split('/');
+                    if (repoUrlParts.length >= 2) {
+                        const owner = repoUrlParts[0];
+                        const repo = repoUrlParts[1].replace('.git', '');
+                        // Update star count from our pre-fetched data
+                        const headerStarCount = serverHeader.querySelector('.stars');
+                        updateStarCount(server.name, headerStarCount);
+
+                        // Make the stars clickable to navigate to the repository
+                        headerStarCount.style.cursor = 'pointer';
+                        headerStarCount.addEventListener('click', (event) => {
+                            // Prevent the click from opening the modal
+                            event.stopPropagation();
+                            // Open the GitHub repository in a new tab
+                            window.open(server.repository.url, '_blank');
+                        });
+                    } else {
+                        const headerStarCount = serverHeader.querySelector('.stars');
+                        if (headerStarCount) headerStarCount.remove();
+                    }
+                } else {
+                    const headerStarCount = serverHeader.querySelector('.stars');
+                    if (headerStarCount) headerStarCount.remove();
+                }
+
+                serverContent.appendChild(linksContainer);
+
+                // Make the entire card clickable
+                serverCard.addEventListener('click', () => openServerModal(server));
+                serverCard.style.cursor = 'pointer';
+
+                serverCard.appendChild(serverContent);
+                serversGrid.appendChild(serverCard);
+            });
+        }
+
+        // Search functionality
+        const searchInput = document.getElementById('searchInput');
+        searchInput.addEventListener('input', handleSearch);
+
+        // Function to generate tag filters from server data
+        function generateTagFilters(servers) {
+            const tagFiltersContainer = document.getElementById('tagFilters');
+            const allTags = new Set();
+
+            // Collect all unique tags from servers
+            servers.forEach(server => {
+                if (server.tags && Array.isArray(server.tags)) {
+                    server.tags.forEach(tag => allTags.add(tag.toLowerCase()));
+                }
+            });
+
+            // Sort tags alphabetically
+            const sortedTags = Array.from(allTags).sort();
+
+            // Create filter elements (skip 'all' as it's already in the HTML)
+            sortedTags.forEach(tag => {
+                const tagElement = document.createElement('span');
+                tagElement.className = 'tag-filter';
+                tagElement.setAttribute('data-tag', tag);
+                tagElement.textContent = tag.charAt(0).toUpperCase() + tag.slice(1); // Capitalize first letter
+
+                // Add click event listener
+                tagElement.addEventListener('click', () => {
+                    document.querySelectorAll('.tag-filter').forEach(f => f.classList.remove('active'));
+                    tagElement.classList.add('active');
+                    activeTag = tag;
+                    handleSearch();
+                });
+
+                tagFiltersContainer.appendChild(tagElement);
+            });
+
+            // Add click event listener to the 'All' tag that was already there
+            const allTagFilter = document.querySelector('.tag-filter[data-tag="all"]');
+            allTagFilter.addEventListener('click', () => {
+                document.querySelectorAll('.tag-filter').forEach(f => f.classList.remove('active'));
+                allTagFilter.classList.add('active');
+                activeTag = 'all';
+                handleSearch();
+            });
+
+            // Setup toggle button for expanding/collapsing tags
+            const toggleTagsBtn = document.getElementById('toggleTagsBtn');
+            const tagFilters = document.getElementById('tagFilters');
+
+            toggleTagsBtn.addEventListener('click', () => {
+                tagFilters.classList.toggle('expanded');
+                if (tagFilters.classList.contains('expanded')) {
+                    toggleTagsBtn.textContent = 'Show less';
+                } else {
+                    toggleTagsBtn.textContent = 'Show more';
+                }
+            });
+
+            // Check if we need the toggle button (if tags fit in one line)
+            if (sortedTags.length <= 10) {
+                toggleTagsBtn.style.display = 'none';
+                tagFilters.classList.add('expanded');
+            }
+        }
+
+        let activeTag = 'all';
+
+        function handleSearch() {
+            const searchTerm = searchInput.value.toLowerCase();
+
+            let filteredServers = serversArray;
+
+            // Filter by tag first (if not 'all')
+            if (activeTag && activeTag !== 'all') {
+                filteredServers = filteredServers.filter(server =>
+                    server.tags &&
+                    Array.isArray(server.tags) &&
+                    server.tags.some(tag => tag.toLowerCase() === activeTag.toLowerCase())
+                );
+            }
+
+            // Then filter by search term
+            if (searchTerm) {
+                filteredServers = filteredServers.filter(server =>
+                    (server.display_name && server.display_name.toLowerCase().includes(searchTerm)) ||
+                    (server.name && server.name.toLowerCase().includes(searchTerm)) ||
+                    (server.description && server.description.toLowerCase().includes(searchTerm)) ||
+                    (server.tags && server.tags.some(tag => tag.toLowerCase().includes(searchTerm))) ||
+                    (server.categories && server.categories.some(category => category.toLowerCase().includes(searchTerm)))
+                );
+            }
+
+            renderServerCards(filteredServers);
+        }
+
+        // Tab switching
+        const tabButtons = document.querySelectorAll('.tab-button');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.dataset.tab;
+
+                // Deactivate all tabs
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+
+                // Activate selected tab
+                button.classList.add('active');
+                document.getElementById(tabId + 'Tab').classList.add('active');
+
+                // Load JSON data when JSON tab is selected
+                if (tabId === 'json') { // API tab
+                    loadAndFormatJson();
+                }
+            });
+        });
+
+        // Variable to store the JSON formatter instance
+        let jsonFormatter = null;
+
+        // Function to load and format JSON data with collapsible view
+        function loadAndFormatJson() {
+            const jsonContainer = document.getElementById('jsonFormatterContainer');
+            jsonContainer.innerHTML = 'Loading...';
+
+            // Configure hljs to highlight JSON according to the schema
+            hljs.configure({
+                languages: ['json'],
+                cssSelector: 'pre code.language-json'
+            });
+
+            // Set the combined API URL
+            const combinedApiUrl = document.getElementById('combinedApiUrl');
+            const fullApiUrl = `${window.location.origin}/api/servers.json`;
+            combinedApiUrl.textContent = fullApiUrl;
+
+            fetch('/api/servers.json')
+                .then(response => response.json())
+                .then(data => {
+                    jsonContainer.innerHTML = ''; // Clear loading text
+
+                    // Create a new JSON formatter with improved configuration for minimal aesthetic
+                    jsonFormatter = new JSONFormatter(data, 1, {
+                        hoverPreviewEnabled: true,
+                        hoverPreviewArrayCount: 100,
+                        hoverPreviewFieldCount: 5,
+                        animateOpen: true,
+                        animateClose: true,
+                        theme: 'dark', // Use dark theme for better contrast on dark background
+                        useToJSON: true,
+                        maxArrayItems: 100
+                    });
+
+                    // Add the formatted JSON to the container
+                    jsonContainer.appendChild(jsonFormatter.render());
+
+                    // Setup expand/collapse buttons
+                    setupJsonControls();
+                })
+                .catch(error => {
+                    console.error('Error loading JSON data:', error);
+                    jsonContainer.innerHTML = 'Error loading JSON data. Please try again later.';
+                });
+        }
+
+        // Setup controls for JSON formatter
+        function setupJsonControls() {
+            // Expand all button
+            document.getElementById('expandAllBtn').addEventListener('click', () => {
+                if (jsonFormatter) {
+                    jsonFormatter.openAtDepth(Infinity);
+                }
+            });
+
+            // Collapse all button
+            document.getElementById('collapseAllBtn').addEventListener('click', () => {
+                if (jsonFormatter) {
+                    jsonFormatter.openAtDepth(1); // Collapse to first level
+                }
+            });
+        }
+
+        // Copy JSON to clipboard
+        document.getElementById('copyJsonBtn').addEventListener('click', () => {
+            if (jsonFormatter) {
+                // Format the JSON with indentation for copying
+                const jsonContent = JSON.stringify(jsonFormatter.json, null, 2);
+                navigator.clipboard.writeText(jsonContent)
+                    .then(() => {
+                        const copyBtn = document.getElementById('copyJsonBtn');
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(() => {
+                            copyBtn.textContent = 'Copy JSON';
+                        }, 2000);
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy: ', err);
+                    });
+            }
+        });
+
+        // Tag filtering is now handled in the fetch promise
+    </script>
+</body>
+
+</html>

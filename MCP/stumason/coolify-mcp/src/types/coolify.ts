@@ -1,0 +1,1650 @@
+/**
+ * Coolify MCP Server Type Definitions
+ * Complete type definitions for the Coolify API v1
+ */
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
+/**
+ * How to reach one Coolify instance.
+ *
+ * Exactly one token source is required, and the union says so rather than
+ * leaving it to a runtime check: `accessToken` from the environment, or
+ * `accessTokenFile` pointing at a path that is re-read when it changes (#398).
+ * A spawned server never sees a later change to its parent's environment, so
+ * the file is what makes rotating a token without a restart possible. When both
+ * are present the file wins.
+ */
+export type CoolifyConfig = {
+  baseUrl: string;
+  /**
+   * Where a human opens the dashboard, when that differs from `baseUrl`
+   * (#342). A server in the Coolify docker network reaches the API at
+   * `http://coolify:8080`, which no browser can open.
+   */
+  uiUrl?: string;
+  customHeaders?: Record<string, string>;
+} & (
+  | { accessToken: string; accessTokenFile?: string }
+  | { accessToken?: string; accessTokenFile: string }
+);
+
+// =============================================================================
+// Common Types
+// =============================================================================
+
+export interface ErrorResponse {
+  error?: string;
+  message: string;
+  status?: number;
+  errors?: Record<string, string[] | string>; // Validation errors by field
+}
+
+export interface DeleteOptions {
+  deleteConfigurations?: boolean;
+  deleteVolumes?: boolean;
+  dockerCleanup?: boolean;
+  deleteConnectedNetworks?: boolean;
+}
+
+/**
+ * Response from `POST /{applications,databases,services}/{uuid}/move` (Coolify v4.2+).
+ *
+ * Upstream frames the move as "a purely organizational change — running
+ * containers are not affected", so this returns the resource's new coordinates
+ * rather than a deployment. The delayed consequence is in `environment_uuid`:
+ * on its next deployment the resource picks up the *target* environment's
+ * shared environment variables.
+ */
+export interface MoveResourceResponse {
+  message: string;
+  uuid?: string;
+  project_uuid?: string;
+  environment_uuid?: string;
+}
+
+/**
+ * Body for `PUT /{applications,databases,services}/{uuid}/storages/{storage_uuid}/backups`
+ * (Coolify v4.2+).
+ *
+ * **These are replace semantics, not merge.** Upstream declares the schema
+ * `additionalProperties: false` with `frequency` as the only required field and
+ * a default on every other one, so a PUT that omits `save_s3` does not leave the
+ * existing value alone — it sets it to `false`. Combined with the absence of any
+ * GET route for a schedule (verified against `VolumeBackupsController`, which
+ * defines only PUT, DELETE and the run POST), there is no way to read the
+ * current settings back before replacing them. Callers must send the full
+ * intended schedule every time.
+ */
+export interface VolumeBackupScheduleRequest {
+  /** Cron expression, e.g. `0 2 * * *`. The only required field. */
+  frequency: string;
+  enabled?: boolean;
+  save_s3?: boolean;
+  disable_local_backup?: boolean;
+  stop_during_backup?: boolean;
+  s3_storage_uuid?: string | null;
+  retention_amount_locally?: number;
+  retention_days_locally?: number;
+  retention_max_storage_locally?: number;
+  retention_amount_s3?: number;
+  retention_days_s3?: number;
+  retention_max_storage_s3?: number;
+  timeout?: number;
+}
+
+/** Response from setting a volume backup schedule. Echoes the stored schedule. */
+export interface VolumeBackupScheduleResponse {
+  uuid: string;
+  message: string;
+  storage_uuid: string;
+  storage_type: 'persistent' | 'directory';
+  frequency: string;
+  enabled: boolean;
+  save_s3: boolean;
+  disable_local_backup: boolean;
+  stop_during_backup: boolean;
+  s3_storage_uuid?: string | null;
+  retention_amount_locally: number;
+  retention_days_locally: number;
+  retention_max_storage_locally: number;
+  retention_amount_s3: number;
+  retention_days_s3: number;
+  retention_max_storage_s3: number;
+  timeout: number;
+}
+
+export interface MessageResponse {
+  message: string;
+}
+
+export interface UuidResponse {
+  uuid: string;
+}
+
+// =============================================================================
+// Server Types
+// =============================================================================
+
+export interface Server {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  ip: string;
+  user: string;
+  port: number;
+  status?: 'running' | 'stopped' | 'error' | 'unknown';
+  is_reachable?: boolean;
+  is_usable?: boolean;
+  is_swarm_manager?: boolean;
+  is_swarm_worker?: boolean;
+  is_build_server?: boolean;
+  validation_logs?: string;
+  log_drain_notification_sent?: boolean;
+  high_disk_usage_notification_sent?: boolean;
+  unreachable_notification_sent?: boolean;
+  unreachable_count?: number;
+  proxy_type?: 'traefik' | 'caddy' | 'none';
+  proxy_status?: string;
+  // Only present on GET /servers/{uuid}, not on the list endpoint. Populated
+  // by Coolify's periodic proxy version check; null when up to date or when
+  // the proxy version has not been detected yet.
+  detected_traefik_version?: string | null;
+  traefik_outdated_info?: TraefikOutdatedInfo | null;
+  settings?: ServerSettings;
+  team_id?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Shape of `traefik_outdated_info` on GET /servers/{uuid} (verified live
+ * against Coolify v4.3.7). `type` is the semver distance of the available
+ * update, e.g. "patch_update".
+ */
+export interface TraefikOutdatedInfo {
+  current: string;
+  latest: string;
+  type?: string;
+  checked_at?: string;
+  newer_branch_target?: string;
+  newer_branch_latest?: string;
+}
+
+export interface ServerSettings {
+  id: number;
+  server_id: number;
+  concurrent_builds: number;
+  dynamic_timeout: number;
+  force_disabled: boolean;
+  force_docker_cleanup: boolean;
+  docker_cleanup_frequency: string;
+  docker_cleanup_threshold: number;
+  is_cloudflare_tunnel: boolean;
+  is_jump_server: boolean;
+  is_logdrain_axiom_enabled: boolean;
+  is_logdrain_highlight_enabled: boolean;
+  is_logdrain_custom_enabled: boolean;
+  is_logdrain_newrelic_enabled: boolean;
+  is_metrics_enabled: boolean;
+  is_reachable: boolean;
+  is_sentinel_enabled: boolean;
+  is_swarm_manager: boolean;
+  is_swarm_worker: boolean;
+  is_usable: boolean;
+  wildcard_domain?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServerResource {
+  id: number;
+  uuid: string;
+  name: string;
+  type: 'application' | 'database' | 'service';
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServerDomain {
+  ip: string;
+  domains: string[];
+}
+
+/** A Docker network destination attached to a server (GET /destinations). */
+export interface Destination {
+  uuid: string;
+  name: string;
+  network: string;
+  // The spec declares no `required` list for Destination. uuid/name/network
+  // are typed required anyway because a destination without them is unusable
+  // as a `destination_uuid` target; everything else may be absent at runtime.
+  type?: 'standalone' | 'swarm';
+  server_uuid?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ServerValidation {
+  message: string;
+  validation_logs?: string;
+}
+
+export interface CreateServerRequest {
+  name: string;
+  description?: string;
+  ip: string;
+  port?: number;
+  user?: string;
+  private_key_uuid: string;
+  is_build_server?: boolean;
+  instant_validate?: boolean;
+}
+
+export interface UpdateServerRequest {
+  name?: string;
+  description?: string;
+  ip?: string;
+  port?: number;
+  user?: string;
+  private_key_uuid?: string;
+  is_build_server?: boolean;
+}
+
+// =============================================================================
+// Project Types
+// =============================================================================
+
+export interface Project {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  team_id?: number;
+  environments?: Environment[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateProjectRequest {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  description?: string;
+}
+
+// =============================================================================
+// Environment Types
+// =============================================================================
+
+export interface Environment {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  project_id?: number;
+  project_uuid?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEnvironmentRequest {
+  name: string;
+  description?: string;
+}
+
+// =============================================================================
+// Application Types
+// =============================================================================
+
+export type BuildPack = 'nixpacks' | 'static' | 'dockerfile' | 'dockercompose' | 'dockerimage';
+
+export interface Application {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  fqdn?: string;
+  git_repository?: string;
+  git_branch?: string;
+  git_commit_sha?: string;
+  build_pack?: BuildPack;
+  ports_exposes?: string;
+  ports_mappings?: string;
+  dockerfile?: string;
+  dockerfile_location?: string;
+  docker_registry_image_name?: string;
+  docker_registry_image_tag?: string;
+  docker_compose_location?: string;
+  docker_compose_raw?: string;
+  docker_compose_custom_start_command?: string;
+  docker_compose_custom_build_command?: string;
+  base_directory?: string;
+  publish_directory?: string;
+  install_command?: string;
+  build_command?: string;
+  start_command?: string;
+  health_check_enabled?: boolean;
+  health_check_path?: string;
+  health_check_port?: number;
+  health_check_host?: string;
+  health_check_method?: string;
+  health_check_return_code?: number;
+  health_check_scheme?: string;
+  health_check_response_text?: string;
+  health_check_interval?: number;
+  health_check_timeout?: number;
+  health_check_retries?: number;
+  health_check_start_period?: number;
+  limits_memory?: string;
+  limits_memory_swap?: string;
+  limits_memory_swappiness?: number;
+  limits_memory_reservation?: string;
+  limits_cpus?: string;
+  limits_cpuset?: string;
+  limits_cpu_shares?: number;
+  status?: 'running' | 'stopped' | 'error' | 'building' | 'deploying';
+  preview_url_template?: string;
+  destination_type?: string;
+  destination_id?: number;
+  /**
+   * Expanded destination, as returned by `GET /applications`. Verified live
+   * against 4.1.2 — the list response nests this object and does **not**
+   * populate the flat `server_uuid` below, so `server_uuid` cannot be used to
+   * answer "which server is this app on" for a listed application.
+   *
+   * Each destination belongs to exactly one server, so `server_id` is the
+   * correct key for counting distinct servers; `destination_id` would overcount
+   * a server that has several docker networks.
+   */
+  destination?: {
+    id?: number;
+    uuid?: string;
+    name?: string;
+    server_id?: number;
+  };
+  source_type?: string;
+  source_id?: number;
+  private_key_id?: number;
+  environment_id?: number;
+  project_uuid?: string;
+  environment_uuid?: string;
+  /** Not returned by `GET /applications`; see {@link Application.destination}. */
+  server_uuid?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Minimal proof that one exact application belongs to one exact environment.
+ * Deliberately excludes embedded resources and configuration so callers do not
+ * need a project or environment enumeration to bind the two identities.
+ */
+export interface ApplicationEnvironmentVerification {
+  verified: true;
+  application_uuid: string;
+  environment: { id: number; uuid: string; name: string };
+}
+
+export interface CreateApplicationPublicRequest {
+  project_uuid: string;
+  server_uuid: string;
+  environment_name?: string;
+  environment_uuid?: string;
+  destination_uuid?: string;
+  name?: string;
+  description?: string;
+  fqdn?: string;
+  domains?: string;
+  git_repository: string;
+  git_branch: string;
+  git_commit_sha?: string;
+  build_pack: BuildPack;
+  ports_exposes: string;
+  ports_mappings?: string;
+  base_directory?: string;
+  publish_directory?: string;
+  install_command?: string;
+  build_command?: string;
+  start_command?: string;
+  dockerfile_location?: string;
+  watch_paths?: string;
+  // Health check configuration
+  health_check_enabled?: boolean;
+  health_check_path?: string;
+  health_check_port?: number;
+  health_check_host?: string;
+  health_check_method?: string;
+  health_check_return_code?: number;
+  health_check_scheme?: string;
+  health_check_response_text?: string;
+  health_check_interval?: number;
+  health_check_timeout?: number;
+  health_check_retries?: number;
+  health_check_start_period?: number;
+  custom_docker_run_options?: string;
+  custom_labels?: string;
+  instant_deploy?: boolean;
+  is_preview_deployments_enabled?: boolean;
+  is_pr_deployments_public_enabled?: boolean;
+  preview_url_template?: string;
+}
+
+export interface CreateApplicationPrivateGHRequest extends Omit<
+  CreateApplicationPublicRequest,
+  'build_pack' | 'ports_exposes'
+> {
+  github_app_uuid: string;
+  build_pack?: BuildPack; // Optional for GitHub app deploys
+  ports_exposes?: string; // Optional for GitHub app deploys
+}
+
+export interface CreateApplicationPrivateKeyRequest extends Omit<
+  CreateApplicationPublicRequest,
+  'build_pack' | 'ports_exposes'
+> {
+  private_key_uuid: string;
+  build_pack?: BuildPack; // Optional for private key deploys
+  ports_exposes?: string; // Optional for private key deploys
+}
+
+export interface CreateApplicationDockerfileRequest {
+  project_uuid: string;
+  server_uuid: string;
+  environment_name?: string;
+  environment_uuid?: string;
+  destination_uuid?: string;
+  name?: string;
+  description?: string;
+  fqdn?: string;
+  domains?: string;
+  dockerfile: string;
+  dockerfile_location?: string;
+  ports_exposes?: string;
+  ports_mappings?: string;
+  base_directory?: string;
+  custom_docker_run_options?: string;
+  custom_labels?: string;
+  instant_deploy?: boolean;
+  is_preview_deployments_enabled?: boolean;
+  is_pr_deployments_public_enabled?: boolean;
+  preview_url_template?: string;
+}
+
+export interface CreateApplicationDockerImageRequest {
+  project_uuid: string;
+  server_uuid: string;
+  environment_name?: string;
+  environment_uuid?: string;
+  destination_uuid?: string;
+  name?: string;
+  description?: string;
+  fqdn?: string;
+  domains?: string;
+  docker_registry_image_name: string;
+  docker_registry_image_tag?: string;
+  ports_exposes: string;
+  ports_mappings?: string;
+  // Health check configuration
+  health_check_enabled?: boolean;
+  health_check_path?: string;
+  health_check_port?: number;
+  health_check_host?: string;
+  health_check_method?: string;
+  health_check_return_code?: number;
+  health_check_scheme?: string;
+  health_check_response_text?: string;
+  health_check_interval?: number;
+  health_check_timeout?: number;
+  health_check_retries?: number;
+  health_check_start_period?: number;
+  custom_docker_run_options?: string;
+  custom_labels?: string;
+  instant_deploy?: boolean;
+  is_preview_deployments_enabled?: boolean;
+  is_pr_deployments_public_enabled?: boolean;
+  preview_url_template?: string;
+}
+
+export interface CreateApplicationDockerComposeRequest {
+  project_uuid: string;
+  server_uuid: string;
+  environment_name?: string;
+  environment_uuid?: string;
+  destination_uuid?: string;
+  name?: string;
+  description?: string;
+  fqdn?: string;
+  domains?: string;
+  docker_compose_raw: string;
+  docker_compose_location?: string;
+  docker_compose_custom_start_command?: string;
+  docker_compose_custom_build_command?: string;
+  custom_docker_run_options?: string;
+  custom_labels?: string;
+  instant_deploy?: boolean;
+}
+
+export interface UpdateApplicationRequest {
+  name?: string;
+  description?: string;
+  fqdn?: string;
+  domains?: string;
+  custom_docker_run_options?: string;
+  custom_labels?: string;
+  // App containers get no stable uuid DNS hostname (only databases do);
+  // this is the only way to give an app a fixed name for app-to-app traffic.
+  custom_network_aliases?: string;
+  git_repository?: string;
+  git_branch?: string;
+  git_commit_sha?: string;
+  ports_exposes?: string;
+  ports_mappings?: string;
+  dockerfile?: string;
+  dockerfile_location?: string;
+  docker_registry_image_name?: string;
+  docker_registry_image_tag?: string;
+  docker_compose_raw?: string;
+  docker_compose_location?: string;
+  base_directory?: string;
+  publish_directory?: string;
+  install_command?: string;
+  build_command?: string;
+  start_command?: string;
+  dockerfile_target_build?: string;
+  watch_paths?: string;
+  // Health check configuration
+  health_check_enabled?: boolean;
+  health_check_path?: string;
+  health_check_port?: number;
+  health_check_host?: string;
+  health_check_method?: string;
+  health_check_return_code?: number;
+  health_check_scheme?: string;
+  health_check_response_text?: string;
+  health_check_interval?: number;
+  health_check_timeout?: number;
+  health_check_retries?: number;
+  health_check_start_period?: number;
+  // Resource limits
+  limits_memory?: string;
+  limits_memory_swap?: string;
+  limits_cpus?: string;
+  // HTTP Basic Auth
+  is_http_basic_auth_enabled?: boolean;
+  http_basic_auth_username?: string;
+  http_basic_auth_password?: string;
+  is_preview_deployments_enabled?: boolean;
+  is_pr_deployments_public_enabled?: boolean;
+  preview_url_template?: string;
+}
+
+export interface ApplicationActionResponse {
+  message: string;
+  deployment_uuid?: string;
+}
+
+// =============================================================================
+// Environment Variable Types
+// =============================================================================
+
+export interface EnvironmentVariable {
+  id: number;
+  uuid: string;
+  key: string;
+  /**
+   * Optional because Coolify v4.2 strips sensitive fields from API responses
+   * unless the token carries sensitive-read scope (coollabsio/coolify#9893).
+   * Masked responses still populate it with the mask sentinel; a genuinely
+   * withheld value arrives as undefined.
+   */
+  value?: string;
+  is_buildtime: boolean;
+  is_runtime: boolean;
+  is_literal: boolean;
+  is_multiline: boolean;
+  is_preview: boolean;
+  is_shared: boolean;
+  is_shown_once: boolean;
+  real_value?: string;
+  version?: string;
+  application_id?: number;
+  service_id?: number;
+  database_id?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEnvVarRequest {
+  key: string;
+  value: string;
+  is_preview?: boolean;
+  is_literal?: boolean;
+  is_multiline?: boolean;
+  is_shown_once?: boolean;
+  is_buildtime?: boolean;
+  is_runtime?: boolean;
+}
+
+export interface UpdateEnvVarRequest {
+  key: string;
+  value: string;
+  is_preview?: boolean;
+  is_literal?: boolean;
+  is_multiline?: boolean;
+  is_shown_once?: boolean;
+  is_buildtime?: boolean;
+  is_runtime?: boolean;
+}
+
+export interface BulkUpdateEnvVarsRequest {
+  data: CreateEnvVarRequest[];
+}
+
+// Summary type for env vars - reduces response size significantly
+export interface EnvVarSummary {
+  uuid: string;
+  key: string;
+  /** Undefined when Coolify v4.2 withholds the value. See {@link EnvironmentVariable.value}. */
+  value?: string;
+  is_buildtime: boolean;
+  is_runtime: boolean;
+  /**
+   * Whether this variable applies to preview deployments rather than production.
+   * Included in the summary because the same key legitimately exists in both
+   * scopes with different values, and a caller that cannot see the distinction
+   * reads it as a misconfiguration and "corrects" the wrong row (#291).
+   */
+  is_preview: boolean;
+}
+
+// =============================================================================
+// Database Types
+// =============================================================================
+
+export type DatabaseType =
+  'postgresql' | 'mysql' | 'mariadb' | 'mongodb' | 'redis' | 'keydb' | 'clickhouse' | 'dragonfly';
+
+export interface DatabaseLimits {
+  memory?: string;
+  memory_swap?: string;
+  memory_swappiness?: number;
+  memory_reservation?: string;
+  cpus?: string;
+  cpuset?: string;
+  cpu_shares?: number;
+}
+
+export interface Database {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  type: DatabaseType;
+  status: 'running' | 'stopped' | 'error' | 'restarting';
+  is_public: boolean;
+  public_port?: number;
+  image: string;
+  started_at?: string;
+  internal_db_url?: string;
+  external_db_url?: string;
+  project_uuid?: string;
+  /**
+   * Numeric environment link, and the only usable one on a listed database.
+   * Verified live against 4.1.2: `GET /databases` returns this and leaves
+   * `project_uuid` undefined, exactly as `GET /applications` does. It is what
+   * resolves a database to its project — see `projectContents`.
+   */
+  environment_id?: number;
+  environment_uuid?: string;
+  environment_name?: string;
+  server_uuid?: string;
+  limits?: DatabaseLimits;
+  created_at: string;
+  updated_at: string;
+  // PostgreSQL fields
+  postgres_user?: string;
+  postgres_password?: string;
+  postgres_db?: string;
+  postgres_initdb_args?: string;
+  postgres_host_auth_method?: string;
+  postgres_conf?: string;
+  // MySQL fields
+  mysql_root_password?: string;
+  mysql_user?: string;
+  mysql_password?: string;
+  mysql_database?: string;
+  // MariaDB fields
+  mariadb_root_password?: string;
+  mariadb_user?: string;
+  mariadb_password?: string;
+  mariadb_database?: string;
+  mariadb_conf?: string;
+  // MongoDB fields
+  mongo_initdb_root_username?: string;
+  mongo_initdb_root_password?: string;
+  mongo_initdb_database?: string;
+  mongo_conf?: string;
+  // Redis fields
+  redis_password?: string;
+  redis_conf?: string;
+  // KeyDB fields
+  keydb_password?: string;
+  keydb_conf?: string;
+  // Clickhouse fields
+  clickhouse_admin_user?: string;
+  clickhouse_admin_password?: string;
+  // Dragonfly fields
+  dragonfly_password?: string;
+}
+
+export interface UpdateDatabaseRequest {
+  name?: string;
+  description?: string;
+  image?: string;
+  is_public?: boolean;
+  public_port?: number | null;
+  public_port_timeout?: number;
+  limits_memory?: string;
+  limits_memory_swap?: string;
+  limits_memory_swappiness?: number;
+  limits_memory_reservation?: string;
+  limits_cpus?: string;
+  limits_cpuset?: string;
+  limits_cpu_shares?: number;
+  // PostgreSQL specific
+  postgres_user?: string;
+  postgres_password?: string;
+  postgres_db?: string;
+  postgres_initdb_args?: string;
+  postgres_host_auth_method?: string;
+  postgres_conf?: string;
+  // MySQL specific
+  mysql_root_password?: string;
+  mysql_user?: string;
+  mysql_password?: string;
+  mysql_database?: string;
+  // MariaDB specific
+  mariadb_root_password?: string;
+  mariadb_user?: string;
+  mariadb_password?: string;
+  mariadb_database?: string;
+  mariadb_conf?: string;
+  // MongoDB specific
+  mongo_initdb_root_username?: string;
+  mongo_initdb_root_password?: string;
+  mongo_initdb_database?: string;
+  mongo_conf?: string;
+  // Redis specific
+  redis_password?: string;
+  redis_conf?: string;
+  // KeyDB specific
+  keydb_password?: string;
+  keydb_conf?: string;
+  // Clickhouse specific
+  clickhouse_admin_user?: string;
+  clickhouse_admin_password?: string;
+  // Dragonfly specific
+  dragonfly_password?: string;
+}
+
+// Base interface for database creation requests
+export interface CreateDatabaseBaseRequest {
+  server_uuid: string;
+  project_uuid: string;
+  environment_name?: string;
+  environment_uuid?: string;
+  destination_uuid?: string;
+  name?: string;
+  description?: string;
+  image?: string;
+  is_public?: boolean;
+  public_port?: number;
+  limits_memory?: string;
+  limits_memory_swap?: string;
+  limits_memory_swappiness?: number;
+  limits_memory_reservation?: string;
+  limits_cpus?: string;
+  limits_cpuset?: string;
+  limits_cpu_shares?: number;
+  instant_deploy?: boolean;
+}
+
+export interface CreatePostgresqlRequest extends CreateDatabaseBaseRequest {
+  postgres_user?: string;
+  postgres_password?: string;
+  postgres_db?: string;
+  postgres_initdb_args?: string;
+  postgres_host_auth_method?: string;
+  postgres_conf?: string;
+}
+
+export interface CreateMysqlRequest extends CreateDatabaseBaseRequest {
+  mysql_root_password?: string;
+  mysql_user?: string;
+  mysql_password?: string;
+  mysql_database?: string;
+  mysql_conf?: string;
+}
+
+export interface CreateMariadbRequest extends CreateDatabaseBaseRequest {
+  mariadb_root_password?: string;
+  mariadb_user?: string;
+  mariadb_password?: string;
+  mariadb_database?: string;
+  mariadb_conf?: string;
+}
+
+export interface CreateMongodbRequest extends CreateDatabaseBaseRequest {
+  mongo_initdb_root_username?: string;
+  mongo_initdb_root_password?: string;
+  mongo_initdb_database?: string;
+  mongo_conf?: string;
+}
+
+export interface CreateRedisRequest extends CreateDatabaseBaseRequest {
+  redis_password?: string;
+  redis_conf?: string;
+}
+
+export interface CreateKeydbRequest extends CreateDatabaseBaseRequest {
+  keydb_password?: string;
+  keydb_conf?: string;
+}
+
+export interface CreateClickhouseRequest extends CreateDatabaseBaseRequest {
+  clickhouse_admin_user?: string;
+  clickhouse_admin_password?: string;
+}
+
+export interface CreateDragonflyRequest extends CreateDatabaseBaseRequest {
+  dragonfly_password?: string;
+}
+
+export interface CreateDatabaseResponse {
+  uuid: string;
+}
+
+// =============================================================================
+// Database Backup Types
+// =============================================================================
+
+export interface DatabaseBackup {
+  id: number;
+  uuid: string;
+  database_id: number;
+  database_type: DatabaseType;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  filename?: string;
+  size?: number;
+  frequency: string;
+  enabled: boolean;
+  save_s3: boolean;
+  s3_storage_id?: number;
+  databases_to_backup?: string;
+  dump_all: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDatabaseBackupRequest {
+  frequency: string;
+  enabled?: boolean;
+  save_s3?: boolean;
+  s3_storage_uuid?: string;
+  databases_to_backup?: string;
+  dump_all?: boolean;
+  database_backup_retention_days_locally?: number;
+  database_backup_retention_days_s3?: number;
+  database_backup_retention_amount_locally?: number;
+  database_backup_retention_amount_s3?: number;
+}
+
+export interface UpdateDatabaseBackupRequest {
+  frequency?: string;
+  enabled?: boolean;
+  save_s3?: boolean;
+  s3_storage_uuid?: string;
+  databases_to_backup?: string;
+  dump_all?: boolean;
+  database_backup_retention_days_locally?: number;
+  database_backup_retention_days_s3?: number;
+  database_backup_retention_amount_locally?: number;
+  database_backup_retention_amount_s3?: number;
+}
+
+export interface BackupExecution {
+  id: number;
+  uuid: string;
+  scheduled_database_backup_id: number;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  message?: string;
+  size?: number;
+  filename?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================================================
+// Service Types
+// =============================================================================
+
+/**
+ * Available one-click service types in Coolify.
+ * This is a string type to avoid TypeScript memory issues with large const arrays.
+ * Common types include: activepieces, appsmith, appwrite, authentik, ghost, gitea,
+ * grafana, jellyfin, minio, n8n, nextcloud, pocketbase, supabase, uptime-kuma,
+ * vaultwarden, wordpress-with-mariadb, wordpress-with-mysql, etc.
+ */
+export type ServiceType = string;
+
+export interface Service {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  type: ServiceType;
+  status: 'running' | 'stopped' | 'error' | 'restarting';
+  project_uuid?: string;
+  /**
+   * Numeric environment link, and the only usable one on a listed service.
+   * Verified live against 4.1.2: `GET /services` returns this and leaves
+   * `project_uuid` undefined, exactly as `GET /applications` does. It is what
+   * resolves a service to its project — see `projectContents`.
+   */
+  environment_id?: number;
+  environment_name?: string;
+  environment_uuid?: string;
+  server_uuid?: string;
+  destination_uuid?: string;
+  domains?: string[];
+  config_hash?: string;
+  connect_to_docker_network?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateServiceRequest {
+  type?: ServiceType;
+  name?: string;
+  description?: string;
+  project_uuid: string;
+  environment_name?: string;
+  environment_uuid?: string;
+  server_uuid: string;
+  destination_uuid?: string;
+  instant_deploy?: boolean;
+  docker_compose_raw?: string; // Raw or base64 docker-compose YAML (auto-encoded by client)
+  is_container_label_escape_enabled?: boolean;
+}
+
+/**
+ * CRITICAL: When updating services with Traefik basic auth labels
+ *
+ * 1. You MUST disable "Escape characters in labels" on the service first:
+ *    pass `is_container_label_escape_enabled: false` on `service update`
+ *    (or Service Settings > Advanced > Container Label Character Escaping in the UI)
+ *    - Without this, Coolify will double-escape $ signs, breaking htpasswd
+ *
+ * 2. Even with escaping disabled, Traefik still requires $$ in htpasswd hashes
+ *    - Correct: "user:$$apr1$$hash$$here"
+ *    - Wrong: "user:$apr1$hash$here"
+ *    - Docker Compose processes $$ → $ for Traefik
+ *
+ * 3. docker_compose_raw is auto base64-encoded by the client — pass raw YAML
+ *
+ * Summary for htpasswd with basic auth:
+ *   - Generate hash: htpasswd -nb username password
+ *   - Replace $ with $$ in the hash
+ *   - Disable label escaping in Coolify UI (manual step!)
+ */
+export interface UpdateServiceRequest {
+  name?: string;
+  description?: string;
+  docker_compose_raw?: string; // Raw or base64 docker-compose YAML (auto-encoded by client)
+  /** Attach the stack to the shared `coolify` network so other stacks can resolve its containers by name. */
+  connect_to_docker_network?: boolean;
+  instant_deploy?: boolean;
+  is_container_label_escape_enabled?: boolean;
+}
+
+/**
+ * PATCH /services/{uuid}/applications/{app_uuid} — update a sub-application
+ * within a service (e.g. change its FQDN / url).
+ *
+ * The `url` field maps to Coolify's "FQDN" for the sub-app and accepts a
+ * comma-separated string of URLs (or null to clear).
+ */
+export interface UpdateServiceApplicationRequest {
+  url?: string | null;
+  human_name?: string;
+  description?: string;
+  image?: string;
+  exclude_from_status?: boolean;
+  is_log_drain_enabled?: boolean;
+  is_gzip_enabled?: boolean;
+  is_stripprefix_enabled?: boolean;
+}
+
+export interface ServiceCreateResponse {
+  uuid: string;
+  domains: string[];
+}
+
+/**
+ * A container inside a Coolify service. Services are multi-container stacks, and
+ * `name` is the `sub_service_name` that `GET /services/{uuid}/logs` requires.
+ *
+ * Deliberately permissive: upstream's OpenAPI types the list responses as a bare
+ * `array of object`, so only the fields we actually rely on are declared and the
+ * rest pass through untyped rather than being asserted from an unverified spec.
+ */
+export interface ServiceSubResource {
+  uuid: string;
+  name: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * A Coolify tag. Tags group resources across projects, and `deploy` already
+ * accepts a tag name — {@link CoolifyClient.deployByTagOrUuid} resolves it and
+ * triggers a deployment for everything carrying it.
+ */
+export interface Tag {
+  uuid: string;
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * Attach request. Upstream accepts either `tag_name` (single) or `tag_names`
+ * (array); this client always sends `tag_names` so there is one shape to reason
+ * about, with a single-element array covering the singular case.
+ */
+export interface AttachTagsRequest {
+  tag_names: string[];
+}
+
+/**
+ * Log endpoints return `{ logs: "..." }` — verified against a live Coolify
+ * instance, and matching upstream's OpenAPI. Older instances have been observed
+ * returning a bare string, so {@link CoolifyClient} normalises both.
+ */
+export interface LogsResponse {
+  logs: string;
+}
+
+// =============================================================================
+// Deployment Types
+// =============================================================================
+
+export interface Deployment {
+  id: number;
+  uuid: string;
+  application_id?: number;
+  application_uuid?: string;
+  application_name?: string;
+  deployment_uuid: string;
+  pull_request_id?: number;
+  force_rebuild: boolean;
+  commit?: string;
+  status: 'queued' | 'in_progress' | 'finished' | 'failed' | 'cancelled';
+  is_webhook: boolean;
+  is_api: boolean;
+  logs?: string;
+  current_process_id?: string;
+  restart_only: boolean;
+  git_type?: string;
+  server_id?: number;
+  server_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeployByTagRequest {
+  tag?: string;
+  uuid?: string;
+  force?: boolean;
+}
+
+/** `GET /applications/{uuid}/rollback-images` (Coolify 4.3+, #442). */
+export interface RollbackImages {
+  current: string | null;
+  /** Empty when Coolify could not inspect the server, not only when there are none. */
+  images?: Array<{ tag: string; created_at?: string; is_current?: boolean }>;
+}
+
+/**
+ * Response from `GET /deploy?tag=|uuid=`. A tag can match multiple
+ * applications, so Coolify returns one entry per triggered deployment.
+ * `message` at the top level is kept for backwards compatibility with
+ * older/mocked callers that only ever saw a bare `{ message }`.
+ */
+export interface DeployTriggerResponse {
+  message?: string;
+  deployments?: Array<{
+    message?: string;
+    resource_uuid?: string;
+    deployment_uuid?: string;
+  }>;
+}
+
+// =============================================================================
+// Team Types
+// =============================================================================
+
+export interface Team {
+  id: number;
+  uuid?: string;
+  name: string;
+  description?: string;
+  personal_team: boolean;
+  show_boarding?: boolean;
+  custom_server_limit?: number;
+  members?: TeamMember[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMember {
+  id: number;
+  name: string;
+  email: string;
+  role?: 'owner' | 'admin' | 'member' | 'readonly';
+  created_at: string;
+  updated_at: string;
+}
+
+// =============================================================================
+// Private Key Types
+// =============================================================================
+
+export interface PrivateKey {
+  id: number;
+  uuid: string;
+  name: string;
+  description?: string;
+  /**
+   * Optional because Coolify v4.2 strips sensitive fields from API responses
+   * unless the token carries sensitive-read scope (coollabsio/coolify#9893).
+   * On such instances this is simply absent rather than an error, so callers
+   * must handle the missing case.
+   */
+  private_key?: string;
+  public_key?: string;
+  fingerprint?: string;
+  is_git_related: boolean;
+  team_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePrivateKeyRequest {
+  name: string;
+  description?: string;
+  private_key: string;
+}
+
+export interface UpdatePrivateKeyRequest {
+  name?: string;
+  description?: string;
+  private_key?: string;
+}
+
+// =============================================================================
+// GitHub App Types
+// =============================================================================
+
+export interface GitHubApp {
+  id: number;
+  uuid: string;
+  name: string;
+  organization: string | null;
+  api_url: string;
+  html_url: string;
+  custom_user: string;
+  custom_port: number;
+  app_id: number | null;
+  installation_id: number | null;
+  client_id: string | null;
+  is_system_wide: boolean;
+  is_public: boolean;
+  private_key_id: number | null;
+  team_id: number;
+  type: string;
+  // Permission fields
+  administration: string | null;
+  contents: string | null;
+  metadata: string | null;
+  pull_requests: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGitHubAppRequest {
+  name: string;
+  api_url: string;
+  html_url: string;
+  app_id: number;
+  installation_id: number;
+  client_id: string;
+  client_secret: string;
+  private_key_uuid: string;
+  organization?: string;
+  custom_user?: string;
+  custom_port?: number;
+  webhook_secret?: string;
+  is_system_wide?: boolean;
+}
+
+export interface UpdateGitHubAppRequest {
+  name?: string;
+  organization?: string;
+  api_url?: string;
+  html_url?: string;
+  custom_user?: string;
+  custom_port?: number;
+  app_id?: number;
+  installation_id?: number;
+  client_id?: string;
+  client_secret?: string;
+  webhook_secret?: string;
+  private_key_uuid?: string;
+  is_system_wide?: boolean;
+}
+
+export interface GitHubAppUpdateResponse {
+  message: string;
+  data: GitHubApp;
+}
+
+// =============================================================================
+// Cloud Token Types (Hetzner, DigitalOcean)
+// =============================================================================
+
+export type CloudProvider = 'hetzner' | 'digitalocean';
+
+export interface CloudToken {
+  id: number;
+  uuid: string;
+  name: string;
+  provider: CloudProvider;
+  team_id: number;
+  servers_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCloudTokenRequest {
+  provider: CloudProvider;
+  token: string;
+  name: string;
+}
+
+export interface UpdateCloudTokenRequest {
+  name?: string;
+}
+
+export interface CloudTokenValidation {
+  valid: boolean;
+  message: string;
+}
+
+// =============================================================================
+// Version/Health Types
+// =============================================================================
+
+export interface Version {
+  version: string;
+}
+
+export interface HealthCheck {
+  status: 'healthy' | 'unhealthy';
+  version?: string;
+}
+
+// =============================================================================
+// Diagnostic Types (Composite responses for debugging)
+// =============================================================================
+
+export type DiagnosticHealthStatus = 'healthy' | 'unhealthy' | 'unknown';
+
+export interface ApplicationDiagnostic {
+  application: {
+    uuid: string;
+    name: string;
+    status: string;
+    fqdn: string | null;
+    git_repository: string | null;
+    git_branch: string | null;
+  } | null;
+  health: {
+    status: DiagnosticHealthStatus;
+    issues: string[];
+  };
+  logs: string | null;
+  environment_variables: {
+    count: number;
+    // Coolify auto-creates a preview twin for every production env var and the
+    // API returns both scopes merged, so `count` can legitimately be double the
+    // number of keys a user configured. `distinct_keys` and the per-scope
+    // counts make that readable without deduping the underlying rows (#336).
+    distinct_keys: number;
+    production_count: number;
+    preview_count: number;
+    variables: Array<{
+      key: string;
+      is_buildtime: boolean;
+      is_runtime: boolean;
+      is_preview: boolean;
+    }>;
+  };
+  recent_deployments: Array<{
+    uuid: string;
+    status: string;
+    created_at: string;
+  }>;
+  errors?: string[];
+}
+
+export interface ServerDiagnostic {
+  server: {
+    uuid: string;
+    name: string;
+    ip: string;
+    status: string | null;
+    is_reachable: boolean | null;
+  } | null;
+  health: {
+    status: DiagnosticHealthStatus;
+    issues: string[];
+  };
+  resources: Array<{
+    uuid: string;
+    name: string;
+    type: string;
+    status: string;
+  }>;
+  domains: Array<{
+    ip: string;
+    domains: string[];
+  }>;
+  validation: {
+    message: string;
+    validation_logs?: string;
+  } | null;
+  errors?: string[];
+}
+
+export interface InfrastructureIssue {
+  type: 'application' | 'database' | 'service' | 'server';
+  uuid: string;
+  name: string;
+  issue: string;
+  status: string;
+  // 'critical' = down/unhealthy/unreachable; 'warning' = degraded signal worth
+  // surfacing (unknown health, available proxy update) that is not an outage.
+  severity: 'critical' | 'warning';
+}
+
+export interface InfrastructureIssuesReport {
+  summary: {
+    total_issues: number;
+    // The unhealthy_*/unreachable_* counts cover critical issues only, keeping
+    // their pre-#336 meaning; warnings are counted separately.
+    unhealthy_applications: number;
+    unhealthy_databases: number;
+    unhealthy_services: number;
+    unreachable_servers: number;
+    warnings: number;
+  };
+  issues: InfrastructureIssue[];
+  errors?: string[];
+}
+
+// =============================================================================
+// Batch Operation Types
+// =============================================================================
+
+export interface BatchOperationResult {
+  summary: {
+    total: number;
+    succeeded: number;
+    failed: number;
+  };
+  succeeded: Array<{ uuid: string; name: string }>;
+  failed: Array<{ uuid: string; name: string; error: string }>;
+}
+
+// =============================================================================
+// Storage Types (Persistent & File Storages)
+// =============================================================================
+
+export interface Storage {
+  id: number;
+  uuid: string;
+  name?: string;
+  mount_path: string;
+  host_path?: string;
+  content?: string;
+  is_directory?: boolean;
+  fs_path?: string;
+  type: 'persistent' | 'file';
+  is_preview_suffix_enabled?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorageListResponse {
+  persistent_storages: Storage[];
+  file_storages: Storage[];
+}
+
+export interface CreateStorageRequest {
+  type: 'persistent' | 'file';
+  mount_path: string;
+  name?: string;
+  host_path?: string;
+  content?: string;
+  is_directory?: boolean;
+  fs_path?: string;
+  is_preview_suffix_enabled?: boolean;
+}
+
+export interface UpdateStorageRequest {
+  uuid?: string;
+  id?: number;
+  type: 'persistent' | 'file';
+  is_preview_suffix_enabled?: boolean;
+  name?: string;
+  mount_path?: string;
+  host_path?: string;
+  content?: string;
+  is_directory?: boolean;
+}
+
+// =============================================================================
+// Scheduled Task Types
+// =============================================================================
+
+export interface ScheduledTask {
+  id: number;
+  uuid: string;
+  enabled: boolean;
+  name: string;
+  command: string;
+  frequency: string;
+  container?: string;
+  timeout: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduledTaskExecution {
+  uuid: string;
+  status: 'success' | 'failed' | 'running';
+  message?: string;
+  retry_count: number;
+  duration?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateScheduledTaskRequest {
+  name: string;
+  command: string;
+  frequency: string;
+  container?: string;
+  timeout?: number;
+  enabled?: boolean;
+}
+
+export interface UpdateScheduledTaskRequest {
+  name?: string;
+  command?: string;
+  frequency?: string;
+  container?: string;
+  timeout?: number;
+  enabled?: boolean;
+}
+
+// =============================================================================
+// Hetzner Cloud Types
+// =============================================================================
+
+export interface HetznerLocation {
+  id: number;
+  name: string;
+  description: string;
+  country: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface HetznerServerType {
+  id: number;
+  name: string;
+  description: string;
+  cores: number;
+  memory: number;
+  disk: number;
+  architecture: string;
+}
+
+export interface HetznerImage {
+  id: number;
+  name: string;
+  description: string;
+  type: string;
+  os_flavor: string;
+  os_version: string;
+  architecture: string;
+}
+
+export interface HetznerSSHKey {
+  id: number;
+  name: string;
+  fingerprint: string;
+  public_key: string;
+}
+
+export interface CreateHetznerServerRequest {
+  cloud_provider_token_uuid?: string;
+  location: string;
+  server_type: string;
+  image: number;
+  name?: string;
+  private_key_uuid: string;
+  enable_ipv4?: boolean;
+  enable_ipv6?: boolean;
+  hetzner_ssh_key_ids?: number[];
+  cloud_init_script?: string;
+  instant_validate?: boolean;
+}
+
+export interface CreateHetznerServerResponse {
+  uuid: string;
+  hetzner_server_id: number;
+  ip: string;
+}
+
+// =============================================================================
+// GitHub App Repository Types
+// =============================================================================
+
+export interface GitHubRepository {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  html_url: string;
+  default_branch: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+}
+
+// =============================================================================
+// Resource List Types
+// =============================================================================
+
+export interface ResourceListItem {
+  uuid: string;
+  name: string;
+  type: 'server' | 'application' | 'database' | 'service' | string;
+  status?: string;
+}
+
+/**
+ * Full Coolify `/api/v1/resources` row — the typed essentials plus every other
+ * field Coolify returns (build/healthcheck/limits/git/docker-compose config,
+ * etc.). Only surfaced when the caller passes `include_full: true`; the default
+ * `listResources()` response uses {@link ResourceListItem} to keep MCP token
+ * budgets sane on instances with many resources.
+ */
+export type ResourceListItemFull = ResourceListItem & Record<string, unknown>;
+
+// =============================================================================
+// Response Enhancement Types (HATEOAS-style actions)
+// =============================================================================
+
+export interface ResponseAction {
+  tool: string;
+  args: Record<string, string | number | boolean>;
+  hint: string;
+}
+
+export interface ResponsePagination {
+  next?: { tool: string; args: Record<string, string | number> };
+  prev?: { tool: string; args: Record<string, string | number> };
+}
+
+// Optimized deployment response (excludes logs by default)
+export interface DeploymentEssential {
+  uuid: string;
+  deployment_uuid: string;
+  application_uuid?: string;
+  application_name?: string;
+  server_name?: string;
+  status: string;
+  commit?: string;
+  force_rebuild: boolean;
+  is_webhook: boolean;
+  is_api: boolean;
+  created_at: string;
+  updated_at: string;
+  logs_available?: boolean; // true if logs exist but were excluded
+  logs_info?: string;
+  logs?: string; // populated only when the caller explicitly requested logs (never raw upstream fields)
+}

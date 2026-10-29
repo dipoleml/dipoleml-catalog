@@ -1,0 +1,2300 @@
+# Technical Reference
+
+Advanced and internal details for Deliberation. For install and everyday use,
+see the [README](README.md). This document covers the provider bridges, the full
+environment-variable reference, manual MCP setup, multi-turn and retry behavior,
+and the Gemini recovery paths.
+
+## Contents
+
+- [Architecture](#architecture)
+- [Consensus flow details](#consensus-flow-details)
+- [Provider bridges](#provider-bridges)
+- [Implementation mode (core capability)](#implementation-mode-core-capability)
+- [Environment variables](#environment-variables)
+- [Manual MCP setup](#manual-mcp-setup)
+- [Multi-turn and retry](#multi-turn-and-retry)
+- [Gemini timeout recovery](#gemini-timeout-recovery)
+- [Grok files and cleanup](#grok-files-and-cleanup)
+- [OpenRouter bridge](#openrouter-bridge)
+- [Orientation auto-attach](#orientation-auto-attach)
+- [Date grounding](#date-grounding)
+- [Session persistence](#session-persistence)
+- [Dashboard](#dashboard)
+- [Customizing expert prompts](#customizing-expert-prompts)
+- [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
+
+## Architecture
+
+Claude acts as the orchestrator. It reads your request, picks an expert, and
+delegates to a provider over MCP. Each provider reaches Claude Code differently:
+
+- **Codex (GPT)** - no MCP server of its own. codex-cli ships none (the old
+  `codex mcp-server` subcommand is gone; `codex mcp` manages *external* servers), so the
+  unified `deliberation` server spawns `codex exec` directly from
+  `core/providers/codex.js`. Advisory-only and single-shot: no `threadId`, no
+  `workspace-write`.
+- **Gemini** - a bundled zero-dependency Node bridge (`server/gemini/index.js`)
+  wraps the Antigravity CLI (`agy`).
+- **Grok (xAI)** - a bundled zero-dependency Node bridge (`server/grok/index.js`)
+  talks to the xAI Responses API (`/v1/responses`) over HTTP. Advisory-only: it
+  cannot edit files, but it can read attached files.
+
+Responses are synthesized by Claude, never passed through verbatim.
+
+End-to-end flow on a typical request:
+
+```
+You: "Is this authentication flow secure?"
+                |
+                v
+Claude: detects a security question, selects the Security Analyst
+                |
+                v
+   +-------------------------------------+
+   |  mcp__deliberation__ask-gpt /       |
+   |  mcp__deliberation-gemini__gemini / |
+   |  mcp__deliberation-grok__grok       |
+   |    -> Security Analyst prompt       |
+   |    -> expert analyzes your code     |
+   +-------------------------------------+
+                |
+                v
+Claude: "I found 3 issues..." (synthesizes, applies judgment)
+```
+
+- Each expert has a specialized system prompt (in `prompts/`).
+- Claude reads your request, picks the expert, and delegates over MCP.
+- Responses are synthesized, not passed through raw.
+- Multi-turn conversations preserve context via `threadId` for chained work, and implementation retries before escalating to you.
+
+## Consensus flow details
+
+`/consensus` is a thin driver over the `consensus-step` tool; the multi-round loop lives in
+the core state machine (`core/consensus-loop.js`). Each round: Claude commits a blind verdict,
+the server fans out to the panel (`dispatch_peers`) and parses each voice's verdict + critical
+issues, Claude adjudicates (accept/dismiss/defer, every dismiss carries a reason), then revises
+the plan. The loop converges only when at least one responding peer APPROVES, none REJECT, zero
+accepted critical issues remain, and Claude's adjudicated verdict is APPROVE - so Claude cannot
+self-approve. The cap is `consensus.maxRounds` (default 5).
+
+**Critical-issue taxonomy** (the closed set every critical issue is tagged with, parsed by
+`parseReview` in `core/provider.js`):
+
+- `security` - auth, secrets, injection, data exposure, privilege boundary
+- `correctness` - wrong behaviour, broken invariant, missing case, race condition
+- `scope` - undefined boundary, missing acceptance criteria, deliverable unclear
+- `ambiguity` - reference too vague to act on, contradictory steps, missing context
+- `performance` - latency, throughput, resource use, scaling limit
+- `ops` - rollback, observability, deploy, migration, on-call surface
+
+**Verdict shape.** The shared review prompt (one byte-identical string per provider) instructs every
+reviewer to end with a machine-readable `VERDICT: APPROVE` (or `VERDICT: REQUEST_CHANGES` /
+`VERDICT: REJECT`) line on its own, then list issues as `- [category] description`. `parseReview`
+tolerates real-world drift across models: it first strips fenced code blocks (so a quoted/echoed
+template cannot hijack the verdict), then resolves the verdict via a 4-tier ladder - the `VERDICT:`
+sentinel, a same-line `Verdict: <token>`, a `Verdict` heading with the token on a following line, or a
+bare standalone token line - and joins a category heading to a description on the next line when the
+bullet itself has none. A repeated issue (same category, same text ignoring case and whitespace)
+is kept once: models often list their issues in the body and again after the `VERDICT:` line, and the
+repeat must not inflate the issue count. An unparsed verdict stays `null` (treated as "not APPROVE"), so a parse miss
+never false-approves into convergence.
+
+**Stage 2 (anonymized peer cross-review) is not part of the current loop.** Earlier revisions ran
+a command-layer Stage 2 (each reviewer scored the others' anonymized answers, with a shuffle
+mapping in the report). The engine-driven rewrite removed it: the core loop has no Stage 2 model,
+and keeping it in command prose re-introduced the duplication the rewrite eliminated. If anonymized
+cross-review proves valuable it returns as an engine feature (a new `consensus-step` action), not as
+prose.
+
+## Provider bridges
+
+### Gemini bridge
+
+The bridge wraps the Antigravity CLI (`agy`) in print mode (`agy -p`) and adds two
+reliability behaviors:
+
+- **Soft-timeout drain** - on timeout it keeps `agy` alive, keeps buffering its
+  streamed stdout, and returns the answer if `agy` completes cleanly within the
+  grace budget. The unified MCP orchestration uses hard absolute deadlines for
+  single calls and shared fan-outs, so it disables this drain; it remains available
+  on standalone bridge calls without a hard deadline or host cap.
+  See [Gemini timeout recovery](#gemini-timeout-recovery).
+- **Plain-stdout answer with an `Error:` sentinel** - `agy -p` prints the answer as
+  plain UTF-8 text on stdout and exits 0; there is no `-o json` mode. The bridge
+  treats stdout as the answer unless it matches `/^\s*Error:/` (agy reports
+  failures as `Error: <message>` on stdout, still at exit 0), in which case it
+  classifies the failure into an error envelope.
+
+Flag mapping the bridge applies to `agy`:
+
+| Bridge input | `agy` flag |
+|--------------|------------|
+| `sandbox: read-only` (advisory) | `--sandbox` (terminal-only; see below) |
+| `sandbox: workspace-write` | `--dangerously-skip-permissions` |
+| `include-directories: [...]` | repeated `--add-dir <dir>` |
+| `gemini-reply` (multi-turn) | `--conversation <id>` |
+| always | `--print-timeout <duration>` and `-p <prompt>` |
+
+There is no `-o json`. `agy` (>= 1.0.9) does take `--model`, and the bridge always
+pins it, so a run never inherits the operator's `~/.gemini/settings.json`
+(`model.name`). Model ids fuse family and reasoning effort - `gemini-3.6-flash-high`;
+the bare family (`gemini-3.6-flash`) is rejected with `requires --effort`. `agy models`
+prints display names (`Gemini 3.6 Flash (High)`) which `--model` also accepts, but the
+slug is canonical. Resolution order is per-call `model` > `providers.gemini.model` in
+`config.json` > `GEMINI_DEFAULT_MODEL` > the built-in `auto-gemini-3`. Point at a
+different `agy` binary with `AGY_BIN`. `agy` print mode does not enforce folder trust.
+
+The bridge probes `agy --help` once per process to learn whether the flag exists (agy
+< 1.0.9 rejects unknown flags outright). agy 1.1.x prints its usage to **stderr** only, so
+the probe reads both streams - reading stdout alone never saw `--model`, warned "does not
+support --model" on every boot, and silently dropped the pin
+([issue #180](https://github.com/antonbabenko/deliberation/issues/180)). That also means the
+pin had never reached a real agy before: the built-in `auto-gemini-3` alias is not in
+`agy models` on 1.1.x, and agy rejects an unknown id with `invalid model selection` (exit 1,
+about 3.5s, because it fetches its catalog first). Two outcomes, by whose pin it was:
+
+- **The shipped alias** (`auto-gemini-3`, seeded into every install's config): the call
+  does not fail. `runGemini` retries once without `--model` within the remaining time
+  budget (agy then uses its `~/.gemini/settings.json`), warns once per process on stderr,
+  and omits the alias for the rest of the process. The response carries `pinDropped: true`
+  and the unified envelope reports `model: "agy-settings-default"` rather than an id that
+  never ran. Set `providers.gemini.model` to an id `agy models` lists to stop the warning.
+- **Any other id** (config, `GEMINI_DEFAULT_MODEL`, or the call): a typo or a stale pin is
+  the operator's config error, and running some other model behind their back would be
+  worse than failing. The call fails as `errorKind: "model-not-allowed"` (not retried) with
+  agy's own message, which lists the catalog, forwarded as `message`.
+
+The pin is located by position (`--model <id>` sits immediately before the `-p <prompt>`
+tail that `buildAgyArgs` always emits), never by scanning argv values, so an `--add-dir`
+path or a prompt can never be mistaken for the flag. The `--help` probe itself is bounded
+(15s); a probe that times out is treated like a failed spawn (assume supported).
+
+The built-in stays the portable `auto-gemini-3` router alias because the concrete
+catalog differs per install - shipping a pinned id would hard-fail every call on a
+machine that lacks it. **Pin a concrete id in `config.json` where you can**: the alias
+routes server-side, and agy's catalog also carries Claude and GPT-OSS entries, so a
+routed call can seat a non-Gemini model in the Gemini slot and silently collapse
+cross-vendor independence in `ask-all` / `consensus`, with nothing in the result
+envelope showing it. Run `agy models` to see what this machine actually offers.
+
+**Read-only is enforced by the bridge, not by `agy`.** `agy`'s `--sandbox`
+restricts only terminal commands - the agent's file-edit tool is unrestricted, and
+the model can bypass the terminal restriction per tool call. So a `read-only`
+dispatch does NOT rely on `--sandbox` alone. The bridge layers its own enforcement
+on every read-only run:
+
+1. **macOS OS sandbox** - the `agy` process is wrapped in `sandbox-exec` with a
+   Seatbelt profile that denies all file writes except `~/.gemini` (OAuth + the
+   conversation cache that backs `threadId` continuity) and temp dirs. Workspace
+   writes are blocked at the kernel. Disable with `DELIBERATION_DISABLE_OS_SANDBOX=1`.
+2. **Prompt guard** - a hard advisory instruction block is prepended to the prompt.
+3. **Git mutation detection** (all platforms) - the bridge snapshots `git rev-parse
+   HEAD` + `git status --porcelain` of the consulted cwd (and any `--add-dir` roots)
+   before and after the run; on a diff it prepends a `WORKSPACE MUTATION DETECTED`
+   warning and sets `workspaceMutated: true` on the result. No auto-revert - the
+   result is surfaced as tainted for the caller to act on.
+4. **Env scrub** - the child env drops the kill-switch and push/exfil credentials
+   (`GITHUB_TOKEN`, `GH_TOKEN`, `GIT_ASKPASS`, `SSH_AUTH_SOCK`).
+
+The network is intentionally NOT isolated (`agy` needs its API + OAuth token
+refresh), so a determined delegate could still push pre-existing commits or exfil
+over the network - read-only contains local writes. On Linux there is no OS sandbox
+in v1; read-only there relies on the prompt guard + mutation detection (`bwrap` is a
+documented future seam). `workspace-write` (the direct `gemini` tool only) is an
+explicit opt-in that intentionally skips all of the above.
+
+### Grok bridge
+
+A bundled zero-dependency Node bridge over the xAI Responses API
+(`/v1/responses`). It is advisory-only (it cannot edit files) but it can read
+attached files: pass `files: [{ path | file_id | file_url | dir }]` and the
+bridge delivers them per the `mode` setting - uploaded to the xAI Files API
+(default), inlined as `input_text` (for line-by-line reading of source files),
+or expanded via the bundled glob walker for directories. Resolution is against
+the top-level `roots: string[]` (first-root-wins) or `cwd` when `roots` is
+omitted. Uploaded files are SHA-256 dedup-cached locally and carry an
+`expires_after` (default 7 days); manage with `/grok-files`
+(`list` / `prune` / `gc`). See [Grok files and cleanup](#grok-files-and-cleanup).
+
+The bridge default model is `grok-4.6`. It needs `XAI_API_KEY` in its environment;
+a missing key surfaces `errorKind: "missing-auth"`. Replies are read as a **stream**,
+which is what makes a configured timeout above 300s reachable at all - see
+[Grok streaming](#grok-streaming).
+
+## Implementation mode (core capability)
+
+> **Not a shipped surface.** This section documents what `core` is capable of, not what the
+> running server exposes. No call site in the live composition root (`server/mcp/index.js`)
+> passes `allowImplement`, so the shipped MCP server is read-only end to end - see
+> [Key Design Decision #3](docs/dev/design-decisions.md). Today the only user-facing write path is the standalone
+> gemini bridge's `sandbox: "workspace-write"` opt-in.
+
+The `core` codex + gemini providers can run `workspace-write` (edit files) instead
+of the default read-only. The capability is gated by **two AND-ed locks** - a write
+happens only when both are true:
+
+1. **Construction lock** - `makeCodexProvider({ allowImplement: true })` /
+   `makeAntigravityProvider({ bridge, allowImplement: true })`. Absent/false, the
+   provider is read-only no matter what the request says. `capabilities.canImplement`
+   reflects this lock, so `panel`/discovery report honestly per process.
+2. **Request lock** - `DelegationRequest.mode`, a closed `"advisory"|"implement"`
+   enum (default `"advisory"`). Only the exact string `"implement"` requests a write.
+
+```
+effectiveImplement = (opts.allowImplement === true) && (req.mode === "implement")
+```
+
+Read-only is the structural default at every layer: anything that is not exactly that
+pair runs advisory. The request vocabulary is mode-level (`advisory`/`implement`); the
+OS sandbox string (`workspace-write`) is computed inside the provider and never taken
+from caller input, so a request cannot smuggle argv.
+
+**Flag mapping** (only when `effectiveImplement`):
+
+| Provider | Advisory (default) | Implement |
+|----------|--------------------|-----------|
+| Codex | `codex exec --sandbox read-only` | `codex exec --sandbox workspace-write` (never `danger-full-access`/bypass-approvals) |
+| Gemini | `buildAgyArgs({sandbox:"read-only"})` + `runGemini(..., {readOnly:true})` | `buildAgyArgs({sandbox:"workspace-write"})` (-> `--dangerously-skip-permissions`) + `runGemini(..., {readOnly:false})` |
+
+Codex enforces the sandbox at the OS level (Seatbelt/Landlock/seccomp) in both modes.
+For Gemini, `readOnly:false` drops the OS write-deny wrapper (intended - writes must
+land), but the **credential env scrub runs in both modes**: `advisoryEnv()` still strips
+`*_KEY`/`*_TOKEN`/`*_SECRET`-shaped vars plus `GIT_ASKPASS`/`SSH_AUTH_SOCK` from the
+child env, so a write run edits the worktree yet never receives the operator's keys or
+SSH agent - the human commits and pushes, not agy. See the
+[Gemini read-only enforcement](#provider-bridges) detail above for the shared scrub.
+
+**Scope.** This is the section-1 core capability, proven by tests
+(`test/core-codex.test.js`, `test/core-antigravity.test.js`). The live composition root
+(`server/mcp/index.js`) does **not** pass `allowImplement:true`, so the running unified
+server stays read-only and no end-user tool sets `mode:"implement"` yet. The unified
+`implement` tool (no `readOnlyHint`, so the host prompts a human), the never-cache
+guarantee for write runs, a forced audit/session record, and multi-turn for impl land
+with the MCP consolidation. Hosted/remote builds (HTTP-only providers, no codex/gemini
+CLIs) are inert by construction - they never set the construction lock.
+
+## Environment variables
+
+This is the single source of truth for the bridge environment variables.
+
+| Variable | Provider | Default | Purpose |
+|----------|----------|---------|---------|
+| `GEMINI_DEFAULT_MODEL` | Gemini | `auto-gemini-3` | Default model when neither the call nor `providers.gemini.model` sets one |
+| `GEMINI_DISABLE_TIMEOUT_RECOVERY` | Gemini | unset | `1` forces legacy timeout (no drain) |
+| `GEMINI_MIN_ANSWER_CHARS` | Gemini | `1` | Minimum trimmed stdout length for a clean exit to count as an answer; shorter output, or a reply under 400 chars that only announces intent ("I will begin by..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
+| `AGY_BIN` | Gemini | `agy` | Override the path to the `agy` binary |
+| `AGY_LAST_CONVERSATIONS` | Gemini | `~/.gemini/antigravity-cli/cache/last_conversations.json` | Override the conversation-id map file (mainly for tests) |
+| `XAI_API_KEY` | Grok | unset (required) | xAI API key; missing key returns `missing-auth` |
+| `GROK_DEFAULT_MODEL` | Grok | `grok-4.6` | Default model when neither the call nor `providers.grok.model` sets one |
+| `XAI_API_BASE` | Grok | `https://api.x.ai/v1` | API endpoint override |
+| `GROK_REASONING_EFFORT` | Grok | `high` | `low`/`medium`/`high`; `none` or `off` omits the field. Overridden by `providers.grok.reasoningEffort` (`providers.grok.consensusReasoningEffort` during consensus) |
+| `GROK_FILE_TTL_SECONDS` | Grok | `604800` (7 days) | Upload lifetime, clamped 1h..30d |
+| `GROK_UPLOAD_TIMEOUT_MS` | Grok | `120000` | Ceiling for one Files API upload (separate from the answer timeout). `0` disables it |
+| `GROK_STREAM` | Grok | unset (streaming on) | `0` forces the legacy non-streaming request, which reinstates undici's 300s transport ceiling (see [Grok streaming](#grok-streaming)) |
+| `GROK_MIN_ANSWER_CHARS` | Grok | `1` | Minimum trimmed answer length; shorter text, or a reply under 400 chars that only announces intent ("I'll verify the cited files..."), fails as `empty` (see [Answer floor](#answer-floor-gemini-grok)). `0` disables both checks |
+| `DELIBERATION_SESSIONS` | sessions | `<XDG cache>/deliberation/sessions` | Override the session store directory (see [Session persistence](#session-persistence)) |
+| `CODEX_BIN` | Codex | `codex` | Override the path to the `codex` binary (see [Windows CLI resolution](#windows-cli-resolution)) |
+| `CODEX_ACCESS_TOKEN` | Codex | unset | Codex access token (ChatGPT Business/Enterprise workspaces only), read by codex-cli itself. It never refreshes, so the same value works on every machine and in every web session until it expires. codex ranks it above `auth.json`. It counts as a credential for `codexHealth()`, and while it is set `CODEX_API_KEY` is dropped from the child's env |
+| `CODEX_API_KEY` | Codex | unset | Codex API key, used ONLY when there is no ChatGPT credential (`codex login` = `$CODEX_HOME/auth.json` / `~/.codex/auth.json`, or `CODEX_ACCESS_TOKEN`). With one, the provider drops the key from the `codex exec` child's env so the subscription wins. `OPENAI_API_KEY` is never used for codex and is always dropped from the child's env |
+| `MCP_TOOL_TIMEOUT` | host (all) | unset | Set by some MCP hosts (Claude Code on the web: `60000`) - the host kills any tool call longer than this. deliberation reads it and clamps every provider ceiling to `MCP_TOOL_TIMEOUT - 5000` ms so the call fails as a `timeout` naming the cap; see [Timeouts](#timeouts). Claude Code applies a per-server `timeout` ahead of this variable, so `.claude-plugin/plugin.json` sets `1800000` on every server and mirrors it into the server env under this name (the mirror is what the clamp reads) |
+| `DELIBERATION_RUNS` | dashboard | `<XDG cache>/deliberation/runs` | Override the dashboard run journal directory (see [Dashboard](#dashboard)); only written when `dashboard.enabled` |
+| `DELIBERATION_DEBUG_LOG` | debug | `<XDG cache>/deliberation/debug.jsonl` | Override the debug log path (see [Observability](#observability--per-provider-progress)); only written when `debug.enabled` |
+
+Codex has no bridge and no MCP server of its own: the `core` provider
+(`core/providers/codex.js`) spawns `codex exec` and lets the CLI read `~/.codex/config.toml`
+directly. `CODEX_BIN` above overrides which binary is spawned. The **model** and **reasoning
+effort** can be pinned in `config.json` as `providers.codex.model` and
+`providers.codex.reasoningEffort` (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra`), as well as `providers.codex.consensusReasoningEffort` (for `/consensus` and `consensus-step`). They are
+passed as `--model <id>` and `-c model_reasoning_effort="<value>"`, so they win over
+`~/.codex/config.toml`. Unset, codex uses that file. Precedence for reasoning effort: per-call `reasoningEffort` tool argument, then
+`providers.codex.reasoningEffort` (or `providers.codex.consensusReasoningEffort` during consensus), then
+`providers.defaults.reasoningEffort` (or `providers.defaults.consensusReasoningEffort` during consensus),
+then `~/.codex/config.toml`. Each value
+is checked against a closed shape (model `^[A-Za-z0-9][A-Za-z0-9._:/-]*$`, effort from the enum)
+before it reaches argv, so a value starting with `-` or carrying a quote is dropped and never
+becomes a flag or a TOML injection. Results report the pinned model and effort (`"default"` /
+`null` when unpinned). See [SETUP.md](SETUP.md#openrouter-config).
+
+**Codex per-call timeout.** The `core` Codex provider caps each `codex exec` invocation to
+`CODEX_DEFAULT_TIMEOUT_MS` (600 000 ms, 10 min) by default, so a stalled Codex process cannot
+block a consensus round indefinitely. Raise or lower it with `providers.codex.timeout` (or
+`providers.defaults.timeout`); a per-call `timeout` is not exposed through the MCP tool surface.
+
+**Codex credential.** A ChatGPT credential always wins. `codexEnv()` builds the child's env
+with this rule:
+
+1. `CODEX_ACCESS_TOKEN` is set (a ChatGPT Business/Enterprise access token), or
+   `$CODEX_HOME/auth.json` / `~/.codex/auth.json` exists (`codex login`, usually a ChatGPT
+   subscription): codex uses it, and `CODEX_API_KEY` is dropped from the child's env. codex-cli
+   ranks that env var above both, so leaving it in would silently bill the API instead. Between
+   the token and the login, codex's own order applies (the token first).
+2. No ChatGPT credential: `CODEX_API_KEY` is passed through as-is.
+3. `OPENAI_API_KEY` is never used and never reaches the child.
+
+Rule 3 replaces an earlier forward of `OPENAI_API_KEY` as `CODEX_API_KEY`. On a machine that
+exports `OPENAI_API_KEY` for other tools, that forward beat the ChatGPT login, so every GPT call
+was billed to the API key and failed with `You have no credits remaining` once its credit ran
+out. A host that exports only `OPENAI_API_KEY` must now run `codex login`, set
+`CODEX_ACCESS_TOKEN`, or set `CODEX_API_KEY`.
+The provider's `health()` (`codexHealth()`) is stat-only: the CLI must be on PATH and
+`CODEX_ACCESS_TOKEN`, a login `auth.json`, or `CODEX_API_KEY` must exist. Otherwise the panel
+lists codex as `unavailable` with that reason and does not dispatch to it.
+
+**One login per machine.** A ChatGPT login's refresh token works once. codex refreshes about 8
+days after `last_refresh` (or on a 401), writes the new pair to `auth.json`, and the old refresh
+token is dead. A copy of that file on a second machine (a web container seeded from a laptop, a
+setup script restoring it from a secret at every session start) therefore fails as soon as either
+side refreshes, with `Your access token could not be refreshed because your refresh token was
+already used. Please log out and sign in again.` Nothing in that text says "auth" or "login", so
+`classifyCodex()` also matches `access token could not be refreshed`, the phrase all four of
+codex's refresh failures share. It matches that exact phrase, reads stderr only, and consumes
+each line of the prompt it sent ONCE as echo (so the same line printed again by codex still
+counts): `codex exec` echoes the prompt to stderr, a prompt
+about token code says "refresh token" freely, and one may even quote this exact phrase. A
+bare match would turn a rate limit into a non-retryable `auth` and, with login on first use,
+start a needless device login.
+The result is `errorKind: "auth"` (not retried), and the message STARTS with codex's own line and
+the fix, then the full output: codex prints its banner and the whole echoed prompt on stderr
+before the error, so the line would otherwise sit far below them. The hint is added only when
+the result is `auth`, so the kind and the message never disagree. `stat` cannot see this state
+(the file exists and parses), so health stays `ok`. Setup per host:
+[SETUP.md - Claude Code on the web](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
+
+**Login on first use.** The unified server builds the codex provider with `deviceLogin: true`
+(the library default is off). Two states start a device login: no credential at all, and a
+spent login (the refresh failure above). Instead of failing, `ask()` then:
+
+1. Starts `codex login --device-auth` (same binary resolution and env scrub as `codex exec`;
+   waiting for its code is bounded by half the host budget left, and a call that runs out
+   returns "no code yet" while the shared login keeps going for the next call)
+   and parses the link, the one-time code and its lifetime from codex's output
+   (`parseDevicePrompt`). That output is text for humans, so the match is loose: the link is
+   the URL with `/device` in its path (codex may print an update notice with its own URL
+   first), and only an `openai.com` / `chatgpt.com` host (or a subdomain) is ever offered as
+   the link. Both must be followed by whitespace, so output split across pipe chunks never
+   yields a partial code. If no such link and code appear within 20s, the result carries
+   codex's own output instead; once a code is shown, that timer is off. A code nobody used is
+   reaped 5s after it expires, whatever codex does. One login per process
+   (`makeDeviceLogin`): a second caller while the code is valid gets the same code; an
+   expired or finished login is replaced. The login runs in its own process group
+   (`detached` on POSIX; `taskkill /T` on Windows) and is always killed as a tree: an npm
+   install runs a Node launcher that starts the native binary, and killing only the launcher
+   would leave the real login polling. When stdin closes (MCP stdio shutdown) or on
+   SIGTERM/SIGINT the server kills every running login AND refuses new ones, since a codex run
+   still in flight could otherwise hit a spent login afterwards and start one nobody sees;
+   `exit` kills them too.
+2. Asks the host to show the code (`confirmLogin`). The server negotiates the client's MCP
+   protocol version (up to `2025-11-25`) and records its `elicitation` capability at
+   `initialize`. Elicitation is sent only on a negotiated `2025-06-18` or later; URL mode only
+   on `2025-11-25` or later with `elicitation.url` declared (`elicitation/create` with
+   `mode: "url"`, the link, and the code in the message); otherwise a form whose message
+   carries both. One code raises one dialog, however many calls join it. **The dialog is never
+   awaited.** It is sent and the call returns; its outcome belongs to the LOGIN, not to the
+   call: `accept` simply lets the shared login land, `decline` ends that login whenever the
+   refusal arrives, anything else is ignored. A dialog that is already stale before it goes out is never sent at all (the signal is checked
+   first), and one that is open lives at most as long as its code: a settled login aborts it and
+   the server sends `notifications/cancelled`. One code raises one dialog, so repeated calls
+   cannot pile them up on the host. A decline is scoped to ITS OWN login: a
+   refusal can arrive long after that code was replaced, and killing the login that took its
+   place would revoke a code the user is holding. A decline that arrives AFTER the login landed
+   can only end the process, not the credential: the call returned long ago, so there is no
+   channel left to report it. The dialog therefore says up front that declining ends the login
+   and that `codex logout` undoes one already approved in the browser. deliberation never
+   deletes a credential file itself. A settled login (landed or dead) makes the
+   dialog stale, so the server then sends `notifications/cancelled` and the host can close it.
+   Both the dialog and the result text carry a line saying the code signs this machine's codex
+   into the user's ChatGPT account, the same warning codex prints.
+3. Returns `errorKind: "auth"` as soon as codex prints the code, typically ~1 s and at most
+   `DEVICE_PROMPT_WAIT_MS` (20 s). The message puts the link and the code each alone on a line,
+   blank lines around them, so both are one copy; the lifetime it quotes is what is actually
+   left (~15 min). The user approves in the browser and re-runs; the shared login keeps polling,
+   so the next call finds `auth.json` and answers. With no dialog, a dismissed dialog, an
+   error or a timeout, it returns `errorKind: "auth"` whose message starts with the link and
+   code (codex's refresh line, if any, follows). The login
+   keeps polling in the background, so the next call after the user approves simply finds
+   `auth.json`. A login that ended without landing is reported as such, never with its dead
+   code, and the next call starts a fresh one. The login child is killed when the server
+   process exits.
+
+**`codex-login` tool and `/deliberation:codex-login`.** Login on first use depends on the agent
+actually making a GPT call. In a real web session it did not: the agent read `codex.js`,
+decided a logged-out call "would only return the device-auth link, not an answer", and
+answered from local config, so the login never started. The `codex-login` tool runs the same
+`signIn` path with no question (`provider.login()`; it never runs `codex exec`) and returns
+`{ status: authenticated|pending|starting|failed|unavailable, message, url?, code?,
+expiresAt? }`; ask()'s auth results carry the same object as `deviceLogin`. It joins the one
+shared login, so it and `ask-gpt` always show the same code. It is `unavailable` when codex is
+not on this server, is disabled in config, or fails its health check (no CLI). The command
+files and the `ask-gpt` / `ask-one` tool descriptions also say never to skip a GPT call
+because GPT looks logged out; `/deliberation:doctor` and the session-hook text point at
+`/deliberation:codex-login`. `panel` and health stay side-effect-free: a login is never started by
+a probe.
+
+**Login before the fan-out (`panel.needsLogin`).** Login on first use still cost the first
+run: `/ask-all` synthesized without GPT, and in `/consensus` a codex voice that errors every
+round is dropped by the circuit breaker, so the user had to remember `/deliberation:codex-login`
+before every web session. `codex.health()` now returns `{ ok: true, needsLogin: true }` in
+that case, and `panel` reports the panel members that carry the flag as `needsLogin[]`
+(`for: "consensus"` echoes the consensus panel). `/ask-all`, `/consensus` and `/ask-gpt` read it
+first: they call `codex-login`, print the link and code, ask the user to approve
+(`AskUserQuestion`), call `codex-login` again to confirm `authenticated`, and only then
+dispatch. The login still starts in a command the user ran, never in the probe, so the
+15-minute code is spent on the run that asked for GPT (the reason a SessionStart login was
+rejected). `stat` cannot see a spent `auth.json`, so the in-call login stays as the fallback.
+
+Health treats "no credential" as `ok` while `deviceLogin` is on: that is the one gap `ask()`
+closes itself, so GPT stays on the panel and delivers the code. `consensus-step`'s
+`dispatch_peers` now includes an errored voice's `message` (bounded plain text, `plainMessage`)
+so the code reaches `/consensus`; the command files tell Claude to show it as-is. The link
+and code never go to the debug log or the session store. A host that neither supports
+elicitation nor shows tool errors still gets the code in the result text.
+
+**Timeouts and retries.** See [Timeouts](#timeouts) for the full precedence ladder
+(`providers.defaults.timeout` is the one knob that covers every provider) and
+[Retries](#retries) for which error kinds are retried.
+
+## Windows CLI resolution
+
+Only the two CLI providers are affected: Codex and Gemini spawn a child process, while Grok and
+OpenRouter are HTTP bridges that never touch `child_process`.
+
+`npm install -g` on Windows does not install an executable. It writes a `codex.cmd` / `codex.ps1`
+shim, and since the CVE-2024-27980 hardening in Node 18.20 / 20.12, `child_process.spawn` with
+`shell: false` refuses to execute one - the process never starts. That was
+[issue #170](https://github.com/antonbabenko/deliberation/issues/170): every GPT call failed with a
+bare spawn error, and the Gemini bridge failed the same way in three more places, including a
+startup gate that exits the process.
+
+`core/resolve-bin.js` resolves the command name once, before spawning:
+
+| Input | Result |
+|-------|--------|
+| Anything containing a path separator | passed through untouched - an explicit path is the caller's business |
+| Any non-win32 platform | passed through untouched - zero behaviour change off Windows |
+| win32, a `.exe`/`.com` found on PATH (PATHEXT order) | that absolute path, spawned directly |
+| win32, only a `.cmd`/`.bat`/`.ps1` shim, npm entry point present | `process.execPath` + the package's own JS entry, bypassing the shim (all three extensions are treated identically) |
+| win32, a PATHEXT match that is neither of the above (`.vbs`, `.py`, a custom entry) | skipped entirely, so the scan can never return a target Node cannot launch |
+| win32, only a shim and no usable entry point | reported as a shim: the call fails with a message naming the shim and the override env var |
+| win32, nothing found | passed through untouched, preserving the existing ENOENT |
+
+**A hand-written `.cmd` wrapper is not supported on Windows**, and cannot be: Node refuses to
+execute any `.cmd`, which is the whole bug. If one is found first on PATH with no npm package
+beside it, the resolver treats it as an unusable shim and looks for something spawnable further
+down - so a later npm install runs, and the wrapper's own flags or env do NOT apply. Set
+`CODEX_BIN` / `AGY_BIN` to a real executable if you need a specific target.
+
+The npm bypass applies to Codex only (`@openai/codex` declares `bin: {"codex": "bin/codex.js"}`);
+no npm package publishes an `agy` bin, so a shim-only Antigravity install gets the explicit error
+instead. `CODEX_BIN` and `AGY_BIN` override the name being resolved; a value containing a path
+separator is spawned exactly as given, so point them at an executable rather than at a shim or a
+`.js` entry point.
+
+PATH is walked **first-match-wins**, in PATH order then PATHEXT order - the precedence libuv and
+`where` apply - so a resolvable first match is always the one taken, never a "better" one further
+down. The scan continues past the first match only when it is a shim with no package behind it (a
+partial install): whatever turns up next and is usable wins, whether that is a real `.exe` or
+another npm shim that does have its package. That is deliberately out of shell order, on the
+grounds that failing while a working install sits on PATH is the worse outcome. If nothing usable
+turns up, the FIRST shim is the one reported, since that is the one the user believes they run.
+
+**`shell: true` was rejected**, and not for argument injection - the prompt travels on stdin and the
+argv is a fixed constant. The problem is lifecycle: with a shell interposed, the shell becomes the
+child, so the provider's `child.kill("SIGKILL")` would kill the shell and leave the CLI running past
+its timeout. Those timeouts feed the consensus circuit breaker, so trading them for shim
+compatibility is a bad deal.
+
+**A failed launch is now `errorKind: "not-found"`** (non-retryable) for Codex, and `missing-cli` for
+Gemini, rather than `unknown`. This is the one part of the change that applies on **every**
+platform, not just Windows: a missing CLI on macOS or Linux now reports the same way, and the error
+text names what was tried.
+
+The signal is a structural `spawnFailed` flag on the run result, never a pattern matched against the
+child's stderr - mirroring the existing `timedOut` flag, and for the same reason. A coding agent
+legitimately prints `ENOENT` about files in the user's repo; classifying the launch from the child's
+own output would answer that with advice to go fix `CODEX_BIN`.
+
+**Not verified on Windows by CI.** Every workflow is `runs-on: ubuntu-latest`, so the win32 branch
+is asserted through injected `platform` / `env` / `exists` (`test/core-resolve-bin.test.js`,
+`buildSpawnPlan` in `test/core-codex.test.js`), the same technique `core/paths.js` uses. The Gemini
+bridge resolves at module load from the real platform, so only its guard LOGIC is asserted
+(`agyShimError`, test S5c) - the wiring from that guard to a genuinely shim-only `AGY_TARGET` is
+not. A real Windows CI lane is blocked on the bash test fixtures and is tracked separately.
+
+## Observability + per-provider progress
+
+These are server-side on the unified `deliberation` server, so every MCP host gets them -
+not only Claude Code. Every `DelegationResult` carries `ms` (wall time) and the effective
+`reasoningEffort` (a real value for HTTP providers; `null` for the Codex/Gemini CLIs, which
+have no per-call knob); HTTP providers (Grok, OpenRouter) also include token `usage`.
+
+### `panel` + `ask-one` (visible per-provider progress)
+
+`ask-all` is one tool call that fans out to N providers server-side - opaque until all
+finish. The alternative, for hosts where that opacity hurts:
+
+- **`panel { expert?, for?, cwd? }`** returns `{ providers: string[], omitted: string[], unavailable: {name, reason}[], needsLogin: string[] }` - the
+  EXACT set `selectForAskAll` would dispatch (enabled, HEALTHY built-ins + eligible OpenRouter
+  aliases, fanout cap applied), WITHOUT calling any provider. `omitted` is the fanout-cap
+  drop list; `unavailable` names enabled built-ins whose stat-only `health()` failed (codex
+  CLI missing or no credential, `agy` not on PATH) with the reason, so a dead peer is never
+  dispatched to fail. The same map feeds `ask-all`, `consensus`, and `consensus-step`
+  (`unavailableProviders[]` on `dispatch_peers`; a `provider X unavailable: ...` warning on the
+  `consensus` tool). Read-only.
+- **`ask-one { provider, prompt, expert?, cwd?, reasoningEffort?, files? }`** runs ONE
+  provider named by `panel` (resolved from the same selection set, so a pinned
+  `openrouter:<alias>` works and a disabled/over-cap name returns `{ error, panel }`).
+- The pattern (`commands/ask-all.md` on Claude Code): call `panel`, then issue one
+  `ask-one` per name **in a single turn**. The host runs them concurrently (parallel
+  wall-time) and surfaces each result as it settles, so progress is visible per provider.
+  The legacy single-call `ask-all` tool is retained for back-compat / other hosts.
+
+Why two paths: Claude Code does NOT render mid-call MCP `notifications/message` (verified),
+but DOES surface each parallel tool result as it lands - so the per-provider tool path is
+the progress lever there. Hosts that DO render server log notifications get live progress
+from the single `ask-all` call too (next section).
+
+### MCP `logging` capability
+
+The server declares the `logging` capability in `initialize` and accepts `logging/setLevel`.
+During a fan-out it emits one `notifications/message` (level `info`, logger `deliberation`)
+per provider as it settles, plus a `dispatch_start`. The payload carries event/provider/ms/
+verdict metadata only - never prompt or response text (MCP logging security rule). A client
+that raises its min level above `info` suppresses them.
+
+### Debug log (`debug.enabled`, OFF by default)
+
+Set `"debug": { "enabled": true }` (optional `"path"`) in `config.json` to append one
+compact JSON line per provider call and per consensus round to
+`<XDG cache>/deliberation/debug.jsonl` (override with `debug.path` or
+`DELIBERATION_DEBUG_LOG`). The logger (`core/debug-log.js`) is INJECTED through `core`
+(`askAll` / `askOne` / `consensus` / `runToConvergence`) and emitted at the source, so the
+Claude host-arbiter path and the in-core provider-arbiter loop log identically - one code
+path, every host. Records: timestamp, tool, provider, model, reasoning effort, `ms`,
+HTTP token `usage`, and consensus round/verdict/converged/accepted-issue COUNT. A strict
+`ALLOWED_KEYS` whitelist is applied on every write, so prompts, responses, and free-text
+issue descriptions can never land in the file. Off by default; nothing is written unless
+`enabled`.
+
+A failed call also records `errorCode`: the low-level transport cause behind the coarse
+`errorKind`, taken from the rejection's `cause.code` (`UND_ERR_HEADERS_TIMEOUT`,
+`ENOTFOUND`, `ECONNRESET`, ...). Without it `network` conflated a DNS failure, a socket
+reset, undici's own header ceiling and a local throw - four different fixes behind one
+label - in the only place provider health is actually diagnosed. It is a bare errno /
+undici symbol, never a message, so it is content-free like every other logged key.
+
+### In-session result cache
+
+`core/result-cache.js` is an in-memory (process-lifetime) dedup cache wired to the advisory
+`ask-all` / `ask-one` paths only (NOT the consensus loop). An identical re-ask (same
+provider + model + reasoning effort + temperature + developer instructions + prompt + file
+refs) returns the prior SUCCESS instantly with a `cached:true` marker. LRU-bounded (100) +
+10-minute TTL; errors are never cached; file-bearing requests skip it (file content can
+change under a path); `session-revisit` bypasses it (a revisit is a deliberate re-run).
+
+### `analyze` (run analytics + tuning advice)
+
+`core/analyze.js` is pure (zero-dep, unit-tested); the read-only `analyze` MCP tool does the
+IO and calls it. It answers "is my model panel pulling its weight?" from real measured data,
+in two lenses that are **never joined** (the debug log and the session store share no run id):
+
+- **Lens A - timing/cost** (debug log): `aggregateByModel` -> per provider+model count,
+  error rate, p50/p95/max latency, mean tokens (HTTP only), reasoning efforts + tools seen.
+  The tool tail-reads the log (last ~1 MB by default; `limitBytes`, clamped to 32 MB) so a
+  large file cannot bloat memory, and returns pre-aggregated stats, never raw lines.
+  **Latency covers successful calls only** - `okCalls` is the percentile denominator, and a
+  row with none reports `null` rather than `0`. A timeout is logged with its full `ms`, so
+  counting errors as latency reported the timeout ceiling as model speed (and a `0` p95
+  would have made an all-error model the fastest-peer baseline).
+- **Lens B - agreement** (sessions): `aggregateAgreement` -> per model, the share of its
+  review verdicts that matched the run's FINAL verdict. Only consensus-loop records (which
+  carry a final verdict) contribute votes; ask-all opinions are abstentions. This is the
+  "uniqueness" proxy (a model that rarely dissents adds little), without reading opinion text
+  or an LLM pass.
+
+`detectOutliers` flags slow (relative to the fastest-peer baseline, or absolute) and
+high-error models; `recommend` turns those + the agreement signal into advisory `Suggestion`s
+naming the exact `config.json` key (`models.<id>.askAll`, `models.<id>.reasoningEffort`,
+`providers.codex.reasoningEffort`, `routing.maxFanout`). Gemini reasoning is flagged as external
+(agy) since it is outside deliberation's config. The tool writes nothing; `/deliberation:analyze`
+renders it for humans and prints suggested edits without applying them. Needs `debug.enabled`
+for Lens A and `sessions.persist` for Lens B; when the log is empty it returns
+`meta.insufficientData:true` instead of fabricating numbers.
+
+**Scope controls.** `configuredOnly` (default `true`) reports only models present in the
+current config, so a retired model can no longer drive the headline numbers or earn a
+"cut this" suggestion. OpenRouter rows match by alias against `openrouter.models[]`; native
+rows (codex/gemini/grok) are dropped only on an explicit `providers.<name>.enabled:false`,
+never on a model mismatch - `auto-gemini-3` is a router alias, so the log records the
+*resolved* model and pin-equality would hide every active row. Dropped rows are listed in
+`meta.excluded` with a reason (`not in config`, `rejected by config validation`,
+`openrouter provider disabled`, `provider disabled`); a config parse error skips the filter
+entirely rather than reporting every model as unconfigured. `since` (`30m`/`24h`/`7d`/seconds,
+max 10 years) windows **both** lenses, since `recommend` crosses "slow" with "rarely dissents"
+in one suggestion and split windows would make that a mixed-period claim. `meta.window`
+reports real coverage across both lenses, and `meta.truncated` reports whether a bound cut
+the data short. `meta.modelVariants` flags providers seen running several model ids - a
+prompt to look them up, deliberately not a claim about which is newer.
+
+The engine reads the **resolved** config (`openrouter.models[]` with `alias` and snake_case
+`reasoning_effort`, `openrouter.maxFanout`) while every suggestion **names the on-disk path**
+(`models.<id>.*`, `routing.maxFanout`). Those are different namespaces on purpose; reading the
+raw on-disk shape is what made the `reasoningEffort` suggestion silently dead in production.
+
+## Manual MCP setup
+
+If `/setup` does not work, register the MCP servers manually. Each command is
+idempotent (safe to rerun).
+
+**The server NAME matters.** Claude Code derives each tool id from it, and the bundled
+commands declare those ids in `allowed-tools` (`mcp__deliberation-gemini__gemini`,
+`mcp__deliberation-grok__grok`, `mcp__deliberation-openrouter__openrouter`,
+`mcp__deliberation__ask-gpt`). Register under any other name and the slash commands will
+not reach the servers. Use the names exactly as written below.
+
+`${CLAUDE_PLUGIN_ROOT}` is set by Claude Code only while a plugin is loaded, so it is
+EMPTY in an ordinary shell - every path below would collapse to `/server/...`. Point
+`DELIB_ROOT` at your copy first (the installed plugin, or a git checkout):
+
+```bash
+# Installed plugin (highest version in the marketplace cache):
+DELIB_ROOT="$(find "$HOME/.claude/plugins/cache" -maxdepth 6 -path '*/deliberation/*/server/mcp/index.js' -type f 2>/dev/null | sort -V | tail -1)"
+DELIB_ROOT="${DELIB_ROOT%/server/mcp/index.js}"
+# ...or a local checkout:  DELIB_ROOT="$HOME/src/deliberation"
+[ -f "$DELIB_ROOT/server/mcp/index.js" ] || echo "DELIB_ROOT is wrong: $DELIB_ROOT"
+```
+
+```bash
+# The unified `deliberation` server - serves ask-all / consensus / the eight experts AND
+# GPT (`ask-gpt`). Register this one first: without it there is no GPT at all, because
+# codex-cli ships no MCP server of its own and this server spawns `codex exec` itself.
+# GPT's model + reasoning effort: providers.codex.{model,reasoningEffort} in config.json,
+# else ~/.codex/config.toml.
+claude mcp remove deliberation >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation -- node "$DELIB_ROOT/server/mcp/index.js"
+
+# Gemini
+claude mcp remove deliberation-gemini >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation-gemini -- node "$DELIB_ROOT/server/gemini/index.js"
+
+# Grok (xAI) - API-based, advisory-only. Needs XAI_API_KEY.
+# Default registers WITHOUT --env, so the key is NOT written to ~/.claude.json;
+# export XAI_API_KEY in Claude Code's launch environment (e.g. your shell profile).
+claude mcp remove deliberation-grok >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation-grok -- node "$DELIB_ROOT/server/grok/index.js"
+# Alternative (persists the key in ~/.claude.json in plaintext): append
+#   --env XAI_API_KEY="$XAI_API_KEY"
+# before the `-- node ...` part of the command above.
+
+# OpenRouter - API-based, advisory-only. Needs OPENROUTER_API_KEY (or the env var named
+# by the record's apiKeyEnv). Same env-vs-manifest tradeoff as Grok above.
+claude mcp remove deliberation-openrouter >/dev/null 2>&1 || true
+claude mcp add --transport stdio --scope user deliberation-openrouter -- node "$DELIB_ROOT/server/openrouter/index.js"
+```
+
+Verify (same four servers the plugin manifest registers):
+
+```bash
+claude mcp list
+for srv in mcp gemini grok openrouter; do
+  printf '{"jsonrpc":"2.0","id":"health","method":"initialize","params":{}}\n' | node "$DELIB_ROOT/server/$srv/index.js"
+done
+```
+
+## Multi-turn and retry
+
+For chained implementation steps, an expert preserves context across turns:
+
+```
+Turn 1: mcp__*__*       -> returns threadId
+Turn 2: mcp__*__*-reply(threadId) -> expert remembers turn 1
+Turn 3: mcp__*__*-reply(threadId) -> expert remembers turns 1-2
+```
+
+Use single-shot (`codex`, `gemini`, `grok`) for advisory tasks. Use multi-turn for
+implementation chains and retries. Grok is advisory-only.
+
+Implementation retries up to 3 attempts total (1 initial + 2 `*-reply` retries),
+then escalates to you. Retries reuse the `threadId` so the expert remembers the
+earlier attempts.
+
+## Gemini timeout recovery
+
+The recovery below applies to standalone bridge calls with a soft timeout. Unified
+MCP calls use an absolute deadline (retries share it), abort the process group at
+that deadline, and grant no additional drain period. Host caps also disable drain.
+
+`timeout` is a soft deadline (default 300000ms; Gemini 3 deep prompts run
+200-260s). `agy -p` streams its answer to stdout incrementally, so the bridge
+recovers by draining that stream rather than scraping disk. When the soft timeout
+fires, the bridge does not fail immediately: it keeps `agy` alive and keeps
+buffering its streamed stdout for up to `recovery-grace` ms (default 120000, range
+0..600000). If `agy` completes cleanly within the grace budget (exit 0, no `Error:`
+sentinel on stdout), the buffered output is returned as a normal success with a
+top-level `"recovered": true` flag and a stderr log line; `content` is the full
+answer so response parsers keep working. If `agy` is still running when the grace
+budget is exhausted, the call fails with `errorKind: "timeout"` (still
+`retryable`).
+
+- `"recovery-grace": 0` disables the drain (immediate legacy timeout).
+- `GEMINI_DISABLE_TIMEOUT_RECOVERY=1` (env) forces full legacy behavior.
+- The call resolves within `timeout + recovery-grace`. The `agy` child process is
+  then killed `SIGTERM`, with a `SIGKILL` about 1s later; that kill is async
+  cleanup and does not delay the response.
+
+## Grok files and cleanup
+
+Grok reads attached files via the `files[]` parameter. Each entry has EXACTLY ONE of:
+
+- `path` - a local file. Delivery is controlled by `mode` (default `"upload"` - bridge uploads to the xAI Files API; `"inline"` embeds as `input_text`; `"auto"` picks per heuristic - see "Inline vs upload delivery" below).
+- `file_id` - an already-uploaded xAI file id (passed through, no upload).
+- `file_url` - a public URL (passed through).
+- `dir` - a local directory expanded recursively. Same `mode` rules; the walker
+  applies the chosen mode to every selected file (see below).
+
+A `path` entry may also set `headBytes` (positive integer) to send only the start of
+the file: the bridge reads at most that many bytes (never the whole file), cuts at the
+last line break (or a UTF-8 character boundary), and appends
+`[truncated: first N of M bytes]`. A `headBytes` entry is always inline and is rejected
+with `mode: "upload"`; content plus marker is clamped to `GROK_INLINE_MAX_BYTES`, and
+a FIFO or other non-regular file is refused. `headBytes` is not allowed on `dir`,
+`file_id`, or `file_url`; a `dir` entry keeps `maxBytes` as its walk cap. The
+OpenRouter bridge accepts the same field on `path` entries.
+
+A `path` or `dir` resolves against the top-level `roots[]` array (absolute directories,
+first-root-wins for relative entries) or, when `roots` is omitted, against `cwd`. A
+path that resolves outside every declared root is refused (no exfiltration); symlinks
+that escape via `realpath` are also refused. An oversize file (>48 MB) returns
+`file-too-large`.
+
+### Cross-repo example
+
+```js
+mcp__deliberation-grok__grok({
+  prompt: "Compare the auth strategy in these two services.",
+  cwd: "/Users/me/work/service-a",
+  roots: ["/Users/me/work/service-a", "/Users/me/work/service-b"],
+  files: [
+    { path: "src/auth.ts" },                          // resolves under service-a (first root)
+    { path: "/Users/me/work/service-b/src/auth.ts" }, // absolute, must lie under one root
+    { dir: "docs", include: ["**/*.md"], maxFiles: 20 }, // expands service-a/docs
+  ],
+})
+```
+
+### Directory expansion (`{dir}`)
+
+The bridge bundles a zero-dep glob walker (`server/grok/glob.js`) so you do not have
+to enumerate every file by hand:
+
+- `include` (default `["**/*"]`).
+- `exclude` is **appended** to the bridge's safe defaults (it does NOT replace
+  them). Defaults cover: VCS (`.git`); JS/Node (`node_modules`, `dist`, `build`,
+  `out`, `.next`, `.svelte-kit`, `.nuxt`, `.turbo`, `.cache`, `.parcel-cache`,
+  `.pnpm-store`); Yarn Berry (`.yarn/cache`, `.yarn/unplugged`); lockfiles
+  (`**/*.lock`); Python (`.venv`, `venv`, `__pycache__`, `.tox`, `.pytest_cache`,
+  `.mypy_cache`, `.ruff_cache`, `.ipynb_checkpoints`, `.eggs`, `htmlcov`);
+  coverage (`coverage`, `.nyc_output`); Rust/Java/Gradle (`target`, `.gradle`);
+  Go/PHP (`vendor`); Terraform (`.terraform`, `.terragrunt-cache`); plus
+  security: `**/*.tfstate*`, granular `.env` variants (keeps `.env.example`
+  readable), `.ssh/**`, SSH keypairs (`id_rsa`, `id_ed25519`, `id_ecdsa`,
+  `id_dsa` and `.pub`), and `**/*.pem`/`**/*.key`.
+- To replace defaults entirely instead of appending, set `excludeReset: true`
+  on the same `{dir}` entry. `excludeReset` is validated as a strict boolean by
+  `validateFiles`; non-boolean values are rejected. Use only when reviewing
+  files defaults would block (e.g., Terraform state in a security audit, or
+  legitimate `.pem` public certs). Tradeoff is explicit: the bridge prefers a
+  false positive (blocking a legitimate `.pem`) over a false negative
+  (leaking a private key).
+- `maxFiles` (default 50), `maxBytes` (default 128 MB). Exceeding either throws a
+  hard error with counts - no silent truncation.
+- Walker is symlink-safe: dirs are pruned **before** descent; symlinks to dirs are
+  not followed (cycle safety); symlinks to files are followed only when `realpath`
+  stays inside the resolved root.
+- Patterns are POSIX (`/` separator). Backslash escape sequences are rejected at
+  validation; literal `path`/`dir` values **may** contain backslashes (Windows OK).
+
+### Inline vs upload delivery (`mode`)
+
+xAI's `input_file` references are searchable attachments; for large source files
+the model may enumerate them rather than read line-by-line. To force a full
+line-by-line read, deliver the content as `input_text` instead:
+
+```js
+files: [
+  { path: "app/apps/api/routes.py", mode: "inline" },   // forced inline
+  { path: "modules/web.tm.hcl",     mode: "auto" },     // text + small → inline
+  { path: "design.pdf",             mode: "auto" },     // binary or big → upload
+  { dir:  "src", include: ["**/*.ts"], mode: "auto" },  // each walked file decides
+]
+```
+
+- `"upload"` (default) - always uses the xAI Files API. Matches the v2.0 behavior.
+- `"inline"` - embeds the file content directly as a separate `input_text` part
+  with a `=== {filename} ===` header. No `/files` call, no cache row, no
+  `uploadedFileIds` entry. Best for source code review.
+- `"auto"` - inlines when the file is probably text (no NUL byte; <5%
+  non-printable bytes in the first 4 KB) AND its size is at or below
+  `GROK_INLINE_MAX_BYTES` (default 262144 = 256 KB). Otherwise uploads.
+
+For `{dir}` entries the `mode` is inherited by every walked file. `mode` must
+NOT be set on `file_id` / `file_url` entries (those bypass the upload path
+entirely; setting `mode` on them returns `-32602` from `validateFiles`).
+Override the inline ceiling with `GROK_INLINE_MAX_BYTES=<bytes>` in the bridge
+environment.
+
+### Content-hash cache
+
+Uploads are deduplicated by SHA-256 content hash. A reuse hit requires the SAME content
+**plus** the same API key, the same normalised `apiBase`, and the same effective filename
+(see cache-key below); identical bytes uploaded under a different filename or a different
+key produce separate cache rows:
+
+- Cache file: `~/.cache/deliberation/grok-files.json` (canonical XDG path; Windows
+  `%LOCALAPPDATA%\deliberation\grok-files.json`). Override with `DELIBERATION_CACHE`.
+- Cache key: `sha256(bytes)@sha256(XAI_API_KEY)[:16]@normalize(apiBase)@effectiveFilename`
+  - Key rotation auto-invalidates entries (different `keyFp`).
+  - Different `apiBase` (including port/protocol differences) → separate rows.
+  - Different effective filename (basename or `filename` override) → separate rows.
+- Reuse check: hit + `expiresAt > now + 60s` + `apiBase` + `keyFp` all match.
+- In-process Promise dedup (`withInflight`): concurrent uploads of the same content
+  collapse into a single network call.
+- Cross-process safety: mkdir-based lock (`server/grok/lock.js`) with token-specific
+  owner markers + stale reclaim via atomic rename. (`lock.heartbeat()` is provided
+  for long-running holders; cache writes complete sub-second so the 5s stale window
+  is not at risk and the bridge does not call it.)
+- Stale xAI file id mid-`/v1/responses`: when the responses call returns a 4xx
+  whose body names a `file_*` / `file-*` id from the current refs (and the ref has a
+  `sourcePath`), the bridge evicts the cached row, re-uploads from the original
+  disk path, and retries the responses call **once**. Errors that don't name a
+  known file id are surfaced unchanged.
+- `XAI_DISABLE_FILE_CACHE=1` (env) skips the cache layer entirely (debugging).
+
+Stored upload filenames are `deliberation-{sha256[:16]}-{basename}`. Uploads also
+carry `expires_after` set by `GROK_FILE_TTL_SECONDS` (default `604800` = 7 days,
+clamped 1h..30d).
+
+### Cleanup (`/grok-files`)
+
+The bundled `server/grok/files-admin.js` supports three subcommands:
+
+- `list` - shows total xAI file count and every `deliberation-*` upload.
+- `prune --older-than <30m|24h|7d|seconds> [--yes]` - dry run by default; deletes
+  **remote** bridge-owned files matched by filename prefix + age. Works without the
+  local cache; safe for environments where the cache was lost or never existed.
+- `gc [--all-keys] [--force-local-prune]` - syncs the **local** cache with the
+  remote file list via one paginated `GET /v1/files`. Prunes local rows whose
+  `fileId` is no longer on xAI. Default scope is the current `XAI_API_KEY` +
+  `XAI_API_BASE` rows only. `--all-keys` widens to foreign rows but leaves them
+  in place when remote absence is ambiguous (the current key can't see foreign
+  files). `--force-local-prune` drops ambiguous foreign rows anyway.
+
+`prune` and `gc` are complementary: `prune` is the remote-side cleaner; `gc` keeps
+the local cache aligned with remote state. The `deliberation-` filename prefix
+is a hard safety invariant on both paths - your own xAI files are never touched.
+
+## OpenRouter bridge
+
+The OpenRouter bridge (`server/openrouter/index.js`) is a zero-dependency Node MCP server
+that calls any OpenAI-compatible `POST {apiBase}/chat/completions` endpoint.
+It is **advisory-only** - it cannot edit files or run shell commands.
+
+### Configuration file
+
+The bridge and the fan-out commands (`/ask-all`, `/consensus`) read
+`~/.config/deliberation/config.json` at call time - the canonical XDG path (Windows:
+`%APPDATA%\deliberation\config.json`). Override the path with `DELIBERATION_CONFIG`. The file is stat-gated: the bridge re-reads it only when
+the mtime changes, so edits to `models`, `routing`, or the `providers.openrouter` block
+take effect immediately without restarting Claude Code or re-running `/setup`. Toggling a
+**built-in** provider (codex / gemini / grok) still requires `/setup` to re-register
+or de-register the MCP server.
+
+### Concepts
+
+The config has four top-level sections, each with one job:
+
+- **`providers`** - transport / connection only. Per provider: `enabled` (default true)
+  plus auth/endpoint keys. `providers.openrouter` also carries the OpenRouter-specific
+  connection keys (`apiBase`, `allowRawModel`, `defaultModel`, per-call `defaults`).
+- **`models`** - named model records, keyed by id. Each record names its `provider` and
+  `model` slug and sets routing flags. This is where you declare the models the panel uses.
+- **`routing`** - global fan-out policy (`maxFanout`).
+- **`consensus`** - `arbiter` (who synthesizes the consensus verdict) and `blindVote`
+  (optional blind arbiter pre-vote; boolean, default `false`).
+
+Config file schema (strict JSON, `version` must be `1`):
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json",
+  "version": 1,
+  "providers": {
+    "codex":  { "enabled": true },
+    "gemini": { "enabled": true },
+    "grok":   { "enabled": true, "apiKeyEnv": "XAI_API_KEY" },
+    "openrouter": {
+      "enabled": true,
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "apiBase": "https://openrouter.ai/api/v1",
+      "allowRawModel": false,
+      "defaultModel": "openai/gpt-4.1-mini",
+      "defaults": { "reasoningEffort": "high", "temperature": 0.2, "timeout": 120000 }
+    }
+  },
+  "models": {
+    "claude-arb": {
+      "provider": "openrouter",
+      "model": "anthropic/claude-3.7-sonnet",
+      "askAll": true,
+      "consensus": true,
+      "experts": ["architect"],
+      "reasoningEffort": "high",
+      "temperature": 0.2,
+      "timeout": 60000
+    }
+  },
+  "routing": { "maxFanout": 3 },
+  "consensus": { "arbiter": { "model": "claude-arb" }, "blindVote": true }
+}
+```
+
+**`providers.openrouter` fields** (connection only; these are OpenRouter-specific and
+are not globalized):
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `enabled` | boolean | `true` | Whether OpenRouter participates |
+| `apiKeyEnv` | string | `OPENROUTER_API_KEY` | Env var holding the API key |
+| `apiBase` | string | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL. Read once at startup |
+| `allowRawModel` | boolean | `false` | Allow raw slugs (not just configured records) |
+| `defaultModel` | string | absent | Slug for the bare `/ask-openrouter` call |
+| `defaults` | object | `{}` | Per-call defaults: `reasoningEffort`, `consensusReasoningEffort`, `temperature`, `timeout` |
+
+**`providers.ollama` fields** (connection only; OpenAI-compatible local or remote endpoint):
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `enabled` | boolean | `true` | Whether Ollama participates |
+| `apiBase` | string | `http://localhost:11434/v1` | Ollama OpenAI-compatible base URL. Read once at startup |
+| `apiKeyEnv` | string | absent (keyless) | Env var holding the API key if required |
+| `timeout` | number (ms) | from `providers.defaults.timeout` | Per-call wall-time ceiling in ms |
+
+**`providers.lmstudio` fields** (connection only; OpenAI-compatible local endpoint):
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `enabled` | boolean | `true` | Whether LM Studio participates |
+| `apiBase` | string | `http://localhost:1234/v1` | LM Studio OpenAI-compatible base URL. Read once at startup |
+| `apiKeyEnv` | string | absent (keyless) | Env var holding the API key if required |
+| `timeout` | number (ms) | from `providers.defaults.timeout` | Per-call wall-time ceiling in ms |
+
+**`models` record fields** (the map key is the record id, matching `^[a-z0-9-]+$` and not
+the reserved `openrouter-default`):
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `provider` | string | required | Supported: `"openrouter"`, `"ollama"`, `"lmstudio"` |
+| `model` | string | required | Provider model slug (e.g. `openai/gpt-4.1`, `llama3.3:70b`) |
+| `experts` | array or absent | absent = all 8 | `[]` = none / explicit-only; array = subset of the 8 expert keys |
+| `askAll` | boolean | `true` | Include this record in `/ask-all` fan-out when eligible |
+| `consensus` | boolean | `false` | Include this record in `/consensus` voting |
+| `reasoningEffort` | string | from `defaults` | Per-record override for ask calls (maps to wire `reasoning_effort`) |
+| `consensusReasoningEffort` | string | from `defaults` | Per-record override for consensus calls |
+| `timeout` | number (ms) | from `defaults` | Per-record override |
+| `temperature` | number | from `defaults` | Per-record override |
+| `apiBase` | string | from `provider` | Standalone bridge only; ignored by unified server |
+| `apiKeyEnv` | string | from `provider` | Standalone bridge only; ignored by unified server |
+
+### Standalone bridge auth rules & migration note
+
+The standalone OpenRouter bridge (`server/openrouter/index.js`) serves
+`provider: "openrouter"` model records only (rejecting non-OpenRouter models
+with `model-not-allowed`). The bridge evaluates auth in this order:
+
+1. **`apiKeyEnv` is set on the model record:** The bridge reads the environment
+   variable named by `apiKeyEnv`. If unset or empty, no `Authorization` header
+   is sent. It **never** falls through to the provider key
+   (`OPENROUTER_API_KEY`).
+2. **The record has no `apiBase`, or its `apiBase` equals `or.apiBase` (after
+   stripping trailing slashes):**
+   The bridge uses the provider key (`process.env[or.apiKeyEnv]`, defaulting to
+   `OPENROUTER_API_KEY`).
+3. **Otherwise (custom `apiBase` without `apiKeyEnv`):** The bridge sends no key
+   (keyless proxy endpoint).
+
+> [!IMPORTANT]
+> **Migration note (v3.31.0+):** Previously, any model record with a custom
+> `apiBase` received `OPENROUTER_API_KEY`. Starting with v3.31.0, records with a
+> custom `apiBase` default to keyless (Rule 3). Authenticated proxies must set
+> `models.<id>.apiKeyEnv` to the name of the environment variable containing
+> their key. Keyless proxies leave it unset.
+
+**Reply path session isolation:**
+When a session starts, the standalone bridge stores the session's alias,
+effective `apiBase`, and the NAME of the environment variable chosen by Rule 1-3
+(secrets are never stored in memory). Replies (`openrouter-reply`) reuse the
+stored endpoint and re-read the environment variable at call time, so editing
+the config file mid-session does not redirect existing reply threads. A reply
+that explicitly specifies a different alias (compared by alias) or a raw model
+is re-resolved from the live configuration.
+
+**On `temperature`:** most deliberation work is analytical - code review, debugging,
+security audits, architecture and plan verdicts - where you want focused, repeatable
+answers. Leave `temperature` unset and the field is omitted, so the provider default
+applies (commonly around `1.0`); set a low value (roughly `0.1`-`0.3`) when you want
+that focused, repeatable behavior. Raise it (roughly `0.6`-`0.9`) only for generative
+fan-out where spread across models is the point: brainstorming, naming, "give me 20
+options". Keep it low for `/consensus` rounds; you want the models reasoning, not
+improvising.
+
+### consensus.arbiter
+
+`consensus.arbiter` names who synthesizes the verdict. Two forms:
+
+- A **shorthand string**: `"auto"` (default - pick a healthy voice, preferring an
+  OpenRouter one), `"host"` (the host arbitrates; the server runs no arbiter pass), or a
+  built-in provider name `"codex"` / `"gemini"` / `"grok"`.
+- An **object** `{ "model": "<id>" }` referencing a `models` record. The record can be
+  any entry - even one with `askAll: false` and `consensus: false` - which is the
+  dedicated-arbiter case (an out-of-panel model that adjudicates without voting). Arbiter
+  eligibility is independent of voting-panel membership.
+
+A cross-host recommendation: a dedicated Claude record used only as the arbiter
+(`{ "model": "claude-arb" }`) lets a non-Claude host synthesize with a model that is not
+one of the voting providers. An unusable arbiter (unknown shorthand, a `{ model }` id that
+is not configured, or a disabled provider) soft-degrades to `"auto"` with a warning - it
+never hard-fails the config.
+
+### consensus.blindVote
+
+`consensus.blindVote` is an optional boolean (default `false`). When `true`, the arbiter
+ALSO answers the original question cold - with no peer opinions - to produce a
+`blindVerdict`, fired in parallel with the peer fan-out (no extra round). The blind pass
+reduces the arbiter anchoring on the peers' framing.
+
+Constraints and behavior:
+
+- **Concrete / server-arbiter mode only.** It runs only when a real arbiter pass runs
+  (`"auto"`, a built-in, or a `{ model }` record). In `"host"` mode the server runs no
+  arbiter pass, so there is no blind pass either - `blindVerdict` is `null`.
+- **Cost.** It adds one extra arbiter call (parallel, no extra round), which is why it is
+  off by default. The same key gates the per-round blind pass of the multi-round loop
+  (`runToConvergence`): the loop records the blind text on the round but never reads it
+  for convergence or in the arbiter prompts, so with `blindVote` off the round records
+  `(blind pass disabled)` and skips the call.
+- **Failure-isolated.** A thrown blind pass yields `blindVerdict: null` and never fails the
+  run. `blindVerdict` is also `null` when `blindVote` is off or no arbiter exists.
+- **Validation.** A non-boolean value soft-degrades to `false` with a warning - it never
+  hard-fails the config.
+
+Behavior source of truth: `consensus()` in `core/orchestrate.js` and the `blindVote`
+validation in `server/openrouter/config.js`.
+
+### consensus.maxRounds
+
+`consensus.maxRounds` is an optional positive integer (default `5`) that caps the
+server-side convergence loop used by the `consensus` and `consensus-step` tools (a per-call `maxRounds` overrides it).
+The loop ends `unresolved` once it hits the cap without converging.
+
+- **Range.** `1`..`50`. A value above `50` is clamped to `50` with a warning; a
+  non-integer or non-positive value is dropped (the default `5` applies) with a warning -
+  it never hard-fails the config.
+- **Scope.** It governs only the multi-round loop tools. The one-shot `consensus` tool is
+  a single arbiter pass and is unaffected.
+- Validation lives in `resolveConsensus` (`server/openrouter/config.js`); the cap is
+  enforced in `core/consensus-loop.js`.
+
+### consensus.maxWallMs
+
+`consensus.maxWallMs` is an optional positive integer (default `1800000`, 30 min) that sets
+the global wall-time budget (ms) for the server-side provider-arbiter convergence loop (the
+`consensus` tool). When the budget is spent the loop stops BEFORE starting the next round and
+returns UNRESOLVED with `stopReason: "budget-exhausted"`; it never aborts an in-flight
+provider call. Does not apply to the host-driven `/consensus` (`consensus-step`) path.
+
+- **Default.** `1800000` (30 min). A non-integer or non-positive value is ignored (no budget
+  is applied) without failing the config.
+- **Scope.** Provider-arbiter `consensus` tool only. The host-driven `consensus-step` path
+  has no server-side wall clock; the host controls timing there.
+- The budget is forwarded to `runToConvergence` as `opts.maxWallMs` and checked in
+  `core/consensus-loop.js` at the start of each round (`now() - startedAt >= maxWallMs`).
+
+### camelCase config keys, wire mapping
+
+Config keys are camelCase: `reasoningEffort`, `temperature`, `timeout`. The bridge sends
+`reasoning_effort` on the wire; the camelCase -> wire mapping happens in one place - the
+resolved layer in `server/openrouter/config.js`, which carries `reasoning_effort` on each
+resolved record and on `defaults`. `temperature` and `timeout` pass through unchanged.
+
+**Which params apply on which path:** the unified `/ask-all`, `/consensus`, and the
+`{ model: <id> }` arbiter path apply a record's per-model `reasoningEffort`, `temperature`,
+and `timeout` (forwarded with arg-wins precedence by `pinAlias` in `core/registry.js`). A
+record's per-model `apiBase` and the `providers.openrouter.defaults` block apply only on the
+standalone `/ask-openrouter` bridge path, because the unified server's OpenRouter provider
+fixes `apiBase` / `apiKeyEnv` at construction. That is a pre-existing limitation, not a goal
+of the arbiter feature.
+
+### Routing
+
+- **`/ask-all`**: includes all records where `askAll !== false` and the record is eligible
+  for the requested expert; capped to `routing.maxFanout` records (default 3).
+- **`/consensus`**: includes records where `consensus === true`; NOT subject to `maxFanout`.
+  A warning is logged when more than 3 records enter a consensus round (cost).
+- **`openrouter-default`** is the reserved id for the bare `mcp__deliberation__openrouter`
+  call and `/ask-openrouter` with no record specified. It resolves to `defaultModel`, is the
+  single-shot fallback only, and is never included in fan-out or consensus.
+- Implementation tasks always route to Gemini - GPT, Grok, and OpenRouter are advisory-only.
+
+### Editor validation (VS Code, no extension)
+
+The config carries a `$schema` key pointing at `config/config.schema.json` (JSON Schema draft
+2020-12). VS Code's built-in JSON support reads that key and gives you validation,
+autocomplete, and lint with **no third-party extension** - and it works on the user's real
+config outside this repo, because the file itself carries `$schema`. The in-repo `.vscode/`
+folder additionally wires a `json.schemas` mapping so example configs inside the repo
+validate even without the `$schema` line.
+
+### Config validation (partial) and the `openrouter-list` contract
+
+Validation is **per-entry**, not all-or-nothing. A single malformed `models` record
+(bad id characters, reserved id, a provider other than `openrouter`/`ollama`/`lmstudio`,
+missing `model`, unknown
+expert, or a bad per-record override) no longer rejects the whole config - the bridge keeps
+every valid record and collects the bad ones into `invalidModels`. Only **top-level/schema**
+problems hard-fail the whole config: malformed JSON, a non-object root, an unsupported
+`version`, or a non-integer/`< 1` `routing.maxFanout`.
+
+`mcp__deliberation__openrouter-list` returns (each delegate keeps the `alias` field, equal
+to the record id, so selection and the wire stay stable):
+
+```jsonc
+{
+  "delegates": [ { "alias", "model", "experts", "askAll", "consensus", "reasoning_effort" } ],
+  "defaultModelSet": true,
+  "maxFanout": 3,
+  "maxFanoutHigh": false,
+  "invalidModels": [ { "index": 2, "alias": "qwen3.7-max",
+                       "reason": "models id \"qwen3.7-max\" must match [a-z0-9-]+ ...",
+                       "suggestedAlias": "qwen3-7-max" } ]
+}
+```
+
+- `delegates` (and `selected`/`omitted`) list only `provider: "openrouter"` records; the
+  standalone bridge cannot call `ollama`/`lmstudio` records, so they appear only in the
+  unified server's panel. `invalidModels` is reported even when a provider is disabled, so a
+  broken record is visible before you re-enable it.
+- On a hard config failure the object instead carries `error: "<message>"` with
+  `delegates: []` (and `invalidModels` absent/empty). `/ask-all` and `/consensus` treat
+  the `error` form as "OpenRouter set EMPTY".
+- `invalidModels[].suggestedAlias` is present only when a safe deterministic repair exists:
+  id-format errors are sanitized to `[a-z0-9-]+` (e.g. `qwen3.7-max` -> `qwen3-7-max`), and
+  collisions get a free `-N` suffix. Suggestions are collision-checked against every existing
+  id and the reserved `openrouter-default`. Entries with no safe fix (missing `model`, unknown
+  expert, non-`openrouter` provider, reserved-id clash) have no `suggestedAlias`.
+- The bridge never edits `config.json`. The `/ask-all` and `/consensus` commands surface
+  `invalidModels` and offer **Fix & proceed** (default - apply each `suggestedAlias` to
+  `config.json`, drop the unrepairable, re-list), **Run valid only**, or **Skip all
+  OpenRouter**.
+
+### Authentication (optional)
+
+The Authorization header is sent **only** when the key env var resolves to a non-empty
+string. Keyless local endpoints (Ollama, vLLM, LM Studio) work without a dummy key.
+`openrouter.ai` returns HTTP 401 if the key is absent; local endpoints accept no-auth
+requests.
+
+### apiBase override matrix
+
+| Endpoint | apiBase value |
+|----------|---------------|
+| OpenRouter | `https://openrouter.ai/api/v1` (default) |
+| HuggingFace Inference | `https://router.huggingface.co/v1` |
+| Ollama (local) | `http://localhost:11434/v1` |
+| LM Studio | `http://localhost:1234/v1` |
+| vLLM | `http://localhost:8000/v1` |
+
+
+### OpenRouter Presets (Routing & Cost Optimization)
+
+OpenRouter allows defining presets that encapsulate model selection, provider routing preferences (e.g. sorting by price, filtering providers by data collection policy, enabling fallbacks), system prompt, and sampling parameters.
+
+Deliberation supports specifying presets by ID or slug (e.g. `cheapest-first`, `@preset/cheapest-first`):
+- `providers.openrouter.preset` or `providers.openrouter.defaults.preset`: Default preset applied to OpenRouter calls.
+- `models.<id>.preset`: Per-model preset. A model record can specify `preset` alone (delegating model selection to the preset) or alongside an explicit `model` (applying the preset's routing and parameter configuration to that specific model).
+- Request parameter `preset`: Overrides presets per tool call (`ask-openrouter`, `ask-one`, `consensus`).
+
+On the wire, `callOpenRouter` transmits `"preset": "<slug>"` (with any leading `@preset/` stripped) in the chat completion request payload.
+
+**Cost & Routing Advantages**:
+- **Price Sorting**: Directs requests to the lowest-cost host for a model while retaining high availability.
+- **Data Privacy**: Enforces policies like `data_collection: "deny"` upstream without manual client-side proxying.
+- **Resilience**: Automatically falls back to secondary provider endpoints when a primary provider is down or throttling.
+
+### File attachment (text-inline only)
+
+OpenRouter accepts `{path}` and `{dir}` entries only. `file_id` and `file_url`
+entries are rejected (`-32602`). The `mode` field is coerced to `"inline"` regardless
+of what is set - there is no upload path. Content is embedded as text blocks in the
+request body.
+
+Per-file cap: `OPENROUTER_INLINE_MAX_BYTES` (default 262144 = 256 KB).
+Aggregate cap: `OPENROUTER_INLINE_MAX_TOTAL_BYTES` (default 1048576 = 1 MB).
+Exceeding either cap returns a hard error with counts.
+
+A `{path}` entry with `headBytes` (positive integer) is read head-only and truncated
+instead of skipped: content plus the `[truncated: first N of M bytes]` marker stays
+within the per-file cap, and the aggregate cap counts the truncated size.
+`headBytes` on a `{dir}` entry or with `mode: "upload"` is rejected; `{dir}` keeps
+`maxBytes` as its walk cap. A per-file cap of 64 bytes or less is too small for the
+marker, so a `headBytes` read is refused with a note.
+
+### Session model persistence
+
+A model alias is bound at the start of a session via `mcp__deliberation__openrouter`
+and is preserved for the life of that `threadId`. `-reply` calls on the same thread
+always use the same model.
+
+### Consensus cost model
+
+Each consensus round historically used approximately `N models x bundle tokens x rounds` tokens.
+To reduce token consumption and improve convergence efficiency:
+
+1. **Multi-Round Context Digests (`core/consensus-loop.js`)**: Rather than carrying full verbatim plans across rounds, earlier round history is compressed:
+   - Older rounds (> 2 rounds ago) are summarized on a single line (`Round N: +X lines, -Y lines`).
+   - Recent rounds (last 2 rounds) format accepted, deferred (with reasons), and dismissed (with reasons) issues alongside the plan diff summary (`summarizePlanDiff`).
+   - Only the latest plan under review is displayed in full, bounding token growth to $O(1)$ across rounds.
+2. **Canonical Prefix Ordering (`server/openrouter/index.js`)**: Static file context blocks (`inlineBlocks`) precede dynamic user prompt text in user messages. Sequential turns or calls sharing file attachments hit upstream KV prompt caches (e.g. Anthropic, DeepSeek, OpenAI), dramatically reducing input token costs.
+3. **Decoupled Reasoning Effort (`consensusReasoningEffort`)**: Multi-round debates can use lighter reasoning tiers than single-shot questions, cutting reasoning token generation by setting `consensusReasoningEffort` lower than `reasoningEffort` in provider defaults or model definitions.
+4. **OpenRouter Presets (`preset`)**: Routing rules configured in OpenRouter presets (e.g. `cheapest-first`) can sort upstream providers by price (`sort: { by: "price" }`) and enable fallback routing (`allow_fallbacks: true`), significantly lowering inference costs across debate rounds and advisory queries.
+
+When more than 3 models participate, the bridge emits a warning with an estimated
+token count. There is no hard spend cap - the warning is informational only.
+
+### MCP tools
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__deliberation__openrouter` | Start a new advisory session |
+| `mcp__deliberation__openrouter-reply` | Continue a session (multi-turn via threadId) |
+| `mcp__deliberation__openrouter-list` | List configured model aliases and their eligibility flags |
+
+### Error kinds
+
+| errorKind | Meaning |
+|-----------|---------|
+| `auth` | API key missing or rejected (HTTP 401/403) |
+| `rate-limit` | HTTP 429 from upstream. Carries `retryAfterMs` when the response sent a `Retry-After` header |
+| `timeout` | Request exceeded the configured timeout (headers **and** body read are covered) |
+| `network` | Connection error or DNS failure |
+| `empty` | Provider exited clean but returned a stub instead of an answer (see [Answer floor](#answer-floor-gemini-grok)) |
+| `parse` | Response body could not be parsed |
+| `upstream` | Non-2xx from the endpoint (other than auth/rate-limit) |
+| `config` | Config file missing, invalid JSON, or schema violation |
+| `model-not-allowed` | OpenRouter: requested alias is not in the config, or a raw `model` was passed with `allowRawModel:false`, or no alias/model was given and no `defaultModel` is set. Gemini: agy rejected an operator-pinned `--model` id with `invalid model selection` (the shipped alias falls back instead - see the `--model` notes) |
+| `unknown-thread` | `-reply` called with a threadId that does not exist |
+| `unknown` | Catch-all for unclassified errors |
+
+### Retries
+
+`callProvider` (`core/orchestrate.js`) retries a failed call **exactly once**, and only
+for the kinds that actually self-heal:
+
+| errorKind | Retried | Pause before the retry |
+|-----------|---------|------------------------|
+| `network` | yes | 1s - retrying in the same millisecond cannot help a transport fault, and just doubles the log rows for a deterministic one |
+| `rate-limit` | yes | the response's `Retry-After` (delta-seconds or HTTP-date), else 2s; clamped to 30s so a hostile hint cannot stall a fan-out |
+| `empty` | yes | none - a stub answer is cheap to redo |
+| `upstream` | yes | none - a 5xx, or a generation the provider itself aborted; the request was fine |
+| everything else | no | - |
+
+`timeout` is deliberately **not** retried: the call may already have burned tokens, and
+a slow-but-good answer would be thrown away. `auth` / `config` / `parse` do not self-heal.
+There is no exponential backoff and no second retry.
+
+### Circuit breaker
+
+The consensus loop drops a peer after `CIRCUIT_BREAK_AFTER` (2) **consecutive failed
+rounds**, so one broken model cannot add its full per-call ceiling to every round. Any
+success resets the streak; a peer that is not dispatched keeps its streak (not being
+asked is not recovering).
+
+Key rules and invariants pinned here:
+
+- **Substantive technical dissent never trips the breaker.** Only transport/execution
+  faults (`isError: true`) or malformed responses (`verdict: null` or unrecognized)
+  increment the error streak. Valid technical dissent (`REQUEST_CHANGES` or `REJECT`)
+  resets the streak to 0, ensuring principled dissent is never silenced as a fault.
+- **Every genuine error kind counts**, not just `timeout`. Transport errors (`network`,
+  `timeout`, `upstream`, `empty`) and unparseable outputs count toward the streak.
+- **Quorum floor ($N \ge 2$).** Under `consensus.quorumFloor` (default 2), `checkConvergence`
+  refuses convergence unless `responding.length >= quorumFloor`. When circuit breaks drop
+  surviving active providers below the quorum floor, the loop terminates with
+  `stopReason: "quorum-lost"`.
+- **Mid-session peer substitution / identity drift prevention.** In `consensus-step`, round 1
+  locks in `initialPeerNames`. Subsequent rounds strictly restrict candidates to this
+  initial set, preventing unexpected provider injection mid-session.
+- **Both drivers share one rule.** The streak lives on `LoopState.errorStreak` in
+  `core/consensus-loop.js` (`updateErrorStreak` / `trippedProviders`), folded in by
+  `addOpinions`. The provider-arbiter driver (`runToConvergence`) and the host-driven
+  one (`consensus-step`) both read it. Previously only the former had a breaker at all,
+  which is exactly the path the `/consensus` command does **not** use.
+
+`consensus-step` reports removals as `droppedProviders[]` on the `dispatch_peers` reply.
+Only the NEWLY dropped are listed: a dropped peer's streak never decays, so the full
+tripped set is identical on every later round, and the server (not the host model)
+tracks what it has already announced. The set is also intersected with the round's
+actual candidates, so a peer that tripped earlier and has since left the config is not
+reported and does not keep `dropped` artificially non-empty.
+
+If every peer is dropped, the call returns a terminal `status: "unresolved"` with
+`stopReason: "all-providers-circuit-broken"` rather than looping on an empty fan-out. A
+panel that is empty because the config has no eligible providers reports `no-providers`
+instead - both drivers make that distinction.
+
+A terminal stop from `dispatch_peers` happens BEFORE the round's fan-out, so the record
+it persists takes the last COMPLETED round's opinions from `history` (the live
+`results` were reset by the previous `submitRevision`) and reports the number of rounds
+that finished, not the one about to start.
+
+### Wall-clock budget
+
+`consensus.maxWallMs` (default 1 800 000 ms, 30 min) bounds a whole loop. It gates
+**starting** a round and never interrupts a fan-out already in flight, so a legitimately
+slow answer is always collected in full. On exhaustion the loop stops with
+`stopReason: "budget-exhausted"`. It applies to both drivers; `consensus-step` carries
+the start time on its stored state, since it is a series of stateless calls with no
+enclosing scope to hold it.
+
+The provider-arbiter loop also stops with `stopReason: "arbiter-revision-failed"` when the
+arbiter's revision leg returns no text (an error, a stub, a timeout): advancing with the
+unchanged plan would only send the same plan to every peer and buy the same dissent again.
+
+### Timeouts
+
+Every provider call is bounded. The ceiling resolves highest-first:
+
+1. the request's own `timeoutMs`
+2. `models.<id>.timeout` for a pinned OpenRouter alias (merged into the request by `core/registry.js`)
+3. `providers.<name>.timeout` - for OpenRouter this is `providers.openrouter.defaults.timeout`
+4. `providers.defaults.timeout` - one knob for every provider
+5. the adapter's built-in default: codex 600000, gemini 300000, grok 180000, openrouter 180000
+
+**The host has its own cap, and it wins.** Some MCP hosts kill any tool call from the
+outside: Claude Code on the web exports `MCP_TOOL_TIMEOUT=60000`, so every ceiling above is
+unreachable there - the host reported `tool "ask-grok" timed out after 60s` and the provider's
+own error path never ran (no `errorKind`, no message, nothing that named the cap; `/consensus`
+could never survive a real review prompt). `core/host-budget.js` reads `MCP_TOOL_TIMEOUT` and
+clamps the resolved ceiling to `MCP_TOOL_TIMEOUT - 5000` ms (floor 1000) at every point a
+ceiling is applied - the Codex provider's `ask`, and `runGrok` / `runGeminiOnce` /
+`callOpenRouter` in the bridges, so the standalone `/ask-*` commands are covered too. A
+timeout that fired because of the clamp carries the cap in its `message`
+(`Host MCP_TOOL_TIMEOUT=60000 caps every MCP tool call ... Raise MCP_TOOL_TIMEOUT ...`);
+a ceiling already under the cap is passed through untouched and carries no hint. One tool call
+can also run several provider legs in SEQUENCE - a retry after a failure, the arbiter passes of a
+`consensus` round, Gemini's post-timeout drain - and a per-leg clamp alone would hand each fresh
+leg the whole cap again (the host still kills the call, just later). So the server takes the
+clock at tool entry (before health probes and selection), and every leg is stamped with what is
+LEFT of the cap (`fitToHostBudget` -> `req.hostBudgetRemainingMs`, a separate field so a shorter
+configured ceiling still wins); the adapters' clamp reads it (`clampToHostBudget(wanted, env,
+remaining)`), `callProvider` skips a retry whose backoff plus leg would not fit (a 30s
+`Retry-After` at 40s into a 60s cap is not even slept on), the Grok bridge passes the spent-down
+value into its Files API uploads (`GROK_UPLOAD_TIMEOUT_MS` is bounded by it too, even when set to
+`0`), its non-streaming fallback and its stale-file re-upload retry, the Gemini bridge into its
+alias-drop retry, `runToConvergence` runs
+every round on the same clock and stops with `stopReason: "budget-exhausted"` once the cap is
+spent rather than starting 1s legs, and the Gemini bridge disables its post-timeout drain under
+any host cap (`graceWithinHostBudget`) - the ceiling is hard there, so a drain only runs into the
+kill. A server-side `consensus` run (peers, then arbiter, per round) therefore ends as
+`budget-exhausted` or a timeout naming the cap under a 60s host rather than being killed - it
+cannot fit; use the host-driven `consensus-step` (one fan-out per call) or raise the cap. It is not a config key - the cap is the host's. Claude Code resolves it per server as
+`config.timeout ?? MCP_TOOL_TIMEOUT ?? default` (progress notifications never extend it), so
+`.claude-plugin/plugin.json` declares `"timeout": 1800000` on all four servers - the same 30 min
+as `consensus.maxWallMs` and Claude Code's stdio idle window - and mirrors it into each server's
+env as `MCP_TOOL_TIMEOUT`. The mirror is not optional: the server process inherits the host's
+`60000`, and the clamp above would cut every ceiling to 55s under a 30-min host allowance.
+`test/plugin-manifest.test.js` keeps the two numbers equal. A clamped `timeout` on a web host
+now means an install older than that manifest (the CTF container seed pinned v3.14.8 two minutes
+before v3.14.9 shipped, which is how "still 60s" was reported after the clamp landed) or a host
+with no per-server timeout; `/deliberation:doctor` says so. Garbage or zero reads as "no cap".
+
+**The transport has its own ceiling.** Node's `fetch` (undici) gives up after 300s
+waiting for response headers (`headersTimeout`) and after 300s between body chunks
+(`bodyTimeout`), and there is no public API to raise either. A configured timeout above
+300s is therefore only reachable while bytes are actually flowing - which is why the
+Grok bridge streams (see [Grok streaming](#grok-streaming)) and why OpenRouter survives
+past 300s (its API emits processing keepalives). Both ceilings arrive as a bare
+`TypeError: fetch failed` and are classified `timeout` (never retried) with
+`transportCode` `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`; before that they
+read as `network`, so a provider that merely thought for over five minutes was retried
+into a second five-minute wait and still failed.
+
+An abort reaches the classifier in two shapes and both must count as `timeout`: the
+`AbortError` itself, and the WRAPPED form undici produces when the controller fires
+during the body read - `TypeError: terminated` whose `cause` is a DOMException named
+`AbortError`, where neither the name nor the message mentions aborting. Missing the
+wrapped shape puts the bridge's OWN ceiling back in the retryable `network` bucket.
+
+Levels 3 and 4 are read once at MCP startup (constructor args, like `model` and
+`reasoningEffort`), so a change needs an MCP restart; the `models` map still hot-reloads.
+
+This applies to **both** entry points. The unified server reads the resolved value in its
+composition root; the standalone bridges that `/ask-grok`, `/ask-gemini`, and
+`/ask-openrouter` call read it themselves (`configuredTimeout()` in the Grok and Gemini
+bridges, the `pick` chain in the OpenRouter bridge). Wiring only the unified server would
+leave those three commands pinned to their built-ins.
+
+Two things the ceiling covers that are easy to get wrong:
+
+- **The response body, not just the headers.** Both HTTP bridges keep the `AbortController`
+  armed until `res.text()` resolves. A slow body is a timeout, not a `network` error. A
+  *non-abort* body failure on an OK status (a mid-stream socket drop, `TypeError:
+  terminated`) surfaces as `network` and is retried; swallowing it left an empty body that
+  then failed `JSON.parse` as the non-retryable `parse`. On an error status the body is
+  only diagnostic, so the status is kept and the body reported empty.
+- **A flowing SSE body.** Observed on Node 22: once Grok's SSE chunks are flowing, aborting
+  the fetch's signal does NOT reliably error the body - chunks kept arriving 20s+ past the
+  abort - and a `for await` loop holds the stream's lock, so `res.body.cancel()` from
+  outside is refused. The ceiling was therefore unenforceable exactly when it mattered (a
+  long reasoning answer), and the call ran until the host's own cap. `core/sse.js
+  readSseStream(body, onEvent, signal)` now takes the call's signal, races every
+  `reader.read()` against it, and cancels the reader it owns, so the socket is actually
+  released. A body without `getReader` (test doubles) falls back to `for await`.
+- **A killed Codex child.** The kill timer is authoritative, so a SIGKILL'd `codex exec`
+  reports `timeout` even when it wrote nothing to stderr (stderr-substring classification
+  would otherwise call it `unknown` - and an `unknown` can never trip the circuit breaker).
+
+Grok's Files API upload is bounded separately by `GROK_UPLOAD_TIMEOUT_MS` (default 120000,
+`0` disables it) - an upload is a fixed-size transfer, not a model run.
+
+### Grok streaming
+
+The Grok bridge posts `stream: true` to `/v1/responses` and reads the reply as SSE.
+
+The reason is the transport ceiling above, not progress reporting. xAI sends **nothing**
+until a non-streaming answer is complete, so any `grok-4.6` call that thought for more
+than five minutes was killed by undici's 300s `headersTimeout`, surfaced as a bare
+`TypeError: fetch failed`, and was then classified `network` - retryable - so the call
+was billed for a second five-minute wait before failing anyway. `providers.grok.timeout`
+above 300 000 could never be reached. Streaming puts the first byte on the wire in
+seconds and every chunk resets the body timeout, so the bridge's own `AbortController`
+becomes the real ceiling.
+
+How the reply is consumed:
+
+Framing lives in `core/sse.js` (provider-agnostic: split frames, return
+`{event, data}`) and the xAI event semantics in `server/grok/stream.js`. The split is
+deliberate - OpenRouter is still non-streaming and subject to the same ceiling, so the
+transport half is written once rather than copied when it streams.
+
+- The bridge branches on the **response** `Content-Type`, not on the request. An
+  upstream free to ignore `stream: true` still works, and an error status (which carries
+  a plain JSON body even on a streaming request) takes the existing diagnostic path.
+- Frames split on a blank line with **any** of the spec's line endings (LF, CRLF, CR).
+  Splitting on `"\n\n"` alone never matched a CRLF stream at all: the buffer grew to
+  hold the whole response and the end-of-stream flush handed every concatenated payload
+  to one JSON parse, turning a good answer into an empty stream.
+- The event name is read from the JSON payload's `type` when present and from the SSE
+  `event:` line otherwise, so a server that names events the spec's way is understood.
+- `response.completed` carries the same object a non-streaming call returns, so the
+  parser, `usage` normalization, and the `output` capture that `grok-reply` replays are
+  unchanged. It is PREFERRED, not trusted: if its output cannot be parsed, the answer
+  accumulated in the `response.output_text.delta` chunks is used instead of throwing.
+- `response.incomplete` is a TRUNCATED answer (max tokens, content filter), not a
+  failure - the non-streaming path returned its partial output, and discarding it would
+  throw away work already paid for. Only `response.failed` and `error` become `upstream`
+  (retryable): an aborted generation is the upstream's problem, not a malformed reply.
+- A clean stream carrying no output at all is `empty` (retryable), never `parse`: the
+  shape was fine, the content was missing. Whitespace-only output counts as none. The
+  [answer floor](#answer-floor-gemini-grok) applies to the assembled text as before.
+- A stream carrying no event we RECOGNIZE is a different failure from one carrying no
+  answer, and it is the real hazard of streaming by default. The bridge retries that
+  case exactly once with `stream: false`, so a drift in the event vocabulary degrades to
+  the old behavior instead of taking Grok offline (and, inside `/consensus`, getting it
+  circuit-broken off the panel). The fallback cannot recurse.
+- Set `GROK_STREAM=0` to force the non-streaming request outright. That reinstates the
+  300s ceiling, so use it only to isolate a suspected streaming problem.
+
+### Answer floor (Gemini, Grok)
+
+A provider stub is an error, not an answer. Both bridges enforce a floor so a stub fails as
+`errorKind: "empty"` (retried once by `callProvider`) instead of reaching the caller as an
+opinion - inside consensus a stub yields `verdict: null` and silently blocks convergence.
+
+**The rule lives in one place**, `core/answer-floor.js` (`stubReason(text, minChars)`), and
+both bridges call it: a trimmed reply is a stub when it is shorter than
+`GEMINI_MIN_ANSWER_CHARS` / `GROK_MIN_ANSWER_CHARS` (default **1**, i.e. empty), OR when it is
+under 400 characters and opens with an intent phrase (`I'll` / `I will` / `I'm going to` /
+`Let me` / `First, I`) **followed by an exploration verb** (`begin`, `start`, `verify`,
+`check`, `read`, `look`, `find`, `open`, `examine`, `inspect`, `review`, `explore`, `search`,
+`scan`, `run`, `fetch`, `gather`, `walk`, `dig`, `investigate`, `analyse`, `take a look`,
+`go through`). The phrase alone is not enough - "I will.", "I'll go with option B because..."
+and "Let me be clear: no." are complete answers - and a long answer that merely opens with
+"I'll" is not a stub. The intent check is new for Gemini (it existed only in the Grok
+bridge before); it also catches preambles that were long enough to clear the old 80-char
+floor. `0` disables both checks. The failure carries the reason ("2 chars, below the 80-char
+answer floor" / "51 chars that only announce intent"), and since
+[issue #180](https://github.com/antonbabenko/deliberation/issues/180) the unified error
+envelope forwards it as `message` - before that, the operator saw only the coarse
+`errorKind: "empty"` and had no way to tell a floor rejection from a transport fault.
+
+**Why not a length floor.** The first version rejected anything under 80 characters. That
+caught the 51-character Gemini preamble, but issue #180 showed the cost: the reporter's
+smoke prompt `Sag nur: ok` made `agy` answer `ok` (2 characters, exit 0) and every
+`ask-gemini` call failed as `empty` while `agy` itself worked by hand. A character count
+cannot tell a terse answer from a stub; the opening phrase can, and it catches the observed
+stubs of both providers. Operators who want the old hard floor set the variable to `80`.
+
+**Gemini.** `agy` sometimes exits 0 having printed only a preamble ("I will begin by finding the
+repository directory...") instead of an answer. Any non-empty stdout used to count as a
+full answer, so that stub reached the caller as a real opinion - and inside consensus it
+silently blocked convergence with no diagnostic (`parseReview` yields `verdict: null`). A
+stub now fails with `errorKind: "empty"`, which `callProvider` retries once.
+
+The floor applies on **both** the clean-exit and the soft-timeout drain path. Exempting the
+drain would make validity timing-dependent - the same stub would fail when `agy` is fast and
+pass when it is slow. A stub recovered after a soft timeout is not an answer either, so it
+falls through to the hard timeout.
+
+An opening-phrase check is still a proxy for "announced intent instead of answering" - the
+upgrade path is a structured-output check if providers ever return a parsed envelope.
+
+**Grok.** `grok-4.6` is agentic-trained and is reached through ONE `/v1/responses` call with
+no tools declared. A prompt that mentions repositories or asks it to "verify the cited files"
+(the expert prompts invite this "when you have filesystem access") can make it announce a
+plan - `I'll verify the cited files and edit anchors so the review is based on what's actually
+in the repo.` - and end its turn as if a tool result were coming: `status: "completed"`, zero
+tool calls, a 99-162 character reply. Two guards, both in `server/grok/index.js` so the
+standalone `grok` tool and the unified server share them:
+
+- `buildInitialTurns` always seeds a system turn ending with a fixed runtime note: no tools,
+  no filesystem or repository access, no web, no further turns; attached files are reference
+  material; answer completely now. `grok-reply` continuations inherit it from the persisted
+  turns.
+- `runGrok` rejects the answer with `.code = "empty"` when `stubReason` says so (above). An
+  empty message body (`""`), which used to return as a silent success, is caught by the
+  default floor of 1.
+
+## Orientation auto-attach
+
+A mechanism, on by default, that automatically attaches a small repo orientation bundle to
+advisory calls targeting **file-blind providers** (Grok and OpenRouter), so they
+reach context parity with Codex and Gemini, which already walk `cwd` under their
+read-only sandboxes. Default ON - set `orientation.enabled` to `false` when the repo
+root holds files you do not want sent to those providers.
+
+### Configuration
+
+```json
+"orientation": { "enabled": true, "maxFiles": 6, "maxBytes": 16000 }
+```
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `enabled` | boolean | `true` | Attach the bundle to file-blind providers when they carry no files. |
+| `maxFiles` | integer | `6` | Cap on the number of files in the bundle. |
+| `maxBytes` | integer | `16000` | Content-byte budget for the whole bundle (about 4K tokens). `0` = no budget. |
+
+### How it works
+
+**`core/orientation.js`** - `resolveOrientationFiles(cwd, { maxFiles, maxBytes })`
+returns an array of `FileRef` objects (absolute paths of EXISTING, non-empty regular
+files) in fixed priority order:
+
+```
+AGENTS.md (else CLAUDE.md - never both), package.json, pyproject.toml,
+Cargo.toml, go.mod, tsconfig.json, main.tf, README.md
+```
+
+AGENTS.md is the guide written for non-Claude agents, which are exactly the providers
+that receive the bundle. The small manifests come before README so a large README
+cannot crowd them out.
+
+**Byte budget** - `maxBytes` counts file content plus truncation markers; the
+`=== name ===` header each bridge adds per file (under 100 bytes) is not counted.
+Selection runs two passes:
+
+1. Files that fit the remaining budget are added whole, in priority order, up to
+   `maxFiles`.
+2. The highest-priority file skipped for size is added cut to the rest of the budget
+   (minus a 64-byte marker reserve), but only when at least 2048 bytes remain and
+   `maxFiles` is not reached. It outranks every whole file after it, so when those
+   files are what leaves too little room (or fill `maxFiles`), they are dropped,
+   lowest priority first, until it fits. Nothing is dropped if even that would not
+   leave 2048 bytes. At most one file is cut for the budget.
+
+Every file is also capped at 256 KiB minus the marker reserve (both bridges' default
+per-file inline cap); a file over that cap is charged its marker against the budget
+too, and `maxBytes: 0` turns the budget off (only `maxFiles` and the
+per-file cap apply). Each entry is `{ path, headBytes, mode: "inline" }`: the bridge
+reads at most `headBytes` (so a file that grows after selection is still bounded) and
+appends `[truncated: first N of M bytes]` when it cuts. Grok receives the bundle
+inline rather than uploaded, so what is sent equals what was budgeted. If
+`GROK_INLINE_MAX_BYTES` or `OPENROUTER_INLINE_MAX_BYTES` is set below 256 KiB, the
+bridge's lower cap wins.
+
+The function is stat-only (never reads file content), never throws, and silently
+skips missing or empty files.
+`orientationFilesFor(config, cwd)` is the public entry-point: it returns the bundle
+array when `orientation.enabled` is `true`, else `undefined`.
+
+**Provider capability: `walksFilesystem`** - declared in `core/types.js`
+`ProviderCapabilities`. `true` for codex and gemini (they walk the cwd under their
+sandbox); `false` for grok and every OpenRouter per-alias wrapper (set via
+`registry.js` `pinAlias`). This flag, not `fileUpload`, is the file-blind
+discriminator.
+
+**`core/orchestrate.js` `withOrientation` gate** - shared helper called in
+`callProvider` BEFORE the dedup cache key is computed. It attaches the bundle when
+two conditions both hold:
+
+1. The provider is file-blind (`walksFilesystem === false`).
+2. The caller passed no files of its own (the `files` array is absent or empty).
+
+Injection before the cache-key computation matters: `core/result-cache.js` `keyFor`
+excludes `cwd`, so injecting a bundle AFTER the cache check would risk a cross-repo
+false cache hit (same prompt, different repo). Injecting BEFORE makes the now-file-bearing
+request correctly skip the in-session result cache.
+
+**Scope** - orientation is applied to the peer fan-out AND the arbiter blind pass.
+It is NOT applied to the adjudication and revision passes, which reason over peer-opinion
+text rather than repo files directly.
+
+**Zero cross-contamination** - the bundle travels in the per-provider `files[]`
+argument, never in the shared `prompt`. The prompt text is byte-identical across
+every provider; only the file list differs for file-blind delegates.
+
+**Bridge caps apply** - each bridge enforces its own size limits. OpenRouter inlines
+files as text (256 KB/file, 1 MB aggregate); Grok delivers them as inline or uploaded
+attachments per the usual `mode` rules. Bundle entries carry `headBytes` and
+`mode: "inline"`, so both bridges read only the budgeted head of each file.
+
+### Manual override
+
+When `orientation.enabled` is `false`, or when you need more than
+`maxFiles` files for a particular query, embed the context manually in the `prompt`
+as described in the `ask-all` and `consensus` command files. The per-command
+guidance still applies and takes precedence over the auto-attach when you pass your
+own `files`.
+
+## Date grounding
+
+A delegate whose training data is months old will call a newer model, tool, or version
+"hallucinated" and file it as a critical issue - a false positive that blocks a
+consensus round. `core/grounding.js` `groundingNote()` returns one short paragraph:
+
+> Current date (UTC): YYYY-MM-DD. Your training data may predate it. Do not call a
+> model, tool, library, API, or version hallucinated, fictional, or non-existent only
+> because you do not recognize it; if you cannot confirm it from this message or from
+> tools you actually have (if any), mark the claim [unverified] and say what would confirm it.
+
+Every prompt builder adds it, so it reaches every delegate on every path (unified
+server tools, consensus peers, arbiter passes, and the standalone `/ask-*` bridges):
+
+| Provider | Builder | Placement |
+|----------|---------|-----------|
+| Codex | `core/providers/codex.js` `runOnce` | after the developer instructions, above the `---` separator |
+| Gemini | `server/gemini/index.js` `buildAgyArgs` | after the developer instructions, before the read-only guard + question |
+| Grok | `server/grok/index.js` `buildInitialTurns` | system turn, after `NO_TOOLS_NOTE` |
+| OpenRouter | `server/openrouter/index.js` `buildInitialTurns` | system turn (always emitted now), after the developer instructions |
+
+Notes:
+
+- **The date is code, the lookup is the host's.** Grok and OpenRouter run with no tools,
+  so a prose rule telling them to run `date -u` or search the web could never be
+  followed. The host (Claude, or any agent reading the tool guide) is told to verify
+  time-sensitive facts with its own retrieval and inline them with an as-of date and
+  source ("Time-sensitive questions" in `docs/tool-guide.md`; every `/ask-*` command and `/consensus`;
+  the CONTEXT section of `rules/delegation-format.md`).
+- **The rule travels with the date.** A date alone still lets a model reject a name it
+  does not know; the no-denial clause is what turns that into `[unverified]`.
+- **Not in the personas.** `prompts/*.md` are unchanged. The note is short because it is
+  paid on every call, times panel size, times rounds.
+- **Multi-turn.** `*-reply` continuations reuse the first system turn, so the date is
+  the one from the start of the thread.
+- **Cache.** The in-session dedup cache keys on the request before a builder adds the
+  note; with its 10-minute TTL a cached answer can at most carry yesterday's date for a
+  few minutes after midnight UTC.
+- **Codex echo.** `codex exec` echoes the whole prompt on stderr; `classifyCodex` already
+  consumes the sent prompt, note included, before classifying an error line.
+- No config key and no opt-out.
+
+## Session persistence
+
+An opt-in, single-user local store that records each `/consensus` and `/ask-all`
+run so it can be fetched, re-run, and annotated later. Default OFF - nothing is
+written to disk unless `sessions.persist` is true. Implemented in `core/sessions.js`
+(synchronous, zero-dep); the store directory is resolved by `resolveSessionsDir` in
+`core/paths.js`; config is validated by `resolveSessions` in
+`server/openrouter/config.js`; the MCP wiring lives in `server/mcp/index.js`.
+
+Three paths write through one chokepoint (`persistRun`): the server-side `consensus`
+tool, `ask-all`, and `session-revisit` (child record). The host-driven `consensus-step`
+loop (the live `/consensus`) also persists ONE record on a terminal transition -
+converged or unresolved - via `persistConsensusStep`. It takes the loop entry with an
+atomic `loopStore.take()` BEFORE the synchronous write, so a concurrent/retried terminal
+call finds nothing and cannot double-write (at-most-one, lock-free); the record's
+`question` is the ORIGINAL prompt stashed at `init`, not the final revision. On a write
+failure it emits a CONTENT-FREE `persist_failed` event to the debug log (fs errno or
+`"write_failed"`, plus the ephemeral loop id - never `err.message`) and returns
+`persisted:false` with no `sessionId`.
+
+### Configuration
+
+```json
+"sessions": { "persist": false, "maxRecords": 200, "maxAgeDays": 30, "captureText": false }
+```
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `persist` | boolean | `false` | Save each run and return a `sessionId`. Non-boolean degrades to `false` + warning. |
+| `maxRecords` | integer | `200` | Keep at most this many newest records. `-1` = unlimited (never trim by count). `0`/invalid -> default + warning. |
+| `maxAgeDays` | integer | `30` | Delete records older than this. `-1` = unlimited (never delete by age). `0`/invalid -> default + warning. |
+| `captureText` | boolean | `false` | Also store each provider's raw RESPONSE body (`opinion.text`). OFF (default) = summaries only (question + verdict/criticalIssues); the body is dropped at `persistRun` for every path. ON (and `persist` on) stores the body, secret-scrubbed (mandatory) then best-effort PII (email) stripped, then capped. Non-boolean degrades to `false` + warning. The metrics-only debug log NEVER receives body text either way. |
+
+Validation soft-degrades: a bad value never rejects the config, it falls back to the
+default and the reason rides the same `consensusWarnings` channel the bridge already
+surfaces.
+
+### Store layout
+
+- One JSON file per session at `<dir>/<id>.json`, where `<dir>` is
+  `DELIBERATION_SESSIONS` if set, else `<XDG cache>/deliberation/sessions` (macOS/Linux
+  `~/.cache/...`; Windows `%LOCALAPPDATA%\...`).
+- Written atomically: the temp file is created with mode `0600` directly (no
+  world-readable window), then renamed into place; a failed rename removes the temp.
+- No global lock - each file is independent. The only read-modify-write is
+  `session-annotate` on one file, documented last-writer-wins (fine for a local
+  single-user stdio server).
+- Retention runs after every write: delete by age, then trim by count (both honoring
+  `-1` = unlimited). Orphaned `<id>.json.tmp.<pid>.<ts>` fragments older than an hour
+  are also reaped.
+
+### Record shape (`schemaVersion: 1`)
+
+```
+{ id, parentId|null, schemaVersion: 1, createdAt: <ISO>,
+  tool: "consensus"|"ask-all", question, expert|null,
+  files: [{ path|dir|file_id|file_url, mode? }]|null,   // attachment REFS, never bodies
+  opinions: [{ provider, model, text?,                  // text = RESPONSE body, present ONLY when sessions.captureText is on
+               verdict?, criticalIssues? }],            // verdict/criticalIssues on consensus LOOP opinions
+  blindVerdict|null, verdict|null,                      // verdict = loop enum (null in synthesize mode)
+  synthesis?|null, synthesizeAlways?,                   // synthesis = free-text (synthesize runs)
+  arbiter: { mode, provider }|null, warnings: [], annotations: [{ note, at }],
+  converged?, confidence?, rounds? }                    // consensus LOOP summary
+```
+
+A single stamp - no dual-version support (pre-1.0, no users). `readSession` returns the
+object as-is and nothing branches on `schemaVersion`. The loop fields
+(`verdict`/`criticalIssues`/`converged`/`confidence`/`rounds`) are populated only for a
+`consensus` LOOP run; a `synthesizeAlways` run carries `synthesis` instead; `ask-all` omits
+all of them. (`tool` is `"consensus"` for both consensus modes; `synthesizeAlways` records
+the mode so `session-revisit` replays it.)
+
+Before writing, `scrubSecrets` redacts common key shapes (OpenAI `sk-`, OpenRouter
+`sk-or-`, Anthropic `sk-ant-`, xAI `xai-`, GitHub `gh[pousr]_`, AWS `AKIA`, Google `AIza`,
+Slack `xox[baprs]-`, Stripe `[sr]k_(live|test)_`, and `Bearer` tokens), multi-line private key
+blocks (`[REDACTED_PRIVATE_KEY]`), compact serialized JWT tokens (`[REDACTED_JWT]`), and
+syntax-aware key-value secrets in JSON, YAML, .env, and Shell assignments (`api_key`,
+`secret_key`, `client_secret`, `access_token`, `auth_token`, `refresh_token`, `private_key`,
+`password`, `passwd` mapped to `[REDACTED]`) in the question, opinion/verdict text, each
+critical-issue description, `warnings`, annotation notes, and the file `path`/`dir` strings; the question and each opinion/verdict
+are capped at ~100 KB, and an opinion `verdict` is whitelisted to the closed enum (anything
+else is coerced to `null`) so no free text rides the unscrubbed verdict field. Scrubbing is
+best-effort - user transcript text may still carry secrets in unrecognized shapes.
+
+Opinion RESPONSE bodies (`opinion.text`) are persisted ONLY under the opt-in
+`sessions.captureText` (default off); `persistRun` drops the field for every path when it
+is off, so the default record holds only the question + verdict/issue summaries. When on,
+the body is secret-scrubbed (the mandatory primary control, always run) and then passed
+through a best-effort `stripPII` (email addresses only; RFC-bounded so it stays linear on
+long provider text) as defense-in-depth - NOT a guarantee, never the gate. `captureText` is
+forward-gating: turning it off stops new capture but does not strip records already on disk
+(they age out via retention, or delete the store dir to purge).
+
+### Tools
+
+Each takes its own input schema (no `prompt`), and reports
+`"session persistence is disabled (set sessions.persist)"` when off.
+
+| Tool | Input | Effect |
+|------|-------|--------|
+| `session-get` | `{ sessionId }` | Return the record, or a not-found message. Read-only. |
+| `session-revisit` | `{ sessionId, cwd? }` | Re-run the record's original question (and its file refs) with the CURRENT providers/config, write a CHILD record (`parentId` = original id), return the new `sessionId` + result. Re-run, not snapshot-replay. A `consensus` record replays its mode - the full multi-round LOOP, or the single synthesis pass. (Records written before the tool merge are unsupported - pre-1.0, no users.) |
+| `session-annotate` | `{ sessionId, note }` | Append `{ note, at }` to the record's audit trail and rewrite the file. |
+
+When `persist` is on, `consensus`, `ask-all`, and the `consensus-step` terminal transition
+also include a top-level `sessionId` in their result (`consensus-step` adds `persisted` and,
+on the host-driven loop, the ephemeral `loopSessionId`).
+
+### Walkthrough: record -> review -> revisit -> annotate
+
+With `sessions.persist: true`, one decision flows through all three tools. Tool calls are
+shown in their real arg shape; ids are illustrative.
+
+1. **Record.** Run a panel and the result carries a `sessionId`:
+
+   ```
+   /ask-all Should we cache provider results in-process or in Redis?
+   -> { results: [...], sessionId: "019c5af2-1a2b-7c3d-8e4f-aa12" }
+   ```
+
+2. **Review** the stored decision later:
+
+   ```
+   session-get { "sessionId": "019c5af2-1a2b-7c3d-8e4f-aa12" }
+   -> { session: {
+        tool: "ask-all", question: "Should we cache provider results ...",
+        opinions: [ { provider: "codex", verdict: null, text: "..." },
+                    { provider: "gemini", verdict: null, text: "..." } ],
+        verdict: null, annotations: [] } }
+   ```
+
+   (A `consensus` loop record also carries per-opinion `verdict`, a final `verdict`, and
+   `converged`/`confidence`/`rounds`; a `synthesizeAlways` record carries `synthesis`.)
+
+3. **Revisit** - re-ask the SAME question against today's providers/config. This writes a
+   CHILD record linked by `parentId` and returns a new id (it re-runs; it does not replay
+   the stored answer). A `consensus` record replays its mode (the loop, or a synthesize pass):
+
+   ```
+   session-revisit { "sessionId": "019c5af2-1a2b-7c3d-8e4f-aa12" }
+   -> { results: [...], sessionId: "019c6b00-3d4e-7f50-9a61-bb34" }   // parentId = 019c5af2-...
+   ```
+
+4. **Annotate** either record with the real-world outcome - appended to the audit trail
+   with a timestamp, never overwriting prior notes:
+
+   ```
+   session-annotate { "sessionId": "019c5af2-1a2b-7c3d-8e4f-aa12",
+                       "note": "Shipped in-process LRU; revisit after Redis lands." }
+   -> { session: { ..., annotations: [ { note: "Shipped in-process LRU; ...", at: "2026-06-17T..." } ] } }
+   ```
+
+   ```
+   019c5af2 (ask-all)  --parentId-->  019c6b00 (revisit)
+      |
+      +-- annotations: [ "Shipped in-process LRU; ..." @ 2026-06-17 ]
+   ```
+
+### Finding a past session
+
+There is no enumeration tool, so a `sessionId` comes from one of three places:
+
+1. The `sessionId` in the original `/ask-all` or `/consensus` result.
+2. The store on disk: `ls ~/.cache/deliberation/sessions/` - one `<sessionId>.json` per run.
+   The exact dir is what `/deliberation:doctor` prints, and `DELIBERATION_SESSIONS` overrides it.
+3. `/deliberation:analyze` - reviews recent runs in aggregate (verdict agreement, Lens B).
+
+## Dashboard
+
+A local, read-only web page that draws each deliberation run as a state graph while it
+runs and after it ends: which state is running, what each provider was sent and returned,
+status, timing, and tokens. It also shows the effective config, provider health, models,
+and usage stats. Default OFF. Nothing in the dashboard changes deliberation state, and
+only the unified `deliberation` server is instrumented (the standalone `/ask-*` bridge
+servers write nothing).
+
+Each MCP host session runs its own stdio server process, so the processes write a shared
+on-disk journal and the dashboard is a separate process that reads it. It can start after
+a run began and still show all of it, a crashed MCP process leaves its events on disk,
+and the journal is the history.
+
+| Unit | Does |
+|------|------|
+| `core/journal.js` | Builds and appends journal events; per-kind key whitelist; secret scrub and text cap on content fields; retention; a no-op while `dashboard.enabled` is off |
+| `core/redact.js` | `redact(value)`: masks PII in every string of a JSON value (see Redaction) |
+| `server/dashboard/index.js` | CLI entry (`deliberation-mcp dashboard`), pidfile, browser opener, health and stats wiring |
+| `server/dashboard/server.js` | HTTP routes, Host/Origin and token checks, security headers, SSE |
+| `server/dashboard/runs.js` | Run index over the journal plus legacy session records; run status, abandoned detection |
+| `server/dashboard/tail.js` | Byte-offset tailer for SSE (`fs.watch` plus a 5 s stat sweep) |
+| `server/dashboard/ui/` | Static page: ES modules, CSS, inline SVG. No build step, no dependency, works offline |
+| `server/dashboard/ui/telemetry.js` | Pure debate convergence trajectory and provider latency breakdown analytics |
+| `server/dashboard/analyzer.js` | Pure Analyzer report over journal runs: models that agree more than they add, per-project health, request size vs latency and timeouts (see Analyzer) |
+| `server/dashboard/stop.js` | `dashboard --stop`: signals the pidfile's pid only when it is provably the dashboard |
+| `core/project.js` | `resolveProject(dir)`: the calling project (grouped by git remote `org/repo`, then the checkout as a workspace) for `run_start`; `normalizeProject` upgrades runs recorded before workspaces |
+
+### Configuration
+
+```json
+"dashboard": { "enabled": false, "capture": "metadata", "showPII": false, "port": 7717, "maxRuns": 200, "maxAgeDays": 30 }
+```
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `enabled` | boolean | `false` | Master switch. Off: no journal is written and `deliberation-mcp dashboard` exits 1 naming this key. Read per event, so a config hot-reload applies to the next run. |
+| `capture` | `"metadata"` \| `"content"` | `"metadata"` | `metadata`: states, timings, tokens, verdicts, error kinds. `content`: also prompts, requests, responses, arbiter text, and final reports. |
+| `showPII` | boolean | `false` | Off: every API body and SSE payload is redacted before it leaves the dashboard process. On: served as stored. Applies to existing journal files; nothing on disk is rewritten. |
+| `port` | integer | `7717` | Port on `127.0.0.1`. `--port N` overrides it (`--port 0` picks a free port). |
+| `maxRuns` | integer | `200` | Keep at most this many newest run files. `-1` = unlimited. |
+| `maxAgeDays` | integer | `30` | Delete run files older than this. `-1` = unlimited. |
+
+Invalid values soft-degrade to the default with a warning, like `sessions`. Retention runs
+when a run ends, when the MCP server starts, and when the dashboard starts.
+
+### Journal
+
+One file per run: `<XDG cache>/deliberation/runs/<runId>.jsonl` (override with
+`DELIBERATION_RUNS`), mode `0600` in a `0700` directory. Every line is one event:
+`{ v: 1, kind, runId, at, seq, ...fields }` (`at` epoch ms, `seq` a per-run counter).
+Writes are synchronous whole-line appends by the one process that owns the run, and a
+failed write is swallowed: journaling never fails a delegation (the same contract as the
+debug log, whose `ALLOWED_KEYS` whitelist is unchanged and still excludes all content).
+
+| Kind | Metadata fields | Content fields (`capture: "content"` only) |
+|------|-----------------|---------------------------------------------|
+| `run_start` | `tool`, `pid`, `procStartedAt`, `expert`, `workflow` (`single` \| `fanout` \| `consensus-step` \| `consensus`), `providers[]`, `project` (`{id, name, root, ws}`) | `prompt` |
+| `state` | `state`, `round`, `status`, `verdicts[]` (`{provider, verdict, categories[]}`, on adjudicate) | none |
+| `call_start` | `callId`, `provider`, `model`, `role` (`peer` \| `arbiter` \| `blind` \| `single`), `round`, `timeoutMs`, `reasoningEffort`, `promptChars`, `fileCount`, `orientationFiles`, `fileBytes`, `grantedMs`, `hostCapMs`, `ceilingSource` (`own` \| `shared` \| `outer` \| `host`), `sharedBy[]`, `sharedLimitMs` | `request` |
+| `call_end` | `callId`, `provider`, `model`, `ms`, `usage`, `isError`, `errorKind`, `errorCode`, `verdict`, `criticalIssues[].category` | `response`, `criticalIssues[].description` |
+| `arbiter` | `action` (`record_blind` \| `submit_adjudication` \| `submit_revision`), `round`, `verdict`, `decisions[]` (`{source, category, action}`, consensus-step adjudication only) | `text`, `decisions[].description`, `decisions[].reason` |
+| `run_end` | `status` (`converged` \| `unresolved` \| `done` \| `error`), `stopReason`, `rounds`, `droppedProviders[]` | `finalReport` |
+
+Keys outside this whitelist are dropped at write. Content fields pass `scrubSecrets` and
+then `capText` (100 KB) before the write, the same privacy contract as `sessions`. The
+analyzer fields are also shape-checked at write: `project` keeps only its three strings
+plus `ws` when it is 12 hex chars,
+the size and ceiling fields only finite numbers or null, `ceilingSource` only its four
+values.
+
+**`project`** is `core/project.js` `resolveProject` of the tool call's `cwd` argument, or
+the server's own cwd when the call passes none. It walks up to the nearest `.git` (the
+checkout) and groups runs in two levels:
+
+- **Repo group** (`id`, `name`). The main git dir's `config` is read for the `origin`
+  remote, else the first remote. `name` is the remote path (`org/repo`, the full path for
+  nested GitLab groups) and `id` is 12 hex chars of a SHA-256 of `host/path`, so every clone,
+  worktree, or `/tmp` checkout of one remote shares a group. scp (`git@host:org/repo`),
+  `ssh://` and `https://` URLs are parsed; credentials and `.git` are dropped, and the raw URL
+  and host are never stored. Without a usable remote (none, or a local path or `file://`)
+  the group is the main git dir as before: `id` hashes its real path and `name` is the main
+  repo's folder. A linked worktree reads its main repo's config; a submodule is its own
+  repo; no git at all falls back to the directory.
+- **Workspace** (`root`, `ws`). `root` is the checkout path; `ws` is 12 hex chars of a
+  SHA-256 of its real path. A call from a subdir counts as its checkout.
+
+Stat and read only, no `git` spawn, never throws. `root` is an absolute path on disk;
+serving masks the home dir (Redaction) unless `showPII` is on, and the URL only ever carries
+the ids. Runs recorded before `ws` existed are normalized when the dashboard reads them
+(`normalizeProject`): if the recorded `root` still exists it is resolved again and joins
+its remote group; otherwise the run keeps its old group and gets a `ws` from the root path.
+Nothing in the journal is rewritten.
+
+**Request size** (`promptChars`, `fileCount`, `orientationFiles`, `fileBytes`) is measured
+on the request as `callProvider` sends it: after orientation files are attached and after
+consensus builds its peer or arbiter prompt, because that is what the provider has to read.
+Persona text and the grounding note added inside each bridge are not counted (a constant
+per provider). `fileBytes` is the sum of `stat` sizes of `{path}` attachments, and null,
+never a partial sum, when any attachment is a `{dir}`, an upload id, a URL, fails to stat,
+or there are more than 50.
+
+**Effective ceiling** (`grantedMs`, `ceilingSource`) is what one attempt was actually
+given: `min(timeoutMs, deadlineAt - now, host budget left)`. `ceilingSource` names where
+the winning limit came from, by origin rather than by which number happens to be smallest:
+`own` (the provider's configured timeout, including the deadline `callProvider` builds from
+it), `shared` (the fan-out deadline, which follows the slowest SELECTED peer; `sharedBy`
+names that peer, even one that was never dispatched, and `sharedLimitMs` its limit),
+`outer` (a caller budget such as `consensus.maxWallMs`), or `host` (`MCP_TOOL_TIMEOUT`,
+whose value is `hostCapMs`). Ties go to the host, then to the deadline.
+
+Where events come from:
+
+- `core/orchestrate.js` `callProvider`, which every provider call passes through, emits
+  `call_start` and `call_end` (errors included; a retry is a new `callId`).
+- `server/mcp/index.js` emits `run_start` / `run_end` for `ask-all`, `ask-one`, the
+  `ask-*` tools, the eight expert tools, and `consensus`; the server-side loop also emits
+  `state` per transition.
+- `consensus-step`: `init` opens the run with the loop `sessionId` as its `runId`; each
+  action emits `state`, the three host actions also emit `arbiter`, and a terminal
+  transition emits `run_end`.
+- `/ask-all` is `panel` plus N parallel `ask-one` calls. `panel` opens a `fanout` run and
+  returns its `runId` (only when the journal is on); `ask-one` and the `ask-*` tools accept
+  an optional `runId` and join that run. Only ids that `panel` opened in the same server
+  process are joined; any other id is ignored and the call becomes its own `single` run.
+  `panel` stays side-effect-free toward providers: the journal line is a local write.
+
+### Run status and abandoned runs
+
+Status is derived when the index is read (`deriveStatus(events, now, isAlive)` in
+`server/dashboard/runs.js`), never cached: a run whose writer died never changes its file,
+so a cached status could not age. The index caches only the events and the fields that do
+not depend on time. The first rule that matches wins:
+
+| # | Run | Status |
+|---|-----|--------|
+| 1 | Has a `run_end` | Its `status` and `stopReason`. |
+| 2 | `fanout`, every provider `run_start` lists has a latest call with a `call_end` | `done`. Calls pair by `callId`, so a retry still in flight after an errored first attempt keeps the run open. |
+| 3 | `fanout`, at least one `call_start`, none still open, nothing written for 60 s | `done`, with the listed providers that were never called in `undispatched` (drawn as skipped branches, not failures). |
+| 4 | `fanout`, no `call_start` 20 minutes after it started | `abandoned`, `stopReason: "never-dispatched"`. |
+| 5 | `consensus-step`, last event older than the loop store TTL (30 minutes) | `abandoned`, `stopReason: "expired"`: the host stopped driving it and its loop state is gone. |
+| 6 | Anything else | `running` while the MCP process that wrote it is alive, else `abandoned`. |
+
+Rule 6 reads `pid` and `procStartedAt` from `run_start`: the run is abandoned when that pid
+is gone, or is alive with a different start time (pid reuse). The pid-reuse check reads
+`/proc/<pid>/stat`, so it runs on Linux only; elsewhere a reused pid still reads as alive.
+A late `ask-one` that joins a fan-out after rule 3 fired moves it back to `running`, and
+the UI follows the server's status for fan-outs rather than deciding on its own. An
+abandoned run keeps the last state it reached. `errors` counts a call's final attempt: an
+errored attempt followed by a retry for the same provider, role and round is not an
+error. Legacy session-store records are listed too, flagged `legacy` (summary only, no
+step graph).
+
+### Routes and SSE
+
+GET and HEAD only; any other method gets 405.
+
+| Route | Returns |
+|-------|---------|
+| `/` | The page. |
+| `/assets/*` | Static UI files, resolved inside the UI directory; a path that escapes it is rejected. |
+| `/api/runs` | Run index; filters `?q=`, `?tool=`, `?provider=`, `?status=`, `?since=`, `?project=<id>` (a repo group with all its workspaces; `unknown` = runs with no project), `?ws=<id>` (one workspace; wins over `?project=`). While `showPII` is off, `?q=` matches the redacted prompt, so a search cannot confirm a masked value. |
+| `/api/runs/:id` | All events of one run (or the legacy record); `id` must match `^[A-Za-z0-9-]+$`. |
+| `/api/config` | Effective config. For every API key env var, only its name and whether it is set; credentials in URLs are stripped. |
+| `/api/health` | Provider health from the checks `panel` uses (`unavailable`, `needsLogin`), models, reasoning effort, `askAll` / `consensus` eligibility. |
+| `/api/stats` | The `analyze` report plus runs, tokens, and errors per day. Reads the debug log, so it cannot be filtered by project. |
+| `/api/analyzer` | The Analyzer report (see Analyzer). `?days=` 1-365 (default 30), `?project=<id>`, `?ws=<id>` (12 hex; 400 otherwise); at most 2000 runs per report. |
+| `/api/events` | Server-Sent Events stream of new journal events. |
+
+The tailer keeps a byte offset per run file and reads only appended bytes; a partial last
+line waits until it is complete. Each SSE message `id` is `<runId>:<offset>`. On reconnect
+the browser sends it back as `Last-Event-ID` and that run resumes from the offset; a
+malformed id is ignored. A comment line every 15 s keeps the connection open, and a client
+more than 1 MB behind is dropped, then reconnects and resumes the same way.
+
+### Analyzer
+
+The Analyzer tab (`server/dashboard/analyzer.js`, `/api/analyzer`) reads journal metadata
+only. Its thresholds are exported as `C` and quoted in the page.
+
+**Models: agreement vs findings.** Consensus rounds only: plain `ask-all` answers are never
+parsed into verdicts, and per-voice verdicts with issue categories exist only on
+`state: "adjudicate"` events. A voice counts in a round when its verdict is non-null; a
+round counts when it has two or more such voices and is not a unanimous APPROVE with no
+issues. Per model:
+
+- `addsNothing` - its issue categories are all among the other voices' categories that round.
+- `loneDissent` - it objected (REQUEST_CHANGES or REJECT) with a verdict no other voice
+  gave. A lone APPROVE while the others object is a missed finding, not a contribution, so
+  it does not count.
+- `acceptedRate` - of its rounds that carry arbiter decisions, how many had at least one of
+  its issues accepted (joined on the voice id: `codex`, `gemini`, `grok`, `openrouter:<alias>`;
+  a decision naming no voice is ignored). Only `consensus-step` records decisions; rounds of
+  the server-side `consensus` loop have none and never count as "zero accepted".
+- `slowShare` - rounds where its time was at least 1.2x the median of the other responders.
+- `errorRate` - errored peer calls.
+
+Speed and errors use only calls whose ceiling this config controls (`own`, `shared`) and
+are not cached: a host cap or a run budget makes every voice look slow. A model is a
+**drop candidate** when it has at least 10 rounds, adds nothing in 80% or more, dissents
+alone in 10% or fewer, had an issue accepted in 5% or fewer of at least 10 decision rounds,
+and is slow in 60% of rounds or errors in 20% of 10+ calls. Without enough decision rounds
+it is shown as `unconfirmed`, never as a candidate. The six categories are coarse, so this
+is advice; the page names the config key (`models.<alias>.consensus: false` or
+`providers.<name>.enabled: false`) and never writes it.
+
+**Projects.** Per repo group (`project.id`): runs, run statuses, calls, timeouts, errors,
+p50/p95 of successful non-cached calls, top three error kinds, and the same numbers per
+workspace in `workspaces[]` (`ws`, `root`). Runs without a project group under `(unknown)`.
+The page shows a group as `org/repo (path)` when it has one workspace; with more, a toggle
+expands the workspace rows. Clicking a name sets the project filter, which the Runs and
+Analyzer tabs share: a whole group or one workspace.
+
+**Request size vs latency.** Per provider and model, split text-only (size = `promptChars`)
+from file-bearing (size = `promptChars + fileBytes`; null `fileBytes` is skipped and
+counted). Buckets `<8k`, `8-32k`, `>32k` chars, each with calls, timeouts, near-ceiling
+rate (successes above 90% of `grantedMs`), p50/p95, and the median ceiling. A least-squares
+fit of ms on size over successes gives ms per 1k chars and r. Timed-out calls are censored
+(their real latency is unknown), so a fit or a p95 over successes understates large
+requests; the advice accounts for that. Per bucket, using only `own`/`shared` calls:
+
+1. Fewer than 20 calls: no number. If more than 5% timed out, an early warning that the
+   provider's timeout is likely too low.
+2. More than 5% timeouts or more than 10% near the ceiling: `censored`. Suggested ceiling
+   = 1.5 x max(the largest `grantedMs` among those calls, the current configured value), so
+   it always exceeds what they got. It names the provider's timeout key, or for `shared` the
+   key of the peer in `sharedBy`. If the host cap (`hostCapMs - 5000`) leaves no room above
+   that, it says to raise `MCP_TOOL_TIMEOUT` instead.
+3. Otherwise, r >= 0.5: a ceiling of 1.25 x p95, capped by the host cap.
+4. Otherwise: no size effect shown.
+
+`host` timeouts are listed separately ("raise MCP_TOOL_TIMEOUT"), `outer` timeouts are
+reported but never advised on, and calls recorded before these fields existed are skipped
+and counted.
+
+### Redaction
+
+Secrets (API-key shapes) are scrubbed at write time at every capture level, so they never
+reach the journal. PII is redacted at serve time by `core/redact.js` while `showPII` is
+off: email addresses, the home directory and the OS user's home paths (`/home/<user>`,
+`/Users/<user>`, `C:\Users\<user>`; the user name elsewhere is left alone), IPv4 and IPv6
+addresses, and 12-digit account ids. Values under `runId`, `callId`, `sessionId`,
+`loopSessionId` and `id` are never redacted, because a UUID can end in 12 digits. The SSE
+`id:` line is not redacted either. Redaction is pattern-based and best-effort; it
+reduces what a browser receives, and the journal on disk keeps the unredacted text for
+`capture: "content"`.
+
+### Capture gates what is served
+
+`dashboard.capture` is read on every request. Unless it is `"content"`, the server strips
+content fields (the `content` keys of `JOURNAL_KEYS`, plus the legacy session record's
+`question`, `synthesis`, opinion `text`, critical-issue descriptions and annotation notes)
+before redaction from `/api/runs/:id` and the SSE stream, and `?q=` matches only runId,
+tool and provider. Journal files written earlier under `content` keep their text on disk.
+
+### Threat model
+
+The dashboard serves prompt and response text over HTTP on the local machine. The
+defenses, in request order:
+
+- **Loopback bind.** The server listens on `127.0.0.1` only; nothing off the machine can
+  connect.
+- **Host and Origin checks (DNS rebinding).** A request whose `Host` is not
+  `127.0.0.1:<port>` or `localhost:<port>` gets 403, and so does one carrying an `Origin`
+  that is not one of those two. A web page on another domain that rebinds its name to
+  `127.0.0.1` still sends its own `Host`, so it is refused.
+- **Per-start token, swapped for a cookie.** Each start generates a 32-byte random token.
+  The printed URL carries it as `?t=<token>`; the first request with a valid token gets a
+  `dlb_dash` cookie (`HttpOnly; SameSite=Strict; Path=/`) and a small page that refreshes
+  to `/`. It is not a 302: the browser arrives from the `file://` opener page, a redirect
+  keeps that navigation cross-site, and Chrome would withhold the Strict cookie from the
+  redirected `GET /` (a 401 on the first open). The refresh starts from the dashboard's
+  own origin, so the cookie is sent. Requests with
+  neither a valid token nor the cookie get 401. Comparison is constant-time.
+- **The token is in the printed URL.** Anyone who sees that line (terminal scrollback, a
+  shared screen, a pasted log) can open the dashboard until it restarts. It is also stored
+  in the `0600` pidfile `<XDG cache>/deliberation/dashboard.json`, which is how a second
+  launch reprints the live URL. Restarting the dashboard issues a new token.
+- **The cookie reaches every local port.** Browsers scope cookies by host, not port, so
+  `dlb_dash` is also sent to any other service on `127.0.0.1`. A web page cannot use that
+  to read dashboard data: a cross-port fetch carries its own `Origin` and is refused, and
+  `X-Content-Type-Options: nosniff` stops a page from loading the JSON as a script. The
+  local service itself can, though: it receives the cookie value, so it can replay the
+  token server-side (for example `curl -H "Host: 127.0.0.1:<port>"` with the cookie, or
+  with `?t=<token>`) and read everything the dashboard serves. This is accepted because
+  any process listening on the machine is already inside the same-machine trust boundary;
+  the design scope is a single-user laptop. The cookie is only issued after you open the
+  tokenized URL, and restarting the dashboard rotates the token, which invalidates it.
+  On a shared multi-user machine, do not enable the dashboard, and do not use
+  `capture: "content"`.
+- **Token off argv.** The browser is opened through a `0600` redirect file next to the
+  pidfile (`dashboard-open.html`); the opener gets that file's path, so the token never
+  appears in a process list.
+- **Headers.** `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+  `Cache-Control: no-store` on `/api/*`. The UI renders run content with `textContent`
+  only, never as HTML, and keeps only preferences and a metadata-only run index in
+  `localStorage`.
+- **Secrets scrubbed at write, PII redacted at serve** (see Redaction).
+
+Out of scope: another account on the same machine with read access to your cache
+directory (the journal and pidfile are `0600` in a `0700` directory), and anything that
+already runs as your user. Remote sessions (Claude Code on the web) cannot use the
+dashboard: `localhost` there is the remote container.
+
+### Running it
+
+```bash
+deliberation-mcp dashboard [--port N] [--no-open]   # npm package
+node server/mcp/index.js dashboard [--port N] [--no-open]   # from a checkout
+deliberation-mcp dashboard --stop                    # stop it
+bash scripts/commands/dashboard-restart.sh [--port N] [--no-open]   # stop, start, print the new URL
+npm run dashboard:restart                            # the same, from a checkout
+```
+
+It prints exactly one line, `Deliberation dashboard: http://127.0.0.1:<port>/?t=<token>`,
+opens the browser unless `--no-open`, and keeps running. It exits 1 with
+`dashboard is disabled: set dashboard.enabled to true in <config path>` when the switch is
+off, and with `port <n> is in use; pass --port` on a port conflict. A second launch while
+one is live reprints the live URL and exits 0. In Claude Code, `/deliberation:dashboard`
+starts it detached and prints the URL, and `/deliberation:dashboard restart` restarts it.
+The npm bundle ships the UI as `dist/dashboard-ui/` (copied by `prepack`); a checkout
+serves `server/dashboard/ui/`.
+
+`--stop` signals the pid in the pidfile only when that pid is provably this dashboard: it
+is alive, its command line runs a dashboard entrypoint (`server/mcp/index.js`,
+`deliberation-mcp/dist/index.js`, `bin/deliberation-mcp`, or the recorded `argv[1]`) at the
+script position with `dashboard` right after it, and it started within 2 s of the
+`procStartedAt` the dashboard wrote into the pidfile (Linux `/proc/<pid>/stat` with
+`btime`; macOS `ps -o lstart`). The token probe proves a listener, not a pid, so it never
+authorizes a signal. Outcomes: no pidfile or a dead pid, exit 0 (a stale pidfile is
+removed); alive but not provably the dashboard (including a pidfile written before this
+version), exit 2, pidfile kept, nothing signalled; proven, SIGTERM, then after 5 s SIGKILL
+only if the same checks still hold. Windows is not supported (exit 1). The restart script
+exits 3 when `--stop` left a process alone, and starts nothing in that case. `/deliberation:reload-mcp`
+stops the dashboard the same way.
+
+## Customizing expert prompts
+
+Expert prompts live in `prompts/`. Each follows the same structure: role definition
+and context, advisory vs implementation modes, response-format guidance, and when
+to invoke or not invoke. Edit these to change expert behavior for your workflow.
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| MCP server not found | Restart Claude Code after setup |
+| Provider not authenticated | Codex: `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote or headless machine), `CODEX_ACCESS_TOKEN` (ChatGPT Business/Enterprise), or export `CODEX_API_KEY` when there is neither; `OPENAI_API_KEY` is never used. Gemini: run `agy` once (or set `GOOGLE_API_KEY`). Grok: export `XAI_API_KEY` (else calls return `errorKind: missing-auth`) |
+| `tool "ask-grok" timed out after 60s` from the host, or a `timeout` result naming `MCP_TOOL_TIMEOUT=60000` (Claude Code on the web) | The host exports `MCP_TOOL_TIMEOUT=60000`. The current manifest overrides it per server (`"timeout": 1800000` + env mirror), so either message means the plugin install predates that manifest: `claude plugin update deliberation@antonbabenko`, start a new session. Hand-written `.mcp.json`: add `"timeout": 1800000` and `"env": {"MCP_TOOL_TIMEOUT": "1800000"}` to the entry. `/deliberation:doctor` reports it. See [Timeouts](#timeouts) |
+| GPT returns `errorKind: "auth"` with `refresh token was already used` / `has expired` / `was revoked` | The `auth.json` in use was copied from another machine, and one of the copies refreshed first (a ChatGPT refresh token works once), or the login expired. Give each machine its own login: the next GPT call starts `codex login --device-auth` and shows its link and code (see "Login on first use"), or set `CODEX_ACCESS_TOKEN` (Business/Enterprise). A seeded secret must come from a login used for nothing else and must be re-seeded after its first refresh. See "One login per machine" under [Environment variables](#environment-variables) |
+| `deliberation-gemini` shows `CONNECTION_CLOSED` (Claude Code on the web) | No `agy` in the container: the standalone Gemini bridge refuses to start rather than advertise tools it cannot serve. The unified server keeps working and lists gemini under `panel.unavailable`; `/consensus` and `/ask-all` run on the remaining providers |
+| `panel` lists a provider under `unavailable` | Its stat-only health check failed; the `reason` names the missing piece (CLI on PATH, credential). Fix that and call again - nothing is cached |
+| Tool not appearing | Run `claude mcp list` and verify registration |
+| Expert not triggered | Ask explicitly: "Ask GPT to review...", "Ask Gemini to review...", or "Ask Grok to review..." |
+| An advisory Gemini run returned `workspaceMutated: true` | The delegate wrote to the consulted repo despite read-only mode (the OS sandbox is macOS-only; Linux relies on detection). Nothing was auto-reverted - review `git status` / `git log` and discard unwanted changes. Treat that result as tainted. |
+| Advisory Gemini run errors with a `sandbox-exec` failure on macOS | The Seatbelt wrapper could not start. Set `DELIBERATION_DISABLE_OS_SANDBOX=1` to fall back to prompt-guard + detection while investigating. |
+
+`agy` print mode does not enforce folder trust, so there is no trust prompt to clear. Soft-timeout recovery (stdout-drain) is documented in [Gemini timeout recovery](#gemini-timeout-recovery).
+
+## Known limitations
+
+- Advisory (read-only) Gemini enforcement is strongest on macOS, where the `agy`
+  process is wrapped in a `sandbox-exec` Seatbelt profile that denies workspace
+  writes. On Linux there is no OS sandbox in v1 - read-only relies on the prompt
+  guard + post-run git mutation detection (which sets `workspaceMutated: true`),
+  and the network is never isolated on any platform. Route deliberate
+  implementation work to the direct `gemini` tool with
+  `workspace-write`.
+- `agy` resolves a conversation id per cwd (in
+  `~/.gemini/antigravity-cli/cache/last_conversations.json`). Heavy parallel calls
+  from the same cwd (for example `/ask-all`, `/consensus`) share that single
+  per-cwd slot, so a `gemini-reply` could attach to a sibling run's conversation.
+  This mirrors `agy`'s own per-cwd model.
+
+## Config provenance and comparison
+
+`core/config-history.js` hashes a versioned allowlisted effective snapshot.
+Built-in construction settings remain active until restart; hot routing and
+OpenRouter aliases take effect on the next run. Runs pin their snapshot,
+configId, activationId and runtimeId. A -> B -> A reuses its configId and creates
+another activation. Debug events, sessions and journals share a runId. Cache hits
+retain original provenance and add no fresh timing, votes or measured token
+spending. Grounded requests bypass the result cache.
+
+The catalog is opt-in alongside telemetry. Atomic 0600 records in private 0700
+directories are bounded to 500 history/200 runtime manifests and 64KiB per record.
+Runtime manifests require journaling, heartbeat every 30s, and become stale/unknown
+after 90s. Ingestion validates ownership, size, hashes, allowlists and symlinks.
+Catalog failure cannot prevent delegation; runs carry their own snapshots.
+Observed runtimes are not a complete live inventory.
+
+`analyze` accepts `groupBy: "config"`, full SHA-256 `configId` (or `unknown`),
+`activationId`, and existing `since` windows. A closed start-time cohort includes
+attempts and terminal outcomes beyond the window boundary. Uncorrelated legacy
+calls use event time. Whole-run latency/outcomes require journals; live/reused
+runs are separate, and missing token usage remains unknown. Historical groups
+retain recorded membership regardless of configuredOnly. Timing and agreement
+stay separate; advisory recommendations use config/workload/settings cohorts.
+Stats and its daily chart share filters and deduplicate journals/sessions by
+runId. Bounded reads disclose truncation.
+
+`routing.timeoutPolicy` selects longest-peer (default) or per-provider. Fan-outs
+resolve limits before dispatch, with one absolute deadline capped by host and
+consensus budgets; retries/backoff consume it. Short caps are intentionally
+waived under longest-peer. Progressive panel/ask-one uses a UUID fanoutId,
+independently of optional journal runId. Groups pin membership/settings, start
+their clock at first dispatch, reject duplicates/nonmembers/replays, expire
+missing members, and abort attempts on expiry/shutdown. Member host caps and
+cancellation affect only that member. Idle contexts expire after 10 minutes,
+with at most 1000 groups. Single calls and sequential arbiter phases keep their
+own limits while respecting overall consensus budgets.

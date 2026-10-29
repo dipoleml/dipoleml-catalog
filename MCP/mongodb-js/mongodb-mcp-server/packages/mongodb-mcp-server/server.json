@@ -1,0 +1,1421 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mongodb-js/mongodb-mcp-server",
+  "description": "MongoDB Model Context Protocol Server",
+  "repository": {
+    "url": "https://github.com/mongodb-js/mongodb-mcp-server",
+    "source": "github"
+  },
+  "version": "3.2.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mongodb-mcp-server",
+      "version": "3.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MDB_MCP_AGGREGATION_COUNT_MAX_TIME_MS_CAP",
+          "description": "Deprecated. Use `aggregationCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_AGGREGATION_COUNT_TIMEOUT_MS",
+          "description": "The maximum time in milliseconds for the count phase of aggregation operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_ALLOW_REQUEST_OVERRIDES",
+          "description": "When set to true, allows configuration values to be overridden via request headers and query parameters.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_API_CLIENT_ID",
+          "description": "Atlas API client ID for authentication. Required for running Atlas tools.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MDB_MCP_API_CLIENT_SECRET",
+          "description": "Atlas API client secret for authentication. Required for running Atlas tools.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MDB_MCP_ASSISTANT_BASE_URL",
+          "description": "Base URL for the MongoDB Assistant API.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_ATLAS_TEMPORARY_DATABASE_USER_LIFETIME_MS",
+          "description": "Time in milliseconds that temporary database users created when connecting to MongoDB Atlas clusters will remain active before being automatically deleted.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONFIRMATION_REQUIRED_TOOLS",
+          "description": "Comma separated values of tool names that require user confirmation before execution. Requires the client to support elicitation.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONNECTION_IDLE_TIMEOUT_MS",
+          "description": "Milliseconds a MongoDB connection may stay unused (no tool call touching it) before it is closed to release the underlying connection pool and its server-side state. Applied per connection regardless of its connection scope; the preconfigured connection is excluded, and the reaper runs on this cadence. Set to 0 to disable reaping; must not be negative.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONNECTION_SCOPE",
+          "description": "Visibility scope for MongoDB connections created at runtime. With 'session' (the default), each MCP session only sees the connections it created (plus the shared 'preconfigured' one) and they are closed when the session ends. With 'global', connections are shared across all sessions and survive session rotation. Deprecated: the MCP protocol is moving to sessionless, so this option will soon be removed and the connection scope will default to 'global'. For shared-server use cases, use the Atlas-Managed MCP server or build an authenticated library using the @mongodb-js/mcp-cli package. Note: on the sessionless (2026-07-28) HTTP path, a request without an mcp-session-id falls back to the shared ('global') scope so it can still persist connections across requests; the legacy sessionful path always carries a server-issued session.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONNECTION_STRING",
+          "description": "MongoDB connection string for direct database connections. Optional, if not set, you'll need to call the connect tool before interacting with MongoDB data.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MDB_MCP_DANGEROUS_HOST_BINDING",
+          "description": "When set to true, allows binding the HTTP server (and monitoring server) to a non-loopback host such as 0.0.0.0, a LAN IP, or an empty host (all interfaces). Binding to a non-loopback host exposes the server to the entire network and can allow unauthorized access. Off by default: the server refuses to start on a non-loopback host unless this is true.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DISABLE_SERVER_SIDE_JS",
+          "description": "When set to true, disallows the use of server-side JavaScript operators (such as $where, $function, and $accumulator) in query filters and aggregation pipelines.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DISABLE_UNTRUSTED_DATA_WARNING",
+          "description": "When set to true, tool responses include potentially untrusted data (such as documents or query results) as-is, without wrapping it in delimiters and a prompt-injection warning.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DISABLED_TOOLS",
+          "description": "Comma separated values of tool names, operation types, and/or categories of tools that will be disabled.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DRY_RUN",
+          "description": "When true, runs the server in dry mode: dumps configuration and enabled tools, then exits without starting the server.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_ELICITATION_TIMEOUT_MS",
+          "description": "Time in milliseconds the user has to respond to an elicitation request (such as a tool confirmation prompt) before it fails.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EVICTION_IDLE_GRACE_M_S",
+          "description": "How long a session must be idle before it becomes eligible for least-recently-used eviction when the HTTP transport is at its maxSessions cap (only used when transport is 'http'). Swept back to idleTimeoutMs when larger.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXPORT_CLEANUP_INTERVAL_MS",
+          "description": "Time in milliseconds between export cleanup cycles that remove expired export files.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXPORT_TIMEOUT_MS",
+          "description": "Time in milliseconds after which an export is considered expired and eligible for cleanup.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXPORTS_PATH",
+          "description": "Folder to store exported data files.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXTERNALLY_MANAGED_SESSIONS",
+          "description": "When true, the 2025-era HTTP transport accepts a session ID supplied externally through the 'mcp-session-id' header. When an external ID is supplied, the initialization request is optional, and an implicitly re-initialized session restores the client's previously negotiated capabilities from the session store.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HEALTH_CHECK_HOST",
+          "description": "Deprecated. Use `monitoringServerHost` instead. Host address to bind the healthCheck HTTP server to (only used when transport is 'http'). If provided, `healthCheckPort` must also be set.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HEALTH_CHECK_PORT",
+          "description": "Deprecated. Use `monitoringServerPort` instead. Port number for the healthCheck HTTP server (only used when transport is 'http'). If provided, `healthCheckHost` must also be set.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_BODY_LIMIT",
+          "description": "Maximum size of the HTTP request body in bytes (only used when transport is 'http'). This value is passed as the optional limit parameter to the Express.js json() middleware.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_HEADERS",
+          "description": "Header that the HTTP server will validate when making requests (only used when transport is 'http').",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_HOST",
+          "description": "Host address to bind the HTTP server to (only used when transport is 'http').",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_PORT",
+          "description": "Port number for the HTTP server (only used when transport is 'http'). Use 0 for a random port.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_RESPONSE_TYPE",
+          "description": "The HTTP response type for tool responses: 'sse' for Server-Sent Events, 'json' for standard JSON responses.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_IDLE_TIMEOUT_MS",
+          "description": "Idle timeout for a client to disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_INDEX_CHECK",
+          "description": "When set to true, enforces that query operations must use an index, rejecting queries that perform a collection scan.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_LOG_PATH",
+          "description": "Folder to store logs.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_LOGGERS",
+          "description": "Comma separated values of logger types.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_ACTIVE_CONNECTIONS",
+          "description": "Maximum number of MongoDB connections a single scope (an MCP session by default, see connectionScope) can hold open. When exceeded, the scope's least-recently-used connection is closed and its connectionId revoked. The preconfigured connection does not count towards the limit.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_BYTES_PER_QUERY",
+          "description": "The maximum size in bytes for results from a find or aggregate tool call. This serves as an upper bound for the responseBytesLimit parameter in those tools.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_DOCUMENTS_PER_QUERY",
+          "description": "The maximum number of documents that can be returned by a find or aggregate tool call. For the find tool, the effective limit will be the smaller of this value and the tool's limit parameter.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_SESSIONS",
+          "description": "Maximum number of concurrent sessions the HTTP transport will hold in memory (only used when transport is 'http'). Each session holds a full server instance, transport, and timers, so choose a value based on your deployment's available memory; the default is a conservative safety net rather than a recommended production value.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_TIME_M_S",
+          "description": "Deprecated. Use `timeoutMs` instead. The maximum time in milliseconds that operations are allowed to run on the MongoDB server.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MCP_CLIENT_LOG_LEVEL",
+          "description": "Minimum severity level for log messages forwarded to the MCP client.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MONITORING_SERVER_FEATURES",
+          "description": "Features to expose on the monitoring server (only used when transport is 'http' and monitoringServerHost/monitoringServerPort are set).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MONITORING_SERVER_HOST",
+          "description": "Host address to bind the monitoring HTTP server to (only used when transport is 'http'). If provided, `monitoringServerPort` must also be set.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MONITORING_SERVER_PORT",
+          "description": "Port number for the monitoring HTTP server (only used when transport is 'http'). If provided, `monitoringServerHost` must also be set.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_NOTIFICATION_TIMEOUT_MS",
+          "description": "Notification timeout for a client to be aware of disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_PREVIEW_FEATURES",
+          "description": "Comma separated values of preview features that are enabled.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_QUERY_COUNT_MAX_TIME_MS_CAP",
+          "description": "Deprecated. Use `queryCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_QUERY_COUNT_TIMEOUT_MS",
+          "description": "The maximum time in milliseconds for the count phase of find operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_READ_ONLY",
+          "description": "When set to true, only allows read, connect, and metadata operation types, disabling create/update/delete operations.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_TELEMETRY",
+          "description": "When set to disabled, disables telemetry collection.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_TIMEOUT_MS",
+          "description": "The maximum time in milliseconds that MongoDB operations are allowed to run, applied as the driver's timeoutMS (client-side operation timeout, CSOT) on each connection. It bounds the entire operation, including server selection and network round trips.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_TRANSPORT",
+          "description": "Either 'stdio' or 'http'.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_VOYAGE_API_KEY",
+          "description": "API key for Voyage AI embeddings service (required for creating Atlas Local deployments with auto-embed vector search capabilities).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--aggregationCountMaxTimeMsCap",
+          "description": "Deprecated. Use `aggregationCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--aggregationCountTimeoutMs",
+          "description": "The maximum time in milliseconds for the count phase of aggregation operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--allowRequestOverrides",
+          "description": "When set to true, allows configuration values to be overridden via request headers and query parameters.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--apiClientId",
+          "description": "Atlas API client ID for authentication. Required for running Atlas tools.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--apiClientSecret",
+          "description": "Atlas API client secret for authentication. Required for running Atlas tools.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--assistantBaseUrl",
+          "description": "Base URL for the MongoDB Assistant API.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--atlasTemporaryDatabaseUserLifetimeMs",
+          "description": "Time in milliseconds that temporary database users created when connecting to MongoDB Atlas clusters will remain active before being automatically deleted.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--confirmationRequiredTools",
+          "description": "Comma separated values of tool names that require user confirmation before execution. Requires the client to support elicitation.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--connectionIdleTimeoutMs",
+          "description": "Milliseconds a MongoDB connection may stay unused (no tool call touching it) before it is closed to release the underlying connection pool and its server-side state. Applied per connection regardless of its connection scope; the preconfigured connection is excluded, and the reaper runs on this cadence. Set to 0 to disable reaping; must not be negative.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--connectionScope",
+          "description": "Visibility scope for MongoDB connections created at runtime. With 'session' (the default), each MCP session only sees the connections it created (plus the shared 'preconfigured' one) and they are closed when the session ends. With 'global', connections are shared across all sessions and survive session rotation. Deprecated: the MCP protocol is moving to sessionless, so this option will soon be removed and the connection scope will default to 'global'. For shared-server use cases, use the Atlas-Managed MCP server or build an authenticated library using the @mongodb-js/mcp-cli package. Note: on the sessionless (2026-07-28) HTTP path, a request without an mcp-session-id falls back to the shared ('global') scope so it can still persist connections across requests; the legacy sessionful path always carries a server-issued session.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--connectionString",
+          "description": "MongoDB connection string for direct database connections. Optional, if not set, you'll need to call the connect tool before interacting with MongoDB data.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--dangerousHostBinding",
+          "description": "When set to true, allows binding the HTTP server (and monitoring server) to a non-loopback host such as 0.0.0.0, a LAN IP, or an empty host (all interfaces). Binding to a non-loopback host exposes the server to the entire network and can allow unauthorized access. Off by default: the server refuses to start on a non-loopback host unless this is true.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--disableServerSideJs",
+          "description": "When set to true, disallows the use of server-side JavaScript operators (such as $where, $function, and $accumulator) in query filters and aggregation pipelines.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--disableUntrustedDataWarning",
+          "description": "When set to true, tool responses include potentially untrusted data (such as documents or query results) as-is, without wrapping it in delimiters and a prompt-injection warning.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--disabledTools",
+          "description": "Comma separated values of tool names, operation types, and/or categories of tools that will be disabled.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--dryRun",
+          "description": "When true, runs the server in dry mode: dumps configuration and enabled tools, then exits without starting the server.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--elicitationTimeoutMs",
+          "description": "Time in milliseconds the user has to respond to an elicitation request (such as a tool confirmation prompt) before it fails.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--evictionIdleGraceMS",
+          "description": "How long a session must be idle before it becomes eligible for least-recently-used eviction when the HTTP transport is at its maxSessions cap (only used when transport is 'http'). Swept back to idleTimeoutMs when larger.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--exportCleanupIntervalMs",
+          "description": "Time in milliseconds between export cleanup cycles that remove expired export files.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--exportTimeoutMs",
+          "description": "Time in milliseconds after which an export is considered expired and eligible for cleanup.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--exportsPath",
+          "description": "Folder to store exported data files.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--externallyManagedSessions",
+          "description": "When true, the 2025-era HTTP transport accepts a session ID supplied externally through the 'mcp-session-id' header. When an external ID is supplied, the initialization request is optional, and an implicitly re-initialized session restores the client's previously negotiated capabilities from the session store.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--healthCheckHost",
+          "description": "Deprecated. Use `monitoringServerHost` instead. Host address to bind the healthCheck HTTP server to (only used when transport is 'http'). If provided, `healthCheckPort` must also be set.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--healthCheckPort",
+          "description": "Deprecated. Use `monitoringServerPort` instead. Port number for the healthCheck HTTP server (only used when transport is 'http'). If provided, `healthCheckHost` must also be set.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--httpBodyLimit",
+          "description": "Maximum size of the HTTP request body in bytes (only used when transport is 'http'). This value is passed as the optional limit parameter to the Express.js json() middleware.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--httpHeaders",
+          "description": "Header that the HTTP server will validate when making requests (only used when transport is 'http').",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--httpHost",
+          "description": "Host address to bind the HTTP server to (only used when transport is 'http').",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--httpPort",
+          "description": "Port number for the HTTP server (only used when transport is 'http'). Use 0 for a random port.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--httpResponseType",
+          "description": "The HTTP response type for tool responses: 'sse' for Server-Sent Events, 'json' for standard JSON responses.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--idleTimeoutMs",
+          "description": "Idle timeout for a client to disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--indexCheck",
+          "description": "When set to true, enforces that query operations must use an index, rejecting queries that perform a collection scan.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--logPath",
+          "description": "Folder to store logs.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--loggers",
+          "description": "Comma separated values of logger types.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--maxActiveConnections",
+          "description": "Maximum number of MongoDB connections a single scope (an MCP session by default, see connectionScope) can hold open. When exceeded, the scope's least-recently-used connection is closed and its connectionId revoked. The preconfigured connection does not count towards the limit.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxBytesPerQuery",
+          "description": "The maximum size in bytes for results from a find or aggregate tool call. This serves as an upper bound for the responseBytesLimit parameter in those tools.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxDocumentsPerQuery",
+          "description": "The maximum number of documents that can be returned by a find or aggregate tool call. For the find tool, the effective limit will be the smaller of this value and the tool's limit parameter.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxSessions",
+          "description": "Maximum number of concurrent sessions the HTTP transport will hold in memory (only used when transport is 'http'). Each session holds a full server instance, transport, and timers, so choose a value based on your deployment's available memory; the default is a conservative safety net rather than a recommended production value.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxTimeMS",
+          "description": "Deprecated. Use `timeoutMs` instead. The maximum time in milliseconds that operations are allowed to run on the MongoDB server.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--mcpClientLogLevel",
+          "description": "Minimum severity level for log messages forwarded to the MCP client.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--monitoringServerFeatures",
+          "description": "Features to expose on the monitoring server (only used when transport is 'http' and monitoringServerHost/monitoringServerPort are set).",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--monitoringServerHost",
+          "description": "Host address to bind the monitoring HTTP server to (only used when transport is 'http'). If provided, `monitoringServerPort` must also be set.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--monitoringServerPort",
+          "description": "Port number for the monitoring HTTP server (only used when transport is 'http'). If provided, `monitoringServerHost` must also be set.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--notificationTimeoutMs",
+          "description": "Notification timeout for a client to be aware of disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--previewFeatures",
+          "description": "Comma separated values of preview features that are enabled.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--queryCountMaxTimeMsCap",
+          "description": "Deprecated. Use `queryCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--queryCountTimeoutMs",
+          "description": "The maximum time in milliseconds for the count phase of find operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--readOnly",
+          "description": "When set to true, only allows read, connect, and metadata operation types, disabling create/update/delete operations.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--telemetry",
+          "description": "When set to disabled, disables telemetry collection.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--timeoutMs",
+          "description": "The maximum time in milliseconds that MongoDB operations are allowed to run, applied as the driver's timeoutMS (client-side operation timeout, CSOT) on each connection. It bounds the entire operation, including server selection and network round trips.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--transport",
+          "description": "Either 'stdio' or 'http'.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--voyageApiKey",
+          "description": "API key for Voyage AI embeddings service (required for creating Atlas Local deployments with auto-embed vector search capabilities).",
+          "isRequired": false
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/mongodb/mongodb-mcp-server:3.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MDB_MCP_AGGREGATION_COUNT_MAX_TIME_MS_CAP",
+          "description": "Deprecated. Use `aggregationCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_AGGREGATION_COUNT_TIMEOUT_MS",
+          "description": "The maximum time in milliseconds for the count phase of aggregation operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_ALLOW_REQUEST_OVERRIDES",
+          "description": "When set to true, allows configuration values to be overridden via request headers and query parameters.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_API_CLIENT_ID",
+          "description": "Atlas API client ID for authentication. Required for running Atlas tools.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MDB_MCP_API_CLIENT_SECRET",
+          "description": "Atlas API client secret for authentication. Required for running Atlas tools.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MDB_MCP_ASSISTANT_BASE_URL",
+          "description": "Base URL for the MongoDB Assistant API.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_ATLAS_TEMPORARY_DATABASE_USER_LIFETIME_MS",
+          "description": "Time in milliseconds that temporary database users created when connecting to MongoDB Atlas clusters will remain active before being automatically deleted.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONFIRMATION_REQUIRED_TOOLS",
+          "description": "Comma separated values of tool names that require user confirmation before execution. Requires the client to support elicitation.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONNECTION_IDLE_TIMEOUT_MS",
+          "description": "Milliseconds a MongoDB connection may stay unused (no tool call touching it) before it is closed to release the underlying connection pool and its server-side state. Applied per connection regardless of its connection scope; the preconfigured connection is excluded, and the reaper runs on this cadence. Set to 0 to disable reaping; must not be negative.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONNECTION_SCOPE",
+          "description": "Visibility scope for MongoDB connections created at runtime. With 'session' (the default), each MCP session only sees the connections it created (plus the shared 'preconfigured' one) and they are closed when the session ends. With 'global', connections are shared across all sessions and survive session rotation. Deprecated: the MCP protocol is moving to sessionless, so this option will soon be removed and the connection scope will default to 'global'. For shared-server use cases, use the Atlas-Managed MCP server or build an authenticated library using the @mongodb-js/mcp-cli package. Note: on the sessionless (2026-07-28) HTTP path, a request without an mcp-session-id falls back to the shared ('global') scope so it can still persist connections across requests; the legacy sessionful path always carries a server-issued session.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_CONNECTION_STRING",
+          "description": "MongoDB connection string for direct database connections. Optional, if not set, you'll need to call the connect tool before interacting with MongoDB data.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "MDB_MCP_DANGEROUS_HOST_BINDING",
+          "description": "When set to true, allows binding the HTTP server (and monitoring server) to a non-loopback host such as 0.0.0.0, a LAN IP, or an empty host (all interfaces). Binding to a non-loopback host exposes the server to the entire network and can allow unauthorized access. Off by default: the server refuses to start on a non-loopback host unless this is true.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DISABLE_SERVER_SIDE_JS",
+          "description": "When set to true, disallows the use of server-side JavaScript operators (such as $where, $function, and $accumulator) in query filters and aggregation pipelines.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DISABLE_UNTRUSTED_DATA_WARNING",
+          "description": "When set to true, tool responses include potentially untrusted data (such as documents or query results) as-is, without wrapping it in delimiters and a prompt-injection warning.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DISABLED_TOOLS",
+          "description": "Comma separated values of tool names, operation types, and/or categories of tools that will be disabled.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_DRY_RUN",
+          "description": "When true, runs the server in dry mode: dumps configuration and enabled tools, then exits without starting the server.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_ELICITATION_TIMEOUT_MS",
+          "description": "Time in milliseconds the user has to respond to an elicitation request (such as a tool confirmation prompt) before it fails.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EVICTION_IDLE_GRACE_M_S",
+          "description": "How long a session must be idle before it becomes eligible for least-recently-used eviction when the HTTP transport is at its maxSessions cap (only used when transport is 'http'). Swept back to idleTimeoutMs when larger.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXPORT_CLEANUP_INTERVAL_MS",
+          "description": "Time in milliseconds between export cleanup cycles that remove expired export files.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXPORT_TIMEOUT_MS",
+          "description": "Time in milliseconds after which an export is considered expired and eligible for cleanup.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXPORTS_PATH",
+          "description": "Folder to store exported data files.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_EXTERNALLY_MANAGED_SESSIONS",
+          "description": "When true, the 2025-era HTTP transport accepts a session ID supplied externally through the 'mcp-session-id' header. When an external ID is supplied, the initialization request is optional, and an implicitly re-initialized session restores the client's previously negotiated capabilities from the session store.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HEALTH_CHECK_HOST",
+          "description": "Deprecated. Use `monitoringServerHost` instead. Host address to bind the healthCheck HTTP server to (only used when transport is 'http'). If provided, `healthCheckPort` must also be set.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HEALTH_CHECK_PORT",
+          "description": "Deprecated. Use `monitoringServerPort` instead. Port number for the healthCheck HTTP server (only used when transport is 'http'). If provided, `healthCheckHost` must also be set.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_BODY_LIMIT",
+          "description": "Maximum size of the HTTP request body in bytes (only used when transport is 'http'). This value is passed as the optional limit parameter to the Express.js json() middleware.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_HEADERS",
+          "description": "Header that the HTTP server will validate when making requests (only used when transport is 'http').",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_HOST",
+          "description": "Host address to bind the HTTP server to (only used when transport is 'http').",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_PORT",
+          "description": "Port number for the HTTP server (only used when transport is 'http'). Use 0 for a random port.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_HTTP_RESPONSE_TYPE",
+          "description": "The HTTP response type for tool responses: 'sse' for Server-Sent Events, 'json' for standard JSON responses.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_IDLE_TIMEOUT_MS",
+          "description": "Idle timeout for a client to disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_INDEX_CHECK",
+          "description": "When set to true, enforces that query operations must use an index, rejecting queries that perform a collection scan.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_LOG_PATH",
+          "description": "Folder to store logs.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_LOGGERS",
+          "description": "Comma separated values of logger types.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_ACTIVE_CONNECTIONS",
+          "description": "Maximum number of MongoDB connections a single scope (an MCP session by default, see connectionScope) can hold open. When exceeded, the scope's least-recently-used connection is closed and its connectionId revoked. The preconfigured connection does not count towards the limit.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_BYTES_PER_QUERY",
+          "description": "The maximum size in bytes for results from a find or aggregate tool call. This serves as an upper bound for the responseBytesLimit parameter in those tools.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_DOCUMENTS_PER_QUERY",
+          "description": "The maximum number of documents that can be returned by a find or aggregate tool call. For the find tool, the effective limit will be the smaller of this value and the tool's limit parameter.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_SESSIONS",
+          "description": "Maximum number of concurrent sessions the HTTP transport will hold in memory (only used when transport is 'http'). Each session holds a full server instance, transport, and timers, so choose a value based on your deployment's available memory; the default is a conservative safety net rather than a recommended production value.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MAX_TIME_M_S",
+          "description": "Deprecated. Use `timeoutMs` instead. The maximum time in milliseconds that operations are allowed to run on the MongoDB server.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MCP_CLIENT_LOG_LEVEL",
+          "description": "Minimum severity level for log messages forwarded to the MCP client.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MONITORING_SERVER_FEATURES",
+          "description": "Features to expose on the monitoring server (only used when transport is 'http' and monitoringServerHost/monitoringServerPort are set).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MONITORING_SERVER_HOST",
+          "description": "Host address to bind the monitoring HTTP server to (only used when transport is 'http'). If provided, `monitoringServerPort` must also be set.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_MONITORING_SERVER_PORT",
+          "description": "Port number for the monitoring HTTP server (only used when transport is 'http'). If provided, `monitoringServerHost` must also be set.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_NOTIFICATION_TIMEOUT_MS",
+          "description": "Notification timeout for a client to be aware of disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_PREVIEW_FEATURES",
+          "description": "Comma separated values of preview features that are enabled.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_QUERY_COUNT_MAX_TIME_MS_CAP",
+          "description": "Deprecated. Use `queryCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_QUERY_COUNT_TIMEOUT_MS",
+          "description": "The maximum time in milliseconds for the count phase of find operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_READ_ONLY",
+          "description": "When set to true, only allows read, connect, and metadata operation types, disabling create/update/delete operations.",
+          "isRequired": false,
+          "format": "boolean",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_TELEMETRY",
+          "description": "When set to disabled, disables telemetry collection.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_TIMEOUT_MS",
+          "description": "The maximum time in milliseconds that MongoDB operations are allowed to run, applied as the driver's timeoutMS (client-side operation timeout, CSOT) on each connection. It bounds the entire operation, including server selection and network round trips.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_TRANSPORT",
+          "description": "Either 'stdio' or 'http'.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "MDB_MCP_VOYAGE_API_KEY",
+          "description": "API key for Voyage AI embeddings service (required for creating Atlas Local deployments with auto-embed vector search capabilities).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--aggregationCountMaxTimeMsCap",
+          "description": "Deprecated. Use `aggregationCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--aggregationCountTimeoutMs",
+          "description": "The maximum time in milliseconds for the count phase of aggregation operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--allowRequestOverrides",
+          "description": "When set to true, allows configuration values to be overridden via request headers and query parameters.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--apiClientId",
+          "description": "Atlas API client ID for authentication. Required for running Atlas tools.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--apiClientSecret",
+          "description": "Atlas API client secret for authentication. Required for running Atlas tools.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--assistantBaseUrl",
+          "description": "Base URL for the MongoDB Assistant API.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--atlasTemporaryDatabaseUserLifetimeMs",
+          "description": "Time in milliseconds that temporary database users created when connecting to MongoDB Atlas clusters will remain active before being automatically deleted.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--confirmationRequiredTools",
+          "description": "Comma separated values of tool names that require user confirmation before execution. Requires the client to support elicitation.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--connectionIdleTimeoutMs",
+          "description": "Milliseconds a MongoDB connection may stay unused (no tool call touching it) before it is closed to release the underlying connection pool and its server-side state. Applied per connection regardless of its connection scope; the preconfigured connection is excluded, and the reaper runs on this cadence. Set to 0 to disable reaping; must not be negative.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--connectionScope",
+          "description": "Visibility scope for MongoDB connections created at runtime. With 'session' (the default), each MCP session only sees the connections it created (plus the shared 'preconfigured' one) and they are closed when the session ends. With 'global', connections are shared across all sessions and survive session rotation. Deprecated: the MCP protocol is moving to sessionless, so this option will soon be removed and the connection scope will default to 'global'. For shared-server use cases, use the Atlas-Managed MCP server or build an authenticated library using the @mongodb-js/mcp-cli package. Note: on the sessionless (2026-07-28) HTTP path, a request without an mcp-session-id falls back to the shared ('global') scope so it can still persist connections across requests; the legacy sessionful path always carries a server-issued session.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--connectionString",
+          "description": "MongoDB connection string for direct database connections. Optional, if not set, you'll need to call the connect tool before interacting with MongoDB data.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--dangerousHostBinding",
+          "description": "When set to true, allows binding the HTTP server (and monitoring server) to a non-loopback host such as 0.0.0.0, a LAN IP, or an empty host (all interfaces). Binding to a non-loopback host exposes the server to the entire network and can allow unauthorized access. Off by default: the server refuses to start on a non-loopback host unless this is true.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--disableServerSideJs",
+          "description": "When set to true, disallows the use of server-side JavaScript operators (such as $where, $function, and $accumulator) in query filters and aggregation pipelines.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--disableUntrustedDataWarning",
+          "description": "When set to true, tool responses include potentially untrusted data (such as documents or query results) as-is, without wrapping it in delimiters and a prompt-injection warning.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--disabledTools",
+          "description": "Comma separated values of tool names, operation types, and/or categories of tools that will be disabled.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--dryRun",
+          "description": "When true, runs the server in dry mode: dumps configuration and enabled tools, then exits without starting the server.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--elicitationTimeoutMs",
+          "description": "Time in milliseconds the user has to respond to an elicitation request (such as a tool confirmation prompt) before it fails.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--evictionIdleGraceMS",
+          "description": "How long a session must be idle before it becomes eligible for least-recently-used eviction when the HTTP transport is at its maxSessions cap (only used when transport is 'http'). Swept back to idleTimeoutMs when larger.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--exportCleanupIntervalMs",
+          "description": "Time in milliseconds between export cleanup cycles that remove expired export files.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--exportTimeoutMs",
+          "description": "Time in milliseconds after which an export is considered expired and eligible for cleanup.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--exportsPath",
+          "description": "Folder to store exported data files.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--externallyManagedSessions",
+          "description": "When true, the 2025-era HTTP transport accepts a session ID supplied externally through the 'mcp-session-id' header. When an external ID is supplied, the initialization request is optional, and an implicitly re-initialized session restores the client's previously negotiated capabilities from the session store.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--healthCheckHost",
+          "description": "Deprecated. Use `monitoringServerHost` instead. Host address to bind the healthCheck HTTP server to (only used when transport is 'http'). If provided, `healthCheckPort` must also be set.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--healthCheckPort",
+          "description": "Deprecated. Use `monitoringServerPort` instead. Port number for the healthCheck HTTP server (only used when transport is 'http'). If provided, `healthCheckHost` must also be set.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--httpBodyLimit",
+          "description": "Maximum size of the HTTP request body in bytes (only used when transport is 'http'). This value is passed as the optional limit parameter to the Express.js json() middleware.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--httpHeaders",
+          "description": "Header that the HTTP server will validate when making requests (only used when transport is 'http').",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--httpHost",
+          "description": "Host address to bind the HTTP server to (only used when transport is 'http').",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--httpPort",
+          "description": "Port number for the HTTP server (only used when transport is 'http'). Use 0 for a random port.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--httpResponseType",
+          "description": "The HTTP response type for tool responses: 'sse' for Server-Sent Events, 'json' for standard JSON responses.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--idleTimeoutMs",
+          "description": "Idle timeout for a client to disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--indexCheck",
+          "description": "When set to true, enforces that query operations must use an index, rejecting queries that perform a collection scan.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--logPath",
+          "description": "Folder to store logs.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--loggers",
+          "description": "Comma separated values of logger types.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--maxActiveConnections",
+          "description": "Maximum number of MongoDB connections a single scope (an MCP session by default, see connectionScope) can hold open. When exceeded, the scope's least-recently-used connection is closed and its connectionId revoked. The preconfigured connection does not count towards the limit.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxBytesPerQuery",
+          "description": "The maximum size in bytes for results from a find or aggregate tool call. This serves as an upper bound for the responseBytesLimit parameter in those tools.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxDocumentsPerQuery",
+          "description": "The maximum number of documents that can be returned by a find or aggregate tool call. For the find tool, the effective limit will be the smaller of this value and the tool's limit parameter.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxSessions",
+          "description": "Maximum number of concurrent sessions the HTTP transport will hold in memory (only used when transport is 'http'). Each session holds a full server instance, transport, and timers, so choose a value based on your deployment's available memory; the default is a conservative safety net rather than a recommended production value.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--maxTimeMS",
+          "description": "Deprecated. Use `timeoutMs` instead. The maximum time in milliseconds that operations are allowed to run on the MongoDB server.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--mcpClientLogLevel",
+          "description": "Minimum severity level for log messages forwarded to the MCP client.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--monitoringServerFeatures",
+          "description": "Features to expose on the monitoring server (only used when transport is 'http' and monitoringServerHost/monitoringServerPort are set).",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--monitoringServerHost",
+          "description": "Host address to bind the monitoring HTTP server to (only used when transport is 'http'). If provided, `monitoringServerPort` must also be set.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--monitoringServerPort",
+          "description": "Port number for the monitoring HTTP server (only used when transport is 'http'). If provided, `monitoringServerHost` must also be set.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--notificationTimeoutMs",
+          "description": "Notification timeout for a client to be aware of disconnect (only applies to http transport).",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--previewFeatures",
+          "description": "Comma separated values of preview features that are enabled.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--queryCountMaxTimeMsCap",
+          "description": "Deprecated. Use `queryCountTimeoutMs` instead.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--queryCountTimeoutMs",
+          "description": "The maximum time in milliseconds for the count phase of find operations. This is used to limit the time spent counting documents when determining if results were capped.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--readOnly",
+          "description": "When set to true, only allows read, connect, and metadata operation types, disabling create/update/delete operations.",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "type": "named",
+          "name": "--telemetry",
+          "description": "When set to disabled, disables telemetry collection.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--timeoutMs",
+          "description": "The maximum time in milliseconds that MongoDB operations are allowed to run, applied as the driver's timeoutMS (client-side operation timeout, CSOT) on each connection. It bounds the entire operation, including server selection and network round trips.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "type": "named",
+          "name": "--transport",
+          "description": "Either 'stdio' or 'http'.",
+          "isRequired": false
+        },
+        {
+          "type": "named",
+          "name": "--voyageApiKey",
+          "description": "API key for Voyage AI embeddings service (required for creating Atlas Local deployments with auto-embed vector search capabilities).",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

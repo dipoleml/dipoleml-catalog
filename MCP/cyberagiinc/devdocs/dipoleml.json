@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cyberagiinc.devdocs",
+  "type": "mcp",
+  "name": "Devdocs",
+  "slug": "devdocs",
+  "vendor": "cyberagiinc",
+  "description": "Completely free, private, UI based Tech Documentation MCP server. Designed for coders and software developers in mind. Easily integrate into Cursor, Windsurf, Cline, Roo Code, DipoleML Desktop App ",
+  "version": "0.1.0",
+  "homepage": "https://github.com/cyberagiinc/DevDocs",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cline",
+    "crawl4ai",
+    "cursor",
+    "documentation",
+    "playwright",
+    "python3",
+    "scraper",
+    "security"
+  ],
+  "tags": [
+    "cline",
+    "crawl4ai",
+    "cursor",
+    "documentation",
+    "llm",
+    "playwright",
+    "python3",
+    "scraper",
+    "security",
+    "typescript",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cyberagiinc",
+    "brandName": "cyberagiinc",
+    "source": "https://github.com/cyberagiinc.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cyberagiinc/DevDocs",
+    "url": "https://github.com/cyberagiinc/DevDocs",
+    "commit": "f8fa9de505c96bcc8c76561196a75d39b52847b6",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 2108,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Devdocs | Completely free, private, UI based Tech Documentation MCP server. Designed for coders and software developers in mind. Easily integrate into Cursor, Windsurf, Cline, Roo Code, Claude Desktop App ",
+        "after": "Devdocs | Completely free, private, UI based Tech Documentation MCP server. Designed for coders and software developers in mind. Easily integrate into Cursor, Windsurf, Cline, Roo Code, DipoleML Desktop App ",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "devdocs-explorer"
+    ],
+    "env": [
+      "NEXT_PUBLIC_BACKEND_URL",
+      "CRAWL4AI_API_TOKEN"
+    ],
+    "credentials": [
+      "CRAWL4AI_API_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

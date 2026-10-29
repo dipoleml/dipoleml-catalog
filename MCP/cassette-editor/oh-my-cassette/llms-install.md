@@ -1,0 +1,80 @@
+# Installing Oh My Cassette (for AI agents)
+
+Oh My Cassette is a stdio MCP bridge published on PyPI as `oh-my-cassette`. Hosts start it with
+`uvx oh-my-cassette==0.6.0`; there is nothing to clone or build. It relays to the Cassette MCP
+service at `CASSETTE_MCP_URL`, so the editing tools come from that service.
+
+## Prerequisites
+
+- `uv` on PATH (https://docs.astral.sh/uv/getting-started/installation/). It provides Python 3.11 or newer.
+- `ffmpeg` and `ffprobe` on PATH to import video (`brew install ffmpeg`, `sudo apt install ffmpeg`,
+  `winget install ffmpeg`), or `CASSETTE_FFMPEG` / `CASSETTE_FFPROBE` set to them.
+- An invited Cassette account. Sign in once with `uvx oh-my-cassette==0.6.0 login` (the browser
+  asks for an emailed code and consent; tokens go to the OS keyring). Check the service with
+  `uvx oh-my-cassette==0.6.0 check`: every line should be PASS.
+
+## Claude Code
+
+```bash
+claude plugin marketplace add Cassette-Editor/oh-my-cassette
+claude plugin install oh-my-cassette@cassette-editor
+```
+
+Then sign in once (`uvx oh-my-cassette==0.6.0 login`) if you have not. Or project scope:
+`claude mcp add --transport stdio cassette -- uvx oh-my-cassette==0.6.0`.
+Health check: `claude mcp list` shows `cassette: … - ✓ Connected`.
+
+## Codex
+
+```bash
+codex plugin marketplace add https://github.com/Cassette-Editor/oh-my-cassette.git
+codex plugin add oh-my-cassette@cassette-editor
+```
+
+The plugin passes `CASSETTE_*` variables through from the shell. Or:
+`codex mcp add cassette -- uvx oh-my-cassette==0.6.0`.
+
+## OpenCode
+
+Add the `mcp.cassette` block from `opencode.json` in this repository to the user's `opencode.json`,
+then copy `skills/cassette-video-edit/SKILL.md` to `~/.config/opencode/skills/cassette-video-edit/SKILL.md`.
+
+## Hermes
+
+```bash
+hermes mcp add cassette --command uvx --args oh-my-cassette==0.6.0
+
+```
+
+Copy `skills/cassette-video-edit/SKILL.md` to `~/.hermes/skills/cassette-video-edit/SKILL.md` and set
+`mcp_servers.cassette.timeout: 600` in `~/.hermes/config.yaml`.
+
+## Tool timeout
+
+Configure 600 seconds (600000 ms where the host counts milliseconds). Every call stays within it:
+the bridge waits at most `CASSETTE_LOCAL_WAIT_SEC` (240) for local preparation and the service waits a
+bounded time for its own work; longer work answers `preparing`, `running` or `processing` and continues
+on the next call.
+
+## Environment variables
+
+`CASSETTE_MCP_URL` (optional endpoint override), `CASSETTE_AUTH_TOKEN` (advanced credential override), `CASSETTE_WORKSPACE` (default: the server's working directory), `CASSETTE_ALLOWED_ROOTS`,
+`CASSETTE_DOWNLOAD_DIR`, `CASSETTE_MAX_UPLOAD_MB`, `CASSETTE_MAX_DOWNLOAD_MB`, `CASSETTE_UPLOAD_ANY_TYPE`,
+`CASSETTE_LOCAL_WAIT_SEC`, `CASSETTE_FFMPEG`, `CASSETTE_FFPROBE`, `CASSETTE_TEMP_DIR`,
+`CASSETTE_CONNECT_TIMEOUT_SEC`, `CASSETTE_MCP_HOST`, `CASSETTE_AUTH_DIRECTORY`, `OH_MY_CASSETTE_LOG`.
+See README.md for defaults.
+
+## Verify
+
+`uvx oh-my-cassette==0.6.0 --version` prints `oh-my-cassette 0.5.0`. In the host, the tool list should
+show the service's tools. If it shows only `cassette_bridge_status`, call it: it reports the endpoint
+URL, an `error_code` (`bridge.backend_unreachable`, `bridge.unauthorized` or `bridge.upgrade_required`)
+and the reason.
+
+## Uninstalling
+
+Sign out first with `uvx oh-my-cassette==0.6.0 logout` (it revokes the grant and deletes the keyring
+entry), then remove the server from the host config (`claude plugin uninstall oh-my-cassette@cassette-editor`,
+`codex plugin remove oh-my-cassette`, delete the `opencode.json` block, `hermes mcp remove cassette`),
+delete `~/.config/oh-my-cassette` (connection metadata, no token) and run `uv cache clean oh-my-cassette`.
+Exported files stay in `cassette-exports/`.

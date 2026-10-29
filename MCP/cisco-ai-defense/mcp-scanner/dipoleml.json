@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cisco-ai-defense.mcp-scanner",
+  "type": "mcp",
+  "name": "MCP Scanner",
+  "slug": "mcp-scanner",
+  "vendor": "cisco-ai-defense",
+  "description": "Scan MCP servers for potential threats & security findings.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/cisco-ai-defense/mcp-scanner",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "security"
+  ],
+  "tags": [
+    "agents",
+    "ai",
+    "mcp",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cisco-ai-defense",
+    "brandName": "cisco-ai-defense",
+    "source": "https://github.com/cisco-ai-defense.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cisco-ai-defense/mcp-scanner",
+    "url": "https://github.com/cisco-ai-defense/mcp-scanner",
+    "commit": "21a87b4bc818c2e279d9af6cf5b20ed386dfc9b5",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1101,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "cisco-ai-mcp-scanner"
+    ],
+    "env": [
+      "MCP_SCANNER_API_KEY",
+      "MCP_SCANNER_LLM_API_KEY",
+      "MCP_SCANNER_LLM_BASE_URL",
+      "MCP_SCANNER_LLM_API_VERSION",
+      "VIRUSTOTAL_API_KEY"
+    ],
+    "credentials": [
+      "MCP_SCANNER_API_KEY",
+      "MCP_SCANNER_LLM_API_KEY",
+      "VIRUSTOTAL_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

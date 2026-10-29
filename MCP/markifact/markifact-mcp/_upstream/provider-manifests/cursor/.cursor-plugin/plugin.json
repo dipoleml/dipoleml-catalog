@@ -1,0 +1,43 @@
+{
+  "name": "markifact",
+  "displayName": "Markifact - Ads & Analytics",
+  "version": "1.0.7",
+  "description": "Run Google Ads, Meta Ads, TikTok Ads, LinkedIn Ads, GA4, Shopify, HubSpot and 50+ more platforms from Cursor. Audit spend, launch campaigns, rotate creative, and pull reporting, with approval required before anything goes live.",
+  "author": {
+    "name": "Markifact",
+    "email": "contact@markifact.com"
+  },
+  "publisher": "Markifact",
+  "homepage": "https://www.markifact.com",
+  "repository": "https://github.com/markifact/markifact-mcp",
+  "license": "MIT",
+  "logo": "assets/icon.png",
+  "keywords": [
+    "markifact",
+    "marketing",
+    "advertising",
+    "google ads",
+    "meta ads",
+    "tiktok ads",
+    "linkedin ads",
+    "ga4",
+    "shopify",
+    "hubspot",
+    "performance marketing",
+    "campaign management",
+    "mcp"
+  ],
+  "category": "integrations",
+  "tags": [
+    "marketing",
+    "advertising",
+    "analytics",
+    "campaigns",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "commands": "./commands/",
+  "rules": "./rules/",
+  "mcpServers": "./mcp.json"
+}

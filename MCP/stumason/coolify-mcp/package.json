@@ -1,0 +1,122 @@
+{
+  "name": "@masonator/coolify-mcp",
+  "scope": "@masonator",
+  "version": "3.9.0",
+  "mcpName": "io.github.StuMason/coolify",
+  "description": "MCP server for Coolify — 46 optimized tools for infrastructure management, diagnostics, and documentation search",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "coolify-mcp": "dist/index.js",
+    "coolify-mcp-http": "dist/http.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && shx mkdir -p dist/data && shx cp src/data/*.json dist/data/ && shx chmod +x dist/*.js",
+    "dev": "tsc --watch",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --testPathIgnorePatterns=integration",
+    "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch --testPathIgnorePatterns=integration",
+    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --coverage --testPathIgnorePatterns=integration",
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --testPathPatterns=integration --testTimeout=60000 --coverage=false",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check:spec-drift": "node scripts/check-client-spec-drift.mjs",
+    "build:chunks": "node scripts/split-openapi-chunks.mjs",
+    "check:chunk-drift": "node scripts/split-openapi-chunks.mjs --check",
+    "check:tool-count": "node scripts/check-tool-count.mjs",
+    "check:tool-count:fix": "node scripts/check-tool-count.mjs --fix",
+    "docs:index": "node scripts/build-docs-index.mjs",
+    "docs:index:check": "node scripts/build-docs-index.mjs --check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
+    "prepublishOnly": "npm test && npm run lint",
+    "version": "node scripts/sync-manifests.mjs && prettier --write server.json manifest.json && git add server.json manifest.json",
+    "start": "node dist/index.js",
+    "start:http": "node dist/http.js"
+  },
+  "keywords": [
+    "coolify",
+    "mcp",
+    "model-context-protocol",
+    "infrastructure",
+    "deployment",
+    "self-hosted",
+    "paas",
+    "ai",
+    "devops"
+  ],
+  "author": {
+    "name": "Stuart Mason",
+    "url": "https://stumason.dev"
+  },
+  "license": "MIT",
+  "homepage": "https://stumason.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StuMason/coolify-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/StuMason/coolify-mcp/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/core": "^2.2.0",
+    "@modelcontextprotocol/server": "^2.2.0",
+    "minisearch": "^7.2.0",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/client": "^2.2.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.0",
+    "@typescript-eslint/parser": "^8.71.0",
+    "dotenv": "^18.0.4",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.0.0",
+    "husky": "^9.0.11",
+    "jest": "^30.3.0",
+    "jest-junit": "^17.0.0",
+    "lint-staged": "^17.0.4",
+    "markdownlint-cli2": "^0.23.0",
+    "prettier": "^3.5.3",
+    "shx": "^0.4.0",
+    "ts-jest": "^29.2.6",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.71.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "handlebars": "^4.7.9",
+    "qs": "^6.15.2",
+    "hono": "^4.12.25",
+    "@hono/node-server": "^2.0.5",
+    "express-rate-limit": "^8.5.2",
+    "path-to-regexp": "^8.4.2",
+    "fast-uri": "^4.0.0",
+    "ip-address": "^10.2.0",
+    "flatted": "^3.4.2",
+    "brace-expansion": "^5.0.6",
+    "picomatch": "^4.0.4",
+    "js-yaml": "^4.3.1",
+    "markdown-it": "^14.2.0",
+    "smol-toml": "^1.8.0"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md,yaml,yml}": "prettier --write",
+    "*.ts": "eslint --fix"
+  }
+}

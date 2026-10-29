@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.leonardsellem.n8n-mcp-server",
+  "type": "mcp",
+  "name": "N8n MCP Server",
+  "slug": "n8n-mcp-server",
+  "vendor": "leonardsellem",
+  "description": "MCP server that provides tools and resources for interacting with n8n API",
+  "version": "0.1.8",
+  "homepage": "https://github.com/leonardsellem/n8n-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "n8n",
+    "brandName": "n8n",
+    "source": "https://cdn.simpleicons.org/n8n",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:13Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "leonardsellem/n8n-mcp-server",
+    "url": "https://github.com/leonardsellem/n8n-mcp-server",
+    "commit": "3b97d467ae076564afd2a597a8e986463c227153",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1629,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@leonardsellem/n8n-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0",
+      "python3"
+    ],
+    "packages": [
+      "@leonardsellem/n8n-mcp-server"
+    ],
+    "env": [
+      "N8N_API_URL",
+      "N8N_API_KEY",
+      "YOUR_N8N_API_KEY"
+    ],
+    "credentials": [
+      "N8N_API_KEY",
+      "YOUR_N8N_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

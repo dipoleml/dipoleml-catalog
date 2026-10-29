@@ -1,0 +1,366 @@
+import { randomUUID } from 'node:crypto';
+
+import {
+  createTaskRepository,
+  type AgentEndpointRecord,
+  type AgentMessageErrorCode,
+  type AgentMessageRecord,
+  type Repositories,
+  type TaskRecord,
+} from '../db/index.js';
+import {
+  awaitingUserOutlook,
+  deliveryOutlook,
+  effectiveEndpointCapabilities,
+  supportsImmediateDelivery,
+  transports,
+} from '../domain/delivery.js';
+
+export class AgentMessageDeliveryError extends Error {
+  constructor(
+    readonly code: AgentMessageErrorCode,
+    readonly messageId: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'AgentMessageDeliveryError';
+  }
+}
+
+export interface SendAgentMessageInput {
+  operation: 'prompt' | 'reply';
+  agentId: string;
+  toAgentId?: string | undefined;
+  replyToMessageId?: string | undefined;
+  taskId?: string | undefined;
+  content: string;
+  idempotencyKey: string;
+}
+
+export interface SendAgentMessageResult {
+  message: AgentMessageRecord;
+  idempotentReplay: boolean;
+  task: TaskRecord | null;
+  /** What the sender should expect about when the recipient will see this. */
+  outlook: string;
+  delivery: 'delivered' | 'queued_pull';
+  immediateMode: 'inject' | 'steer' | null;
+}
+
+export interface DeliveryReceipt {
+  provider: string;
+  delivery: 'inject' | 'steer';
+  receipt?: string | undefined;
+  /** The recipient session's opaque key, when the host knows it. */
+  session?: string | undefined;
+}
+
+export interface AgentMessageDispatcher {
+  deliver(request: {
+    endpoint: AgentEndpointRecord;
+    message: AgentMessageRecord;
+  }): Promise<DeliveryReceipt>;
+}
+
+/**
+ * Whether a registered endpoint can still take a message. A lease that has run
+ * out means the session is gone; queueing for it would strand the message.
+ */
+export function endpointPromptable(
+  endpoint: AgentEndpointRecord | undefined,
+  now = Date.now(),
+): boolean {
+  return (
+    endpoint?.status === 'connected' &&
+    transports.some((transport) => endpoint.capabilities.includes(transport)) &&
+    (endpoint.expiresAt === null || Date.parse(endpoint.expiresAt) > now)
+  );
+}
+
+/** A retried send of a message that already left the queue: say where it got to. */
+function replayOutlook(message: AgentMessageRecord): string {
+  if (message.status === 'replied') return 'This message was already delivered and answered.';
+  return message.status === 'read'
+    ? 'This message was already delivered, and that agent has read it.'
+    : 'This message was already handed to that agent, which has not read it yet.';
+}
+
+/**
+ * The outlook for a message that waits in the queue because nothing can take
+ * it right now. A registered agent whose session is not live may come back
+ * (a resumed session, or an operator-named agent's next session).
+ */
+function queuedOutlook(recipientAgentId: string, message: AgentMessageRecord): string {
+  return (
+    `Sent (✓) and queued: ${recipientAgentId} has no live session to take it now. It will be ` +
+    `delivered when that agent's session next checks in, or fail as expired at ` +
+    `${message.expiresAt ?? 'its expiry'}. Check its receipt with inspect_work message_id.`
+  );
+}
+
+function required(value: string | undefined, field: string, operation: string): string {
+  if (value === undefined) {
+    throw new Error(`${field} is required when update_work operation is ${operation}.`);
+  }
+  return value;
+}
+
+function fail(
+  repos: Repositories,
+  message: AgentMessageRecord,
+  code: AgentMessageErrorCode,
+  detail: string,
+): never {
+  repos.agentMessages.markFailed(message.messageId, code, detail);
+  throw new AgentMessageDeliveryError(code, message.messageId, detail);
+}
+
+export function handleSendAgentMessage(
+  repos: Repositories,
+  input: SendAgentMessageInput,
+): SendAgentMessageResult {
+  // Expiry is lazy: apply it before a retry reports where a message got to.
+  repos.agentMessages.sweepStale();
+  const sender = repos.agents.get(input.agentId);
+  if (sender === undefined) {
+    throw new AgentMessageDeliveryError(
+      'unauthorized',
+      '',
+      `Agent ${input.agentId} is not registered.`,
+    );
+  }
+
+  const parent =
+    input.operation === 'reply'
+      ? repos.agentMessages.get(
+          required(input.replyToMessageId, 'reply_to_message_id', input.operation),
+        )
+      : undefined;
+  if (input.operation === 'reply' && parent === undefined) {
+    throw new AgentMessageDeliveryError(
+      'unauthorized',
+      input.replyToMessageId ?? '',
+      `Message ${input.replyToMessageId ?? '(missing)'} does not exist.`,
+    );
+  }
+  if (parent !== undefined && parent.recipientAgentId !== input.agentId) {
+    throw new AgentMessageDeliveryError(
+      'unauthorized',
+      parent.messageId,
+      `Agent ${input.agentId} is not the recipient of ${parent.messageId}.`,
+    );
+  }
+  // Its recipient knows the id, so it was shown the message; a `sent` parent
+  // here was only requeued after reaching it, and the reply proves it read it.
+  if (parent?.status === 'failed') {
+    throw new AgentMessageDeliveryError(
+      'unauthorized',
+      parent.messageId,
+      `Message ${parent.messageId} was not delivered and cannot be replied to.`,
+    );
+  }
+  if (parent !== undefined && input.taskId !== undefined && input.taskId !== parent.taskId) {
+    throw new AgentMessageDeliveryError(
+      'unauthorized',
+      parent.messageId,
+      `Reply task ${input.taskId} does not match the original message context.`,
+    );
+  }
+
+  const recipientAgentId =
+    parent?.senderAgentId ?? required(input.toAgentId, 'to_agent_id', input.operation);
+  if (recipientAgentId === input.agentId) {
+    throw new AgentMessageDeliveryError('unauthorized', '', 'An agent cannot prompt itself.');
+  }
+  if (repos.agents.get(recipientAgentId) === undefined) {
+    throw new AgentMessageDeliveryError(
+      'target_unreachable',
+      '',
+      `Agent ${recipientAgentId} is not registered in this workspace.`,
+    );
+  }
+  // Agents span a shared store, so a reply's task is in the prompt's project, not always ours.
+  const taskProject = parent?.project ?? repos.project;
+  const tasks =
+    taskProject === repos.project ? repos.tasks : createTaskRepository(repos.db, taskProject);
+  if (input.taskId !== undefined && tasks.get(input.taskId) === undefined) {
+    throw new Error(`Task ${input.taskId} does not exist.`);
+  }
+  const contextualTaskId = input.taskId ?? parent?.taskId ?? null;
+  const task = contextualTaskId === null ? undefined : tasks.get(contextualTaskId);
+
+  const replay = repos.agentMessages.getByIdempotency(input.agentId, input.idempotencyKey);
+  let message: AgentMessageRecord;
+  let idempotentReplay = false;
+  if (replay !== undefined) {
+    if (
+      replay.recipientAgentId !== recipientAgentId ||
+      replay.content !== input.content ||
+      replay.replyToMessageId !== (parent?.messageId ?? null) ||
+      replay.taskId !== contextualTaskId
+    ) {
+      throw new AgentMessageDeliveryError(
+        'unauthorized',
+        replay.messageId,
+        'idempotency_key was already used for a different message.',
+      );
+    }
+    if (replay.status === 'failed') {
+      throw new AgentMessageDeliveryError(
+        replay.errorCode ?? 'target_unreachable',
+        replay.messageId,
+        replay.errorDetail ?? `Message ${replay.messageId} previously failed delivery.`,
+      );
+    }
+    if (replay.status !== 'sent') {
+      return {
+        message: replay,
+        idempotentReplay: true,
+        task: task ?? null,
+        outlook: replayOutlook(replay),
+        delivery: 'delivered',
+        immediateMode: null,
+      };
+    }
+    message = replay;
+    idempotentReplay = true;
+  } else {
+    message = repos.agentMessages.create({
+      messageId: randomUUID(),
+      project: taskProject,
+      taskId: contextualTaskId,
+      senderAgentId: input.agentId,
+      recipientAgentId,
+      replyToMessageId: parent?.messageId ?? null,
+      content: input.content,
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+  // The sent row is the queue, even for a recipient with no live session:
+  // it is delivered when that agent's session next drains, or expires.
+  // Delivery is recorded when the recipient's session takes it, so
+  // `delivered` never overstates what reached it.
+  if (parent !== undefined) {
+    repos.agentMessages.markReplied(parent.messageId);
+  }
+  repos.agents.touch(input.agentId);
+  const activityTask =
+    !idempotentReplay && task !== undefined ? tasks.touchActivity(task.taskId) : task;
+  const endpoint = repos.agentEndpoints.getByAgent(recipientAgentId);
+  if (endpoint === undefined || !endpointPromptable(endpoint)) {
+    return {
+      message,
+      idempotentReplay,
+      task: activityTask ?? null,
+      outlook: queuedOutlook(recipientAgentId, message),
+      delivery: 'queued_pull',
+      immediateMode: null,
+    };
+  }
+  const outlook = deliveryOutlook(effectiveEndpointCapabilities(endpoint));
+  return {
+    message,
+    idempotentReplay,
+    task: activityTask ?? null,
+    outlook:
+      endpoint.awaitingUserSince === null
+        ? outlook
+        : `${outlook} ${awaitingUserOutlook(endpoint.awaitingUserSince)}`,
+    delivery: 'queued_pull',
+    immediateMode: null,
+  };
+}
+
+async function dispatchWithRetry(
+  dispatcher: AgentMessageDispatcher,
+  endpoint: AgentEndpointRecord,
+  message: AgentMessageRecord,
+): Promise<DeliveryReceipt> {
+  try {
+    return await dispatcher.deliver({ endpoint, message });
+  } catch {
+    return dispatcher.deliver({ endpoint, message });
+  }
+}
+
+/** Send through a live IPC endpoint when present, otherwise leave a durable pull row. */
+export async function handleSendAgentMessageWithDelivery(
+  repos: Repositories,
+  input: SendAgentMessageInput,
+  dispatcher: AgentMessageDispatcher,
+): Promise<SendAgentMessageResult> {
+  const result = handleSendAgentMessage(repos, input);
+  if (result.message.status !== 'sent') return result;
+
+  const endpoint = repos.agentEndpoints.getByAgent(result.message.recipientAgentId);
+  const capabilities = effectiveEndpointCapabilities(endpoint);
+  if (endpoint?.transport !== 'local-ipc' || !supportsImmediateDelivery(capabilities)) {
+    return result;
+  }
+
+  try {
+    const receipt = await dispatchWithRetry(dispatcher, endpoint, result.message);
+    const delivered = repos.agentMessages.markDelivered(
+      result.message.messageId,
+      receipt.provider,
+      receipt.receipt ?? receipt.delivery,
+      { session: receipt.session ?? null, via: 'adapter' },
+    );
+    return {
+      ...result,
+      message: delivered,
+      delivery: 'delivered',
+      immediateMode: receipt.delivery,
+      outlook:
+        receipt.delivery === 'steer'
+          ? 'The recipient accepted this as steering for its active turn.'
+          : 'The recipient accepted this and started a new turn immediately.',
+    };
+  } catch (error) {
+    if (capabilities.includes('pull')) {
+      return {
+        ...result,
+        outlook:
+          `Immediate delivery failed (${error instanceof Error ? error.message : String(error)}); ` +
+          'the message remains queued for the recipient to pull.',
+      };
+    }
+    fail(
+      repos,
+      result.message,
+      'target_unreachable',
+      `Immediate delivery failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+export interface AgentCommunicationView {
+  agentId: string;
+  promptable: boolean;
+  provider: string | null;
+  capabilities: string[];
+  /** When its session last stopped to wait on its user; null once it moved on. */
+  awaitingUserSince: string | null;
+  inbox: AgentMessageRecord[];
+  outbox: AgentMessageRecord[];
+}
+
+export function inspectAgentCommunication(
+  repos: Repositories,
+  agentId: string,
+): AgentCommunicationView {
+  if (repos.agents.get(agentId) === undefined) {
+    throw new Error(`Agent ${agentId} is not registered.`);
+  }
+  const endpoint = repos.agentEndpoints.getByAgent(agentId);
+  const messages = repos.agentMessages.listByAgent(agentId);
+  return {
+    agentId,
+    promptable: endpointPromptable(endpoint),
+    provider: endpoint?.provider ?? null,
+    capabilities: effectiveEndpointCapabilities(endpoint),
+    awaitingUserSince: endpoint?.awaitingUserSince ?? null,
+    inbox: messages.filter((message) => message.recipientAgentId === agentId),
+    outbox: messages.filter((message) => message.senderAgentId === agentId),
+  };
+}

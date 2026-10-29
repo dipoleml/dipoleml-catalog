@@ -1,0 +1,86 @@
+import { describe, it, expect } from "vitest"
+import { parseLawXml, pickRepealed, findRepealedLaw, type LawInfo } from "./law-search.js"
+import { ExecutionLimitError } from "./execution-limits.js"
+import type { LawApiClient } from "./api-client.js"
+
+// eflaw 검색 XML 조각 — 실제 응답 구조(현행연혁코드·시행일자 포함)
+const EFLAW_XML = `
+<LawSearch>
+  <law>
+    <법령일련번호>235583</법령일련번호>
+    <현행연혁코드>연혁</현행연혁코드>
+    <법령명한글>저탄소 녹색성장 기본법</법령명한글>
+    <법령ID>011134</법령ID>
+    <법령구분명>법률</법령구분명>
+    <시행일자>20220325</시행일자>
+  </law>
+  <law>
+    <법령일련번호>200000</법령일련번호>
+    <현행연혁코드>연혁</현행연혁코드>
+    <법령명한글>저탄소 녹색성장 기본법</법령명한글>
+    <법령ID>011134</법령ID>
+    <법령구분명>법률</법령구분명>
+    <시행일자>20200527</시행일자>
+  </law>
+</LawSearch>`
+
+describe("parseLawXml — 현행연혁 상태·시행일 캡처", () => {
+  it("현행연혁코드와 시행일자를 함께 파싱한다", () => {
+    const rows = parseLawXml(EFLAW_XML, 10)
+    expect(rows).toHaveLength(2)
+    expect(rows[0].lawName).toBe("저탄소 녹색성장 기본법")
+    expect(rows[0].status).toBe("연혁")
+    expect(rows[0].effectiveDate).toBe("20220325")
+  })
+})
+
+describe("pickRepealed — 폐지(연혁) 법령 최신본 선택", () => {
+  it("질의명과 일치하는 연혁 법령 중 최신 시행본을 고른다", () => {
+    const rows = parseLawXml(EFLAW_XML, 10)
+    const r = pickRepealed(rows, "저탄소 녹색성장 기본법")
+    expect(r?.lawName).toBe("저탄소 녹색성장 기본법")
+    expect(r?.effectiveDate).toBe("20220325") // 20200527보다 최신
+  })
+
+  it("공백 차이는 무시하고 매칭한다", () => {
+    const rows = parseLawXml(EFLAW_XML, 10)
+    expect(pickRepealed(rows, "저탄소녹색성장기본법")?.status).toBe("연혁")
+  })
+
+  it("현행(연혁 아님) 행은 폐지로 잡지 않는다", () => {
+    const current: LawInfo[] = [
+      { lawName: "민법", lawId: "1", mst: "1", lawType: "법률", status: "현행", effectiveDate: "20230101" },
+    ]
+    expect(pickRepealed(current, "민법")).toBeUndefined()
+  })
+
+  it("이름이 다른 연혁 법령은 흡수하지 않는다", () => {
+    const rows = parseLawXml(EFLAW_XML, 10)
+    expect(pickRepealed(rows, "전혀 다른 법률")).toBeUndefined()
+  })
+})
+
+describe("pickRepealed — 완전일치 우선, 하위법령 꼬리 제외 (2026-09-28)", () => {
+  const rows: LawInfo[] = [
+    { lawName: "소방시설 설치ㆍ유지 및 안전관리에 관한 법률 시행규칙", lawId: "009730", mst: "3", lawType: "행정안전부령", status: "연혁", effectiveDate: "20150716" },
+    { lawName: "소방시설 설치ㆍ유지 및 안전관리에 관한 법률", lawId: "009503", mst: "1", lawType: "법률", status: "연혁", effectiveDate: "20150701" },
+  ]
+  it("더 최신인 시행규칙이 있어도 이름이 같은 법률을 고른다", () => {
+    expect(pickRepealed(rows, "소방시설 설치ㆍ유지 및 안전관리에 관한 법률")?.lawId).toBe("009503")
+  })
+  it("완전일치가 없을 때도 하위법령 꼬리는 접두 일치로 받지 않는다", () => {
+    expect(pickRepealed([rows[0]], "소방시설 설치ㆍ유지 및 안전관리에 관한 법률")).toBeUndefined()
+  })
+})
+
+describe("findRepealedLaw — 예산 소진은 '폐지 법령 없음'이 아니다 (2026-10-01 감사)", () => {
+  it("예산 소진은 undefined 로 삼키지 않고 올린다", async () => {
+    const client = { searchLaw: async () => { throw new ExecutionLimitError("Request upstream work budget exceeded (max 48 attempts).") } } as unknown as LawApiClient
+    await expect(findRepealedLaw(client, "가상토지 보전 및 관리에 관한 특별법")).rejects.toThrow(ExecutionLimitError)
+  })
+
+  it("일시 장애는 종전대로 undefined", async () => {
+    const client = { searchLaw: async () => { throw new Error("HTTP 500") } } as unknown as LawApiClient
+    await expect(findRepealedLaw(client, "가상토지 보전 및 관리에 관한 특별법")).resolves.toBeUndefined()
+  })
+})

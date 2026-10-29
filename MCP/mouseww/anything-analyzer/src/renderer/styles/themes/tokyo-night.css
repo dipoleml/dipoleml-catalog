@@ -1,0 +1,59 @@
+/* Theme: Tokyo Night 东京霓虹 (J) */
+[data-theme="tokyo-night"] {
+  --color-base: #1a1b26;
+  --color-frame: #16161e;
+  --color-bar: #1f2335;
+  --color-content: #1a1b26;
+  --color-sidebar: #1a1b26;
+  --color-surface: #292e42;
+  --color-elevated: #33394e;
+
+  --color-border: #292e42;
+  --color-border-subtle: #33394e;
+  --color-border-hover: #3b4261;
+
+  --color-hover: rgba(192, 202, 245, 0.04);
+  --color-active: #292e42;
+  --color-selected: rgba(122, 162, 247, 0.08);
+  --color-focus-ring: rgba(122, 162, 247, 0.4);
+
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-muted: #565f89;
+  --text-label: #414868;
+  --text-disabled: #3b4261;
+
+  --color-accent: #7aa2f7;
+  --color-accent-bg: rgba(122, 162, 247, 0.1);
+  --color-accent-border: rgba(122, 162, 247, 0.2);
+
+  --color-success: #9ece6a;
+  --color-success-bg: rgba(158, 206, 106, 0.08);
+  --color-success-border: rgba(158, 206, 106, 0.15);
+
+  --color-info: #7dcfff;
+  --color-info-bg: rgba(125, 207, 255, 0.08);
+  --color-info-border: rgba(125, 207, 255, 0.15);
+
+  --color-warning: #e0af68;
+  --color-warning-bg: rgba(224, 175, 104, 0.08);
+  --color-warning-border: rgba(224, 175, 104, 0.15);
+
+  --color-error: #f7768e;
+  --color-error-bg: rgba(247, 118, 142, 0.08);
+  --color-error-border: rgba(247, 118, 142, 0.15);
+
+  --color-primary: #7aa2f7;
+  --color-primary-hover: #6a92e7;
+  --color-primary-text: #1a1b26;
+
+  --color-purple: #bb9af7;
+  --color-purple-bg: rgba(187, 154, 247, 0.1);
+  --color-orange: #ff9e64;
+  --color-orange-bg: rgba(255, 158, 100, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.65);
+}

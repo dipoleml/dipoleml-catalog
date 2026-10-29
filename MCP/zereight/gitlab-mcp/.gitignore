@@ -1,0 +1,37 @@
+node_modules
+.DS_Store
+build
+.local/
+.env
+.env.local
+.env.test
+.secrets
+.gitlab-mcp-mask.json
+!docker/masking-config/.gitlab-mcp-mask.json
+coverage/
+*.log
+*.mcpb
+# ai
+.opencode*
+.aider*
+.sisyphus
+test-results*.json
+test_results.txt
+test_out.txt
+docs/plans/
+.codex
+
+# AI agent worktrees (local development only)
+.claude/worktrees/
+.claude/skills/gitlab-mcp-maintainer/
+# OpenWolf local context (session notes, anatomy, memory)
+.wolf/
+
+# MkDocs build artifacts
+site/
+.venv-docs/
+.direnv/
+
+# nix build output
+result
+result-*

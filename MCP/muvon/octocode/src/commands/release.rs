@@ -1,0 +1,1637 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use anyhow::{Context, Result};
+use clap::Args;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use octocode::config::Config;
+use octocode::indexer::git_utils::GitUtils;
+use octocode::llm::{LlmClient, Message, ModelPurpose};
+use octocode::utils::plain_line;
+
+use super::commit::{apply_co_author_trailers, resolve_co_authors};
+
+#[cfg(test)]
+#[path = "release_tests.rs"]
+mod release_tests;
+
+#[derive(Args, Debug)]
+pub struct ReleaseArgs {
+	/// Changelog file path (default: CHANGELOG.md)
+	#[arg(short, long, default_value = "CHANGELOG.md")]
+	pub changelog: String,
+
+	/// Skip confirmation prompt
+	#[arg(short, long)]
+	pub yes: bool,
+
+	/// Dry run - show what would be done without making changes
+	#[arg(short, long)]
+	pub dry_run: bool,
+
+	/// Force a specific version instead of the conventional-commit bump
+	#[arg(short, long)]
+	pub force_version: Option<String>,
+
+	/// Add a `Co-authored-by:` trailer to the release commit (repeatable), e.g.
+	/// --co-author "Alice <alice@example.com>". Added on top of `commits.co_authored_by` from config.
+	#[arg(long = "co-author", value_name = "NAME <EMAIL>")]
+	pub co_author: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitAnalysis {
+	pub commits: Vec<CommitInfo>,
+	pub breaking_changes: Vec<String>,
+	pub features: Vec<String>,
+	pub fixes: Vec<String>,
+	pub other_changes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitInfo {
+	pub hash: String,
+	pub message: String,
+	pub author: String,
+	pub date: String,
+	pub commit_type: String,
+	pub scope: Option<String>,
+	pub description: String,
+	pub breaking: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionCalculation {
+	pub current_version: String,
+	pub new_version: String,
+	pub version_type: String, // major, minor, patch
+	pub reasoning: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProjectType {
+	Rust(PathBuf),            // Cargo.toml
+	Node(PathBuf),            // package.json
+	Php(PathBuf),             // composer.json
+	Go(PathBuf),              // go.mod
+	Python(PathBuf),          // pyproject.toml
+	ChromeExtension(PathBuf), // manifest.json
+	VersionFile(PathBuf),     // VERSION or version.txt holding only the version
+	Unknown,
+}
+
+pub async fn execute(config: &Config, args: &ReleaseArgs) -> Result<()> {
+	let current_dir = std::env::current_dir()?;
+
+	// Find git repository root
+	let git_root =
+		GitUtils::find_git_root(&current_dir).ok_or_else(|| anyhow::anyhow!("❌ Not in a git repository!"))?;
+
+	// Use git root as working directory for all operations
+	let current_dir = git_root;
+
+	println!("🚀 Starting release process...\n");
+
+	// Detect project type
+	let project_type = detect_project_type(&current_dir)?;
+	println!("📦 Project type detected: {}", format_project_type(&project_type));
+
+	// Get current version from project files or git tags
+	let current_version = get_current_version(&project_type).await?;
+	println!("📌 Current version: {}", current_version);
+
+	// Get latest tag to determine commit range
+	let last_tag = get_latest_tag().await?;
+	let commit_range = if let Some(ref tag) = last_tag {
+		format!("{}..HEAD", tag)
+	} else {
+		"HEAD".to_string()
+	};
+
+	println!(
+		"📋 Analyzing commits since: {}",
+		last_tag.as_deref().unwrap_or("initial commit")
+	);
+
+	// Analyze commits since last tag
+	let commit_analysis = analyze_commits(&commit_range).await?;
+
+	if commit_analysis.commits.is_empty() {
+		println!("✅ No new commits since last release. Nothing to release.");
+		return Ok(());
+	}
+
+	println!("📊 Found {} commits to analyze", commit_analysis.commits.len());
+
+	// Calculate new version
+	let version_calculation = if let Some(forced_version) = &args.force_version {
+		// Accept the conventional leading "v" (v1.2.3) by normalizing it away.
+		let forced = forced_version.strip_prefix('v').unwrap_or(forced_version);
+		if !is_valid_semver(forced) {
+			return Err(anyhow::anyhow!(
+				"❌ Invalid --force-version '{}': must be a semver like 1.2.3 or 1.2.3-beta.1",
+				forced_version
+			));
+		}
+		VersionCalculation {
+			current_version: current_version.clone(),
+			new_version: forced.to_string(),
+			version_type: "forced".to_string(),
+			reasoning: "Version forced by user".to_string(),
+		}
+	} else if last_tag.is_none() {
+		// First release: use current version without bumping
+		VersionCalculation {
+			current_version: current_version.clone(),
+			new_version: current_version.clone(),
+			version_type: "initial".to_string(),
+			reasoning: "First release: using current version without bump".to_string(),
+		}
+	} else {
+		calculate_version(&current_version, &commit_analysis)?
+	};
+
+	println!("\n🎯 Version calculation:");
+	println!("   Current: {}", version_calculation.current_version);
+	println!("   New:     {}", version_calculation.new_version);
+	println!("   Type:    {}", version_calculation.version_type);
+	println!("   Reason:  {}", version_calculation.reasoning);
+
+	let changelog_content =
+		generate_changelog_entry(config, &version_calculation, &commit_analysis, &project_type).await?;
+
+	println!("\n📝 Generated changelog entry:");
+	println!("═══════════════════════════════════");
+	println!("{}", changelog_content);
+	println!("═══════════════════════════════════");
+
+	if args.dry_run {
+		println!("\n🔍 DRY RUN - No changes would be made");
+		return Ok(());
+	}
+
+	// Confirm with user (unless --yes flag is used)
+	if !args.yes {
+		print!("\nProceed with release {}? [y/N] ", version_calculation.new_version);
+		io::stdout().flush()?;
+
+		let mut input = String::new();
+		io::stdin().read_line(&mut input)?;
+
+		if !input.trim().to_lowercase().starts_with('y') {
+			println!("❌ Release cancelled.");
+			return Ok(());
+		}
+	}
+
+	println!("\n🔄 Creating release...");
+
+	// Update project files with new version
+	update_project_version(&project_type, &version_calculation.new_version).await?;
+	println!("✅ Updated project files");
+
+	// Update lock files after version change
+	update_lock_files(&project_type).await?;
+	println!("✅ Updated lock files");
+
+	// Update changelog — resolve against the git root, not the process cwd, so
+	// running `octocode release` from a subdirectory still finds/writes it.
+	let changelog_path = current_dir.join(&args.changelog).to_string_lossy().into_owned();
+	update_changelog(&changelog_path, &changelog_content).await?;
+	println!("✅ Updated {}", args.changelog);
+
+	// Stage changes
+	stage_release_files(&changelog_path, &project_type).await?;
+	println!("✅ Staged release files");
+
+	// Create release commit
+	let commit_message = apply_co_author_trailers(
+		&format!("chore(release): {}", version_calculation.new_version),
+		&resolve_co_authors(config, &args.co_author),
+	);
+	create_commit(&commit_message).await?;
+	println!("✅ Created release commit");
+
+	// Create git tag
+	create_tag(&version_calculation.new_version, &changelog_content).await?;
+	println!("✅ Created git tag: {}", version_calculation.new_version);
+
+	println!("\n🎉 Release {} created successfully!", version_calculation.new_version);
+	let current_branch = Command::new("git")
+		.args(["rev-parse", "--abbrev-ref", "HEAD"])
+		.output()
+		.ok()
+		.filter(|o| o.status.success())
+		.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+		.unwrap_or_else(|| "main".to_string());
+	println!(
+		"💡 Don't forget to push with: git push origin {} --tags",
+		current_branch
+	);
+
+	Ok(())
+}
+
+fn detect_project_type(dir: &Path) -> Result<ProjectType> {
+	if dir.join("Cargo.toml").exists() {
+		Ok(ProjectType::Rust(dir.join("Cargo.toml")))
+	} else if dir.join("package.json").exists() {
+		Ok(ProjectType::Node(dir.join("package.json")))
+	} else if dir.join("composer.json").exists() {
+		Ok(ProjectType::Php(dir.join("composer.json")))
+	} else if dir.join("go.mod").exists() {
+		Ok(ProjectType::Go(dir.join("go.mod")))
+	} else if dir.join("pyproject.toml").exists() {
+		Ok(ProjectType::Python(dir.join("pyproject.toml")))
+	} else if is_extension_manifest(&dir.join("manifest.json")) {
+		Ok(ProjectType::ChromeExtension(dir.join("manifest.json")))
+	} else if let Some(version_file) = find_version_file(dir) {
+		Ok(ProjectType::VersionFile(version_file))
+	} else {
+		Ok(ProjectType::Unknown)
+	}
+}
+
+/// A plain version file at the project root: the convention for projects with no
+/// manifest (shell tools, Makefile or Docker projects), like release-please's
+/// `simple` strategy. Only used when no language manifest is present.
+fn find_version_file(dir: &Path) -> Option<PathBuf> {
+	["VERSION", "version.txt"]
+		.iter()
+		.map(|name| dir.join(name))
+		.find(|path| path.is_file())
+}
+
+/// Version file content with the version replaced, keeping a trailing newline if there was one
+fn update_version_file_content(content: &str, new_version: &str) -> String {
+	let newline = if content.ends_with("\r\n") {
+		"\r\n"
+	} else if content.ends_with('\n') {
+		"\n"
+	} else {
+		""
+	};
+	format!("{}{}", new_version, newline)
+}
+
+fn format_project_type(project_type: &ProjectType) -> String {
+	match project_type {
+		ProjectType::Rust(_) => "Rust (Cargo.toml)".to_string(),
+		ProjectType::Node(_) => "Node.js (package.json)".to_string(),
+		ProjectType::Php(_) => "PHP (composer.json)".to_string(),
+		ProjectType::Go(_) => "Go (go.mod)".to_string(),
+		ProjectType::Python(_) => "Python (pyproject.toml)".to_string(),
+		ProjectType::ChromeExtension(_) => "Chrome extension (manifest.json)".to_string(),
+		ProjectType::VersionFile(path) => format!(
+			"Version file ({})",
+			path.file_name().unwrap_or_default().to_string_lossy()
+		),
+		ProjectType::Unknown => "Unknown (no project file detected)".to_string(),
+	}
+}
+
+async fn get_current_version(project_type: &ProjectType) -> Result<String> {
+	match project_type {
+		ProjectType::Rust(cargo_path) => {
+			let content = fs::read_to_string(cargo_path)?;
+			// Only consider a bare `version = "..."` key inside [package] — not
+			// `version.workspace = true` (no literal version here) and not a
+			// `version` key belonging to some other table earlier in the file.
+			let mut in_package_section = false;
+			for line in content.lines() {
+				let trimmed = line.trim();
+				if trimmed == "[package]" {
+					in_package_section = true;
+					continue;
+				}
+				if trimmed.starts_with('[') && trimmed != "[package]" {
+					in_package_section = false;
+					continue;
+				}
+				if !in_package_section {
+					continue;
+				}
+				let is_version_key = line
+					.split('=')
+					.next()
+					.map(|key| key.trim() == "version")
+					.unwrap_or(false);
+				if is_version_key {
+					if let Some(version) = extract_version_from_line(line) {
+						return Ok(version);
+					}
+				}
+			}
+		}
+		ProjectType::Node(package_path) => {
+			let content = fs::read_to_string(package_path)?;
+			let package: serde_json::Value = serde_json::from_str(&content)?;
+			if let Some(version) = package.get("version").and_then(|v| v.as_str()) {
+				return Ok(version.to_string());
+			}
+		}
+		ProjectType::Php(composer_path) => {
+			let content = fs::read_to_string(composer_path)?;
+			let composer: serde_json::Value = serde_json::from_str(&content)?;
+			if let Some(version) = composer.get("version").and_then(|v| v.as_str()) {
+				return Ok(version.to_string());
+			}
+		}
+		ProjectType::Go(go_mod_path) => {
+			// Check for VERSION file in Go projects
+			let version_file = go_mod_path.parent().unwrap().join("VERSION");
+			if version_file.exists() {
+				let content = fs::read_to_string(version_file)?;
+				return Ok(content.trim().to_string());
+			}
+			// Fall back to git tags if no VERSION file
+		}
+		ProjectType::Python(pyproject_path) => {
+			let content = fs::read_to_string(pyproject_path)?;
+			// Try [project] version = "x.y.z" first, then [tool.poetry] version
+			if let Some(version) = extract_pyproject_version(&content) {
+				return Ok(version);
+			}
+		}
+		ProjectType::ChromeExtension(manifest_path) => {
+			let content = fs::read_to_string(manifest_path)?;
+			let manifest: serde_json::Value = serde_json::from_str(&content)?;
+			if let Some(version) = manifest.get("version").and_then(|v| v.as_str()) {
+				return Ok(version.to_string());
+			}
+		}
+		ProjectType::VersionFile(version_path) => {
+			let content = fs::read_to_string(version_path)?;
+			let version = content.trim();
+			if !version.is_empty() {
+				return Ok(version.to_string());
+			}
+		}
+		ProjectType::Unknown => {}
+	}
+
+	// Fallback to git tags
+	if let Ok(Some(tag)) = get_latest_tag().await {
+		// Remove 'v' prefix if present
+		let version = tag.strip_prefix('v').unwrap_or(&tag);
+		Ok(version.to_string())
+	} else {
+		Ok("0.1.0".to_string())
+	}
+}
+
+fn extract_version_from_line(line: &str) -> Option<String> {
+	// Extract version from line like: version = "1.0.0"
+	if let Some(start) = line.find('"') {
+		if let Some(end) = line[start + 1..].find('"') {
+			return Some(line[start + 1..start + 1 + end].to_string());
+		}
+	}
+	// Try single quotes: version = '1.0.0'
+	if let Some(start) = line.find('\'') {
+		if let Some(end) = line[start + 1..].find('\'') {
+			return Some(line[start + 1..start + 1 + end].to_string());
+		}
+	}
+	None
+}
+
+async fn get_latest_tag() -> Result<Option<String>> {
+	let output = Command::new("git")
+		.args(["describe", "--tags", "--abbrev=0"])
+		.output()?;
+
+	if output.status.success() {
+		let tag = String::from_utf8(output.stdout)?;
+		Ok(Some(tag.trim().to_string()))
+	} else {
+		Ok(None)
+	}
+}
+
+async fn analyze_commits(commit_range: &str) -> Result<CommitAnalysis> {
+	let output = Command::new("git")
+		.args(["log", "--format=%H|%an|%ad|%s", "--date=iso", commit_range])
+		.output()?;
+
+	if !output.status.success() {
+		return Err(anyhow::anyhow!(
+			"Failed to get commit log: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
+
+	let log_output = String::from_utf8(output.stdout)?;
+	let mut commits = Vec::new();
+	let mut breaking_changes = Vec::new();
+	let mut features = Vec::new();
+	let mut fixes = Vec::new();
+	let mut other_changes = Vec::new();
+
+	for line in log_output.lines() {
+		if line.trim().is_empty() {
+			continue;
+		}
+
+		let parts: Vec<&str> = line.split('|').collect();
+		if parts.len() < 4 {
+			continue;
+		}
+
+		let hash = parts[0].to_string();
+		let author = parts[1].to_string();
+		let date = parts[2].to_string();
+		// A commit subject containing its own '|' produces more than 4 parts;
+		// rejoin the remainder instead of truncating at the first embedded pipe.
+		let message = parts[3..].join("|");
+
+		let (commit_type, scope, description, breaking) = parse_conventional_commit(&message);
+
+		let commit_info = CommitInfo {
+			hash: hash.clone(),
+			message: message.clone(),
+			author,
+			date,
+			commit_type: commit_type.clone(),
+			scope,
+			description: description.clone(),
+			breaking,
+		};
+
+		commits.push(commit_info);
+
+		// Categorize changes
+		if breaking {
+			breaking_changes.push(format!("**{}**: {}", commit_type, description));
+		} else {
+			match commit_type.as_str() {
+				"feat" => features.push(description),
+				"fix" => fixes.push(description),
+				_ => other_changes.push(format!("{}: {}", commit_type, description)),
+			}
+		}
+	}
+
+	Ok(CommitAnalysis {
+		commits,
+		breaking_changes,
+		features,
+		fixes,
+		other_changes,
+	})
+}
+
+/// Validates that `version` is safe to use as a git tag name and as a bare
+/// TOML/JSON string value: digits.digits.digits core with optional
+/// -prerelease/+build metadata, restricted to ASCII alphanumerics/'.'/'-'/'+'.
+/// Rejects a leading '-' (would be parsed as a git flag) and quote/whitespace
+/// characters (would break out of a TOML/JSON string literal).
+fn is_valid_semver(version: &str) -> bool {
+	let core_end = version.find(['-', '+']).unwrap_or(version.len());
+	let core = &version[..core_end];
+	let core_valid = core.split('.').collect::<Vec<_>>().len() == 3
+		&& core
+			.split('.')
+			.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+	if !core_valid {
+		return false;
+	}
+
+	// Optional -prerelease / +build must be dot-separated, non-empty ASCII
+	// alphanumeric/hyphen identifiers (semver 2.0.0) — rejects "1.2.3-",
+	// "1.2.3-a..b" and similar, which would otherwise flow into git tags
+	// and manifest writes.
+	let ident_ok = |s: &str| {
+		s.split('.')
+			.all(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+	};
+	let rest = &version[core_end..];
+	let (pre, build) = match rest.strip_prefix('-') {
+		Some(r) => match r.split_once('+') {
+			Some((p, b)) => (Some(p), Some(b)),
+			None => (Some(r), None),
+		},
+		None => (None, rest.strip_prefix('+')),
+	};
+	pre.is_none_or(ident_ok) && build.is_none_or(ident_ok)
+}
+
+fn parse_conventional_commit(message: &str) -> (String, Option<String>, String, bool) {
+	let breaking_marker = message.contains("BREAKING CHANGE");
+
+	// Try to parse conventional commit format: type(scope): description
+	if let Some(colon_pos) = message.find(':') {
+		let prefix = &message[..colon_pos];
+		let description = message[colon_pos + 1..].trim().to_string();
+		// Per the conventional-commits spec, `!` only signals a breaking change
+		// immediately before the colon (e.g. `feat(api)!:`), not anywhere in the
+		// message — a description like "prevent panic!() in parser" isn't breaking.
+		let breaking = breaking_marker || prefix.trim_end().ends_with('!');
+
+		if let Some(paren_start) = prefix.find('(') {
+			if let Some(paren_end) = prefix[paren_start..].find(')').map(|p| p + paren_start) {
+				let commit_type = prefix[..paren_start].trim().replace('!', "");
+				let scope = Some(prefix[paren_start + 1..paren_end].to_string());
+				return (commit_type, scope, description, breaking);
+			}
+		}
+
+		let commit_type = prefix.trim().replace('!', "");
+		return (commit_type, None, description, breaking);
+	}
+
+	let breaking = breaking_marker;
+
+	// Fallback: try to detect type from message start
+	let lower_message = message.to_lowercase();
+	let commit_type = if lower_message.starts_with("feat") {
+		"feat"
+	} else if lower_message.starts_with("fix") {
+		"fix"
+	} else if lower_message.starts_with("docs") {
+		"docs"
+	} else if lower_message.starts_with("style") {
+		"style"
+	} else if lower_message.starts_with("refactor") {
+		"refactor"
+	} else if lower_message.starts_with("test") {
+		"test"
+	} else {
+		"chore"
+	};
+
+	(commit_type.to_string(), None, message.to_string(), breaking)
+}
+
+/// Bump the version from the conventional-commit types since the last tag.
+/// Deterministic on purpose: semver is a rule, not a judgement call. While the
+/// major version is 0 a breaking change bumps minor, matching the pre-1.0
+/// convention of release-please (`bump-minor-pre-major`) and cargo.
+fn calculate_version(current_version: &str, analysis: &CommitAnalysis) -> Result<VersionCalculation> {
+	// Bump only the major.minor.patch core; a pre-release/build suffix (e.g.
+	// "1.2.3-beta.1") is valid semver but isn't part of what gets incremented.
+	let core_version = current_version.split(['-', '+']).next().unwrap_or(current_version);
+	let parts: Vec<&str> = core_version.split('.').collect();
+	if parts.len() != 3 {
+		return Err(anyhow::anyhow!("Invalid version format: {}", current_version));
+	}
+
+	let major: u32 = parts[0].parse().context("Invalid major version")?;
+	let minor: u32 = parts[1].parse().context("Invalid minor version")?;
+	let patch: u32 = parts[2].parse().context("Invalid patch version")?;
+
+	let (new_version, version_type, reasoning) = if !analysis.breaking_changes.is_empty() {
+		if major == 0 {
+			(
+				format!("0.{}.0", minor + 1),
+				"minor",
+				"Breaking changes detected; minor bump while major version is 0",
+			)
+		} else {
+			(format!("{}.0.0", major + 1), "major", "Breaking changes detected")
+		}
+	} else if !analysis.features.is_empty() {
+		(format!("{}.{}.0", major, minor + 1), "minor", "New features added")
+	} else {
+		(
+			format!("{}.{}.{}", major, minor, patch + 1),
+			"patch",
+			"Fixes and maintenance only",
+		)
+	};
+
+	Ok(VersionCalculation {
+		current_version: current_version.to_string(),
+		new_version,
+		version_type: version_type.to_string(),
+		reasoning: reasoning.to_string(),
+	})
+}
+
+/// Deterministic per-commit sections grouped by impact. Every line here comes
+/// from git, never from the model, so hashes and descriptions are exact.
+fn changelog_sections(analysis: &CommitAnalysis) -> String {
+	let mut breaking_commits = Vec::new();
+	let mut feature_commits = Vec::new();
+	let mut improvement_commits = Vec::new();
+	let mut fix_commits = Vec::new();
+	let mut docs_commits = Vec::new();
+	let mut other_count = 0;
+
+	for commit in &analysis.commits {
+		if commit.breaking {
+			breaking_commits.push(commit);
+			continue;
+		}
+		let is_deps = commit.scope.as_deref() == Some("deps") || commit.description.to_lowercase().starts_with("bump ");
+		match commit.commit_type.as_str() {
+			"feat" => feature_commits.push(commit),
+			"fix" => fix_commits.push(commit),
+			// Meaningful refactors/improvements, but not pure dep bumps
+			"perf" | "refactor" | "style" => improvement_commits.push(commit),
+			// chore/ci/build/test with a real scope are improvements; deps/tooling noise is only counted
+			"chore" | "ci" | "build" | "test" if !is_deps && commit.scope.is_some() => improvement_commits.push(commit),
+			"docs" => docs_commits.push(commit),
+			_ => other_count += 1,
+		}
+	}
+
+	let mut content = String::new();
+	let sections = [
+		("### 🚨 Breaking Changes\n\n", &breaking_commits),
+		("### ✨ New Features & Enhancements\n\n", &feature_commits),
+		("### 🔧 Improvements & Optimizations\n\n", &improvement_commits),
+		("### 🐛 Bug Fixes & Stability\n\n", &fix_commits),
+		("### 📚 Documentation & Examples\n\n", &docs_commits),
+	];
+	for (heading, commits) in sections {
+		if commits.is_empty() {
+			continue;
+		}
+		content.push_str(heading);
+		for commit in commits {
+			content.push_str(&format_enhanced_commit_entry(commit));
+		}
+		content.push('\n');
+	}
+
+	if other_count > 0 {
+		content.push_str(&format!(
+			"### 🔄 Other Changes\n\n\
+			{} maintenance, dependency, and tooling update{} not listed individually.\n\n",
+			other_count,
+			if other_count == 1 { "" } else { "s" }
+		));
+	}
+
+	content
+}
+
+fn format_enhanced_commit_entry(commit: &CommitInfo) -> String {
+	let short_hash = &commit.hash[..8];
+	let mut entry = String::new();
+
+	// Use description if it's different from the full message, otherwise use the full message
+	let display_text = if commit.description != commit.message && !commit.description.is_empty() {
+		&commit.description
+	} else {
+		&commit.message
+	};
+
+	// Enhanced formatting with scope and better presentation
+	if let Some(ref scope) = commit.scope {
+		entry.push_str(&format!("- **{}**: {} `{}`\n", scope, display_text, short_hash));
+	} else {
+		entry.push_str(&format!("- {} `{}`\n", display_text, short_hash));
+	}
+
+	entry
+}
+
+/// Build the changelog entry: header, an LLM summary when the release has
+/// user-facing changes, then the deterministic per-commit sections.
+async fn generate_changelog_entry(
+	config: &Config,
+	version: &VersionCalculation,
+	analysis: &CommitAnalysis,
+	project_type: &ProjectType,
+) -> Result<String> {
+	let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
+	let mut entry = format!("## [{}] - {}\n\n", version.new_version, date);
+
+	// Dependency bumps, CI and docs-only releases get no prose: the model can
+	// only produce filler ("keeps the project current") for them.
+	if has_user_facing_changes(analysis) {
+		let summary = generate_ai_changelog_summary(config, analysis, project_type).await?;
+		if !summary.is_empty() {
+			entry.push_str("### 📋 Release Summary\n\n");
+			entry.push_str(&summary);
+			entry.push_str("\n\n");
+		}
+	}
+
+	entry.push_str(&changelog_sections(analysis));
+	Ok(entry)
+}
+
+fn has_user_facing_changes(analysis: &CommitAnalysis) -> bool {
+	analysis
+		.commits
+		.iter()
+		.any(|c| c.breaking || matches!(c.commit_type.as_str(), "feat" | "fix" | "perf"))
+}
+
+async fn gather_project_context(project_type: &ProjectType) -> Result<(String, String)> {
+	let (name, description) = match project_type {
+		ProjectType::Rust(cargo_path) => {
+			let content = fs::read_to_string(cargo_path).unwrap_or_default();
+			let name = extract_field_from_toml(&content, "name").unwrap_or("Unknown Project".to_string());
+			let description = extract_field_from_toml(&content, "description").unwrap_or("Rust project".to_string());
+			(name, description)
+		}
+		ProjectType::Node(package_path) => {
+			let content = fs::read_to_string(package_path).unwrap_or_default();
+			if let Ok(package) = serde_json::from_str::<serde_json::Value>(&content) {
+				let name = package
+					.get("name")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Unknown Project")
+					.to_string();
+				let description = package
+					.get("description")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Node.js project")
+					.to_string();
+				(name, description)
+			} else {
+				("Unknown Project".to_string(), "Node.js project".to_string())
+			}
+		}
+		ProjectType::Php(composer_path) => {
+			let content = fs::read_to_string(composer_path).unwrap_or_default();
+			if let Ok(composer) = serde_json::from_str::<serde_json::Value>(&content) {
+				let name = composer
+					.get("name")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Unknown Project")
+					.to_string();
+				let description = composer
+					.get("description")
+					.and_then(|v| v.as_str())
+					.unwrap_or("PHP project")
+					.to_string();
+				(name, description)
+			} else {
+				("Unknown Project".to_string(), "PHP project".to_string())
+			}
+		}
+		ProjectType::Go(_) => {
+			// Try to get module name from go.mod
+			let current_dir = std::env::current_dir().unwrap_or_default();
+			let go_mod_path = current_dir.join("go.mod");
+			if let Ok(content) = fs::read_to_string(&go_mod_path) {
+				let name = content
+					.lines()
+					.find(|line| line.starts_with("module "))
+					.and_then(|line| line.split_whitespace().nth(1))
+					.unwrap_or("Unknown Project")
+					.to_string();
+				(name, "Go project".to_string())
+			} else {
+				("Unknown Project".to_string(), "Go project".to_string())
+			}
+		}
+		ProjectType::Python(pyproject_path) => {
+			let content = fs::read_to_string(pyproject_path).unwrap_or_default();
+			let name = extract_field_from_toml(&content, "name").unwrap_or("Unknown Project".to_string());
+			let description = extract_field_from_toml(&content, "description").unwrap_or("Python project".to_string());
+			(name, description)
+		}
+		ProjectType::ChromeExtension(manifest_path) => {
+			let content = fs::read_to_string(manifest_path).unwrap_or_default();
+			if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) {
+				let name = manifest
+					.get("name")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Unknown Project")
+					.to_string();
+				let description = manifest
+					.get("description")
+					.and_then(|v| v.as_str())
+					.unwrap_or("Chrome extension")
+					.to_string();
+				(name, description)
+			} else {
+				("Unknown Project".to_string(), "Chrome extension".to_string())
+			}
+		}
+		ProjectType::VersionFile(version_path) => {
+			// No manifest to read: the project directory name is the best name we have
+			let name = version_path
+				.parent()
+				.and_then(|dir| dir.file_name())
+				.map(|name| name.to_string_lossy().into_owned())
+				.unwrap_or("Unknown Project".to_string());
+			(name, "Software project".to_string())
+		}
+		ProjectType::Unknown => ("Unknown Project".to_string(), "Software project".to_string()),
+	};
+	Ok((name, description))
+}
+
+fn extract_field_from_toml(content: &str, field: &str) -> Option<String> {
+	for line in content.lines() {
+		let trimmed = line.trim();
+		if trimmed.starts_with(&format!("{} =", field)) {
+			if let Some(start) = line.find('"') {
+				if let Some(end) = line[start + 1..].find('"') {
+					return Some(line[start + 1..start + 1 + end].to_string());
+				}
+			}
+		}
+	}
+	None
+}
+
+/// Sampling temperature for the release summary; low keeps it factual.
+const LLM_TEMPERATURE: f32 = 0.1;
+/// Rounds of draft, audit, redraft-with-feedback before the release aborts.
+const MAX_AUDIT_ROUNDS: usize = 2;
+
+const SUMMARY_AUDIT_RULES: &str =
+	"The source is the list of commit messages in this release, grouped by kind. A claim is unsupported when it:
+- describes a change, capability or fix that no listed commit states;
+- calls something new, added or introduced although no commit under NEW FEATURES says so;
+- states a benefit, motivation or improvement that no commit message gives;
+- names a component or area that no commit mentions.";
+
+const SUMMARY_SYSTEM_PROMPT: &str = "You write the summary paragraph of a software changelog entry. Respond with a single JSON object and nothing else: {\"summary\": string}
+
+Rules:
+- One to three plain sentences, at most 60 words. Written for people who use the project, not for its developers.
+- Cover only the commits listed. Never state a benefit, capability or motivation that a commit does not say.
+- Only commits under NEW FEATURES may be called new, added or introduced. Fixes and refactors are changes to existing behavior.
+- Group related commits into one clause instead of listing each.
+- Ignore dependency bumps, CI, formatting and release chores.
+- No commit hashes, file names, markdown, emoji, or opening filler such as \"This release\".
+
+Example: \"Indexing now checkpoints after each stored batch, so an interrupted run resumes instead of restarting. Search results can be reranked with a configurable thinking budget.\"";
+
+/// Ask the model for the prose summary. Commit hashes are deliberately left out
+/// of the prompt: the per-commit sections already carry exact hashes, and a
+/// model asked to repeat them shortens or invents them.
+async fn generate_ai_changelog_summary(
+	config: &Config,
+	analysis: &CommitAnalysis,
+	project_type: &ProjectType,
+) -> Result<String> {
+	let (project_name, project_description) = gather_project_context(project_type).await?;
+
+	let mut breaking_msgs = Vec::new();
+	let mut feature_msgs = Vec::new();
+	let mut fix_msgs = Vec::new();
+	let mut other_msgs = Vec::new();
+	for commit in &analysis.commits {
+		if commit.breaking {
+			breaking_msgs.push(commit.message.as_str());
+		} else {
+			match commit.commit_type.as_str() {
+				"feat" => feature_msgs.push(commit.message.as_str()),
+				"fix" => fix_msgs.push(commit.message.as_str()),
+				_ => other_msgs.push(commit.message.as_str()),
+			}
+		}
+	}
+
+	let mut prompt = format!("PROJECT: {} - {}\n\n", project_name, project_description);
+	for (heading, msgs) in [
+		("BREAKING CHANGES", &breaking_msgs),
+		("NEW FEATURES", &feature_msgs),
+		("BUG FIXES", &fix_msgs),
+		("OTHER CHANGES", &other_msgs),
+	] {
+		if msgs.is_empty() {
+			continue;
+		}
+		prompt.push_str(heading);
+		prompt.push_str(":\n");
+		for msg in msgs {
+			prompt.push_str("- ");
+			prompt.push_str(msg);
+			prompt.push('\n');
+		}
+		prompt.push('\n');
+	}
+
+	let client = LlmClient::from_config(config, ModelPurpose::Release)?.with_temperature(LLM_TEMPERATURE);
+	let schema = serde_json::json!({
+		"type": "object",
+		"properties": {"summary": {"type": "string"}},
+		"required": ["summary"]
+	});
+
+	// Draft, audit against the commit list, redraft with the rejections as
+	// feedback. The auditor only ever sees the commit list, never a rejected draft.
+	let mut draft_prompt = prompt.clone();
+	let mut rejected = Vec::new();
+	for _ in 0..MAX_AUDIT_ROUNDS {
+		let messages = vec![Message::system(SUMMARY_SYSTEM_PROMPT), Message::user(&draft_prompt)];
+		let value = client.chat_completion_json(messages, Some(schema.clone())).await?;
+		let summary = value
+			.get("summary")
+			.and_then(|s| s.as_str())
+			.map(plain_line)
+			.ok_or_else(|| anyhow::anyhow!("LLM returned no summary field: {}", value))?;
+		rejected = client
+			.unsupported_claims(SUMMARY_AUDIT_RULES, &prompt, &summary)
+			.await?;
+		if rejected.is_empty() {
+			return Ok(summary);
+		}
+		println!("🔍 Audit rejected the summary; redrafting without these claims:");
+		for claim in &rejected {
+			println!("  • {}", claim);
+		}
+		draft_prompt.push_str(&format!(
+			"\n\nA previous summary was rejected because the commits do not support these claims. Do not repeat them; state only what the commits say:\n- {}\n\nRejected summary:\n{}",
+			rejected.join("\n- "),
+			summary
+		));
+	}
+	Err(anyhow::anyhow!(
+		"Release summary still claims more than the commits say after {} drafts: {}",
+		MAX_AUDIT_ROUNDS,
+		rejected.join("; ")
+	))
+}
+
+async fn update_project_version(project_type: &ProjectType, new_version: &str) -> Result<()> {
+	let project_root = match project_type {
+		ProjectType::Rust(p)
+		| ProjectType::Node(p)
+		| ProjectType::Php(p)
+		| ProjectType::Go(p)
+		| ProjectType::Python(p)
+		| ProjectType::ChromeExtension(p)
+		| ProjectType::VersionFile(p) => p.parent().unwrap().to_path_buf(),
+		ProjectType::Unknown => std::env::current_dir()?,
+	};
+
+	// Validate before writing anything so a version Chrome rejects never leaves
+	// the project half-bumped.
+	let extension_manifests = find_extension_manifests(&project_root);
+	if !extension_manifests.is_empty() && !is_valid_extension_version(new_version) {
+		return Err(anyhow::anyhow!(
+			"❌ Version '{}' is not valid in a Chrome extension manifest: it must be 1-4 dot-separated integers (0-65535) with no pre-release or build suffix",
+			new_version
+		));
+	}
+
+	match project_type {
+		ProjectType::Rust(cargo_path) => {
+			let content = fs::read_to_string(cargo_path)?;
+			let updated_content = update_cargo_version(&content, new_version)?;
+			fs::write(cargo_path, updated_content)?;
+		}
+		ProjectType::Node(package_path) => {
+			let content = fs::read_to_string(package_path)?;
+			let updated_content = update_json_version(&content, new_version, "version")?;
+			fs::write(package_path, updated_content)?;
+		}
+		ProjectType::Php(composer_path) => {
+			let content = fs::read_to_string(composer_path)?;
+			let updated_content = update_json_version(&content, new_version, "version")?;
+			fs::write(composer_path, updated_content)?;
+		}
+		ProjectType::Go(go_mod_path) => {
+			// For Go projects, create/update a VERSION file in the same directory as go.mod
+			let version_file = go_mod_path.parent().unwrap().join("VERSION");
+			fs::write(version_file, new_version)?;
+		}
+		ProjectType::Python(pyproject_path) => {
+			let content = fs::read_to_string(pyproject_path)?;
+			let updated_content = update_pyproject_version(&content, new_version)?;
+			fs::write(pyproject_path, updated_content)?;
+		}
+		ProjectType::ChromeExtension(_) => {
+			// The root manifest is rewritten below with any nested extension manifests
+		}
+		ProjectType::VersionFile(version_path) => {
+			let content = fs::read_to_string(version_path)?;
+			fs::write(version_path, update_version_file_content(&content, new_version))?;
+		}
+		ProjectType::Unknown => {
+			// No project file to update
+		}
+	}
+
+	// Update server.json if it exists (MCP publishing metadata)
+	let server_json_path = match project_type {
+		ProjectType::Rust(p)
+		| ProjectType::Node(p)
+		| ProjectType::Php(p)
+		| ProjectType::Go(p)
+		| ProjectType::Python(p)
+		| ProjectType::ChromeExtension(p)
+		| ProjectType::VersionFile(p) => p.parent().unwrap().join("server.json"),
+		ProjectType::Unknown => std::env::current_dir()?.join("server.json"),
+	};
+	if server_json_path.exists() {
+		let content = fs::read_to_string(&server_json_path)?;
+		let updated = update_json_version(&content, new_version, "version")?;
+		fs::write(&server_json_path, updated)?;
+	}
+
+	// Update Chrome extension manifests (root, public/, src/, ...)
+	for manifest_path in extension_manifests {
+		let content = fs::read_to_string(&manifest_path)?;
+		let updated = update_json_version(&content, new_version, "version")?;
+		fs::write(&manifest_path, updated)?;
+		println!(
+			"🧩 Updated {}",
+			manifest_path
+				.strip_prefix(&project_root)
+				.unwrap_or(&manifest_path)
+				.display()
+		);
+	}
+
+	// Update Info.plist files if they exist (macOS/iOS apps)
+	for plist_path in find_info_plists(&project_root) {
+		let content = fs::read_to_string(&plist_path)?;
+		if let Ok(updated) = update_plist_version(&content, new_version) {
+			fs::write(&plist_path, updated)?;
+			println!(
+				"📱 Updated {}",
+				plist_path.strip_prefix(&project_root).unwrap_or(&plist_path).display()
+			);
+		}
+	}
+
+	Ok(())
+}
+
+async fn update_lock_files(project_type: &ProjectType) -> Result<()> {
+	match project_type {
+		ProjectType::Rust(manifest) => {
+			// Update Cargo.lock by running cargo check
+			println!("🔄 Updating Cargo.lock...");
+			let dir = manifest.parent().unwrap_or(Path::new("."));
+			let output = Command::new("cargo")
+				.args(["check", "--quiet"])
+				.current_dir(dir)
+				.output()?;
+
+			if !output.status.success() {
+				return Err(anyhow::anyhow!(
+					"Failed to update Cargo.lock: {}",
+					String::from_utf8_lossy(&output.stderr)
+				));
+			}
+		}
+		ProjectType::Node(manifest) => {
+			// Update package-lock.json or yarn.lock
+			println!("🔄 Updating Node.js lock file...");
+
+			let dir = manifest.parent().unwrap_or(Path::new("."));
+			if dir.join("yarn.lock").exists() {
+				let output = Command::new("yarn")
+					.args(["install", "--frozen-lockfile"])
+					.current_dir(dir)
+					.output()?;
+
+				if !output.status.success() {
+					return Err(anyhow::anyhow!(
+						"Failed to update yarn.lock: {}",
+						String::from_utf8_lossy(&output.stderr)
+					));
+				}
+			} else {
+				let output = Command::new("npm")
+					.args(["install", "--package-lock-only"])
+					.current_dir(dir)
+					.output()?;
+
+				if !output.status.success() {
+					return Err(anyhow::anyhow!(
+						"Failed to update package-lock.json: {}",
+						String::from_utf8_lossy(&output.stderr)
+					));
+				}
+			}
+		}
+		ProjectType::Php(manifest) => {
+			// Update composer.lock
+			println!("🔄 Updating composer.lock...");
+			let dir = manifest.parent().unwrap_or(Path::new("."));
+			let output = Command::new("composer")
+				.args(["update", "--lock"])
+				.current_dir(dir)
+				.output()?;
+
+			if !output.status.success() {
+				return Err(anyhow::anyhow!(
+					"Failed to update composer.lock: {}",
+					String::from_utf8_lossy(&output.stderr)
+				));
+			}
+		}
+		ProjectType::Go(manifest) => {
+			// Update go.sum and go.mod
+			println!("🔄 Updating go.mod and go.sum...");
+			let dir = manifest.parent().unwrap_or(Path::new("."));
+			let output = Command::new("go").args(["mod", "tidy"]).current_dir(dir).output()?;
+
+			if !output.status.success() {
+				return Err(anyhow::anyhow!(
+					"Failed to update go.mod/go.sum: {}",
+					String::from_utf8_lossy(&output.stderr)
+				));
+			}
+		}
+		ProjectType::Python(manifest) => {
+			// Update uv.lock if using uv, otherwise no lock file to update
+			println!("🔄 Updating Python lock file...");
+			let dir = manifest.parent().unwrap_or(Path::new("."));
+			if dir.join("uv.lock").exists() {
+				let output = Command::new("uv").args(["lock"]).current_dir(dir).output()?;
+				if !output.status.success() {
+					return Err(anyhow::anyhow!(
+						"Failed to update uv.lock: {}",
+						String::from_utf8_lossy(&output.stderr)
+					));
+				}
+			}
+		}
+		ProjectType::ChromeExtension(_) | ProjectType::VersionFile(_) | ProjectType::Unknown => {
+			// No lock file to update
+		}
+	}
+	Ok(())
+}
+
+fn extract_pyproject_version(content: &str) -> Option<String> {
+	// Look for version under [project] or [tool.poetry] sections
+	let mut in_target_section = false;
+	for line in content.lines() {
+		let trimmed = line.trim();
+		if trimmed == "[project]" || trimmed == "[tool.poetry]" {
+			in_target_section = true;
+			continue;
+		}
+		if trimmed.starts_with('[') {
+			in_target_section = false;
+			continue;
+		}
+		if in_target_section && trimmed.starts_with("version") && trimmed.contains('=') {
+			if let Some(version) = extract_version_from_line(trimmed) {
+				return Some(version);
+			}
+		}
+	}
+	None
+}
+
+fn update_pyproject_version(content: &str, new_version: &str) -> Result<String> {
+	// Replace version under [project] or [tool.poetry] section, preserving formatting
+	let mut result = String::new();
+	let mut in_target_section = false;
+	let mut replaced = false;
+	for line in content.lines() {
+		let trimmed = line.trim();
+		if trimmed == "[project]" || trimmed == "[tool.poetry]" {
+			in_target_section = true;
+		} else if trimmed.starts_with('[') {
+			in_target_section = false;
+		}
+		if in_target_section && !replaced && trimmed.starts_with("version") && trimmed.contains('=') {
+			// Preserve indentation and quote style
+			if let Some(eq_pos) = line.find('=') {
+				let prefix = &line[..eq_pos + 1];
+				let after = line[eq_pos + 1..].trim_start();
+				let quote = if after.starts_with('"') { '"' } else { '\'' };
+				result.push_str(&format!("{} {}{}{}", prefix, quote, new_version, quote));
+				replaced = true;
+			} else {
+				result.push_str(line);
+			}
+		} else {
+			result.push_str(line);
+		}
+		result.push('\n');
+	}
+	Ok(result)
+}
+fn update_cargo_version(content: &str, new_version: &str) -> Result<String> {
+	// Find the version line and replace only the version value, preserving all formatting
+	let mut result = content.to_string();
+
+	// Look for the version line in the [package] section
+	let lines: Vec<&str> = content.lines().collect();
+	let mut in_package_section = false;
+
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+
+		// Check if we're entering the [package] section
+		if trimmed == "[package]" {
+			in_package_section = true;
+			continue;
+		}
+
+		// Check if we're leaving the [package] section
+		if trimmed.starts_with('[') && trimmed != "[package]" {
+			in_package_section = false;
+			continue;
+		}
+
+		// Look for version line in [package] section. Match only a bare `version =`
+		// key, not `version.workspace = true` (a distinct, valid Cargo.toml key that
+		// starts with "version" too but must be left untouched).
+		let is_version_key = line
+			.split('=')
+			.next()
+			.map(|key| key.trim() == "version")
+			.unwrap_or(false);
+		if in_package_section && is_version_key {
+			if let Some(equals_pos) = line.find('=') {
+				let prefix = &line[..equals_pos + 1];
+				let suffix_part = &line[equals_pos + 1..];
+
+				// Find the start of the value (skip whitespace)
+				let value_start = suffix_part.len() - suffix_part.trim_start().len();
+				let value_part = suffix_part.trim_start();
+
+				// Determine quote style and extract current version
+				let (quote_char, new_value_part) = if value_part.starts_with('"') {
+					('"', format!("\"{}\"", new_version))
+				} else if value_part.starts_with('\'') {
+					('\'', format!("'{}'", new_version))
+				} else {
+					// No quotes, just replace the value
+					(' ', new_version.to_string())
+				};
+
+				// Find the end of the current version value
+				let value_end = if quote_char == ' ' {
+					// For unquoted values, find the end of the word
+					value_part.find(char::is_whitespace).unwrap_or(value_part.len())
+				} else {
+					// For quoted values, find the closing quote
+					if let Some(end_quote) = value_part[1..].find(quote_char) {
+						end_quote + 2 // +1 for the quote, +1 for 0-based indexing
+					} else {
+						value_part.len()
+					}
+				};
+
+				// Construct the new line
+				let before_value = &suffix_part[..value_start];
+				let after_value = &suffix_part[value_start + value_end..];
+				let new_line = format!("{}{}{}{}", prefix, before_value, new_value_part, after_value);
+
+				// Replace the entire line in the result
+				let line_start = lines[..i].iter().map(|l| l.len() + 1).sum::<usize>();
+				let line_end = line_start + line.len();
+				result.replace_range(line_start..line_end, &new_line);
+				break;
+			}
+		}
+	}
+
+	Ok(result)
+}
+
+fn update_json_version(content: &str, new_version: &str, field_name: &str) -> Result<String> {
+	// Find and replace the version field value while preserving all formatting
+	let field_pattern = format!("\"{}\"", field_name);
+	let mut result = content.to_string();
+
+	// Find the field in the JSON
+	if let Some(field_start) = content.find(&field_pattern) {
+		// Find the colon after the field name
+		let search_start = field_start + field_pattern.len();
+		if let Some(colon_pos) = content[search_start..].find(':') {
+			let colon_abs_pos = search_start + colon_pos;
+
+			// Find the start of the value (skip whitespace after colon)
+			let after_colon = &content[colon_abs_pos + 1..];
+			let value_start_offset = after_colon.len() - after_colon.trim_start().len();
+			let value_start = colon_abs_pos + 1 + value_start_offset;
+
+			// Find the actual value part
+			let value_part = after_colon.trim_start();
+
+			if let Some(stripped) = value_part.strip_prefix('"') {
+				// Handle double-quoted string
+				if let Some(end_quote) = stripped.find('"') {
+					let value_end = value_start + 1 + end_quote + 1; // +1 for opening quote, +1 for closing quote
+					let new_value = format!("\"{}\"", new_version);
+					result.replace_range(value_start..value_end, &new_value);
+				}
+			} else if let Some(stripped) = value_part.strip_prefix('\'') {
+				// Handle single-quoted string (less common in JSON but possible)
+				if let Some(end_quote) = stripped.find('\'') {
+					let value_end = value_start + 1 + end_quote + 1;
+					let new_value = format!("'{}'", new_version);
+					result.replace_range(value_start..value_end, &new_value);
+				}
+			}
+		}
+	}
+
+	Ok(result)
+}
+
+/// Find Info.plist files in the project directory (macOS/iOS apps).
+/// Searches common locations and skips build artifacts.
+fn find_info_plists(project_root: &Path) -> Vec<PathBuf> {
+	find_in_root_and_subdirs(project_root, "Info.plist")
+}
+
+/// Find Chrome extension manifests (manifest.json carrying `manifest_version`)
+/// in the project root and its immediate subdirectories (public/, src/, ...).
+/// The `manifest_version` check excludes PWA web app manifests.
+fn find_extension_manifests(project_root: &Path) -> Vec<PathBuf> {
+	find_in_root_and_subdirs(project_root, "manifest.json")
+		.into_iter()
+		.filter(|path| is_extension_manifest(path))
+		.collect()
+}
+
+fn is_extension_manifest(path: &Path) -> bool {
+	fs::read_to_string(path)
+		.ok()
+		.and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+		.is_some_and(|manifest| manifest.get("manifest_version").is_some())
+}
+
+/// Chrome accepts 1-4 dot-separated integers in 0..=65535, without leading zeros.
+fn is_valid_extension_version(version: &str) -> bool {
+	let parts: Vec<&str> = version.split('.').collect();
+	(1..=4).contains(&parts.len())
+		&& parts.iter().all(|p| {
+			!p.is_empty()
+				&& p.chars().all(|c| c.is_ascii_digit())
+				&& (*p == "0" || !p.starts_with('0'))
+				&& p.parse::<u16>().is_ok()
+		})
+}
+
+/// Find `file_name` in the project root and its immediate subdirectories,
+/// skipping build artifacts, dependencies, and hidden directories.
+fn find_in_root_and_subdirs(project_root: &Path, file_name: &str) -> Vec<PathBuf> {
+	let mut results = Vec::new();
+
+	let root_file = project_root.join(file_name);
+	if root_file.exists() {
+		results.push(root_file);
+	}
+
+	if let Ok(entries) = fs::read_dir(project_root) {
+		for entry in entries.flatten() {
+			let path = entry.path();
+			if !path.is_dir() {
+				continue;
+			}
+			let name = entry.file_name();
+			let name = name.to_string_lossy();
+			if name.starts_with('.')
+				|| name == "target"
+				|| name == "build"
+				|| name == "dist"
+				|| name == "node_modules"
+				|| name == "vendor"
+				|| name == "DerivedData"
+				|| name == "Pods"
+			{
+				continue;
+			}
+			let file = path.join(file_name);
+			if file.exists() {
+				results.push(file);
+			}
+		}
+	}
+
+	results
+}
+
+/// Update CFBundleShortVersionString in an Info.plist XML file.
+fn update_plist_version(content: &str, new_version: &str) -> Result<String> {
+	let key = "CFBundleShortVersionString";
+	let key_tag = format!("<key>{}</key>", key);
+
+	let key_pos = content
+		.find(&key_tag)
+		.ok_or_else(|| anyhow::anyhow!("CFBundleShortVersionString not found in Info.plist"))?;
+
+	let after_key = &content[key_pos + key_tag.len()..];
+
+	let string_open = after_key
+		.find("<string>")
+		.ok_or_else(|| anyhow::anyhow!("Missing <string> after CFBundleShortVersionString"))?;
+	let string_close = after_key
+		.find("</string>")
+		.ok_or_else(|| anyhow::anyhow!("Missing </string> after CFBundleShortVersionString"))?;
+
+	let abs_value_start = key_pos + key_tag.len() + string_open + "<string>".len();
+	let abs_value_end = key_pos + key_tag.len() + string_close;
+
+	let mut result = content.to_string();
+	result.replace_range(abs_value_start..abs_value_end, new_version);
+	Ok(result)
+}
+
+async fn update_changelog(changelog_path: &str, new_content: &str) -> Result<()> {
+	let changelog_path = Path::new(changelog_path);
+
+	if changelog_path.exists() {
+		// Read existing changelog as bytes to preserve exact formatting
+		let existing_bytes = fs::read(changelog_path)?;
+		let existing_content = String::from_utf8_lossy(&existing_bytes);
+
+		// Detect original line ending style and file ending
+		let has_final_newline = existing_content.ends_with('\n') || existing_content.ends_with("\r\n");
+		let line_ending = if existing_content.contains("\r\n") {
+			"\r\n"
+		} else {
+			"\n"
+		};
+
+		// Find where to insert new content (after the first heading)
+		let lines: Vec<&str> = existing_content.lines().collect();
+		let mut insert_index = 0;
+
+		// Skip the main title if it exists
+		for (i, line) in lines.iter().enumerate() {
+			if line.starts_with("# ") {
+				insert_index = i + 1;
+				// Skip any blank lines after title
+				while insert_index < lines.len() && lines[insert_index].trim().is_empty() {
+					insert_index += 1;
+				}
+				break;
+			}
+		}
+
+		// Insert new content while preserving original formatting
+		let mut new_lines = Vec::new();
+		for (i, line) in lines.iter().enumerate() {
+			if i == insert_index {
+				// Add new content with proper line ending
+				new_lines.push(new_content.trim_end().to_string());
+				new_lines.push("".to_string());
+			}
+			new_lines.push(line.to_string());
+		}
+
+		// Join with original line ending and preserve final newline if it existed
+		let mut updated_content = new_lines.join(line_ending);
+		if has_final_newline && !updated_content.ends_with('\n') && !updated_content.ends_with("\r\n") {
+			updated_content.push_str(line_ending);
+		}
+
+		fs::write(changelog_path, updated_content)?;
+	} else {
+		// Create new changelog with proper formatting
+		let content = format!(
+			"# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n{}\n",
+			new_content.trim_end()
+		);
+		fs::write(changelog_path, content)?;
+	}
+
+	Ok(())
+}
+
+async fn stage_release_files(changelog_path: &str, project_type: &ProjectType) -> Result<()> {
+	let mut files_to_stage = vec![changelog_path.to_string()];
+
+	// Add project files and lock files, resolved relative to the manifest's own
+	// directory (not the process cwd) so `octocode release` run from a
+	// subdirectory still finds/stages the right lock files.
+	let current_dir = match project_type {
+		ProjectType::Rust(p)
+		| ProjectType::Node(p)
+		| ProjectType::Php(p)
+		| ProjectType::Go(p)
+		| ProjectType::Python(p)
+		| ProjectType::ChromeExtension(p)
+		| ProjectType::VersionFile(p) => p.parent().unwrap_or(Path::new(".")).to_path_buf(),
+		ProjectType::Unknown => std::env::current_dir()?,
+	};
+	match project_type {
+		ProjectType::Rust(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add Cargo.lock if it exists
+			let cargo_lock = current_dir.join("Cargo.lock");
+			if cargo_lock.exists() {
+				files_to_stage.push(cargo_lock.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::Node(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add package-lock.json or yarn.lock if they exist
+			let package_lock = current_dir.join("package-lock.json");
+			let yarn_lock = current_dir.join("yarn.lock");
+			if package_lock.exists() {
+				files_to_stage.push(package_lock.to_string_lossy().to_string());
+			}
+			if yarn_lock.exists() {
+				files_to_stage.push(yarn_lock.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::Php(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add composer.lock if it exists
+			let composer_lock = current_dir.join("composer.lock");
+			if composer_lock.exists() {
+				files_to_stage.push(composer_lock.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::Go(go_mod_path) => {
+			// Stage the VERSION file for Go projects
+			let version_file = go_mod_path.parent().unwrap().join("VERSION");
+			files_to_stage.push(version_file.to_string_lossy().to_string());
+			// Add go.mod and go.sum if they exist
+			let go_mod = current_dir.join("go.mod");
+			let go_sum = current_dir.join("go.sum");
+			if go_mod.exists() {
+				files_to_stage.push(go_mod.to_string_lossy().to_string());
+			}
+			if go_sum.exists() {
+				files_to_stage.push(go_sum.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::Python(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+			// Add uv.lock if it exists
+			let uv_lock = current_dir.join("uv.lock");
+			if uv_lock.exists() {
+				files_to_stage.push(uv_lock.to_string_lossy().to_string());
+			}
+		}
+		ProjectType::VersionFile(path) => {
+			files_to_stage.push(path.to_string_lossy().to_string());
+		}
+		ProjectType::ChromeExtension(_) | ProjectType::Unknown => {}
+	}
+
+	// Stage server.json if it exists
+	let server_json = current_dir.join("server.json");
+	if server_json.exists() {
+		files_to_stage.push(server_json.to_string_lossy().to_string());
+	}
+
+	// Stage Chrome extension manifests (the root one included for extension projects)
+	for manifest_path in find_extension_manifests(&current_dir) {
+		files_to_stage.push(manifest_path.to_string_lossy().to_string());
+	}
+
+	// Stage Info.plist files if they were updated (macOS/iOS apps)
+	for plist_path in find_info_plists(&current_dir) {
+		files_to_stage.push(plist_path.to_string_lossy().to_string());
+	}
+
+	for file in files_to_stage {
+		let output = Command::new("git").args(["add", "--", &file]).output()?;
+
+		if !output.status.success() {
+			return Err(anyhow::anyhow!(
+				"Failed to stage {}: {}",
+				file,
+				String::from_utf8_lossy(&output.stderr)
+			));
+		}
+	}
+
+	Ok(())
+}
+
+async fn create_commit(message: &str) -> Result<()> {
+	let output = Command::new("git").args(["commit", "-m", message]).output()?;
+
+	if !output.status.success() {
+		return Err(anyhow::anyhow!(
+			"Failed to create commit: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
+
+	Ok(())
+}
+
+async fn create_tag(version: &str, changelog_content: &str) -> Result<()> {
+	// Create annotated tag with changelog content as message
+	let tag_message = format!("Release {}\n\n{}", version, changelog_content.trim());
+
+	let output = Command::new("git")
+		.args(["tag", "-a", version, "-m", &tag_message])
+		.output()?;
+
+	if !output.status.success() {
+		return Err(anyhow::anyhow!(
+			"Failed to create tag: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
+
+	Ok(())
+}

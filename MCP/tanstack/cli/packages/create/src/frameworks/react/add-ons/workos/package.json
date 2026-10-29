@@ -1,0 +1,9 @@
+{
+  "engines": {
+    "node": ">=22.11.0"
+  },
+  "dependencies": {
+    "@workos-inc/node": "^10.8.0",
+    "@workos/authkit-tanstack-react-start": "^0.11.0"
+  }
+}

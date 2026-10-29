@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=360" />
+  <title>designlang</title>
+  <link rel="icon" href="icons/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --paper: #f3f1ea;
+      --ink: #0a0908;
+      --ink-2: #403c34;
+      --ink-3: #8b8778;
+      --accent: #ff4800;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      width: 360px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .pad { padding: 18px 18px 20px; }
+    .bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px 10px;
+      border-bottom: 1px solid var(--ink);
+    }
+    .mono {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-2);
+    }
+    .mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-weight: 600;
+    }
+    .mark svg { width: 16px; height: 16px; }
+    h1 {
+      margin: 16px 0 10px;
+      font-family: 'Iowan Old Style', Georgia, serif;
+      font-size: 22px;
+      font-weight: 400;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+    h1 em { color: var(--accent); font-style: italic; }
+    p { margin: 0 0 14px; color: var(--ink-2); }
+    .url {
+      display: block;
+      background: #fff;
+      border: 1px solid var(--ink);
+      padding: 10px 12px;
+      font: 12px ui-monospace, Menlo, monospace;
+      color: var(--ink);
+      word-break: break-all;
+      white-space: pre-wrap;
+      margin-bottom: 12px;
+    }
+    button, a.button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 14px;
+      font: 13px ui-monospace, Menlo, monospace;
+      letter-spacing: 0.03em;
+      background: var(--ink);
+      color: var(--paper);
+      border: 1px solid var(--ink);
+      box-shadow: 4px 4px 0 var(--accent);
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 120ms, box-shadow 120ms;
+    }
+    button:hover, a.button:hover {
+      transform: translate(-1px, -1px);
+      box-shadow: 5px 5px 0 var(--accent);
+    }
+    button:active, a.button:active {
+      transform: translate(3px, 3px);
+      box-shadow: 1px 1px 0 var(--accent);
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .secondary {
+      display: inline-flex;
+      justify-content: center;
+      padding: 9px 10px;
+      border: 1px solid var(--ink);
+      background: transparent;
+      color: var(--ink);
+      font: 11px ui-monospace, Menlo, monospace;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-decoration: none;
+      box-shadow: none;
+    }
+    .secondary:hover {
+      background: var(--ink);
+      color: var(--paper);
+      transform: none;
+      box-shadow: none;
+    }
+    .hint {
+      margin-top: 12px;
+      font: 11px ui-monospace, Menlo, monospace;
+      color: var(--ink-3);
+      line-height: 1.5;
+    }
+    .hint code { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <span class="mark">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" fill="#F3F1EA"/>
+        <circle cx="13" cy="20" r="7.5" fill="none" stroke="#0A0908" stroke-width="4.5"/>
+        <rect x="19" y="4" width="4.5" height="25" fill="#0A0908"/>
+        <rect x="25" y="25" width="4" height="4" fill="#FF4800"/>
+      </svg>
+      designlang
+    </span>
+    <span class="mono">v7.0</span>
+  </div>
+
+  <div class="pad">
+    <h1>Read this page as a <em>design system</em>.</h1>
+    <p>Extracts DTCG tokens, Tailwind config, Figma variables, an MCP companion, and native iOS / Android / Flutter / WordPress outputs.</p>
+
+    <span class="url" id="url-display">—</span>
+
+    <button id="extract-btn">
+      Extract on designlang
+      <span>↗</span>
+    </button>
+
+    <div class="row">
+      <a class="secondary" id="copy-cli" href="#">Copy CLI</a>
+      <a class="secondary" href="https://github.com/Manavarya09/design-extract" target="_blank" rel="noopener">GitHub</a>
+    </div>
+
+    <div class="hint">
+      Prefer the CLI? <code>npx designlang &lt;url&gt;</code>. MCP server:
+      <code>designlang mcp</code>.
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

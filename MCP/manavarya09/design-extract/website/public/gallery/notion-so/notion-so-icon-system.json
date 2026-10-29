@@ -1,0 +1,203 @@
+{
+  "library": "unknown",
+  "confidence": 0,
+  "alternates": [],
+  "stats": {
+    "count": 69,
+    "strokeOnly": 0,
+    "fillOnly": 63,
+    "mixed": 0,
+    "avgStrokeWidth": 2.67,
+    "gridDistribution": {
+      "16": 2,
+      "20": 46,
+      "32": 1
+    },
+    "roundedCapsFraction": 0.03
+  },
+  "signals": [
+    "fillDominant"
+  ],
+  "icons": [
+    {
+      "class": "NotionIconSvgWrapper_icon__8quiY",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "globalNavigation_logoStickerized__aqGkF",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "chevronDown",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "notion",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "notionCalendar",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "notionMail",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "aiFace",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "aiFacePlus",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "microphoneFill",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "magnifyingGlass",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "docOnDoc",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "page",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "target",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "integration",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "lock",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "boxOpenSparkle",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "rectangleOnRectangleWide",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "chevronDown",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "aiFace",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "aiFacePlus",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "microphoneFill",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "magnifyingGlass",
+      "grid": 20,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "chevronDown",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "chevronDown",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "Agent_agentMark__5Te9W",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "Agent_agentMark__5Te9W",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "Agent_agentMark__5Te9W",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "Agent_agentMark__5Te9W",
+      "grid": null,
+      "strokeWidth": null,
+      "style": "mixed"
+    },
+    {
+      "class": "frontPauseButton",
+      "grid": 16,
+      "strokeWidth": null,
+      "style": "fill"
+    },
+    {
+      "class": "NotionIconSvgWrapper_icon__8quiY",
+      "grid": 32,
+      "strokeWidth": 4,
+      "style": "fill"
+    }
+  ]
+}

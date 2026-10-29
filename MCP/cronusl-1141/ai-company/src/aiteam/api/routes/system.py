@@ -1,0 +1,434 @@
+"""AI Team OS — System rules query routes.
+
+Provides query interfaces for system automated rules and advisory rules,
+replacing verbose rule descriptions in CLAUDE.md.
+
+Also exposes a graceful self-shutdown endpoint used by the standardized
+restart flow (os_restart_api MCP tool).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+
+from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/system", tags=["system"])
+
+
+# Category A: Code-enforced automated rules (no human intervention needed)
+_AUTOMATED_RULES: list[dict] = [
+    {
+        "id": "A1",
+        "category": "agent-lifecycle",
+        "name": "Agent落库入口",
+        "description": "POST /api/agents 落库的 agent 标 source=api 并默认置 busy。无对应 MCP 工具——子 agent 不必自注册，由 A2 自动收编",
+        "enforced_by": "src/aiteam/api/routes/agents.py — add_agent",
+    },
+    {
+        "id": "A2",
+        "category": "agent-lifecycle",
+        "name": "Hook自动兜底",
+        "description": "SubagentStart事件自动更新已注册Agent状态为busy",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_subagent_start",
+    },
+    {
+        "id": "A3",
+        "category": "agent-lifecycle",
+        "name": "SubagentStop→等待",
+        "description": "SubagentStop事件将Agent设为waiting（等待输入，非关闭）。三状态：busy(工作中)/waiting(等待)/offline(关闭)",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_subagent_stop",
+    },
+    {
+        "id": "A4",
+        "category": "agent-lifecycle",
+        "name": "SessionEnd→关闭",
+        "description": "会话结束时所有agent设为offline（关闭）并清除session_id",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_session_end",
+    },
+    {
+        "id": "A5",
+        "category": "agent-lifecycle",
+        "name": "Stop→关闭",
+        "description": "CC进程终止时hook-source的agent设为offline",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_stop",
+    },
+    {
+        "id": "A6",
+        "category": "agent-lifecycle",
+        "name": "状态自愈",
+        "description": "WAITING Agent收到工具事件时自动修正为BUSY",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _self_heal_agent",
+    },
+    {
+        "id": "A8",
+        "category": "session",
+        "name": "Session-Leader复用",
+        "description": "SessionStart时按项目查找已有Leader复用，避免创建幽灵agent",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_session_start",
+    },
+    {
+        "id": "A9",
+        "category": "session",
+        "name": "不自动创建项目",
+        "description": "SessionStart 按 cwd 最长前缀匹配已注册项目；匹配不到不自动创建，由启动简报请用户注册或忽略",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_session_start",
+    },
+    {
+        "id": "A10",
+        "category": "conflict-detection",
+        "name": "文件编辑冲突检测",
+        "description": "同一文件被多个Agent编辑时发出file.edit_conflict事件",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _check_file_edit_conflict",
+    },
+    {
+        "id": "A11",
+        "category": "conflict-detection",
+        "name": "热点文件追踪",
+        "description": "内存追踪器统计被多Agent编辑的热点文件，供团队简报接口 GET /api/teams/{id}/briefing 使用",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _FileEditTracker",
+    },
+    {
+        "id": "A12",
+        "category": "activity-tracking",
+        "name": "工具使用记录",
+        "description": "PreToolUse/PostToolUse事件自动记录到AgentActivity",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_pre_tool_use / _on_post_tool_use",
+    },
+    {
+        "id": "A13",
+        "category": "activity-tracking",
+        "name": "current_task从role自动提取",
+        "description": "Agent 落库时 role 若含 ' — ' 分隔符，自动拆成 role + current_task（'前端工程师 — Dashboard开发' → role='前端工程师', current_task='Dashboard开发'）",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_subagent_start + routes/agents.py — add_agent",
+    },
+    {
+        "id": "A14",
+        "category": "activity-tracking",
+        "name": "last_active_at自动更新",
+        "description": "每次工具调用自动更新Agent最后活跃时间",
+        "enforced_by": "src/aiteam/api/hook_translator.py — _on_pre_tool_use / _on_post_tool_use",
+    },
+    {
+        "id": "A15",
+        "category": "event-system",
+        "name": "事件总线广播",
+        "description": "所有状态变更通过EventBus发出事件，供WebSocket实时推送",
+        "enforced_by": "src/aiteam/api/event_bus.py + src/aiteam/api/routes/ws.py",
+    },
+    {
+        "id": "A16",
+        "category": "type-safety",
+        "name": "共享类型定义",
+        "description": "所有数据模型集中定义在types.py，各模块只读引用",
+        "enforced_by": "src/aiteam/types.py",
+    },
+    {
+        "id": "A17",
+        "category": "task-management",
+        "name": "任务依赖自动阻塞",
+        "description": "有未完成依赖的任务自动标记为blocked状态",
+        "enforced_by": "TaskStatus.BLOCKED + depends_on字段",
+    },
+    {
+        "id": "A18",
+        "category": "hooks",
+        "name": "Hook脚本统一入口",
+        "description": "CC hook 事件经 send_event.py 统一 POST 到 /api/hooks/event（覆盖面以 plugin/hooks/hooks.json 为准）",
+        "enforced_by": "plugin/hooks/send_event.py",
+    },
+]
+
+# Category B: Rules requiring human judgment (with advice)
+_ADVISORY_RULES: list[dict] = [
+    {
+        "id": "B-1",
+        "category": "memory",
+        "name": "记忆分层职责",
+        "description": "用户给出偏好/纠正/设计意图时 Leader 当场落账：运行期 agent 需要被告知的写方向层（memory_add），开发期产品设计写设计文档与任务墙 decision；任务过程记录走 task_memo_add；三者别混",
+        "advice": "写入检验：这条能影响多少未来任务？只影响单个任务的去 task_memo。方向层存储上限=注入预算（桶字符配额 global 1200 / project 1500 / user 300，单条 ≤400 字），超限当轮先失效或合并腾位再重试；偏好被改用 supersedes 置换不物删",
+    },
+    {
+        "id": "B0.1",
+        "category": "meeting",
+        "name": "会议以决策上墙收尾",
+        "description": "会议以决策上墙收尾（结论转成 decision 记录或任务墙条目），否则视同没开。减法要留痕：回退既有设计决策／砍工具删表／削弱或删除自动检查，走会议或用户当场裁定都算数，但结论必须上墙。加法不设闸：新增检查项、加严已有判据、新增工具或表，写清理由直接做。拿不准按减法办。任务墙空不等于该开会，不为有事干而开会。会议不是动手前的闸",
+    },
+    {
+        "id": "B0.3",
+        "category": "leadership",
+        "name": "成员工具受限由Leader解决",
+        "description": "成员报工具/权限受限时由 Leader 安装或改配置，不让成员自行绕过",
+        "advice": "MCP 工具不可用时用 /mcp → Reconnect 刷新",
+    },
+    {
+        "id": "B0.5",
+        "category": "leadership",
+        "name": "任务墙灵活领取——不局限短期",
+        "description": "可直接领取中/长期任务，不必只做短期。拆分后暂不实施的要撤回，避免僵尸任务",
+    },
+    {
+        "id": "B0.6",
+        "category": "leadership",
+        "name": "项目记忆维护——确保可恢复",
+        "description": "阶段性目标完成即 task_memo_add 写阶段总结（做了什么/决策原因/当前状态/下一步），保证 compact 或重启后能恢复上下文；任务墙、会议记录、任务 memo 三方保持一致",
+    },
+    {
+        "id": "B0.7",
+        "category": "leadership",
+        "name": "不空等——派出后继续领任务",
+        "description": "等成员结果时不空闲，回任务墙找可并行的活；并行短期任务不超过 3 个",
+    },
+    {
+        "id": "B0.8",
+        "category": "leadership",
+        "name": "行为变更同步QA",
+        "description": "配置了常驻 QA 成员时，改动影响系统行为或前端显示就告知它要观测什么；纯文档/规则变更不通知",
+    },
+    {
+        "id": "B0.9",
+        "category": "leadership",
+        "name": "Leader保持统筹面，大块实施派出",
+        "description": "几次工具调用能做完的活 Leader 自己做；多文件实施、长时间调试这类会占住统筹面的活派给成员",
+        "advice": "用户裁定：Leader 陷入具体实施会导致项目整体停滞。委派也有成本（重建上下文、回读报告），小活不派",
+    },
+    {
+        "id": "B0.12",
+        "category": "leadership",
+        "name": "任务Memo追踪",
+        "description": "领任务前 task_memo_read 读历史；执行中 task_memo_add 记关键进展与决策；完成后 task_memo_add(type='summary') 写总结",
+    },
+    {
+        "id": "B3",
+        "category": "memory",
+        "name": "记忆权威层级",
+        "description": "信息冲突时: CLAUDE.md > auto-memory > OS MemoryStore > claude-mem",
+        "advice": "只记不可推导的人类意图，技术细节交给代码和git",
+    },
+    {
+        "id": "B4",
+        "category": "context",
+        "name": "上下文管理-WARNING",
+        "description": "收到[CONTEXT WARNING]时把尚未落盘的进展与结论用 task_memo_add 记下",
+        "advice": "记录已完成/进行中/下一步计划",
+    },
+    {
+        "id": "B5",
+        "category": "context",
+        "name": "上下文管理-CRITICAL",
+        "description": "收到[CONTEXT CRITICAL]时立即把尚未落盘的进展与结论 task_memo_add 记下，并提醒用户可执行 /compact",
+    },
+    {
+        "id": "B0.14",
+        "category": "leadership",
+        "name": "行动项必须上墙",
+        "description": "对话/会议中产生的行动项必须 task_create 上墙——口头承诺不算",
+    },
+    {
+        "id": "B0.16",
+        "category": "leadership",
+        "name": "Leader自主运转模式",
+        "description": "按任务墙优先级自主推进，不逐步等用户确认。战术决策自主做主，仅项目方向/重大架构这类战略决策请示用户；被阻塞时切别的任务继续推进",
+        "advice": "用户发言时统一汇报进度 + 列出待决策事项",
+    },
+    {
+        "id": "B0.16b",
+        "category": "leadership",
+        "name": "待决事项必须入队，不许只留在报告里",
+        "description": (
+            "子 agent 完工报告里凡写着「留给用户/Leader 裁定」的事项，派发方（Leader）"
+            "必须当场 briefing_add 入待决队列。写在报告正文里的裁定项等于没提交——"
+            "用户看的是简报队列，不会去翻每份完工报告"
+        ),
+        "advice": "收割报告时逐条扫「待裁定/待确认/建议由用户决定」，每条一个 briefing_add（带 tags 便于按主题筛）",
+    },
+    {
+        "id": "B0.17",
+        "category": "leadership",
+        "name": "先研究再实施",
+        "description": "新子系统、新协议、会改变对外语义的设计，先做一轮外部对照（同类产品、论文、开源实践）再落方案，不闭门造车；已有现成判据或纯实现层改动直接做，编制按风险定",
+    },
+    {
+        "id": "B6",
+        "category": "meeting",
+        "name": "会议讨论规则",
+        "description": "有模板时按模板给各轮的规则；没有模板时 Round 1 提出观点，Round 2+ 引用并回应前人发言，最后一轮汇总",
+        "advice": "先读取前人消息再发言，避免重复或脱节",
+    },
+    {
+        "id": "B6.2",
+        "category": "meeting",
+        "name": "会议参与者到场",
+        "description": "meeting_create 只建记录、不拉人——必须按返回的 dispatch_plan 逐个用 Agent 工具 spawn 参与者（launch_call.params 原样传入），否则会议无人到场",
+    },
+    {
+        "id": "B0.18",
+        "category": "execution",
+        "name": "进展及时落盘",
+        "description": "有了可交接的进展（改完一处、跑出验证结果、得出结论）就用 task_memo_add 记一笔，写到接手者能照着续做——上下文随时可能被压缩，落盘是唯一防线",
+    },
+    {
+        "id": "B0.19",
+        "category": "execution",
+        "name": "3次失败升级协议",
+        "description": "同一任务同一方法连续失败 3 次即换路：改方法、请其他 Agent 协助或上报 Leader",
+    },
+]
+
+
+@router.get("/rules")
+async def list_system_rules() -> dict:
+    """List all system automated rules and advisory rules.
+
+    - automated_rules (Category A): Code-enforced rules, no human intervention needed
+    - advisory_rules (Category B): Rules requiring human judgment, with advice
+    """
+    return {
+        "automated_rules": _AUTOMATED_RULES,
+        "advisory_rules": _ADVISORY_RULES,
+        "summary": {
+            "automated_count": len(_AUTOMATED_RULES),
+            "advisory_count": len(_ADVISORY_RULES),
+            "categories": sorted({r["category"] for r in _AUTOMATED_RULES + _ADVISORY_RULES}),
+        },
+    }
+
+
+@router.get("/rules/{rule_id}")
+async def get_rule(rule_id: str) -> dict:
+    """Query single rule details."""
+    rule_id_upper = rule_id.upper()
+    for rule in _AUTOMATED_RULES + _ADVISORY_RULES:
+        if rule["id"] == rule_id_upper:
+            rule_type = "automated" if rule_id_upper.startswith("A") else "advisory"
+            return {"rule": rule, "type": rule_type}
+    return {"error": f"规则 {rule_id} 不存在"}
+
+
+# 2s, not more: while another process holds the lock the checkpoint cannot succeed,
+# so a longer busy timeout is pure waiting inside os_restart_api's 10s exit budget;
+# on a normal exit the WAL is kept small by SQLite's autocheckpoint, so 2s is enough.
+WAL_CHECKPOINT_TIMEOUT_SECONDS = 2.0
+# _delayed_exit's other fixed waits, named so the exit-budget arithmetic in the
+# tests reads them instead of repeating the numbers.
+RESPONSE_FLUSH_SECONDS = 0.5  # lets the shutdown response reach the client first
+DIAGNOSTICS_FLUSH_SECONDS = 0.25
+
+
+def _wal_checkpoint_best_effort() -> None:
+    """Run a SQLite WAL checkpoint on the default DB before exit.
+
+    Best-effort only: any failure is logged and swallowed so it never blocks
+    the shutdown. Uses stdlib sqlite3 against the file path (synchronous) rather
+    than the async engine, since the event loop is being torn down at exit.
+    """
+    import sqlite3
+
+    from aiteam.storage.connection import default_db_url
+
+    try:
+        # The default URL looks like "sqlite+aiosqlite:///<path>"
+        url = default_db_url()
+        if "///" not in url:
+            return
+        db_path = url.split("///", 1)[-1]
+        if not db_path:
+            return
+        con = sqlite3.connect(db_path, timeout=WAL_CHECKPOINT_TIMEOUT_SECONDS)
+        try:
+            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            con.commit()
+        finally:
+            con.close()
+    except Exception as exc:  # noqa: BLE001 — checkpoint must never block exit
+        logger.warning("WAL checkpoint before shutdown failed (ignored): %s", exc)
+
+
+async def _release_lease_on_exit(repo) -> None:
+    from aiteam.api.exit_writes import EXIT_WRITE_BUDGET_SECONDS
+
+    # lock_wait bounds the lock wait itself, so no task is left running at os._exit.
+    if await repo.release_governance_lease(f"api-{os.getpid()}", lock_wait=EXIT_WRITE_BUDGET_SECONDS):
+        logger.info("Governance lease released on shutdown (pid=%d)", os.getpid())
+
+
+async def _delayed_exit() -> None:
+    """Wait briefly so the HTTP response is flushed, then hard-exit the process.
+
+    os._exit is used (not sys.exit) to guarantee the uvicorn worker actually
+    terminates and releases the port — sys.exit would only raise SystemExit
+    inside the request task and could be swallowed by the server.
+    """
+    await asyncio.sleep(RESPONSE_FLUSH_SECONDS)
+    # hook 后台作业（用量记账、workflow 对账）有界收尾：hook 回执 deferred 之后写库才在
+    # 后台发生，而本端点硬退、不走 lifespan 的 cleanup_dependencies，不在这里等就会丢掉
+    # SessionEnd 终测与子 agent 记账。必须在 WAL checkpoint 与 os._exit 之前；上限
+    # BACKGROUND_DRAIN_TIMEOUT_SECONDS 落在 os_restart_api 给旧进程的 10s 退出预算内。
+    # 到点只放下、不取消（leave_leftovers）：取消切不断等锁的写（见 exit_writes），
+    # 取消后再 gather 会一直等到锁释放；随后的 os._exit 会结束被放下的作业。
+    # 锁库时的退出时长：0.5 + 3 + 2（exit_writes）≈ 5.5s（checkpoint 此时跳过，见下）。
+    try:
+        from aiteam.api import deps as _deps
+        from aiteam.api.hook_translator import BACKGROUND_DRAIN_TIMEOUT_SECONDS
+
+        translator = getattr(_deps, "_hook_translator", None)
+        if translator is not None:
+            await translator.drain(timeout=BACKGROUND_DRAIN_TIMEOUT_SECONDS, leave_leftovers=True)
+    except Exception:  # noqa: BLE001 - 退出路径绝不因此阻塞
+        logger.warning("Hook background drain on shutdown failed (ignored)", exc_info=True)
+    # 退出前的两笔写库，并发、共用 exit_writes 的 2s 预算，超时就放下不等（取消切不断等锁
+    # 的写，见 exit_writes 模块说明），随后 os._exit 结束它们：
+    # - 请求账本（含 hook 入库计数）的未落库部分：本端点硬退、不走 lifespan 收尾，不在这里
+    #   补落，当小时的计数就随进程消失（os_restart_api 走的正是这条路径）。
+    # - 让出治理租约（2026-07-27 首考失败后补位）：lifespan 收尾（StateReaper.stop 里的
+    #   release）永远不跑——释放必须放在这条真实退出路径上，否则新实例被死 pid 的租约挡满
+    #   TTL（180s），治理静默三分钟。放下不等时 TTL 兜底。
+    from aiteam.api import deps as _deps
+    from aiteam.api.exit_writes import write_or_abandon
+    from aiteam.api.request_ledger import request_ledger
+
+    writes = {"request_ledger": request_ledger.flush_all()}
+    repo = getattr(_deps, "_repository", None)
+    if repo is not None:
+        writes["governance_lease"] = _release_lease_on_exit(repo)
+    abandoned = await write_or_abandon(writes)
+    if abandoned:
+        # 退出写被放下，说明库正被别的连接锁着：checkpoint 同样拿不到锁，它的超时只会
+        # 白等 WAL_CHECKPOINT_TIMEOUT_SECONDS。跳过它，WAL 由下一个打开库的进程合并。
+        logger.debug("WAL checkpoint skipped: database locked (exit writes left: %s)", abandoned)
+    else:
+        _wal_checkpoint_best_effort()
+    from aiteam import diagnostics
+    from aiteam.api.lifecycle_diagnostics import record_lifecycle_event
+
+    record_lifecycle_event("api.process.exit", target_pid=os.getpid(), reason="http_shutdown", exit_code=0)
+    try:
+        diagnostics.flush_diagnostics(timeout=DIAGNOSTICS_FLUSH_SECONDS)
+    except Exception:
+        pass
+    os._exit(0)
+
+
+@router.post("/shutdown")
+async def shutdown() -> dict:
+    """Gracefully shut down this API process.
+
+    Localhost-only by design: the API binds 127.0.0.1, so no external client can
+    reach this endpoint and no extra auth is required. It exists to give the
+    standardized restart flow (os_restart_api) a clean way to stop the old
+    process before a new version is spawned on the same port.
+
+    Returns immediately with the current PID, then self-exits ~0.5s later after a
+    bounded drain of hook background jobs and a best-effort WAL checkpoint.
+    """
+    pid = os.getpid()
+    logger.info("Graceful shutdown requested (pid=%d)", pid)
+    from aiteam.api.lifecycle_diagnostics import record_lifecycle_event
+
+    record_lifecycle_event("api.shutdown.requested", target_pid=pid, reason="http_shutdown")
+    asyncio.create_task(_delayed_exit())
+    return {"success": True, "message": "shutting down", "pid": pid}

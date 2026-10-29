@@ -1,0 +1,25 @@
+header:
+  license:
+    content: |
+      Copyright (c) 2024- Datalayer, Inc.
+
+      BSD 3-Clause License
+
+
+  paths-ignore:
+    - '**/*.ipynb'
+    # Plain text has no comment syntax for a header (requirements files).
+    - '**/*.txt'
+    - '**/*.json'
+    - '**/*.yaml'
+    - '**/*.yml'
+    - '**/.*'
+    - 'docs/**/*'
+    # A SKILL.md is read as YAML frontmatter first, so nothing may precede
+    # the opening `---`. A prepended header turns the skill into a file the
+    # agent runtime cannot parse — and it would be prepended by this very
+    # job, on a pull request, silently. Same reason `docs/**/*` is here.
+    - '.github/skills/**/*'
+    - 'LICENSE'
+
+  comment: on-failure

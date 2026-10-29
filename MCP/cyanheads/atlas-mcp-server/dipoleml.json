@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cyanheads.atlas-mcp-server",
+  "type": "mcp",
+  "name": "Atlas MCP Server",
+  "slug": "atlas-mcp-server",
+  "vendor": "cyanheads",
+  "description": "A Model Context Protocol (MCP) server for ATLAS, a Neo4j-powered task management system for LLM Agents - implementing a three-tier architecture (Projects, Tasks, Knowledge) to manage complex workflows. Now with Deep Research.",
+  "version": "2.8.15",
+  "homepage": "https://github.com/cyanheads/atlas-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cyanheads",
+    "deep-research",
+    "graph-database",
+    "knowledge-management",
+    "model-context-protocol",
+    "neo4j",
+    "project-management",
+    "task-management"
+  ],
+  "tags": [
+    "ai-agents",
+    "cyanheads",
+    "deep-research",
+    "graph-database",
+    "knowledge-management",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "neo4j",
+    "project-management",
+    "task-management",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cyanheads",
+    "brandName": "cyanheads",
+    "source": "https://github.com/cyanheads.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cyanheads/atlas-mcp-server",
+    "url": "https://github.com/cyanheads/atlas-mcp-server",
+    "commit": "5a0bfdc08f9d0d106e69432bcaa606cc414340f1",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 478,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "atlas-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=16.0.0"
+    ],
+    "packages": [
+      "atlas-mcp-server"
+    ],
+    "env": [
+      "MCP_TRANSPORT_TYPE",
+      "MCP_HTTP_HOST",
+      "MCP_HTTP_PORT",
+      "MCP_AUTH_SECRET_KEY"
+    ],
+    "credentials": [
+      "MCP_AUTH_SECRET_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

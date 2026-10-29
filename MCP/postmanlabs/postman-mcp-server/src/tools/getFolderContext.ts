@@ -1,0 +1,48 @@
+import { z } from 'zod';
+import { PostmanAPIClient } from '../clients/postman.js';
+import { IsomorphicHeaders, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import {
+  ServerContext,
+  asMcpError,
+  McpError,
+  defineToolAnnotations,
+} from './utils/toolHelpers.js';
+
+export const method = 'getFolderContext';
+export const title = 'Get folder context';
+export const description =
+  'Returns a markdown-formatted summary of a folder within a collection, including its metadata, description, and authentication settings.';
+
+export const parameters = z.object({
+  collectionId: z.string().describe("The collection's ID."),
+  folderId: z.string().describe("The folder's ID."),
+});
+
+export const annotations = defineToolAnnotations({
+  title: 'Get folder context',
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+});
+
+export async function handler(
+  args: z.infer<typeof parameters>,
+  extra: { client: PostmanAPIClient; headers?: IsomorphicHeaders; serverContext?: ServerContext }
+): Promise<CallToolResult> {
+  try {
+    const result = await extra.client.get(
+      `/context/collections/${encodeURIComponent(String(args.collectionId))}/folders/${encodeURIComponent(String(args.folderId))}`,
+      { headers: extra.headers }
+    );
+
+    return {
+      content: [{ type: 'text', text: result as string }],
+    };
+  } catch (e: unknown) {
+    if (e instanceof McpError) {
+      throw e;
+    }
+    throw asMcpError(e);
+  }
+}

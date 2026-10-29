@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.zaidmukaddam.scira-mcp-chat",
+  "type": "mcp",
+  "name": "Scira MCP Chat",
+  "slug": "scira-mcp-chat",
+  "vendor": "zaidmukaddam",
+  "description": "A minimalistic MCP client with a good feature set.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/zaidmukaddam/scira-mcp-chat",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "grok3",
+    "mcp-client",
+    "model-context-protocol",
+    "openai",
+    "xai"
+  ],
+  "tags": [
+    "anthropic",
+    "grok3",
+    "mcp",
+    "mcp-client",
+    "model-context-protocol",
+    "openai",
+    "xai"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zaidmukaddam",
+    "brandName": "zaidmukaddam",
+    "source": "https://github.com/zaidmukaddam.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zaidmukaddam/scira-mcp-chat",
+    "url": "https://github.com/zaidmukaddam/scira-mcp-chat",
+    "commit": "c9467dc212fc3574fd813fb18dcdb0a044d095c2",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 826,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mcp-chat"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

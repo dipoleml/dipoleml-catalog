@@ -1,0 +1,404 @@
+/**
+ * Type definition for supported database connector types
+ */
+export type ConnectorType = "postgres" | "mysql" | "mariadb" | "sqlite" | "sqlserver" | "oracle";
+
+/**
+ * Database Connector Interface
+ * This defines the contract that all database connectors must implement.
+ */
+/**
+ * An informational (non-error) message emitted by the database during query
+ * execution, e.g. SQL Server STATISTICS TIME/IO and PRINT output, or
+ * PostgreSQL NOTICE/WARNING. Modeled to be cross-database: only `text` is
+ * guaranteed, the rest are populated when the driver exposes them.
+ */
+export interface DatabaseMessage {
+  /** Human-readable message text */
+  text: string;
+  /** Severity indicator where available; interpret per database (PostgreSQL: level name like NOTICE/WARNING; SQL Server: numeric severity class as a string) */
+  severity?: string;
+  /** Database-specific message code (PostgreSQL: SQLSTATE; SQL Server: message number) */
+  code?: string | number;
+  /** 1-based line number within the SQL batch that produced the message, when reported */
+  line?: number;
+}
+
+/** The rows and affected-row count produced by one statement in a batch. */
+export interface SQLResultSet {
+  /**
+   * The source text of the statement that produced this result set, when the
+   * connector can attribute it unambiguously. Omitted for SQL Server batches
+   * with more than one statement, where node-mssql's recordsets/rowsAffected
+   * arrays aren't index-aligned per statement (see sqlserver's
+   * `buildResultSets`) - attributing SQL there would be a guess.
+   */
+  sql?: string;
+  rows: any[];
+  rowCount: number;
+  /**
+   * True when a configured max_rows cap cut off this result set: the query
+   * had more rows than the cap allows, and `rows`/`rowCount` reflect only the
+   * first max_rows of them. Omitted (never false) when the result is
+   * complete, so consumers can distinguish a capped result from a table that
+   * genuinely has exactly max_rows rows. Detection uses a probe row (the cap
+   * is applied as LIMIT/TOP max_rows + 1, see SQLRowLimiter.flagTruncation),
+   * so the flag is exact, not a heuristic.
+   */
+  truncated?: boolean;
+}
+
+export interface SQLResult {
+  /**
+   * One entry per statement in the batch, in execution order. A single
+   * `SELECT` (the common case) is `resultSets` of length 1 - callers that
+   * only care about that should read `resultSets[0]`.
+   */
+  resultSets: SQLResultSet[];
+  /** Informational messages from the database (e.g. SQL Server STATISTICS TIME/IO, PRINT output) */
+  messages?: DatabaseMessage[];
+}
+
+export interface TableColumn {
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+  column_default: string | null;
+  description: string | null;
+}
+
+export interface TableIndex {
+  index_name: string;
+  column_names: string[];
+  is_unique: boolean;
+  is_primary: boolean;
+}
+
+export interface StoredProcedure {
+  procedure_name: string;
+  procedure_type: "procedure" | "function";
+  language: string;
+  parameter_list: string;
+  return_type?: string;
+  definition?: string;
+}
+
+/**
+ * Options for SQL execution
+ * This interface allows passing execution-specific options to connectors
+ */
+/**
+ * Connection/session pool state, as seen by the database itself (not the
+ * driver-side pool DBHub holds).
+ */
+export interface HealthCheckConnections {
+  /** Total sessions excluding this diagnostic connection itself */
+  total: number;
+  active: number;
+  idle: number;
+  idleInTransaction: number;
+  /** Sessions in Postgres's "idle in transaction (aborted)" state; omitted on engines with no equivalent concept */
+  idleInTransactionAborted?: number;
+  /** Configured connection ceiling, when the engine exposes one */
+  maxConnections: number | null;
+  /** Longest-running idle-in-transaction session, in seconds; null if none */
+  longestIdleInTransactionSeconds: number | null;
+  /** Longest-running active query, in seconds; null if none */
+  longestActiveQuerySeconds: number | null;
+}
+
+/** Buffer/page cache hit ratio for the connected database */
+export interface HealthCheckBufferCache {
+  /** Percentage of reads served from cache, 0-100; null if no reads recorded yet */
+  hitRatioPct: number | null;
+  blocksHit: number;
+  blocksRead: number;
+}
+
+export interface HealthCheckResult {
+  connections?: HealthCheckConnections;
+  bufferCache?: HealthCheckBufferCache;
+  /** Caveats about reduced visibility (e.g. a metric degraded because the connected user lacks a privilege) */
+  notes?: string[];
+}
+
+export interface ExecuteOptions {
+  /** Maximum number of rows to return (applied via database-native LIMIT) */
+  maxRows?: number;
+  /**
+   * Restrict to read-only SQL operations (application-level enforcement)
+   * Validates SQL keywords before execution to prevent write operations.
+   * Note: SDK-level readonly enforcement is set via ConnectorConfig.readonly
+   */
+  readonly?: boolean;
+}
+
+/**
+ * Configuration options for database connections
+ * Different databases may use different subset of these options
+ */
+export interface ConnectorConfig {
+  /** Password resolved for each new physical connection (PostgreSQL). */
+  password?: () => Promise<string>;
+  /** Connection timeout in seconds (PostgreSQL, MySQL, MariaDB, SQL Server) */
+  connectionTimeoutSeconds?: number;
+  /** Query timeout in seconds (PostgreSQL, MySQL, MariaDB, SQL Server) */
+  queryTimeoutSeconds?: number;
+  /** Maximum connections in a PostgreSQL source pool */
+  poolMaxConnections?: number;
+  /**
+   * Read-only mode for SDK-level enforcement (PostgreSQL, SQLite)
+   * - PostgreSQL: Sets default_transaction_read_only at connection level
+   * - SQLite: Opens database in readonly mode (not supported for :memory: databases)
+   * Note: Application-level validation is done via ExecuteOptions.readonly
+   */
+  readonly?: boolean;
+  /**
+   * PostgreSQL search_path setting.
+   * Comma-separated list of schema names (e.g., "myschema,public").
+   * Sets the session search_path and uses the first schema as default for discovery methods.
+   */
+  searchPath?: string;
+  /**
+   * MySQL/MariaDB timezone setting.
+   * Controls how the driver interprets DATETIME values: "Z" (UTC), "local", or "±HH:MM" (e.g., "+09:00").
+   * Passed through to the mysql2 `timezone` connection option.
+   */
+  timezone?: string;
+  /**
+   * MySQL/MariaDB connection character set (e.g. "utf8mb4").
+   * May be set on its own (the character set's default collation is used) or
+   * together with `collation`.
+   */
+  charset?: string;
+  /**
+   * MySQL/MariaDB connection collation (e.g. "utf8mb4_0900_ai_ci").
+   * Sets the collation used for string literals and comparisons on the connection.
+   * May be set on its own or together with `charset`; when both are set, the
+   * collation takes precedence (it implies its character set). When neither is
+   * set, the driver falls back to its built-in default (mysql2: `utf8mb4_unicode_ci`).
+   */
+  collation?: string;
+}
+
+/**
+ * Connection string (DSN) parser interface
+ * Each connector needs to implement its own DSN parser
+ */
+export interface DSNParser {
+  /**
+   * Parse a connection string into connector-specific configuration
+   * @param dsn - Database connection string
+   * @param config - Optional database-specific configuration options
+   * Example DSN formats:
+   * - PostgreSQL: "postgres://user:password@localhost:5432/dbname?sslmode=disable"
+   * - MariaDB: "mariadb://user:password@localhost:3306/dbname"
+   * - MySQL: "mysql://user:password@localhost:3306/dbname"
+   * - SQLite: "sqlite:///path/to/database.db" or "sqlite:///:memory:"
+   */
+  parse(dsn: string, config?: ConnectorConfig): Promise<any>;
+
+  /**
+   * Generate a sample DSN string for this connector type
+   */
+  getSampleDSN(): string;
+
+  /**
+   * Check if a DSN is valid for this connector
+   */
+  isValidDSN(dsn: string): boolean;
+}
+
+export interface Connector {
+  /** A unique identifier for the connector */
+  id: ConnectorType;
+
+  /** Human-readable name of the connector */
+  name: string;
+
+  /** DSN parser for this connector */
+  dsnParser: DSNParser;
+
+  /** Get the source ID for this connector instance (set by ConnectorManager) */
+  getId(): string;
+
+  /** Create a new instance of this connector (for multi-source support). This method is required for all connectors. */
+  clone(): Connector;
+
+  /** Connect to the database using DSN, with optional init script and database-specific configuration */
+  connect(dsn: string, initScript?: string, config?: ConnectorConfig): Promise<void>;
+
+  /** Close the connection */
+  disconnect(): Promise<void>;
+
+  /**
+   * Get all schemas in the database
+   * @returns Promise with array of schema names
+   */
+  getSchemas(): Promise<string[]>;
+
+  /**
+   * Get the schema that searches should default to when no schema is specified.
+   *
+   * Returns a single schema name when the connection is scoped to one (e.g. the
+   * database named in a MySQL/MariaDB DSN), or null when there is no configured
+   * scope and callers should fall back to getSchemas() (the full list).
+   *
+   * Connectors whose getSchemas() is already scoped to the connected database
+   * (PostgreSQL, SQL Server, SQLite) may omit this or return null.
+   * @returns Promise with the default schema name, or null for the full list
+   */
+  getDefaultSchema?(): Promise<string | null>;
+
+  /**
+   * Get all tables in the database or in a specific schema
+   * @param schema Optional schema name. If not provided, implementation should use the default schema:
+   *   - PostgreSQL: 'public' schema
+   *   - SQL Server: 'dbo' schema
+   *   - MySQL: Current active database from connection (DATABASE())
+   *   - SQLite: Main database (schema concept doesn't exist in SQLite)
+   * @returns Promise with array of table names (excludes views)
+   */
+  getTables(schema?: string): Promise<string[]>;
+
+  /**
+   * Get all views in the database or in a specific schema
+   * @param schema Optional schema name. If not provided, implementation should use the default schema:
+   *   - PostgreSQL: 'public' schema
+   *   - SQL Server: 'dbo' schema
+   *   - MySQL: Current active database from connection (DATABASE())
+   *   - SQLite: Main database (schema concept doesn't exist in SQLite)
+   * @returns Promise with array of view names
+   */
+  getViews(schema?: string): Promise<string[]>;
+
+  /**
+   * Get schema information for a specific table
+   * @param tableName The name of the table to get schema information for
+   * @param schema Optional schema name. If not provided, implementation should use the default schema
+   *   as described in getTables method.
+   * @returns Promise with array of column information
+   */
+  getTableSchema(tableName: string, schema?: string): Promise<TableColumn[]>;
+
+  /**
+   * Check if a table exists
+   * @param tableName The name of the table to check
+   * @param schema Optional schema name. If not provided, implementation should use the default schema
+   *   as described in getTables method.
+   * @returns Promise with boolean indicating if table exists
+   */
+  tableExists(tableName: string, schema?: string): Promise<boolean>;
+
+  /**
+   * Get indexes for a specific table
+   * @param tableName The name of the table to get indexes for
+   * @param schema Optional schema name. If not provided, implementation should use the default schema
+   *   as described in getTables method.
+   * @returns Promise with array of index information
+   */
+  getTableIndexes(tableName: string, schema?: string): Promise<TableIndex[]>;
+
+  /**
+   * Get stored procedures/functions in the database or in a specific schema
+   * @param schema Optional schema name. If not provided, implementation should use the default schema
+   * @param routineType Optional filter: "procedure" for procedures only, "function" for functions only.
+   *   If not provided, returns both procedures and functions.
+   * @returns Promise with array of stored procedure/function names
+   */
+  getStoredProcedures(schema?: string, routineType?: "procedure" | "function"): Promise<string[]>;
+
+  /**
+   * Get details for a specific stored procedure/function
+   * @param procedureName The name of the procedure/function to get details for
+   * @param schema Optional schema name. If not provided, implementation should use the default schema
+   * @returns Promise with stored procedure details
+   */
+  getStoredProcedureDetail(procedureName: string, schema?: string): Promise<StoredProcedure>;
+
+  /**
+   * Get estimated row count for a table using database statistics.
+   * Uses catalog statistics (e.g. pg_class.reltuples) instead of COUNT(*) for performance.
+   * Optional — connectors that don't implement this fall back to COUNT(*) in search-objects.
+   */
+  getTableRowCount?(tableName: string, schema?: string): Promise<number | null>;
+
+  /**
+   * Get the comment/description for a table.
+   * Optional — connectors that don't support table comments (e.g. SQLite) may omit this.
+   * @returns The table comment string, or null if no comment is set
+   */
+  getTableComment?(tableName: string, schema?: string): Promise<string | null>;
+
+  /** Execute a SQL query with execution options and optional parameters */
+  executeSQL(sql: string, options: ExecuteOptions, parameters?: any[]): Promise<SQLResult>;
+
+  /**
+   * Get operational health metrics (connection pool state, buffer cache hit
+   * ratio). Optional — connectors that don't implement it yet are treated as
+   * unsupported by the health_check tool, which returns an explicit error
+   * rather than a partial/fabricated result.
+   */
+  getHealthCheck?(): Promise<HealthCheckResult>;
+}
+
+/**
+ * Registry for available database connectors
+ */
+export class ConnectorRegistry {
+  private static connectors: Map<ConnectorType, Connector> = new Map();
+
+  /**
+   * Register a new connector
+   */
+  static register(connector: Connector): void {
+    ConnectorRegistry.connectors.set(connector.id, connector);
+  }
+
+  /**
+   * Get a connector by ID
+   */
+  static getConnector(id: ConnectorType): Connector | null {
+    return ConnectorRegistry.connectors.get(id) || null;
+  }
+
+  /**
+   * Get connector for a DSN string
+   * Tries to find a connector that can handle the given DSN format
+   */
+  static getConnectorForDSN(dsn: string): Connector | null {
+    for (const connector of ConnectorRegistry.connectors.values()) {
+      if (connector.dsnParser.isValidDSN(dsn)) {
+        return connector;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get all available connector IDs
+   */
+  static getAvailableConnectors(): ConnectorType[] {
+    return Array.from(ConnectorRegistry.connectors.keys());
+  }
+
+  /**
+   * Get sample DSN for a specific connector
+   */
+  static getSampleDSN(connectorType: ConnectorType): string | null {
+    const connector = ConnectorRegistry.getConnector(connectorType);
+    if (!connector) return null;
+    return connector.dsnParser.getSampleDSN();
+  }
+
+  /**
+   * Get all available sample DSNs
+   */
+  static getAllSampleDSNs(): { [key in ConnectorType]?: string } {
+    const samples: { [key in ConnectorType]?: string } = {};
+    for (const [id, connector] of ConnectorRegistry.connectors.entries()) {
+      samples[id] = connector.dsnParser.getSampleDSN();
+    }
+    return samples;
+  }
+}

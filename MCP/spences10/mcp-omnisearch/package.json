@@ -1,0 +1,79 @@
+{
+	"name": "mcp-omnisearch",
+	"version": "0.2.1",
+	"description": "MCP server for integrating Omnisearch with LLMs",
+	"keywords": [
+		"ai",
+		"brave-search",
+		"content-enrichment",
+		"content-processing",
+		"data-extraction",
+		"fact-verification",
+		"firecrawl",
+		"image-captioning",
+		"kagi",
+		"llm",
+		"mcp",
+		"model-context-protocol",
+		"multi-provider",
+		"pdf-processing",
+		"search",
+		"site-mapping",
+		"summarization",
+		"tavily",
+		"unified-search",
+		"url-reader",
+		"web-crawling",
+		"web-interactions",
+		"web-search"
+	],
+	"license": "MIT",
+	"author": "Scott Spence",
+	"bin": {
+		"mcp-omnisearch": "./dist/index.js"
+	},
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"LICENSE"
+	],
+	"type": "module",
+	"main": "dist/index.js",
+	"scripts": {
+		"build": "vp pack",
+		"dev": "vp pack --watch",
+		"start": "node ./dist/index.js",
+		"check": "vp check && pnpm run check:advisories",
+		"check:advisories": "node tools/check-advisories.ts",
+		"check:fix": "vp check --fix",
+		"format": "vp check --fix",
+		"test": "vp test",
+		"test:coverage": "vitest run --coverage",
+		"test:watch": "vp test watch",
+		"changeset": "changeset",
+		"version": "changeset version",
+		"release": "pnpm run build && changeset publish",
+		"sync-server-json": "node -e \"const pkg = require('./package.json'); const server = require('./server.json'); server.version = pkg.version; server.packages[0].version = pkg.version; require('fs').writeFileSync('./server.json', JSON.stringify(server, null, 2));\"",
+		"publish-mcp": "pnpm run sync-server-json && mcp-publisher publish"
+	},
+	"dependencies": {
+		"@tmcp/adapter-valibot": "^0.1.7",
+		"@tmcp/transport-stdio": "^0.5.1",
+		"octokit": "^5.0.5",
+		"tmcp": "^1.20.1",
+		"valibot": "^1.4.2"
+	},
+	"devDependencies": {
+		"@changesets/cli": "^3.0.0",
+		"@types/node": "^26.1.1",
+		"@vitest/coverage-v8": "^5.0.0",
+		"vite-plus": "^1.0.0",
+		"vitest": "^5.0.0"
+	},
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"packageManager": "pnpm@12.15.0",
+	"mcpName": "io.github.spences10/mcp-omnisearch"
+}

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.epiral.bb-browser",
+  "type": "mcp",
+  "name": "Bb Browser",
+  "slug": "bb-browser",
+  "vendor": "epiral",
+  "description": "Your browser is the API. CLI + MCP server for AI agents to control Chrome with your login state.",
+  "version": "0.14.2",
+  "homepage": "https://github.com/epiral/bb-browser",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "googlechrome",
+    "brandName": "googlechrome",
+    "source": "https://cdn.simpleicons.org/googlechrome",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:56Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "epiral/bb-browser",
+    "url": "https://github.com/epiral/bb-browser",
+    "commit": "7975dc74b3f637d54906228e52f2ba9454874105",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6253,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "bb-browser"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "bb-browser"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "bb-browser"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

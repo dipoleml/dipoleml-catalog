@@ -1,0 +1,19 @@
+{
+  "skill": "phoenix-contexts",
+  "should_trigger": [
+    "Should I split the Accounts context into Auth and Profiles?",
+    "Guide me on Phoenix 1.8 Scope struct for authorization",
+    "How to structure context boundaries for a marketplace app?",
+    "Router pipelines and scope blocks",
+    "PubSub broadcasting between Accounts and Admin contexts?"
+  ],
+  "should_not_trigger": [
+    "My form validation isn't working, debug it",
+    "Ecto queries are slow, N+1 issue?",
+    "Implement GitHub OAuth login",
+    "LiveView assigns using too much memory",
+    "Review my code for architectural debt",
+    "How do I build a GenServer?",
+    "Writing tests for controller endpoints"
+  ]
+}

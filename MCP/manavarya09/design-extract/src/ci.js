@@ -1,0 +1,174 @@
+// ci — produce a single PR-comment-ready markdown block combining
+// drift, score, and optional visual-diff. Works in any CI (GitHub,
+// GitLab, CircleCI, local). Exits non-zero when the verdict exceeds
+// the configured threshold.
+//
+// Usage: designlang ci <url> --tokens ./tokens.json [--baseline <url>]
+
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { resolve, join } from 'path';
+
+const VERDICT_ORDER = ['in-sync', 'minor-drift', 'notable-drift', 'major-drift'];
+
+function bar(score, width = 20) {
+  const filled = Math.round((score / 100) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+function gradeBadge(grade) {
+  const map = { A: '🟢', B: '🔵', C: '🟡', D: '🟠', F: '🔴' };
+  return map[grade] || '⚪';
+}
+
+function section(title, body) {
+  return `### ${title}\n\n${body}\n`;
+}
+
+export async function runCi(url, opts) {
+  const out = [];
+  const outDir = resolve(opts.out || '.designlang-ci');
+  mkdirSync(outDir, { recursive: true });
+
+  out.push(`## designlang · design regression guard`);
+  out.push(`\n**URL:** \`${url}\`  \n**Run:** ${new Date().toISOString()}\n`);
+
+  // 1. Extract — guard the throw site so CI artifacts never come back empty.
+  // Playwright can crash on flaky networks, ad-walled URLs, or self-signed
+  // proxies; when that happens we still want a report file + a summary.json
+  // so downstream jobs (artifact uploads, status comments, dashboards) have
+  // something to point at. We preserve the original error via `cause` so the
+  // stack survives — losing the trace was a real problem with #76's draft.
+  const { extractDesignLanguage } = await import('./index.js');
+  let design;
+  try {
+    design = await extractDesignLanguage(url);
+  } catch (err) {
+    const stack = err?.stack || String(err);
+    out.push(section('Extraction', [
+      `_failed — ${err.message}_`,
+      '',
+      '```',
+      stack,
+      '```',
+    ].join('\n')));
+    const md = out.join('\n');
+    const mdPath = join(outDir, 'ci-report.md');
+    writeFileSync(mdPath, md, 'utf-8');
+    const summary = {
+      url,
+      score: null,
+      grade: null,
+      driftVerdict: 'unknown',
+      extractionFailed: true,
+      error: err.message,
+      timestamp: new Date().toISOString(),
+    };
+    writeFileSync(join(outDir, 'ci-summary.json'), JSON.stringify(summary, null, 2), 'utf-8');
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      try { writeFileSync(process.env.GITHUB_STEP_SUMMARY, md, { flag: 'a' }); } catch {}
+    }
+    return { mdPath, md, summary, shouldFail: true, cause: err };
+  }
+
+  // 2. Score block
+  if (design.score) {
+    const s = design.score;
+    const lines = [];
+    lines.push(`**Overall:** ${gradeBadge(s.grade)} \`${s.overall}/100\` · grade **${s.grade}**`);
+    lines.push('');
+    lines.push('```');
+    for (const [k, v] of Object.entries(s.scores || {})) {
+      lines.push(`${k.padEnd(24)} ${bar(v)} ${String(v).padStart(3)}`);
+    }
+    lines.push('```');
+    if (s.issues?.length) {
+      lines.push('');
+      lines.push('**Issues:**');
+      for (const i of s.issues.slice(0, 6)) lines.push(`- ⚠️  ${i}`);
+    }
+    out.push(section('Score', lines.join('\n')));
+  }
+
+  // 3. Drift
+  let driftVerdict = 'in-sync';
+  if (opts.tokens) {
+    try {
+      const { checkDrift } = await import('./drift.js');
+      const drift = await checkDrift(url, {
+        tokens: resolve(opts.tokens),
+        tolerance: opts.tolerance || 8,
+      });
+      driftVerdict = drift.verdict;
+      const lines = [];
+      lines.push(`**Verdict:** \`${drift.verdict}\` · ratio \`${(drift.ratio ?? 0).toFixed(3)}\``);
+      lines.push('');
+      if (drift.matched?.length) lines.push(`- ✓ matched: **${drift.matched.length}**`);
+      if (drift.drifted?.length) lines.push(`- ≠ drifted: **${drift.drifted.length}**`);
+      if (drift.unknown?.length) lines.push(`- ? unknown: **${drift.unknown.length}**`);
+      if (drift.drifted?.length) {
+        lines.push('');
+        lines.push('<details><summary>Drifted tokens</summary>\n');
+        lines.push('| token | local | live | distance |');
+        lines.push('|---|---|---|---|');
+        for (const d of drift.drifted.slice(0, 25)) {
+          lines.push(`| \`${d.token || d.name || '?'}\` | \`${d.local ?? d.from ?? ''}\` | \`${d.live ?? d.to ?? ''}\` | ${d.distance ?? ''} |`);
+        }
+        lines.push('\n</details>');
+      }
+      out.push(section('Drift · local tokens vs. live', lines.join('\n')));
+    } catch (e) {
+      out.push(section('Drift', `_skipped — ${e.message}_`));
+    }
+  } else {
+    out.push(section('Drift', `_skipped — pass \`--tokens <file>\` to compare local tokens against the live site._`));
+  }
+
+  // 4. Baseline visual diff (optional)
+  if (opts.baseline) {
+    try {
+      const { visualDiff } = await import('./visual-diff.js');
+      const r = await visualDiff({ beforeUrl: opts.baseline, afterUrl: url });
+      const changed = (r.tokenDiffs || r.changes || []).length || 0;
+      const lines = [];
+      lines.push(`**Baseline:** \`${opts.baseline}\``);
+      lines.push(`**Token changes:** ${changed}`);
+      out.push(section('Visual diff vs. baseline URL', lines.join('\n')));
+    } catch (e) {
+      out.push(section('Visual diff', `_skipped — ${e.message}_`));
+    }
+  }
+
+  // 5. Footer
+  out.push(`---\n<sub>Generated by \`designlang ci\` · [docs](https://github.com/Manavarya09/design-extract)</sub>\n`);
+
+  const md = out.join('\n');
+  const mdPath = join(outDir, 'ci-report.md');
+  writeFileSync(mdPath, md, 'utf-8');
+
+  // Emit the actionable pieces too — easy for jq / downstream.
+  const summary = {
+    url,
+    score: design.score?.overall ?? null,
+    grade: design.score?.grade ?? null,
+    driftVerdict,
+    timestamp: new Date().toISOString(),
+  };
+  writeFileSync(join(outDir, 'ci-summary.json'), JSON.stringify(summary, null, 2), 'utf-8');
+
+  // GitHub Actions niceties: if running in GHA, write the report to the step summary.
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    try { writeFileSync(process.env.GITHUB_STEP_SUMMARY, md, { flag: 'a' }); } catch {}
+  }
+
+  const threshold = opts.failOn || 'notable-drift';
+  const failIndex = VERDICT_ORDER.indexOf(threshold);
+  const actualIndex = VERDICT_ORDER.indexOf(driftVerdict);
+  const shouldFail = failIndex >= 0 && actualIndex >= failIndex;
+
+  return {
+    mdPath,
+    md,
+    summary,
+    shouldFail,
+  };
+}

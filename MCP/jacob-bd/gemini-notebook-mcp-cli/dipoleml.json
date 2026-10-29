@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.jacob-bd.gemini-notebook-mcp-cli",
+  "type": "mcp",
+  "name": "Gemini Notebook MCP CLI",
+  "slug": "gemini-notebook-mcp-cli",
+  "vendor": "jacob-bd",
+  "description": "Programmatic access to Gemini Notebook - via command-line interface (CLI), Model Context Protocol (MCP) server, and AI agent skills.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/jacob-bd/gemini-notebook-mcp-cli",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jacob-bd",
+    "brandName": "jacob-bd",
+    "source": "https://github.com/jacob-bd.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:06Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jacob-bd/gemini-notebook-mcp-cli",
+    "url": "https://github.com/jacob-bd/gemini-notebook-mcp-cli",
+    "commit": "8ac9728ec5b128b05077e9d7c4c8bb11b5830c61",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6411,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:32Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "notebooklm-mcp-cli"
+    ],
+    "env": [
+      "API_REFERENCE",
+      "NOTEBOOKLM_BASE_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

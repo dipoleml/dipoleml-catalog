@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="28" viewBox="0 0 160 28" role="img" aria-label="DESIGN.md verified">
+  <title>DESIGN.md verified</title>
+  <rect width="100" height="28" fill="#0a0908"/>
+  <rect x="100" width="60" height="28" fill="#ff4800"/>
+  <g font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', monospace" font-size="11" font-weight="500">
+    <text x="50" y="18" fill="#f3f1ea" text-anchor="middle" letter-spacing="0.06em">DESIGN.md</text>
+    <text x="130" y="18" fill="#0a0908" text-anchor="middle" letter-spacing="0.1em">VERIFIED</text>
+  </g>
+</svg>

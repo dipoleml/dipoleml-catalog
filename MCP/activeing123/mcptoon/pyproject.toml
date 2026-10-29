@@ -1,0 +1,114 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcptoon"
+version = "0.8.32"
+description = "One zero-dependency CLI to manage every MCP server and agent skill: token optimization for tool discovery (71,929 -> 581 tokens, -99.2% measured, schemas stay out of context), one config for every agent."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [{name = "Alex Chen"}]
+requires-python = ">=3.10"
+keywords = ["mcp", "mcp-cli", "mcp-tools", "mcp-client", "cli", "token-efficient", "token-optimization", "mcp-token-optimization", "tool-discovery", "context-compression", "context-window", "model-context-protocol", "mcp-server-manager", "agent", "llm", "zero-dependencies"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Shells",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/activeing123/mcptoon"
+Repository = "https://github.com/activeing123/mcptoon"
+Documentation = "https://github.com/activeing123/mcptoon#readme"
+Changelog = "https://github.com/activeing123/mcptoon/blob/main/CHANGELOG.md"
+Issues = "https://github.com/activeing123/mcptoon/issues"
+PyPI = "https://pypi.org/project/mcptoon/"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov", "pytest-timeout>=2.3", "ruff>=0.6"]
+
+[project.scripts]
+mcptoon = "mcptoon.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# packs.json is data, not code: `mcptoon install --packs` reads it at runtime, so
+# without this the builtin skill packs vanish from the wheel and only work from a
+# source checkout. tests/test_skill_packs.py pins it.
+#
+# skill/SKILL.md is mcptoon's own skill — the file that explains the exposure
+# presets to an agent. `mcptoon skills install-self` (and `quickstart`) copies it
+# into each agent's skill folder; without it in the wheel a pip user has no skill
+# to install and the explanation never reaches the agent that needs it.
+# tests/test_skill_package.py pins it.
+[tool.setuptools.package-data]
+mcptoon = ["packs.json", "skill/SKILL.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# A per-test ceiling, so one wedged test can never hang the whole suite.
+#
+# Why this is not optional: ~65 tests spawn real child processes (`npx`, `uvx`,
+# an MCP server over stdio). A child that never answers used to block its test
+# forever — `python -m pytest tests/` then ran indefinitely, and killing it left
+# the grandchildren orphaned. Observed 2026-10-09: a full run that normally takes
+# ~150s was killed at 600s. With this ceiling the same hang fails in 120s *and
+# names the test*, which is the only way to find it.
+#
+# `thread` because Windows has no SIGALRM; it dumps the stacks on timeout, so the
+# output still says where the process was stuck.
+timeout = 120
+timeout_method = "thread"
+
+[tool.ruff]
+target-version = "py310"
+src = ["src", "tests"]
+# `_toon/` is python-toon v0.2.0, vendored verbatim (MIT). It is not our code and is
+# replaced wholesale on every re-vendor, so linting it buys nothing and reformatting it
+# would mean hand-merging style drift at the next upgrade. Our own wrapper lives in
+# `src/mcptoon/toon_vendored.py` and is linted normally.
+extend-exclude = ["src/mcptoon/_toon"]
+
+[tool.ruff.lint]
+# F821 = undefined-name (BUG: must be zero)
+# F841 = unused-variable (BUG)
+# B904 = raise-without-from (BUG)
+# F401 = unused-import (cleanliness)
+# UP = pyupgrade (modernize)
+# E = pycodestyle errors
+# W = pycodestyle warnings
+# SIM = simplification
+select = ["F821", "F841", "B904", "F401", "E", "W", "UP", "SIM"]
+ignore = [
+    "E501",    # line-too-long (not enforced)
+    "E741",    # ambiguous-variable-name (l, I, O)
+    "E402",    # module-import-not-at-top (test files need sys.path setup)
+    "SIM105",  # suppressible-exception (contextlib.suppress less readable)
+    "SIM117",  # multiple-with-statements (readability)
+    "SIM108",  # if-else-block-instead-of-if-exp (readability)
+    "SIM116",  # if-else-block-instead-of-dict-lookup (readability)
+    "SIM102",  # collapsible-if (readability)
+    "SIM103",  # needless-bool (readability)
+    "UP045",   # non-pep604-annotation-optional (Optional[X] still valid)
+    "UP036",   # outdated-version-block
+    "W293",    # blank-line-with-whitespace
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]

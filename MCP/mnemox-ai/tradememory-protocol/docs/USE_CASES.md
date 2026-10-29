@@ -1,0 +1,160 @@
+# Real-World Use Cases
+
+Three usage patterns for TradeMemory.
+
+---
+
+## Case 1: US Equity Trader — Pre-Flight Workflow
+
+**Profile**
+
+| | |
+|---|---|
+| Market | US equities |
+| Deployment | NAS Docker, MCP SSE + REST API |
+| Integration | Claude Code + chat bots via REST API |
+
+**How they use it**
+
+Every trade goes through a pre-flight checklist before execution:
+
+1. **Recall** — Ask TradeMemory for past trades in similar market conditions
+2. **State check** — Verify confidence level, drawdown percentage, and streak status
+3. **Plan check** — See if any pre-set trading plans have been triggered
+4. **Risk check** — Run position sizing through the risk endpoint
+5. **Execute** — Only if all checks pass
+6. **Record** — One call to `remember_trade` captures everything and updates five memory layers automatically
+7. **Reflect** — Daily and weekly reviews via REST API
+
+The trader also built automation scripts for portfolio dashboards, price updates, and infrastructure health checks — all feeding into TradeMemory via REST API.
+
+> **Key insight:** Users treat TradeMemory as a discipline system — memory is the starting point of the decision process, not an afterthought.
+
+*Based on a real user deployment, March 2026.*
+
+---
+
+### Optional sentiment evidence
+
+TradeMemory does not call third-party APIs automatically, but the trader can
+attach externally fetched sentiment as part of the `market_context`. For
+example, an agent can fetch an Adanos Market Sentiment API snapshot and map it
+to TradeMemory's vendor-neutral sentiment schema before calling
+`remember_trade`:
+
+```python
+import requests
+
+from tradememory.data import format_sentiment_context
+
+response = requests.get(
+    "https://api.adanos.org/reddit/stocks/v1/stock/AAPL",
+    headers={"X-API-Key": "sk_live_your_key_here"},
+    params={"from": "2026-06-09", "to": "2026-06-16"},
+    timeout=10,
+)
+response.raise_for_status()
+adanos_data = response.json()
+score = adanos_data["sentiment_score"]
+label = "bullish" if score > 0 else "bearish" if score < 0 else "neutral"
+sentiment_context = format_sentiment_context(
+    {
+        "score": score,
+        "label": label,
+        "sample_window": "2026-06-09 to 2026-06-16 UTC",
+    },
+    source="Adanos Reddit",
+)
+
+# Pass this into remember_trade alongside price action, regime, and strategy context.
+market_context = (
+    "Post-earnings gap up, above 20-day moving average. "
+    f"{sentiment_context}"
+)
+```
+
+This keeps API keys and network calls outside TradeMemory while preserving the
+sentiment evidence that shaped the trade decision. See
+[`examples/integrations/adanos_sentiment.py`](../examples/integrations/adanos_sentiment.py)
+for the provider-specific mapping. Other providers can map their responses to
+the same `score`, `label`, and `sample_window` fields.
+
+---
+
+## Case 2: Forex EA System — Automated Memory Loop
+
+**Profile**
+
+| | |
+|---|---|
+| Market | XAUUSD (Gold) |
+| Deployment | MT5 Expert Advisor + MT5 Sync → TradeMemory |
+| Strategies | VolBreakout, IntradayMomentum, Pullback |
+
+**How they use it**
+
+The EA trades automatically. TradeMemory records everything:
+
+1. **Auto-sync** — MT5 Sync pushes every closed trade to TradeMemory with full context
+2. **Decision logging** — Every signal is recorded as a Trading Decision Record (TDR), including signals that were blocked by filters
+3. **Audit trail** — Each TDR is SHA-256 hashed at creation for tamper detection
+4. **Weekly review** — `get_strategy_performance` compares strategies side by side
+
+The system is designed to log thousands of decisions daily. Most are "FILTERED" — valid signals blocked by risk rules. These filtered decisions are the most valuable review data.
+
+> **Key insight:** Recording why you DIDN'T trade is as valuable as recording why you did. Filtered signals reveal how your risk rules interact with real market conditions.
+
+*From the TradeMemory team's own system (first-party, demo account).*
+
+---
+
+## Case 3: Compliance-First Fund — Audit Trail
+
+**Profile**
+
+| | |
+|---|---|
+| Market | Multi-asset (equities + crypto) |
+| Need | MiFID II Article 17, EU AI Act Article 14 |
+| Deployment | Private server, REST API |
+
+**How they use it**
+
+Every AI decision — including decisions NOT to trade — generates a complete audit record:
+
+```json
+{
+  "ts": "2026-03-26 07:55:00",
+  "strategy": "VolBreakout",
+  "decision": "FILTERED",
+  "signal_direction": "SHORT",
+  "filters_json": {
+    "filters": [
+      {"name": "spread_gate", "passed": true},
+      {"name": "sell_allowed", "passed": false, "blocked": true},
+      {"name": "account_risk", "passed": true}
+    ]
+  },
+  "regime": "TRENDING",
+  "consec_losses": 0
+}
+```
+
+A regulator reads this and immediately understands: the agent saw a valid signal, but policy blocked it. No guessing, no black box.
+
+```bash
+# Verify record integrity
+GET /audit/verify/{trade_id}
+# → {"verified": true, "stored_hash": "a3f8c9...", "computed_hash": "a3f8c9..."}
+
+# Bulk export for regulatory submission
+GET /audit/export?strategy=VolBreakout&start=2026-03-01&format=jsonl
+```
+
+> **Key insight:** Regulators don't ask how much your AI made. They ask why it made each decision.
+
+*Illustrative scenario (not a customer deployment), based on TradeMemory's audit capabilities.*
+
+---
+
+[Back to README](../README.md) · [Getting Started](GETTING_STARTED.md) · [API Reference](API.md)

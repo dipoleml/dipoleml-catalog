@@ -1,0 +1,926 @@
+# Secure MCP Tunnel client
+
+`tunnel-client` is the customer-run agent behind Secure MCP Tunnel. It connects
+a private or localhost MCP (Model Context Protocol) server to ChatGPT, Codex,
+the Responses API, and AgentKit through an OpenAI-hosted MCP tunnel endpoint,
+while keeping the MCP server off the public internet.
+
+This CLI and its [Go SDK](#embed-as-a-go-sdk) run beside your private MCP server.
+Applications call the OpenAI-hosted `/v1/mcp/{tunnel_id}` endpoint through their
+MCP transport; the runtime receives those requests and delivers responses.
+The poll/response endpoints are the runtime's queue protocol for client
+implementers. See the [architecture](docs/architecture.md) for the request flow
+and the [protocol](docs/protocol.md) when building a compatible runtime.
+
+Use it when:
+
+- You have an MCP server on a laptop, VM, Kubernetes cluster, or private
+  network and need an OpenAI-hosted product to reach it.
+- Security will not approve a new inbound firewall rule or public endpoint for
+  the MCP server.
+- You want an operator-visible daemon with `/healthz`, `/readyz`, `/metrics`,
+  and `/ui` before a connector or API call depends on it.
+
+If you searched for "secure MCP tunnel", "MCP tunnel ChatGPT", "connect local
+MCP server to ChatGPT", "connect local MCP server to Codex", "localhost to
+ChatGPT", or "Codex local MCP", start with `tunnel-client help quickstart`,
+then read the onboarding guide below.
+
+## Start Here
+
+- **Need the shortest working path from localhost or a private MCP server to
+  ChatGPT or Codex?** Start with [`docs/onboarding.md`](docs/onboarding.md).
+- **Need the customer-shareable network and trust-boundary story?** Read
+  [`docs/architecture.md`](docs/architecture.md).
+- **Need roles, groups, tunnel IDs, or API keys?** Read
+  [`docs/permissions.md`](docs/permissions.md).
+- **Need Docker, Kubernetes, or VM deployment guidance?** Read
+  [`docs/deployment/overview.md`](docs/deployment/overview.md).
+- **Need to debug readiness, connector discovery, or OAuth?** Read
+  [`docs/troubleshooting.md`](docs/troubleshooting.md).
+- **Building a compatible client in another language?** Read
+  [`docs/protocol.md`](docs/protocol.md) and use
+  [`docs/openapi.json`](docs/openapi.json). Optional client features use the
+  common [`X-Tunnel-Client-Capabilities` header](docs/protocol.md#tunnel-client-capabilities).
+- **Upgrading for server-directed polling placement?** Read the
+  [routing correction and activation notes](docs/routing-correction.md).
+  Supporting clients work with existing services immediately; corrections are
+  enabled separately after client release. No configuration change is needed.
+- **Using MCP timing or distributed tracing?** Read the
+  [timing release and rollback guidance](docs/configuration.md#response-timing-compatibility).
+  Trace forwarding is disabled by default; opt in with
+  `--mcp.forward-trace-context` to carry W3C trace context in MCP `params._meta`
+  over stdio and Streamable HTTP.
+  Opt-in [local span export](docs/configuration.md#local-tracing) uses
+  `--tracing.enabled --tracing.file=/private/new-trace.jsonl`. Complete traces
+  require compatible service queue handoff and caller parent propagation first.
+- **Forwarding the original HTTP request ID?** MCP HTTP forwarding is enabled
+  by default. Use `--forward-request-id=mcp,harpoon` to include Harpoon REST
+  requests, `--forward-request-id=mcp,oauth` to include eligible queued OAuth
+  discovery requests, or `--forward-request-id=none` to disable
+  automatic forwarding.
+  The same setting is available as `FORWARD_REQUEST_ID` or top-level YAML
+  `forward_request_id`; see [request ID forwarding](docs/configuration.md#request-id-forwarding).
+- **Using a namespaced tunnel ID?** Preserve the full ID returned by the service.
+  The client accepts legacy IDs and aliases with a four-character namespace;
+  see [tunnel identifiers](docs/protocol.md#scope).
+- **Embedding an MCP server directly in a Go process?** Use the Go SDK with
+  the MCP SDK's in-memory transport; see
+  [`examples/go-sdk-inmemory`](examples/go-sdk-inmemory).
+
+## Try the embedded demo
+
+With a runtime API key and tunnel ID, run the built-in `server_info`, `echo`,
+and `uppercase` tools without a separate MCP server:
+
+```bash
+export CONTROL_PLANE_API_KEY="sk-..."
+export CONTROL_PLANE_TUNNEL_ID="tunnel_0123456789abcdef0123456789abcdef"
+tunnel-client run --embedded-stateless-mcp-stub --health.listen-addr 127.0.0.1:0
+```
+
+`--embedded-stateless-mcp-stub` uses stateless MCP handling even when a client
+sends `initialize` and `notifications/initialized`. It issues no MCP session
+ID, and these demo tools do not require MCP session affinity between processes.
+OAuth and application state have separate requirements.
+
+`--embedded-mcp-stub` keeps its existing compatibility behavior: legacy
+initialization and session requests use stateful handling; self-contained
+modern discovery and tool requests use stateless handling. Choose one embedded
+mode per run. Both share the embedded listen-address, Unix-socket, server-name, and
+server-version options; see [embedded demo configuration](docs/configuration.md#embedded-demo-mcp-modes)
+for defaults and target conflicts.
+
+## Embed as a Go SDK
+
+The module can run in the same process as a Go MCP server. The MCP server does
+not need to bind a port or use stdio: give the server side of an in-memory MCP
+transport pair to your server and the client side to `tunnelclient.New`.
+
+~~~bash
+go get github.com/openai/tunnel-client
+~~~
+
+~~~go
+import (
+    "context"
+
+    "github.com/modelcontextprotocol/go-sdk/mcp"
+    tunnelclient "github.com/openai/tunnel-client"
+)
+
+ctx := context.Background()
+server := mcp.NewServer(&mcp.Implementation{Name: "my-server", Version: "1.0.0"}, nil)
+serverTransport, tunnelTransport := mcp.NewInMemoryTransports()
+go server.Run(ctx, serverTransport)
+
+client, err := tunnelclient.New(tunnelclient.Config{
+    TunnelID: "tunnel_0123456789abcdef0123456789abcdef",
+    APIKey:   apiKey,
+}, tunnelTransport)
+if err != nil {
+    return err
+}
+return client.Run(ctx)
+~~~
+
+The runnable [Go SDK example](examples/go-sdk-inmemory) registers an `echo`
+tool and connects it to the OpenAI Tunnel control plane.
+
+## Documentation Map
+
+- **Public Secure MCP Tunnel guide**:
+  [`developers.openai.com/api/docs/guides/secure-mcp-tunnels`](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+- **Shareable end-user guide**: [`docs/end-user-guide.md`](docs/end-user-guide.md)
+- **Start here**: [`docs/onboarding.md`](docs/onboarding.md)
+- **Permissions, roles, and groups**: [`docs/permissions.md`](docs/permissions.md)
+- **Architecture diagrams**: [`docs/architecture.md`](docs/architecture.md)
+- **Connector behavior**: [`docs/connectors.md`](docs/connectors.md)
+- **Wire protocol for client implementers**: [`docs/protocol.md`](docs/protocol.md)
+- **OpenAPI contract**: [`docs/openapi.json`](docs/openapi.json)
+- **Enterprise customer handoff**:
+  [`docs/enterprise-customer-onboarding.md`](docs/enterprise-customer-onboarding.md)
+- **Configuration reference**: [`docs/configuration.md`](docs/configuration.md)
+- **Deployment guides**: [`docs/deployment/overview.md`](docs/deployment/overview.md)
+- **Bundled Cloudflare companion**:
+  [`docs/deployment/cloudflared.md`](docs/deployment/cloudflared.md)
+- **Troubleshooting**: [`docs/troubleshooting.md`](docs/troubleshooting.md)
+- **Development & testing**: [`docs/development.md`](docs/development.md)
+- **In-memory Go SDK example**:
+  [`examples/go-sdk-inmemory`](examples/go-sdk-inmemory)
+- **Roadmap / design notes**: [`docs/roadmap.md`](docs/roadmap.md)
+
+## Install with Homebrew
+
+On macOS, Homebrew is the supported installation path. Directly downloaded
+release ZIPs are not currently notarized and can be blocked by Gatekeeper. If
+a manually downloaded archive is blocked, do not use `xattr`, `spctl`, or
+**Open Anyway** to bypass the check; install from the official OpenAI tap
+instead:
+
+```bash
+brew install openai/tools/tunnel-client
+```
+
+Verify the installed version, then start with the guided setup:
+
+```bash
+tunnel-client --version
+tunnel-client help quickstart
+```
+
+The Formula installs the matching `tunnel-client`, bundled `cloudflared`,
+and companion manifest together, while exposing only the `tunnel-client`
+command. It also installs Bash, Zsh, and Fish completions for that version.
+If your shell does not load them automatically, follow
+[Homebrew's shell completion setup](https://docs.brew.sh/Shell-Completion).
+For Docker, Kubernetes, or VM deployments, see
+[`docs/deployment/overview.md`](docs/deployment/overview.md).
+
+To generate the shareable guide output locally:
+
+```bash
+make end-user-guide-screenshots
+make end-user-guide-html
+make end-user-guide-slides
+```
+
+### Start at macOS login
+
+The Homebrew Formula supports `brew services`. It supervises
+`tunnel-client run` using the profile at
+`$(brew --prefix)/etc/tunnel-client.yaml`, starts at login, and restarts the
+runtime after it exits. Installation and upgrades do not create or replace
+that profile.
+
+First, select the profile you already configured. If it belongs to a managed
+alias, find its `profile_path` with `tunnel-client runtimes status <alias> --json`,
+then run `tunnel-client runtimes stop <alias>` before starting the service.
+Copy the profile to the service location, preserving your custom settings:
+
+```bash
+service_profile="$(brew --prefix)/etc/tunnel-client.yaml"
+if [ -e "$service_profile" ]; then
+  cp -p "$service_profile" "$service_profile.backup.$(date +%Y%m%d%H%M%S)"
+fi
+install -m 600 /absolute/path/to/existing-profile.yaml "$service_profile"
+```
+
+Use absolute paths in this profile, including paths to MCP executables,
+working directories, and secret files. The service includes Homebrew's `bin`
+and `sbin` on `PATH`, but does not load your interactive shell configuration.
+Replace shell-only `env:` references with persistent references such as this
+existing profile field:
+
+```yaml
+control_plane:
+  api_key: file:/Users/YOU/.config/tunnel-client/runtime.key
+```
+
+Store the runtime API key in that file with permissions `0600`; keep its
+directory private too. The service definition contains the profile path,
+not the key. Validate the profile, then start the service as your logged-in
+user, without `sudo`:
+
+```bash
+tunnel-client doctor --profile-file "$(brew --prefix)/etc/tunnel-client.yaml"
+brew services start openai/tools/tunnel-client
+brew services info openai/tools/tunnel-client
+tunnel-client health --url http://127.0.0.1:8080 --json
+```
+
+The health command above uses the default listener. If your profile configures
+a different health address or a `health.url_file`, use that address or
+`health --url-file /absolute/path/to/health-url` instead. An active service
+alone does not mean the tunnel is ready. Inspect
+`$(brew --prefix)/var/log/tunnel-client.log` and any `log.file` destination in
+your profile if startup fails.
+
+Use Homebrew to manage this runtime:
+
+```bash
+# Reload the profile/key or pick up the installed version after a brew upgrade.
+brew services restart openai/tools/tunnel-client
+
+# Stop the runtime and disable automatic login startup.
+brew services stop openai/tools/tunnel-client
+```
+
+The service uses Homebrew's stable `opt` path across upgrades. The CLI's
+`runtimes status` and `runtimes stop` commands manage its own detached
+processes; they do not discover or control the Homebrew service. Do not run
+`runtimes connect` for the same tunnel while the service is active: that
+command writes a generated profile and starts a separate runtime. Stop the
+service before switching back to CLI management. Keep only one runtime active
+for the tunnel during the switch, especially for stdio or stateful MCP servers.
+
+The per-user macOS service runs during your login session, not before login
+or after logout. Sleep suspends the Mac's work; wake allows the runtime's
+network retries to resume. Homebrew's launchd service restarts an exited
+process, but does not restart one merely because readiness fails. Start a
+local HTTP MCP server through its own supervisor. For a server that starts
+later, set `mcp.startup_wait_timeout` (for example, `2m`) in the profile to
+allow startup connection retries. If that window expires, restart the service
+after the MCP server is available; the process can remain alive with its
+startup probe failed. After a server restart, check readiness and logs;
+existing MCP sessions may need to be initialized again. For a stdio target,
+the runtime owns the MCP child. Do not assume interrupted tool calls are
+replayed.
+
+## For Codex / Copilot
+
+If you want the shortest supported path from a local or localhost MCP server to
+ChatGPT or Codex, start with `tunnel-client help quickstart`. For Codex plugin
+lifecycle work, use the native `tunnel-client runtimes ...` and
+`tunnel-client admin-profiles ...` command trees surfaced by
+`tunnel-client help plugin`.
+
+Supervision choice:
+
+- Use `tunnel-client run ...` for a foreground daemon attached to the current
+  terminal or supervised by the OS; see [macOS login startup](#start-at-macos-login).
+- For a long-lived local runtime managed by Codex, prefer
+  `tunnel-client runtimes connect ...`. Do not use `nohup` or `disown` as the
+  tunnel-client supervision path.
+- After `runtimes connect`, check `tunnel-client runtimes status <alias>`
+  before reporting success. Only report success when status shows the managed
+  runtime running with health reported. Use `--json` when Codex needs the
+  explicit `process_running`, `healthy`, and `ready` fields.
+
+Use these exact setup pages during first use:
+
+- Tunnels management and supported tunnel-client download:
+  `https://platform.openai.com/settings/organization/tunnels`
+- Organization roles: `https://platform.openai.com/settings/organization/people/roles`
+- Organization groups: `https://platform.openai.com/settings/organization/people/groups`
+- Runtime API keys: `https://platform.openai.com/settings/organization/api-keys`
+- Admin API keys: `https://platform.openai.com/settings/organization/admin-keys`
+- ChatGPT connector settings: `https://chatgpt.com/#settings/Connectors`
+
+Which value comes from where:
+
+- `CONTROL_PLANE_TUNNEL_ID`: create or inspect it in Tunnels management, or via
+  `tunnel-client admin tunnels create|list|get ...` with `OPENAI_ADMIN_KEY`.
+- `CONTROL_PLANE_API_KEY`: create it in Runtime API keys; this is the key used
+  by `tunnel-client doctor` and `tunnel-client run`.
+- For [AWS workload identity](docs/configuration.md#aws-workload-identity), set
+  `CONTROL_PLANE_AWS_IDENTITY_PROVIDER_ID` and `CONTROL_PLANE_AWS_SERVICE_ACCOUNT_ID`.
+- `OPENAI_ADMIN_KEY`: only for `tunnel-client admin tunnels
+  list|create|update|delete`. Do not use the admin key for the long-lived
+  daemon.
+
+Required tunnel permissions:
+
+- Runtime users and the principal that creates `CONTROL_PLANE_API_KEY` need
+  Tunnels **Read** + **Use**.
+- Tunnel managers need Tunnels **Read** + **Manage**, plus **Use** if they also
+  run the daemon or attach ChatGPT connectors.
+- Admin-key creators need the Platform admin-key permission in addition to any
+  tunnel permissions they need.
+
+See [`docs/permissions.md`](docs/permissions.md) for the group/role workflow
+and screenshots.
+
+Binary-first flow:
+
+```bash
+tunnel-client help quickstart
+tunnel-client profiles samples list
+tunnel-client profiles samples show sample_mcp_enterprise_proxy
+tunnel-client init --sample sample_mcp_stdio_local --profile local-stdio --tunnel-id tunnel_0123456789abcdef0123456789abcdef --mcp-command "python /path/to/server.py"
+tunnel-client doctor --profile local-stdio --explain
+tunnel-client run --profile local-stdio
+tunnel-client run --profile-file ./profiles/local-stdio.yaml
+```
+
+**Stdio deployment limit:** run only one active `tunnel-client` instance per
+tunnel ID when using `--mcp.command` / `MCP_COMMAND`. Multiple active instances
+sharing that tunnel ID are **not supported**, including overlap during a
+restart. Each instance launches a separate MCP child, and initialization and
+later requests can reach different children. Stop the old instance before
+starting its replacement, or use distinct tunnel IDs for independent instances.
+See [stdio deployment limits](docs/configuration.md#stdio-deployment-limits).
+
+By default, `tunnel-client` restarts a supervised stdio child after an
+unexpected exit, stdout EOF, or stdin write failure. Calls in progress may
+fail, and legacy callers must initialize the replacement child before retrying.
+If your deployment uses an external process supervisor to restart the whole
+client, set `--mcp.stdio-failure-policy=exit`,
+`MCP_STDIO_FAILURE_POLICY=exit`, or YAML `mcp.stdio_failure_policy: exit`.
+That setting restores nonzero client exit on these failures; intentional
+shutdown still exits successfully. Remove the new flag or YAML key before
+downgrading to a version that does not recognize it.
+
+Stdio initialization is checked automatically. Legacy calls require a successful
+`initialize` exchange followed by `notifications/initialized`; premature calls
+return `mcp_initialization_required` immediately. Self-contained MCP requests
+using protocol version `2026-07-28` or later pass through without a handshake.
+The caller owns initialization, including after child replacement. See
+[configuration](docs/configuration.md#mcp-server) for lifecycle behavior.
+
+If you need the tunnel id or runtime/admin keys first, open the matching URL
+above before running `init`. If your rollout has self-serve tunnel access,
+create the tunnel yourself in Tunnels management or with
+`tunnel-client admin tunnels create`, then export the returned id as
+`CONTROL_PLANE_TUNNEL_ID` and a separate runtime key as
+`CONTROL_PLANE_API_KEY`. Create or verify the connector from the ChatGPT
+settings URL above only while `tunnel-client run ...` is healthy, and keep the
+daemon running for connector discovery and every MCP call from ChatGPT.
+
+The Platform Tunnels page download button is sourced from tunnel-service's
+gated tunnel metadata response. When a new public tunnel-client release becomes
+the supported download, update tunnel-service's hard-coded public artifact URL
+alongside the release handoff.
+
+Validate a source checkout with native Go tooling:
+
+```bash
+go build ./...
+go test ./...
+```
+
+Independent tests, subtests, and fuzz seed cases use `t.Parallel()`. Give each
+case its own mutable fixtures, and use `t.Cleanup` for resources shared by
+parallel children. Keep dependent state transitions in one test. Keep tests
+that mutate process-wide globals, environment variables, signals, or stdio
+serial.
+
+Check concurrent execution with the race detector and shuffled test order:
+
+```bash
+go test -race -shuffle=on -count=3 ./...
+```
+
+The E2E and mock-server packages default to two concurrent tests to bound
+resource use. An explicit `-parallel=N` overrides that default.
+
+## SBOMs
+
+The public repository includes deterministic six-platform dependency baselines
+for the
+[full client](https://github.com/openai/tunnel-client/blob/master/compliance/tunnel-client.spdx.json),
+[runtime](https://github.com/openai/tunnel-client/blob/master/compliance/tunnel-client-runtime.spdx.json),
+and
+[runtime with Cloudflared](https://github.com/openai/tunnel-client/blob/master/compliance/tunnel-client-runtime-cloudflared.spdx.json).
+They inventory synthetic payloads built from declared offline source and vendor
+snapshots, including pinned Cloudflared module versions, purls, and CPEs. Do
+not hand-edit them; maintainers refresh them through the hermetic SBOM
+generation check when dependency inputs or a Cloudflared pin changes. The
+baselines are useful for dependency review and drift detection, but they do not
+claim that a public release ZIP contains the same bytes.
+
+From a checkout of this public repository, verify that the mirrored baseline
+files match their mirrored manifest before importing them into a dependency
+scanner:
+
+```bash
+./scripts/verify_sbom_baselines.sh
+```
+
+That command proves the checkout's three baseline documents match
+`compliance/sbom-baseline-manifest.json` and parse as SPDX 2.3. It does not
+prove that any release archive contains those bytes.
+
+### Validate a downloaded release
+
+Releases produced by the current release workflow publish a matching SPDX 2.3
+sidecar for each ZIP, embed the same sidecar in the ZIP, cover both files in
+`SHA256SUMS.txt`, and publish the workflow's signed Sigstore provenance bundle.
+They also publish:
+
+- `tunnel-client-vX.Y.Z-vulnerability-report.json`, generated by a
+  checksum-pinned Grype binary from exactly 18 release-specific SPDX sidecars:
+  three flavors across six platforms, each bound to its matching ZIP and
+  license-report SHA256, with the exact vulnerability-database SHA256 recorded;
+- `tunnel-client-vX.Y.Z.openvex.json` only when the scan has findings, with
+  every automated statement set to `under_investigation` rather than claiming
+  that a finding is fixed, exploitable, or not affected; and
+- `tunnel-client-vX.Y.Z-enterprise-evidence.json`, which inventories the
+  release evidence bytes, scanner/database identity, scan scope, and
+  provenance boundary.
+
+The vulnerability report explicitly records OCI images as `not_scanned`:
+the release contract has multi-architecture OCI index digests, not exact
+per-platform OCI manifest scan inputs. Every pre-bundle release artifact is
+covered by `SHA256SUMS.txt`, `PUBLIC_URLS.txt`, and the signed provenance
+bundle. The bundle is intentionally excluded from its own checksum and
+signature subject set.
+Older releases without `.spdx.json` sidecars cannot be archive/SBOM-validated
+this way; releases without a `*-provenance.sigstore.json` bundle cannot be
+provenance-validated this way. Use the release sidecar, not a checked-in
+baseline, to validate downloaded bytes.
+
+From a checkout of this public repository at the matching release tag, replace
+the example tag and choose one of `client`, `runtime`, or
+`runtime-cloudflared`. The commands require Bash, Python 3, `curl`, and the
+GitHub CLI:
+
+```bash
+release=vX.Y.Z
+platform=linux-amd64
+flavor=runtime
+prefix=tunnel-client-runtime
+stem="${prefix}-${release}-${platform}"
+base="https://github.com/openai/tunnel-client/releases/download/${release}"
+bundle="tunnel-client-${release}-provenance.sigstore.json"
+source_digest="$(git rev-parse HEAD)"
+
+curl -fLO "${base}/${stem}.zip"
+curl -fLO "${base}/${stem}.spdx.json"
+curl -fLO "${base}/${stem}-licenses.txt"
+curl -fLO "${base}/SHA256SUMS.txt"
+curl -fLO "${base}/${bundle}"
+
+gh attestation verify "${stem}.zip" \
+  --bundle "${bundle}" \
+  --repo openai/tunnel-client \
+  --signer-workflow openai/tunnel-client/.github/workflows/release.yml \
+  --source-ref "refs/tags/${release}" \
+  --source-digest "${source_digest}" \
+  --signer-digest "${source_digest}" \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --deny-self-hosted-runners
+gh attestation verify "${stem}.spdx.json" \
+  --bundle "${bundle}" \
+  --repo openai/tunnel-client \
+  --signer-workflow openai/tunnel-client/.github/workflows/release.yml \
+  --source-ref "refs/tags/${release}" \
+  --source-digest "${source_digest}" \
+  --signer-digest "${source_digest}" \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --deny-self-hosted-runners
+gh attestation verify "${stem}-licenses.txt" \
+  --bundle "${bundle}" \
+  --repo openai/tunnel-client \
+  --signer-workflow openai/tunnel-client/.github/workflows/release.yml \
+  --source-ref "refs/tags/${release}" \
+  --source-digest "${source_digest}" \
+  --signer-digest "${source_digest}" \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --deny-self-hosted-runners
+gh attestation verify SHA256SUMS.txt \
+  --bundle "${bundle}" \
+  --repo openai/tunnel-client \
+  --signer-workflow openai/tunnel-client/.github/workflows/release.yml \
+  --source-ref "refs/tags/${release}" \
+  --source-digest "${source_digest}" \
+  --signer-digest "${source_digest}" \
+  --predicate-type https://slsa.dev/provenance/v1 \
+  --deny-self-hosted-runners
+
+./scripts/verify_release_archive.sh \
+  --flavor "${flavor}" \
+  --archive "${stem}.zip" \
+  --sbom "${stem}.spdx.json" \
+  --checksums SHA256SUMS.txt
+```
+
+To verify the complete release evidence set, download every asset into a clean
+directory and run both fail-closed contract verifiers:
+
+```bash
+mkdir release-evidence
+gh release download "${release}" \
+  --repo openai/tunnel-client \
+  --dir release-evidence
+
+./scripts/verify_release_provenance.sh \
+  --bundle "release-evidence/${bundle}" \
+  --artifact-dir release-evidence \
+  --release "${release}" \
+  --source-digest "${source_digest}"
+./scripts/verify_release_evidence.sh \
+  --artifact-dir release-evidence \
+  --release "${release}" \
+  --source-digest "${source_digest}"
+```
+
+Use `prefix=tunnel-client` with `flavor=client`, or
+`prefix=tunnel-client-runtime-cloudflared` with
+`flavor=runtime-cloudflared`. The bundle is the release workflow's signed
+Sigstore evidence and supports verification without GitHub attestation lookup.
+It is emitted after `SHA256SUMS.txt` is attested, so it is intentionally not
+listed in that checksum file; `gh attestation verify` checks the bundle's
+signature, transparency-log material, signer workflow, source ref, source
+digest, and subject digest. The archive verifier then fails closed when the
+published checksums do not match, the ZIP is too large or has unsafe,
+duplicate, or non-regular members, its embedded sidecar differs from the
+downloaded sidecar, or the SPDX SHA256 inventory does not match the extracted
+payload. After it passes, import the matching `.spdx.json` file into the
+dependency scanner of your choice. Runtime releases also publish a matching
+`*-scan-manifest.json` that binds scanner scope, source archives, license
+evidence, and the release sidecars.
+
+For a fully disconnected verification environment, capture a trusted root from
+an independently trusted online environment before disconnecting:
+
+```sh
+gh attestation trusted-root > trusted_root.jsonl
+```
+
+Transfer that file with the release evidence and add
+`--custom-trusted-root trusted_root.jsonl` to each `gh attestation verify`
+command above. The release bundle removes the GitHub attestation API
+dependency; the trusted-root file removes the remaining online trust-root
+lookup.
+
+Build the CLI binary from a source checkout. The Make target stamps the
+checkout Git SHA into the version sent in `User-Agent` and
+`X-Tunnel-Client-Version`:
+
+```bash
+make admin-ui
+make tunnel-client
+./bin/tunnel-client help quickstart
+```
+
+If you invoke Go directly, stamp the same metadata explicitly:
+
+```bash
+module_path="$(go list -m -f '{{.Path}}')"
+git_sha="$(git rev-parse HEAD)"
+mkdir -p bin
+
+go build \
+  -ldflags "-X ${module_path}/pkg/version.GitSHA=${git_sha}" \
+  -o bin/tunnel-client \
+  ./cmd/client
+```
+
+## Narrow runtime artifacts
+
+`tunnel-client-runtime` and `tunnel-client-runtime-cloudflared` are the
+runtime-only customer surfaces. They intentionally expose only `run` plus
+flag-based `--help` and `--version`; use the full `tunnel-client` binary for
+onboarding, admin, Codex, and profile-management commands. The Cloudflare
+flavor adds only the approved `cloudflared.*` settings and supervises a pinned
+`cloudflared` companion.
+
+Build either binary from a source checkout with its Make target (the shorter
+aliases are equivalent):
+
+```bash
+make tunnel-client-runtime              # alias: make runtime
+make tunnel-client-runtime-cloudflared  # alias: make runtime-cloudflared
+```
+
+The targets write platform-specific binaries under `bin/<goos>_<goarch>/` and
+stable paths at `bin/tunnel-client-runtime` and
+`bin/tunnel-client-runtime-cloudflared` (`.exe` on Windows). Inspect the exact
+runtime flags with `./bin/tunnel-client-runtime run --help` or
+`./bin/tunnel-client-runtime-cloudflared run --help`.
+
+Run the narrow runtime against an HTTP MCP server:
+
+```bash
+export CONTROL_PLANE_API_KEY='...'
+export CONTROL_PLANE_TUNNEL_ID='tunnel_0123456789abcdef0123456789abcdef'
+export MCP_SERVER_URL='https://mcp.example.com/mcp'
+./bin/tunnel-client-runtime run
+```
+
+For managed Cloudflare provisioning, use the Cloudflare flavor. Release
+archives place the pinned `cloudflared` executable beside the runtime; for a
+source-only build, point to an existing companion explicitly:
+
+```bash
+./bin/tunnel-client-runtime-cloudflared run \
+  --cloudflared.managed \
+  --cloudflared.path /path/to/cloudflared
+```
+
+To build the corresponding Linux images, use `make build-image-runtime` and
+`make build-image-runtime-cloudflared`; the Cloudflare image includes its pinned
+companion and both images use `run` as their entrypoint.
+
+Contributors can run the compatibility suite with `make test-runtime`. Its
+host-binary checks compare the full client and runtime flavors with the same
+profile bytes, environment, flags, local control-plane/MCP/OAuth/proxy/TLS
+fixtures, and shutdown signal. The same target also packages native
+release-shaped ZIPs and checks that they verify, extract, identify the expected
+flavor, and expose `run --help`; that ZIP smoke is not a second fake-service
+parity run.
+
+After building the runtime images, `make runtime-container-compatibility`
+runs a deployment smoke for their default and overridden entrypoints with
+read-only profile/Secret mounts and hardened container settings. It uses
+intentionally unreachable local endpoints to check startup surfaces and
+SIGTERM, not to compare image behavior with the full client or assert
+`/readyz` readiness. An optional local Kubernetes deployment smoke is
+available with `TUNNEL_CLIENT_RUNTIME_K8S_COMPAT=1 make
+runtime-k8s-compatibility`; it requires Docker plus `kind` or `k3d`, checks
+the runtime Pods' mounted profile/Secret and `/healthz` surface, and does not
+contact external services.
+
+Public releases use plain semantic-version tags such as `v0.0.10`. Source
+archives from release tags carry the release version in
+`pkg/version/VERSION`. A plain `go build` from a downloaded release `.tar.gz`
+therefore reports the tag semantic version through `tunnel-client --version`,
+`User-Agent`, and the explicit control-plane version headers. Source-checkout
+builds made with the Make target or explicit linker flag above append the Git
+SHA to that semantic version.
+
+Supported release archives also bundle pinned `cloudflared` `2026.10.2` beside
+the CLI for Linux `amd64`/`arm64`, macOS `amd64`/`arm64`, and Windows
+`amd64`/`arm64`.
+Official release images are published at `ghcr.io/openai/tunnel-client` for
+Linux `amd64` and `arm64`; they bundle the matching companion. Pin an exact
+`vX.Y.Z` tag or digest for production. Stable releases also update the
+`X.Y` and `latest` aliases; prereleases do not. For a logical tunnel created
+with managed Cloudflare provisioning, let the authenticated client fetch the
+runtime token and start the companion without distributing a static token:
+
+```bash
+tunnel-client run \
+  --cloudflared.managed \
+  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \
+  --mcp.server-url https://mcp.example.com/mcp
+```
+
+For a pre-provisioned Cloudflare tunnel, a static token remains available as an
+explicit override and is never put in argv:
+
+```bash
+export CLOUDFLARED_TOKEN='...'
+tunnel-client run \
+  --cloudflared.token env:CLOUDFLARED_TOKEN \
+  --control-plane.tunnel-id tunnel_0123456789abcdef0123456789abcdef \
+  --mcp.server-url https://mcp.example.com/mcp
+```
+
+See [`docs/deployment/cloudflared.md`](docs/deployment/cloudflared.md) for
+platform coverage, readiness/failure behavior, Go module provenance, and
+security-update ownership.
+
+If an operator intentionally runs `cloudflared` without `tunnel-client`, print
+a token-free production config and keep the token in a separate secret file:
+
+```bash
+tunnel-client cloudflared config \
+  --token-file /run/secrets/cloudflared/token \
+  > /etc/cloudflared/config.yml
+TUNNEL_MANAGEMENT_DIAGNOSTICS=false \
+  cloudflared tunnel --config /etc/cloudflared/config.yml run
+```
+
+Fastest Codex terminal path:
+
+```bash
+tunnel-client codex assistant "Summarize what tunnel-client is doing in this checkout."
+tunnel-client codex status
+tunnel-client codex plugin install
+tunnel-client runtimes list
+tunnel-client help plugin
+tunnel-client codex plugin uninstall
+```
+
+Choose the raw binary when you want the smallest possible setup surface.
+Choose `tunnel-client codex assistant` when you want the fastest Codex-native
+terminal path. Choose the plugin when you want a Codex-local entrypoint over
+the native `runtimes` / `admin-profiles` command trees.
+
+Starter prompts for Codex:
+
+- `Figure out what tunnel-client is for from the binary help, then get me to /ui with the shortest local path.`
+- `I only have the source checkout. Figure out how to build tunnel-client, then get me to /ui with the shortest local path.`
+- `Use tunnel-client to create or reuse a profile, run doctor --explain, and then start the foreground daemon attached to this terminal.`
+- `Run tunnel-client codex assistant and summarize what this checkout is for in one sentence.`
+- `Install the Codex plugin from the tunnel-client binary, connect the provided tunnel id, and tell me whether the runtime is launched, healthy, or ready.`
+- `For a long-lived local runtime, use tunnel-client runtimes connect to attach the provided tunnel id, then run tunnel-client runtimes status <alias> before reporting whether the runtime is launched, healthy, or ready.`
+
+### Complete ChatGPT setup with Codex
+
+Copy this prompt into Codex on a computer with browser access and a terminal on
+or connected to a host that can reach your private MCP server:
+
+```text
+Help me set up and verify a private Secure MCP Tunnel from my internal MCP server to ChatGPT end to end. Use browser/computer access and a terminal, following https://developers.openai.com/api/docs/guides/secure-mcp-tunnels and https://github.com/openai/tunnel-client/blob/master/docs/onboarding.md; check current UI and CLI help as you go.
+
+First identify the intended Platform organization and ChatGPT workspace, MCP server HTTP URL or stdio command, and client host. Inspect existing tunnel, key, and ChatGPT custom MCP plugin; reuse suitable resources. Confirm tunnel organization/workspace association and permissions: tunnel creators need Tunnels Read + Manage; the restricted runtime key and plugin operator need Tunnels Read + Use. Keep literal secrets out of chat, command arguments, logs, screenshots, and config files; have me enter them locally through a secure input or environment reference.
+
+Install the supported tunnel-client; run `tunnel-client help quickstart`, configure the server, run `tunnel-client doctor --profile <name> --explain`, start the client, and verify readiness and active polling. Keep it running for discovery and calls. In ChatGPT Plugins, add or finish a private custom MCP server with Connection: Tunnel, select the same tunnel, configure required authentication, install it, and make a safe representative tool call.
+
+Report observed evidence for each checkpoint and the exact error and next action for any blocker. Call setup complete only after the ChatGPT tool call succeeds.
+```
+
+The ChatGPT custom MCP plugin in this prompt is separate from the local Codex
+plugin installed by `tunnel-client codex plugin install`.
+
+## What it does
+
+- The client **long-polls** the OpenAI tunnel control plane over HTTPS:
+  - `GET /v1/tunnels/{tunnel_id}/poll`
+  - `POST /v1/tunnels/{tunnel_id}/response`
+- Older tunnel-client releases may still use the singular `/v1/tunnel/...`
+  aliases. Tunnel-service keeps those aliases during migration; removing them,
+  if ever desired, is a separate later cleanup after telemetry shows no
+  remaining legacy clients.
+- Control-plane requests include `User-Agent: oai-tunnel-client/<version>` for
+  compatibility, plus explicit `X-Tunnel-Client-Name` and
+  `X-Tunnel-Client-Version` headers for service-side logs and metrics. Each
+  process also generates a new opaque `client_instance_id`, sends it as
+  `X-Tunnel-Client-Instance-Id`, and includes it in structured logs and the
+  local admin UI for request correlation.
+- Control-plane HTTPS requests can present a separate client certificate/key
+  pair using `--control-plane.client-cert` and `--control-plane.client-key`
+  (or `CONTROL_PLANE_CLIENT_CERT` / `CONTROL_PLANE_CLIENT_KEY`). When those are
+  configured with the default `https://api.openai.com` host, the client
+  automatically uses `https://mtls.api.openai.com` for control-plane calls.
+- On startup, it fetches tunnel metadata for operator visibility:
+  - `GET /v1/tunnels/{tunnel_id}`
+- It forwards received JSON-RPC requests to your configured MCP server over
+  Streamable HTTP, stdio, or in-memory transport, and relays explicit
+  Streamable HTTP session termination requests when the control plane receives
+  `DELETE /v1/mcp/{tunnel_id}`.
+- It routes commands by channel: `main` targets the configured MCP binding,
+  additional configured channels can target their own MCP bindings, and
+  `harpoon` is routable only when Harpoon has registered targets.
+- On startup, it fetches OAuth Protected Resource Metadata from the MCP server
+  and registers discovered Harpoon targets. Timeouts, HTTP `429`/`5xx`, and
+  malformed successful metadata responses retry with bounded exponential
+  backoff until discovery succeeds or the process stops. Permanent errors
+  remain visible through readiness; discovery validation and trusted-origin
+  restrictions still apply.
+- Before polling for Harpoon work, the runtime waits for startup discovery and
+  target registration to complete. Failed startup catalogs do not consume
+  commands, and readiness remains non-ready until registration succeeds.
+  Plain MCP servers without OAuth and explicitly scoped pollers
+  that exclude Harpoon remain supported. Transient HTTP `429`/`5xx` MCP startup
+  initialization errors also retry without replaying tunneled commands.
+- After configured and startup OAuth-discovered Harpoon targets settle, it
+  emits one privacy-safe `harpoon startup catalog digest` INFO log. Compare
+  replicas only when they use the same tunnel ID and control-plane runtime API
+  key; the startup-only digest is a comparison aid, not convergence
+  enforcement.
+- For sidecar deployments whose local MCP listener may bind after
+  `tunnel-client` starts, the optional `MCP_STARTUP_WAIT_TIMEOUT` gate delays
+  the first control-plane poll and OAuth discovery until the main MCP listener
+  is reachable.
+- For OAuth auth-server handling, `authorization_servers[0]` from PRMD is the
+  only source of truth and metadata fetch target.
+- OAuth discovery trusts the configured MCP origin by default. Before upgrading
+  deployments with separate metadata or authorization hosts, explicitly list
+  those origins with `--mcp.oauth-trusted-origin`, `MCP_OAUTH_TRUSTED_ORIGINS`, or
+  `mcp.oauth_trusted_origins`. See the [configuration reference](docs/configuration.md#mcp-server)
+  for trust boundaries and staged upgrade guidance. Full-client profile editing
+  also requires a [supported editor command](docs/profile-editor.md).
+- Metadata is accepted even when `issuer` differs from
+  `authorization_servers[0]` (external IdP issuer URLs are supported), with
+  mismatch diagnostics preserved in logs/state.
+- It exposes an **admin/health server** (`/healthz`, `/readyz`, `/metrics`) and
+  a lightweight **admin UI** (`/ui`) for operational status.
+- Local `GET /health?details=true` and `GET /health/mcp` expose bounded
+  observations of legacy initialize and modern `server/discover` MCP discovery,
+  polling, response delivery, queues, and active work. Plain `/health` stays
+  compact unless `--health.show-details=true` is set (default false). See the
+  [health reference](docs/health.md) for examples,
+  Unix sockets, and the difference between readiness and observed discovery.
+- The admin UI Overview reports the process-scoped `client_instance_id`,
+  channel availability, and reasons when channels are disabled.
+- The admin UI Logs tab can switch the live runtime log level between `debug`,
+  `info`, and `warn` without restarting the process.
+- The admin UI log export returns a redacted support bundle with recent logs
+  plus a point-in-time Prometheus snapshot from `/metrics` and a redacted
+  runtime YAML snapshot containing argv, relevant environment, actual YAML
+  config, and effective config.
+- It embeds the **Harpoon MCP server** to provide a labeled, allowlisted
+  outbound HTTP client for internal tooling.
+
+### Harpoon target templates
+
+Opt-in Harpoon templates let callers provide bounded identifiers for an
+operator-configured GET, POST, or PUT operation, such as `/cases/{case_id}` or
+`/profiles?session-id={session_id}`. The client fixes the destination, method,
+query names, and authentication headers, validates each identifier, and never
+follows redirects. POST/PUT require an explicit body policy for content types,
+byte limits, required or optional bodies, and validation. GET remains bodyless;
+DELETE is unsupported. Existing exact-URL targets continue to work.
+
+Templates use HTTPS by default. An operator can set `allow_loopback_http: true`
+on one template to call a literal loopback IP with a fixed port over HTTP.
+Those calls bypass configured HTTP proxies so local API credentials stay on
+the local connection. The setting does not enable other plaintext targets.
+
+Templates use YAML `config_version: 2` and `template.version: 1`, and execute
+through the shared `call_target` MCP tool without a caller-supplied method.
+Exact targets keep their required method argument. `list_targets` publishes
+each template's complete invocation schema, public parameter descriptions, and
+validated examples when available. Writes require the advertised `operation`
+constant and never automatically replay after an ambiguous failure. Upgrade all
+eligible clients before enabling writes or adding parameter metadata. See the
+[target template guide](docs/harpoon-target-templates.md) for complete
+configuration, discovery and invocation examples, authorization requirements,
+limits, and upgrade behavior.
+
+## Admin UI build notes
+
+The admin UI assets under `pkg/adminui/assets` are generated from the TypeScript/Svelte
+source in `adminui/`. To rebuild them locally:
+
+```bash
+./scripts/build_admin_ui.sh ./adminui ./pkg/adminui/assets
+# or
+make admin-ui
+```
+
+## CLI
+
+- `tunnel-client` shows help and available subcommands.
+- `tunnel-client help <topic>` shows embedded task-oriented help for
+  `quickstart`, `samples`, `doctor`, `oauth`, and `plugin`.
+- `tunnel-client codex assistant [prompt...]` starts a terminal assistant
+  session through the supervised `codex app-server`, using prompt args for
+  one-shot mode and TTY stdin for REPL mode. It defaults to `medium`
+  reasoning effort, and the REPL supports `/model` to inspect or change model
+  and reasoning without restarting.
+- `tunnel-client codex status|install|upgrade|uninstall` inspects local Codex
+  CLI/app-server availability and prints the official install/upgrade/remove
+  commands.
+- `tunnel-client codex plugin install|uninstall|export` installs, removes, or
+  exports the embedded Tunnel MCP plugin bundle.
+- `tunnel-client dev mcp-stub` runs an embedded demo MCP + OAuth metadata server
+  for one-binary end-to-end validation.
+- `tunnel-client dev proxy` runs a local control plane plus tunnel-client for
+  integration tests. TCP ingress is the default and prints `mcp_url`; pass
+  `--listen-unix-socket PATH` for external MCP ingress over a Unix socket. Its
+  `--backend auto|go|rust` flag defaults to `auto`, and
+  `--engine-queue-backend inmem|redis` defaults to `inmem`. Ordinary public
+  builds use the Go in-memory backend; `rust` and Redis require a binary with
+  the optional linked Rust adapter. Redis also needs `--engine-redis-url` or
+  `TUNNEL_ENGINE_REDIS_URL`.
+- `tunnel-client init` writes a validated first-use profile.
+- `tunnel-client doctor` validates config and explains what is missing before
+  startup.
+- `tunnel-client profiles samples list|show` exposes built-in sample profiles.
+- `sample_mcp_enterprise_proxy` is the built-in starter for outbound proxies
+  and private PKI, with env-backed proxy and CA bundle references.
+- The first control-plane poll attempt requests the shorter of
+  `--control-plane.initial-poll-timeout` (default `30s`) and the configured
+  wait, while retaining its normal client deadline. Both wait settings default
+  to `30s`. A lower initial-poll timeout can shorten the first requested wait.
+  Subsequent polls use `--control-plane.poll-timeout` /
+  `CONTROL_PLANE_POLL_TIMEOUT`, including after an initial failure.
+  If an HTTP-proxied poll loses its connection
+  before response headers with an EOF-style error while neither deadline has
+  fired, tunnel-client automatically learns a shorter
+  process-local timeout for future polls. The learned timeout only decreases,
+  never below 5 seconds, while the configured poll timeout remains its ceiling.
+  Subsequent direct and Unix-socket polls keep the configured timeout.
+- `tunnel-client admin-profiles list|set|delete` manages saved admin-key
+  profiles for native runtime workflows.
+- `tunnel-client runtimes create|connect|list|status|stop|rm` manages native
+  alias state and local runtime supervision.
+- `tunnel-client run` starts the foreground/manual client poller attached to
+  the current terminal.
+- `tunnel-client cloudflared version` prints the bundled companion pin,
+  upstream release, and security-patch owner without starting a process.
+- `tunnel-client cloudflared config --token-file <path>` prints a token-free
+  production `cloudflared` config for operators who run `cloudflared` directly.
+- `tunnel-client admin tunnels get <id>` is the read-only metadata lookup used
+  on the runtime-user path; broader `admin tunnels` CRUD still requires an
+  admin key. When you need admin CRUD scope, inspect the returned
+  `organization_ids` / `workspace_ids` from `tunnel-client admin --json tunnels get <id>`
+  and reuse those live values instead of guessing ids.
+
+## License
+This project is licensed under the [Apache License 2.0](LICENSE).

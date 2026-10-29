@@ -1,0 +1,105 @@
+from dataclasses import dataclass
+from typing import Any
+
+from dbtsl.models.dimension import DimensionType
+from dbtsl.models.entity import EntityType
+from dbtsl.models.metric import MetricType
+from dbt_mcp.pagination import Pagination
+
+
+@dataclass
+class OrderByParam:
+    name: str
+    descending: bool = False
+    grain: str | None = None
+
+
+@dataclass
+class DimensionToolResponse:
+    name: str
+    type: DimensionType
+    description: str | None = None
+    label: str | None = None
+    granularities: list[str] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+@dataclass
+class EntityToolResponse:
+    name: str
+    type: EntityType
+    description: str | None = None
+
+
+@dataclass
+class MetricToolResponse:
+    name: str
+    type: MetricType
+    label: str | None = None
+    description: str | None = None
+    metadata: dict[str, Any] | None = None
+    dimensions: list[str] | None = None
+    entities: list[str] | None = None
+
+
+@dataclass
+class ListMetricsResponse:
+    metrics: list[MetricToolResponse]
+    pagination: Pagination | None = None
+
+
+@dataclass
+class SavedQueryToolResponse:
+    name: str
+    label: str | None = None
+    description: str | None = None
+    metrics: list[str] | None = None
+    group_by: list[str] | None = None
+    where: str | None = None
+
+
+@dataclass
+class QueryMetricsSuccess:
+    result: str
+    error: None = None
+
+
+@dataclass
+class QueryMetricsError:
+    error: str
+    result: None = None
+
+
+QueryMetricsResult = QueryMetricsSuccess | QueryMetricsError
+
+
+@dataclass
+class GetMetricsCompiledSqlSuccess:
+    sql: str
+    error: None = None
+
+
+@dataclass
+class GetMetricsCompiledSqlError:
+    error: str
+    sql: None = None
+
+
+GetMetricsCompiledSqlResult = GetMetricsCompiledSqlSuccess | GetMetricsCompiledSqlError
+
+
+@dataclass
+class DimensionValuesResponse:
+    values: list[str]
+    truncated: bool
+    error: None = None
+
+
+@dataclass
+class DimensionValuesError:
+    error: str
+    values: None = None
+    truncated: None = None
+
+
+DimensionValuesResult = DimensionValuesResponse | DimensionValuesError

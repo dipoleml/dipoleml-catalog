@@ -1,0 +1,140 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.stickerdaniel.linkedin-mcp-server",
+  "type": "mcp",
+  "name": "Linkedin MCP Server",
+  "slug": "linkedin-mcp-server",
+  "vendor": "stickerdaniel",
+  "description": "Open-source MCP server for LinkedIn. Give DipoleML and any MCP-compatible AI agent access to profiles, companies, jobs, and messages.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/stickerdaniel/linkedin-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "chatgpt",
+    "chatgpt-desktop",
+    "claude-ai",
+    "claude-desktop",
+    "desktop-extension",
+    "dxt",
+    "linkedin"
+  ],
+  "tags": [
+    "ai-agents",
+    "anthropic",
+    "chatgpt",
+    "chatgpt-desktop",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-desktop",
+    "desktop-extension",
+    "dxt",
+    "linkedin",
+    "linkedin-api",
+    "linkedin-mcp",
+    "linkedin-profile-scraper",
+    "linkedin-scraper",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "stickerdaniel",
+    "brandName": "stickerdaniel",
+    "source": "https://github.com/stickerdaniel.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "stickerdaniel/linkedin-mcp-server",
+    "url": "https://github.com/stickerdaniel/linkedin-mcp-server",
+    "commit": "a48e21c3154a5e628a8f7d5d96d3d0f5f1dece09",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 4036,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Linkedin MCP Server | Open-source MCP server for LinkedIn. Give Claude and any MCP-compatible AI agent access to profiles, companies, jobs, and messages.",
+        "after": "Linkedin MCP Server | Open-source MCP server for LinkedIn. Give DipoleML and any MCP-compatible AI agent access to profiles, companies, jobs, and messages.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://api.greptile.com/mcp",
+      "transport": "http",
+      "command": "greptile"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-server-linkedin"
+    ],
+    "env": [
+      "AUTO_IMPORT_FROM_BROWSER",
+      "FASTMCP_HTTP_ALLOWED_HOSTS",
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

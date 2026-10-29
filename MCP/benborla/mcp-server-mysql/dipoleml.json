@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.benborla.mcp-server-mysql",
+  "type": "mcp",
+  "name": "MCP Server Mysql",
+  "slug": "mcp-server-mysql",
+  "vendor": "benborla",
+  "description": "A Model Context Protocol server that provides read-only access to MySQL databases. This server enables LLMs to inspect database schemas and execute read-only queries.",
+  "version": "2.0.9",
+  "homepage": "https://github.com/benborla/mcp-server-mysql",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "benborla",
+    "brandName": "benborla",
+    "source": "https://github.com/benborla.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "benborla/mcp-server-mysql",
+    "url": "https://github.com/benborla/mcp-server-mysql",
+    "commit": "b9c714e182422b9f18437242b80cf003adf1c7ea",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2186,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@benborla29/mcp-server-mysql"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@benborla29/mcp-server-mysql"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@benborla29/mcp-server-mysql"
+    ],
+    "env": [
+      "MYSQL_HOST",
+      "MYSQL_PORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

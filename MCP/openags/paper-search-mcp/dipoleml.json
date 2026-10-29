@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.openags.paper-search-mcp",
+  "type": "mcp",
+  "name": "Paper Search MCP",
+  "slug": "paper-search-mcp",
+  "vendor": "openags",
+  "description": "MCP, CLI, Skills for searching and downloading academic papers from multiple sources like arXiv, PubMed, bioRxiv, etc.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/openags/paper-search-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-scientist",
+    "arxiv-papers",
+    "paper-search"
+  ],
+  "tags": [
+    "ai-scientist",
+    "arxiv-papers",
+    "mcp-server",
+    "paper-search"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "openags",
+    "brandName": "openags",
+    "source": "https://github.com/openags.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "openags/paper-search-mcp",
+    "url": "https://github.com/openags/paper-search-mcp",
+    "commit": "cab1b5cc276a0cd004a0044003926a6440088049",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2941,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "paper-search-mcp"
+    ],
+    "env": [
+      "PAPER_SEARCH_MCP_CORE_API_KEY",
+      "PAPER_SEARCH_MCP_SEMANTIC_SCHOLAR_API_KEY",
+      "PAPER_SEARCH_MCP_OPENALEX_API_KEY",
+      "PAPER_SEARCH_MCP_GOOGLE_SCHOLAR_PROXY_URL",
+      "PAPER_SEARCH_MCP_DOAJ_API_KEY",
+      "PAPER_SEARCH_MCP_ZENODO_ACCESS_TOKEN",
+      "PAPER_SEARCH_MCP_IEEE_API_KEY",
+      "CORE_API_KEY",
+      "PAPER_SEARCH_MCP_ACM_API_KEY",
+      "ACM_API_KEY",
+      "SEMANTIC_SCHOLAR_API_KEY",
+      "PAPER_SEARCH_MCP_TRANSPORT"
+    ],
+    "credentials": [
+      "PAPER_SEARCH_MCP_CORE_API_KEY",
+      "PAPER_SEARCH_MCP_SEMANTIC_SCHOLAR_API_KEY",
+      "PAPER_SEARCH_MCP_OPENALEX_API_KEY",
+      "PAPER_SEARCH_MCP_DOAJ_API_KEY",
+      "PAPER_SEARCH_MCP_ZENODO_ACCESS_TOKEN",
+      "PAPER_SEARCH_MCP_IEEE_API_KEY",
+      "CORE_API_KEY",
+      "PAPER_SEARCH_MCP_ACM_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

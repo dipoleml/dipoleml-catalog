@@ -1,0 +1,69 @@
+# Files and directories excluded from the .mcpb archive.
+# The bundle should contain only what is needed at install time:
+# manifest.json, pyproject.toml, src/seo_mcp/, LICENSE, README.md, uv.lock.
+
+# Per the execution command
+tests/
+dist/
+.git/
+.github/
+.cursor/
+.claude/
+__pycache__/
+.env
+.env.*
+
+# Credential / token files (defense in depth; the .gitignore already blocks
+# these, but a developer's working tree could still hold them locally).
+*.pem
+*.key
+sa.json
+client_secret*.json
+token*.json
+token.txt
+psi_api_key.txt
+.credentials/
+
+# Build artifacts and Python tooling caches
+.venv/
+venv/
+*.egg-info/
+*.egg
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Internal docs not needed at runtime
+DESIGN.md
+PLAN.md
+RESEARCH-AND-PROPOSAL.md
+LISTINGS-PLAN.md
+CHANGELOG.md
+PRIVACY.md
+
+# Brand and submission drafts (built in marketing/, not part of the server)
+marketing/
+
+# Local-only planning / submission staging. Round 6 §11b.ii caught this
+# entry missing; without it, local `npx @anthropic-ai/mcpb pack` leaked
+# .private/cursor-submission/* into the bundle. CI checkouts never see
+# .private/ (it's gitignored), so the published v0.5.0 .mcpb was clean,
+# but a developer's local pack would not have been.
+.private/
+
+# Claude Code conversation exports (dated YYYY-MM-DD-HHMMSS-*.txt). May quote
+# secrets/private planning; gitignored too, but a local pack could still see them.
+20??-??-??-*.txt
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# The bundle itself (in case it is re-packed in place)
+*.mcpb
+
+# Never bundle the registry publisher binary if a workflow ever leaves it in the tree.
+mcp-publisher

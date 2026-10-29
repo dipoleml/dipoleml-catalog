@@ -1,0 +1,492 @@
+/**
+ * Shared target resolution for the test harnesses (scripts/smoke-test.js and
+ * everything under tests/).
+ *
+ * Two jobs:
+ *
+ *  1. Find the bridge. The editor no longer binds a fixed port: it derives a
+ *     per-project port from the project root path and publishes the port it
+ *     actually bound to <Project>/Saved/UE_MCP_Bridge/port.json. Harnesses that
+ *     hardcode 9877 cannot connect. Discovery order here is lockfile, then the
+ *     derived port, then the legacy fixed port, so a running editor is found
+ *     with no environment variables and no flags.
+ *
+ *  2. Refuse anything that is not the dedicated test project. Smoke runs
+ *     perform real mutations (create blueprints, delete assets, rewrite the
+ *     level), so pointing them at a working project can destroy someone's work.
+ *     The project is hardcoded to tests/ue_mcp/ue_mcp.uproject relative to this
+ *     file. Host and port remain overridable for odd local setups, so the guard
+ *     is enforced after connecting by asking the editor which project it has
+ *     open and aborting on any mismatch.
+ */
+
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import WebSocket from "ws";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/** Repository root (the checkout this harness belongs to). */
+export const REPO_ROOT = path.resolve(HERE, "..");
+
+/** Where the sharded live run keeps its copies of tests/ue_mcp, one per editor. */
+export const LIVE_SHARD_ROOT = path.join(REPO_ROOT, "tests", ".shards");
+
+/**
+ * The shard copy this process drives, from UE_MCP_LIVE_SHARD_DIR, or null.
+ * Only a `ue_mcp` project under LIVE_SHARD_ROOT qualifies; anything else throws.
+ */
+export function liveShardProjectDir(env = process.env) {
+  const raw = env.UE_MCP_LIVE_SHARD_DIR;
+  if (!raw) return null;
+  const dir = path.resolve(raw);
+  const rel = path.relative(LIVE_SHARD_ROOT, dir);
+  const inside = rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+  if (!inside || path.basename(dir) !== "ue_mcp" || !fs.existsSync(path.join(dir, "ue_mcp.uproject"))) {
+    throw new Error(`UE_MCP_LIVE_SHARD_DIR must name a ue_mcp copy under ${LIVE_SHARD_ROOT}; got ${raw}`);
+  }
+  return dir;
+}
+
+const SHARD_DIR = liveShardProjectDir();
+
+/** The one project any test harness in this repo is allowed to touch: tests/ue_mcp, or this process's shard copy of it. */
+export const TEST_PROJECT_DIR = SHARD_DIR ?? path.join(REPO_ROOT, "tests", "ue_mcp");
+export const TEST_PROJECT_UPROJECT = path.join(TEST_PROJECT_DIR, "ue_mcp.uproject");
+
+/** Where the running bridge publishes the port it bound for that project. */
+export const TEST_PORT_LOCKFILE = path.join(
+  TEST_PROJECT_DIR, "Saved", "UE_MCP_Bridge", "port.json",
+);
+
+/** Pre-derived-port bridges bound this. Kept as the last candidate. */
+export const LEGACY_BRIDGE_PORT = 9877;
+
+// Ephemeral range used by the derived-port scheme. Must match src/bridge/port.ts and
+// FMCPBridgeServer::DeriveProjectPort; tests/unit/bridge-target.test.ts pins
+// this implementation against src/bridge/port.ts so the two cannot drift apart.
+const EPHEMERAL_BASE = 49152;
+const EPHEMERAL_SPAN = 65535 - EPHEMERAL_BASE + 1;
+
+/** Canonical form of a project root for hashing and for identity comparison. */
+export function normalizeProjectRoot(dir) {
+  return String(dir).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+/** Port the bridge would bind for a project root when nothing is in its way. */
+export function deriveProjectPort(projectRootDir) {
+  const h = crypto.createHash("sha1")
+    .update(normalizeProjectRoot(projectRootDir), "utf8")
+    .digest();
+  const v = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
+  return EPHEMERAL_BASE + (v % EPHEMERAL_SPAN);
+}
+
+/**
+ * Read the port lockfile for the test project.
+ *
+ * Never throws: a missing, empty, or malformed lockfile is an ordinary state
+ * (editor not started yet, editor shut down cleanly) and the reason is carried
+ * in the returned record so the failure message can quote it.
+ */
+export function readPortLockfile(lockfilePath = TEST_PORT_LOCKFILE) {
+  const record = {
+    path: lockfilePath,
+    exists: false,
+    port: null,
+    pid: null,
+    startedAt: null,
+    error: null,
+    pidAlive: null,
+  };
+
+  let raw;
+  try {
+    raw = fs.readFileSync(lockfilePath, "utf8");
+    record.exists = true;
+  } catch (err) {
+    record.error = err.code === "ENOENT" ? "not found" : `unreadable (${err.code ?? err.message})`;
+    return record;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    record.error = "present but not valid JSON";
+    return record;
+  }
+
+  const port = Number(parsed?.port);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    record.error = `present but has no usable "port" field (got ${JSON.stringify(parsed?.port)})`;
+    return record;
+  }
+
+  record.port = port;
+  record.pid = Number.isInteger(Number(parsed?.pid)) ? Number(parsed.pid) : null;
+  record.startedAt = typeof parsed?.startedAt === "string" ? parsed.startedAt : null;
+  record.pidAlive = record.pid === null ? null : isProcessAlive(record.pid);
+  return record;
+}
+
+/** Best-effort liveness probe, used only to make failure messages specific. */
+export function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+
+/**
+ * Ordered list of ports worth trying for the test project bridge.
+ *
+ * An explicit port (CLI flag or environment variable) short-circuits discovery
+ * so a developer can pin an unusual setup. It does not weaken the project
+ * guard, which runs after the connection is up.
+ */
+export function bridgePortCandidates(options = {}) {
+  // `projectDir` names a project other than this repo's test project. It is
+  // only ever passed by a harness driving more than one editor (#817); every
+  // ordinary caller omits it and gets exactly the behaviour it always had.
+  const { explicitPort = null, projectDir = null } = options;
+  const targetDir = projectDir ?? TEST_PROJECT_DIR;
+  const lockfile = options.lockfile ?? readPortLockfile(
+    projectDir
+      ? path.join(projectDir, "Saved", "UE_MCP_Bridge", "port.json")
+      : TEST_PORT_LOCKFILE,
+  );
+
+  const candidates = [];
+  const add = (port, source) => {
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) return;
+    if (candidates.some((c) => c.port === port)) return;
+    candidates.push({ port, source });
+  };
+
+  if (Number.isInteger(explicitPort) && explicitPort > 0) {
+    add(explicitPort, "explicit");
+    return { candidates, lockfile };
+  }
+
+  add(lockfile.port, "lockfile");
+  add(deriveProjectPort(targetDir), "derived from project path");
+  // A shard editor always publishes its lockfile, and the legacy port could be another shard's.
+  if (!SHARD_DIR) add(LEGACY_BRIDGE_PORT, "legacy fixed port");
+  return { candidates, lockfile };
+}
+
+/** Loopback-only: a smoke run must never reach an editor on another machine. */
+export function isLoopbackHost(host) {
+  const h = String(host).trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.startsWith("127.");
+}
+
+export function assertLoopbackHost(host) {
+  if (isLoopbackHost(host)) return;
+  throw new Error(
+    `Refusing to run the smoke harness against host "${host}". ` +
+    `It is hardcoded to the local test project (${TEST_PROJECT_UPROJECT}) and only loopback hosts can serve it.`,
+  );
+}
+
+/**
+ * The failure message for "no bridge answered". Names every port that was
+ * tried, where each came from, and the exact lockfile path that was read, so
+ * the next step is obvious without reading harness source.
+ */
+export function describeMissingBridge(options) {
+  const { host, candidates, lockfile, lastError = null } = options;
+
+  const lines = [];
+  lines.push("Could not reach the UE MCP bridge for the smoke test project.");
+  lines.push(`  Project  : ${TEST_PROJECT_UPROJECT}${fs.existsSync(TEST_PROJECT_UPROJECT) ? "" : "  (MISSING)"}`);
+
+  let lockNote;
+  if (lockfile.port !== null) {
+    const pidNote = lockfile.pid === null
+      ? ""
+      : `, pid ${lockfile.pid}${lockfile.pidAlive === false ? " (not running, stale lockfile)" : ""}`;
+    lockNote = `port ${lockfile.port}${pidNote}`;
+  } else {
+    lockNote = lockfile.error ?? "no port recorded";
+  }
+  lines.push(`  Lockfile : ${lockfile.path}  (${lockNote})`);
+
+  for (const [i, c] of candidates.entries()) {
+    const label = i === 0 ? "  Tried    : " : "             ";
+    lines.push(`${label}ws://${host}:${c.port}  (${c.source})`);
+  }
+  if (lastError) lines.push(`  Last error: ${lastError}`);
+  lines.push("");
+  lines.push("Start the editor on the test project (npm run up), wait for \"Bridge listening\" in the editor log,");
+  lines.push(`then retry. The bridge writes its bound port to the lockfile path above.`);
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Project identity guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Python the harness runs on the connected editor to learn which project is
+ * open. Printed with a marker so it survives whatever shape the bridge wraps
+ * python output in.
+ */
+export const PROJECT_IDENTITY_PYTHON =
+  'import unreal\nprint("MCP_PROJECT_DIR:" + unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()))';
+
+/**
+ * Pull the reported project directory out of an execute_python result. The
+ * result is stringified first, so the marker is found whatever key the python
+ * output landed under; JSON escaping is then undone so a Windows path survives
+ * the round trip intact.
+ */
+export function extractReportedProjectDir(result) {
+  const text = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  const match = /MCP_PROJECT_DIR:((?:\\.|[^"\r\n])*)/.exec(text);
+  if (!match) return null;
+  const unescaped = match[1].replace(/\\(.)/g, (_, ch) =>
+    ch === "n" ? "\n" : ch === "r" ? "\r" : ch === "t" ? "\t" : ch,
+  );
+  const dir = unescaped.split(/[\r\n]/, 1)[0].trim();
+  return dir.length > 0 ? dir : null;
+}
+
+/** True when the editor's open project is this checkout's test project. */
+export function isTestProjectDir(reportedDir) {
+  if (!reportedDir) return false;
+  return normalizeProjectRoot(reportedDir) === normalizeProjectRoot(TEST_PROJECT_DIR);
+}
+
+/**
+ * Hard guard. Throws unless the connected editor has the test project open.
+ * Called before the harness issues a single mutating request.
+ */
+export function assertTestProjectDir(reportedDir) {
+  if (isTestProjectDir(reportedDir)) return reportedDir;
+  const what = reportedDir
+    ? `it reported "${reportedDir}"`
+    : "the editor did not report a project directory (is the Python plugin enabled?)";
+  throw new Error(
+    "Aborting: the connected editor is not the smoke test project.\n" +
+    `  Expected : ${TEST_PROJECT_DIR}\n` +
+    `  Reported : ${reportedDir ?? "(unknown)"}\n` +
+    `Smoke runs perform destructive mutations, so the harness only ever talks to its own test project. ` +
+    `Because ${what}, nothing was sent.`,
+  );
+}
+
+/**
+ * Every checkout on this machine that could be holding the live test project.
+ *
+ * Normally exactly one: this checkout's own `tests/ue_mcp`. A linked worktree
+ * adds the main checkout's copy, because a worktree has no `Saved/` of its own
+ * and no compiled plugin, so the editor a developer has running against this
+ * repo is always the main checkout's project. Discovering it keeps the live
+ * suite runnable from a feature worktree without loosening the guard: every
+ * candidate is still a `tests/ue_mcp` directory holding `ue_mcp.uproject`
+ * inside a checkout of this repository, so no other project can ever qualify.
+ */
+export function liveTestProjectDirs() {
+  const dirs = [];
+  const add = (dir) => {
+    if (!dir) return;
+    const uproject = path.join(dir, "ue_mcp.uproject");
+    if (!fs.existsSync(uproject)) return;
+    if (dirs.some((d) => normalizeProjectRoot(d) === normalizeProjectRoot(dir))) return;
+    dirs.push(dir);
+  };
+
+  add(TEST_PROJECT_DIR);
+  // A shard drives its own copy and nothing else.
+  if (SHARD_DIR) return dirs;
+
+  // A linked worktree's `.git` is a file pointing at
+  // <main>/.git/worktrees/<name>. Three levels up from that is the checkout
+  // that owns the repository, and therefore the editor.
+  try {
+    const dotGit = path.join(REPO_ROOT, ".git");
+    if (fs.statSync(dotGit).isFile()) {
+      const match = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, "utf8"));
+      if (match) {
+        const mainRoot = path.resolve(match[1].trim(), "..", "..", "..");
+        add(path.join(mainRoot, "tests", "ue_mcp"));
+      }
+    }
+  } catch {
+    // No .git, or an unreadable one: this checkout's own project is the only
+    // candidate, which is the ordinary case anyway.
+  }
+
+  return dirs;
+}
+
+/** True when `reportedDir` is one of the permitted test project directories. */
+export function isLiveTestProjectDir(reportedDir, allowed = liveTestProjectDirs()) {
+  if (!reportedDir) return false;
+  const needle = normalizeProjectRoot(reportedDir);
+  return allowed.some((dir) => normalizeProjectRoot(dir) === needle);
+}
+
+/**
+ * Hard guard for the live tests, with the same contract as
+ * `assertTestProjectDir`: nothing is sent to an editor that has any project
+ * but this repository's test project open.
+ */
+export function assertLiveTestProjectDir(reportedDir, allowed = liveTestProjectDirs()) {
+  if (isLiveTestProjectDir(reportedDir, allowed)) return reportedDir;
+  throw new Error(
+    "Aborting: the connected editor is not this repository's test project.\n" +
+    `  Expected : ${allowed.join("\n             ")}\n` +
+    `  Reported : ${reportedDir ?? "(unknown, is the Python plugin enabled?)"}\n` +
+    "The live tests drives a real editor, so it only ever talks to tests/ue_mcp. Nothing was sent.",
+  );
+}
+
+/** What the identity check waits for its answer; see verifyTestProjectTarget. */
+export const PROJECT_IDENTITY_TIMEOUT_MS = 180_000;
+
+/**
+ * Run the guard over any RPC caller. `call` takes (method, params, timeoutMs) and
+ * resolves to the raw handler result (or anything containing it); the identity
+ * marker is matched out of the stringified value.
+ *
+ * The check is often the first Python call a fresh editor gets, and starting
+ * Python on a render editor still compiling shaders can take over the default
+ * 30 s, so it gets its own budget. It only reads, so a slow answer is safe.
+ *
+ * @param {(method: string, params: Record<string, unknown>, timeoutMs: number) => Promise<unknown>} call
+ */
+export async function verifyTestProjectTarget(call) {
+  let result;
+  try {
+    result = await call("execute_python", { code: PROJECT_IDENTITY_PYTHON }, PROJECT_IDENTITY_TIMEOUT_MS);
+  } catch (err) {
+    throw new Error(
+      "Aborting: could not confirm which project the connected editor has open " +
+      `(execute_python failed: ${err instanceof Error ? err.message : String(err)}).\n` +
+      `The smoke harness only runs against ${TEST_PROJECT_UPROJECT}, so it will not send mutations it cannot vouch for.`,
+    );
+  }
+  return assertTestProjectDir(extractReportedProjectDir(result));
+}
+
+/**
+ * One request and its reply over a fresh socket, so nothing is left open.
+ *
+ * Shared because more than one script needs to say something to an editor that
+ * is already running, and each one growing its own copy is how two callers end
+ * up disagreeing about what a timeout means.
+ */
+export function askOnce(url, method, params, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error(`${method} on ${url} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    const done = (fn, value) => {
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+      fn(value);
+    };
+    ws.on("error", (err) => done(reject, err));
+    ws.on("open", () => ws.send(JSON.stringify({ id: "ask-once", method, params: params ?? {} })));
+    ws.on("message", (data) => {
+      let message;
+      try {
+        message = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (message.id !== "ask-once") return;
+      if (message.error) return done(reject, new Error(message.error.message ?? "bridge error"));
+      done(resolve, message.result);
+    });
+  });
+}
+
+/**
+ * Open a socket to the test project's bridge, trying each candidate port, and
+ * confirm the editor behind it has tests/ue_mcp open before returning.
+ *
+ * `call` resolves with the result and rejects on a bridge error or a timeout.
+ * Set `verify: false` only for a caller that runs its own identity check.
+ */
+export async function connectTestBridge(options = {}) {
+  const {
+    host = "127.0.0.1",
+    explicitPort = null,
+    projectDir = null,
+    connectTimeoutMs = 3000,
+    verify = true,
+    log = () => {},
+  } = options;
+  assertLoopbackHost(host);
+  const { candidates, lockfile } = bridgePortCandidates({ explicitPort, projectDir });
+
+  let lastError = null;
+  for (const c of candidates) {
+    const url = `ws://${host}:${c.port}`;
+    let ws;
+    try {
+      ws = await openSocket(url, connectTimeoutMs);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      continue;
+    }
+    log(`connected to ${url} (${c.source})`);
+    let nextId = 1;
+    const call = (method, params = {}, timeoutMs = 60_000) =>
+      new Promise((resolve, reject) => {
+        const id = nextId++;
+        const timer = setTimeout(() => {
+          ws.off("message", onMessage);
+          reject(new Error(`${method} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        const onMessage = (raw) => {
+          let msg;
+          try { msg = JSON.parse(raw.toString()); } catch { return; }
+          if (msg.id !== id) return;
+          clearTimeout(timer);
+          ws.off("message", onMessage);
+          if (msg.error) reject(new Error(msg.error.message ?? String(msg.error)));
+          else resolve(msg.result);
+        };
+        ws.on("message", onMessage);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    const bridge = { ws, url, source: c.source, call, close: () => ws.close(), projectDir: null };
+    if (verify) {
+      try {
+        bridge.projectDir = await verifyTestProjectTarget(call);
+      } catch (err) {
+        ws.close();
+        throw err;
+      }
+    }
+    return bridge;
+  }
+  throw new Error(describeMissingBridge({ host, candidates, lockfile, lastError }));
+}
+
+function openSocket(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error(`Connection to ${url} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    ws.on("open", () => { clearTimeout(timer); resolve(ws); });
+    ws.on("error", (err) => { clearTimeout(timer); reject(err); });
+  });
+}

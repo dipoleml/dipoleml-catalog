@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.korotovsky.slack-mcp-server",
+  "type": "mcp",
+  "name": "Slack MCP Server",
+  "slug": "slack-mcp-server",
+  "vendor": "korotovsky",
+  "description": "The most powerful MCP Slack Server with no permission requirements, Apps support, GovSlack, DMs, Group DMs and smart history fetch logic.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/korotovsky/slack-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "assistants",
+    "govslack",
+    "slack",
+    "slack-api"
+  ],
+  "tags": [
+    "assistants",
+    "govslack",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "slack",
+    "slack-api"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "slack",
+    "brandName": "slack",
+    "source": "https://github.com/korotovsky.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "korotovsky/slack-mcp-server",
+    "url": "https://github.com/korotovsky/slack-mcp-server",
+    "commit": "b88c0de3f706f4f07337c9eda7133c736d1c9524",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1879,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT",
+      "SLACK_MCP_XOXC_TOKEN",
+      "SLACK_MCP_XOXD_TOKEN",
+      "SLACK_MCP_XOXP_TOKEN",
+      "SLACK_MCP_XOXB_TOKEN",
+      "SLACK_MCP_PORT",
+      "SLACK_MCP_HOST",
+      "SLACK_MCP_API_KEY",
+      "SLACK_MCP_ADD_MESSAGE_UNFURLING"
+    ],
+    "credentials": [
+      "SLACK_MCP_XOXC_TOKEN",
+      "SLACK_MCP_XOXD_TOKEN",
+      "SLACK_MCP_XOXP_TOKEN",
+      "SLACK_MCP_XOXB_TOKEN",
+      "SLACK_MCP_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

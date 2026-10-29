@@ -1,0 +1,141 @@
+/**
+ * Error handling utilities for Exa MCP server.
+ * Provides retry logic, enriched error messages, and rate limit detection.
+ */
+import { ExaError } from "exa-js";
+
+type ToolErrorResult = { content: Array<{ type: "text"; text: string }>; isError: true };
+
+/**
+ * `_meta` key marking a tool result that reports a free-tier rate limit.
+ * These results are deliberately not flagged `isError`: rate limiting is
+ * expected quota signaling, and external analytics (Agnost) key on `isError`,
+ * so flagging them would drown genuine tool failures in quota noise.
+ */
+export const RATE_LIMITED_META_KEY = "ai.exa/rateLimited";
+
+type RateLimitNoticeResult = {
+  content: Array<{ type: "text"; text: string }>;
+  _meta: { [RATE_LIMITED_META_KEY]: true };
+};
+
+export const TRANSIENT_STATUS_CODES = new Set([500, 502, 503, 504]);
+
+export const EXA_API_KEYS_URL = "https://dashboard.exa.ai/api-keys";
+
+export const FREE_MCP_RATE_LIMIT_MESSAGE = `You've hit Exa's free MCP rate limit. To continue using without limits, create your own Exa API key.
+
+Fix: Create API key at ${EXA_API_KEYS_URL} , and then update Exa MCP URL to this https://mcp.exa.ai/mcp?exaApiKey=YOUR_EXA_API_KEY`;
+
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function retryOnTransient<T>(
+  fn: () => Promise<T>,
+  isTransient: (error: unknown) => boolean,
+  maxRetries = 2,
+  baseDelayMs = 1000,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransient(error) || attempt === maxRetries) throw error;
+      await delay(baseDelayMs * 2 ** attempt);
+    }
+  }
+  throw lastError;
+}
+
+function isTransientExaError(error: unknown): boolean {
+  return error instanceof ExaError && TRANSIENT_STATUS_CODES.has(error.statusCode);
+}
+
+export function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  return retryOnTransient(fn, isTransientExaError, maxRetries);
+}
+
+export async function withTimeout<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs / 1000}s`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+/**
+ * Checks if an error is a rate limit error (HTTP 429) and if the user is using the free MCP.
+ * Returns a user-friendly error message if both conditions are met.
+ */
+export function handleRateLimitError(
+  error: unknown,
+  userProvidedApiKey: boolean | undefined,
+  toolName: string,
+): RateLimitNoticeResult | null {
+  if (!(error instanceof ExaError)) {
+    return null;
+  }
+
+  const isRateLimited = error.statusCode === 429;
+  const isUsingFreeMcp = !userProvidedApiKey;
+
+  if (isRateLimited && isUsingFreeMcp) {
+    return {
+      content: [{ type: "text" as const, text: FREE_MCP_RATE_LIMIT_MESSAGE }],
+      _meta: { [RATE_LIMITED_META_KEY]: true as const },
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Formats any error into a structured MCP tool error response.
+ * Handles rate limits, ExaError (with retry guidance + timestamp), and generic errors.
+ */
+export function formatToolError(
+  error: unknown,
+  toolName: string,
+  userProvidedApiKey?: boolean,
+): ToolErrorResult | RateLimitNoticeResult {
+  const rateLimitResult = handleRateLimitError(error, userProvidedApiKey, toolName);
+  if (rateLimitResult) return rateLimitResult;
+
+  if (error instanceof ExaError) {
+    const statusCode = error.statusCode || "unknown";
+    const lines = [
+      `${toolName} error (${statusCode}): ${error.message}`,
+      ...(error.timestamp ? [`Timestamp: ${error.timestamp}`] : []),
+    ];
+    return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: true };
+  }
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `${toolName} error: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    ],
+    isError: true,
+  };
+}

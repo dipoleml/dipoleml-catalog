@@ -1,0 +1,19 @@
+/* shadcn/ui Theme — extracted from https://figma.com */
+/* Paste into your globals.css */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 0%;
+    --primary: 76 100% 80%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 197 100% 50%;
+    --secondary-foreground: 0 0% 100%;
+    --accent: 249 100% 86%;
+    --accent-foreground: 0 0% 0%;
+    --muted: 86 100% 95%;
+    --muted-foreground: 0 0% 0%;
+    --border: 86 100% 95%;
+    --radius: 8px;
+  }
+}

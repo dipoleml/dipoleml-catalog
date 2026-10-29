@@ -1,0 +1,17 @@
+{
+  "skill": "triage",
+  "should_trigger": [
+    "I got 23 review findings",
+    "Filter these review findings by severity?",
+    "Which findings from the review should I fix first?",
+    "Present each review finding for me to approve or skip?",
+    "Help me prioritize the security issues from my review?"
+  ],
+  "should_not_trigger": [
+    "Run /phx:review on my code for quality issues (review skill)",
+    "What are Ecto query anti-patterns? (ecto-patterns skill)",
+    "Fix all the security findings I identified (work skill)",
+    "Challenge my implementation for rigor (challenge skill)",
+    "Show me LiveView best practices (liveview-patterns skill)"
+  ]
+}

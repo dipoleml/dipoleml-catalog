@@ -1,0 +1,45 @@
+{
+  "name": "@sbroenne/mcp-server-excel",
+  "version": "0.0.0-development",
+  "description": "Automate Microsoft Excel from chat with rich MCP tools for workbooks, formulas, Power Query, PivotTables, charts, and more. Requires Windows and desktop Excel.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "mcp-excel": "bin/mcp-excel.js"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sbroenne/mcp-server-excel",
+    "directory": "npm-packages/mcp-server-excel"
+  },
+  "homepage": "https://excelmcpserver.dev/",
+  "bugs": {
+    "url": "https://github.com/sbroenne/mcp-server-excel/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "excel",
+    "windows",
+    "automation"
+  ],
+  "mcpName": "io.github.sbroenne/mcp-server-excel",
+  "dependencies": {
+    "foreground-child": "^4.0.3"
+  },
+  "optionalDependencies": {
+    "@sbroenne/mcp-server-excel-win32-x64": "file:../mcp-server-excel-win32-x64",
+    "@sbroenne/mcp-server-excel-win32-arm64": "file:../mcp-server-excel-win32-arm64"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

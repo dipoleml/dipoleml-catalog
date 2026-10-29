@@ -1,0 +1,124 @@
+<% if (addOnEnabled['start']) {
+/** Start todos implementation */  
+%>import { useCallback, useState } from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { useQuery, useMutation } from '@tanstack/react-query'
+
+export const Route = createFileRoute('/demo/tanstack-query')({
+  component: TanStackQueryDemo,
+})
+
+type Todo = {
+  id: number
+  name: string
+}
+
+function TanStackQueryDemo() {
+  const { data, refetch } = useQuery<Todo[]>({
+    queryKey: ['todos'],
+    queryFn: () => fetch('/demo/api/tq-todos').then((res) => res.json()),
+    initialData: [],
+  })
+
+  const { mutate: addTodo } = useMutation({
+    mutationFn: (todo: string) =>
+      fetch('/demo/api/tq-todos', {
+        method: 'POST',
+        body: JSON.stringify(todo),
+      }).then((res) => res.json()),
+    onSuccess: () => refetch(),
+  })
+
+  const [todo, setTodo] = useState('')
+
+  const submitTodo = useCallback(async () => {
+    await addTodo(todo)
+    setTodo('')
+  }, [addTodo, todo])
+
+  return (
+    <main className="demo-page demo-center">
+      <section className="demo-panel w-full max-w-2xl">
+        <p className="island-kicker mb-2">TanStack Query</p>
+        <h1 className="demo-title mb-6">TanStack Query Todos</h1>
+        <ul className="mb-4 space-y-2">
+          {data?.map((t) => (
+            <li key={t.id} className="demo-list-item">
+              <span className="text-base font-medium">{t.name}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            value={todo}
+            onChange={(e) => setTodo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                submitTodo()
+              }
+            }}
+            placeholder="Enter a new todo..."
+            className="demo-input"
+          />
+          <button
+            disabled={todo.trim().length === 0}
+            onClick={submitTodo}
+            className="demo-button"
+          >
+            Add todo
+          </button>
+        </div>
+      </section>
+    </main>
+  )
+}
+<% } else {
+/** Simple in-memory query implementation */
+%>import { <% if (fileRouter) { %>createFileRoute<% } else { %>createRoute<% } %> } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+<% if (codeRouter) { %>
+import type { RootRoute } from '@tanstack/react-router'
+<% } else { %>
+export const Route = createFileRoute('/demo/tanstack-query')({
+  component: TanStackQueryDemo,
+})
+<% } %>
+function TanStackQueryDemo() {
+  const { data } = useQuery({
+    queryKey: ['todos'],
+    queryFn: () => Promise.resolve([
+      { id: 1, name: 'Alice' },
+      { id: 2, name: 'Bob' },
+      { id: 3, name: 'Charlie' },
+    ]),
+    initialData: [],
+  })
+
+  return (
+    <main className="demo-page demo-center">
+      <section className="demo-panel w-full max-w-2xl">
+        <p className="island-kicker mb-2">TanStack Query</p>
+        <h1 className="demo-title mb-6">
+          TanStack Query Simple Promise Handling
+        </h1>
+        <ul className="mb-4 space-y-2">
+          {data.map((todo) => (
+            <li key={todo.id} className="demo-list-item">
+              <span className="text-base font-medium">{todo.name}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
+  )
+}
+
+<% if (codeRouter) { %>
+export default (parentRoute: RootRoute) => createRoute({
+  path: '/demo/tanstack-query',
+  component: TanStackQueryDemo,
+  getParentRoute: () => parentRoute,
+})
+<% } %>
+<% } %>

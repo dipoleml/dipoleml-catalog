@@ -1,0 +1,21 @@
+id: key_sequence
+module: mcp/tools/ui-automation/key_sequence
+names:
+  mcp: key_sequence
+  cli: key-sequence
+description: Press hardware keys using AXe HID key codes. Prefer type_text for text entry. Common values include 40 Return/Enter, 42 Backspace, 43 Tab, and 44 Space.
+outputSchema:
+  schema: mobilebuildmcp.output.ui-action-result
+  version: '2'
+routing:
+  stateful: true
+annotations:
+  title: Key Sequence
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Refresh after UI action
+    toolId: snapshot_ui
+    when: success
+    condition: ui_action_needs_refresh

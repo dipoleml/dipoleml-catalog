@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.jina-ai.mcp",
+  "type": "mcp",
+  "name": "MCP",
+  "slug": "mcp",
+  "vendor": "jina-ai",
+  "description": "Official Jina AI Remote MCP Server",
+  "version": "1.10.0",
+  "homepage": "https://github.com/jina-ai/MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jina-ai",
+    "brandName": "jina-ai",
+    "source": "https://github.com/jina-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:07Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jina-ai/MCP",
+    "url": "https://github.com/jina-ai/MCP",
+    "commit": "b938c00f0870a75b39a78d5dff1f5bf645151a6e",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 897,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "jina-mcp"
+    ],
+    "env": [
+      "JINA_API_KEY"
+    ],
+    "credentials": [
+      "JINA_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

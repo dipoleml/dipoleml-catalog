@@ -1,0 +1,308 @@
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: var(--font-latin), var(--font-cjk), system-ui, sans-serif;
+    --font-mono: var(--font-mono);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+
+    /* App-specific tokens */
+    --color-canvas: var(--canvas);
+    --color-faint: var(--faint);
+    --color-marker: var(--marker);
+    --color-marker-soft: var(--marker-soft);
+    --color-marker-ink: var(--marker-ink);
+    --color-surface-0: var(--surface-0);
+    --color-surface-1: var(--surface-1);
+    --color-surface-2: var(--surface-2);
+    --color-border-subtle: var(--border-subtle);
+    --color-border-default: var(--border-default);
+    --color-interactive-hover: var(--interactive-hover);
+    --color-interactive-active: var(--interactive-active);
+    --color-success: var(--success);
+    --color-success-muted: var(--success-muted);
+}
+
+/*
+ * Light: a quiet light table. Ink for primary actions, a highlighter
+ * yellow reserved for what the AI just changed.
+ */
+:root {
+    --radius: 0.75rem;
+
+    --canvas: #f4f5f7;
+    --background: #f4f5f7;
+    --foreground: #14181d;
+
+    --card: #ffffff;
+    --card-foreground: #14181d;
+    --popover: #ffffff;
+    --popover-foreground: #14181d;
+
+    --primary: #14181d;
+    --primary-foreground: #ffffff;
+    --secondary: #f1f3f5;
+    --secondary-foreground: #14181d;
+    --muted: #f1f3f5;
+    --muted-foreground: #5d6672;
+    --faint: #687180;
+    --accent: #eef0f3;
+    --accent-foreground: #14181d;
+    --destructive: #c9372c;
+
+    --border: #e4e7eb;
+    --input: #dfe3e8;
+    --ring: #14181d;
+
+    --marker: #ffd84d;
+    --marker-soft: #fff4bf;
+    --marker-ink: #6b5200;
+
+    --surface-0: #ffffff;
+    --surface-1: #f7f8fa;
+    --surface-2: #f1f3f5;
+    --border-subtle: #eceef1;
+    --border-default: #e4e7eb;
+    --interactive-hover: #f1f3f5;
+    --interactive-active: #e7eaee;
+    --success: #1f9e5a;
+    --success-muted: #e3f5ea;
+
+    --shadow-float:
+        0 1px 2px rgb(20 24 29 / 0.05), 0 10px 30px -8px rgb(20 24 29 / 0.14);
+    --shadow-pop:
+        0 1px 2px rgb(20 24 29 / 0.06), 0 18px 48px -12px rgb(20 24 29 / 0.22);
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+ * Han characters are drawn differently in Simplified Chinese, Traditional
+ * Chinese and Japanese: each language lists its own system fonts first.
+ */
+:root {
+    --font-cjk:
+        "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
+        "Microsoft YaHei", "Hiragino Sans", "Meiryo";
+}
+:root:lang(ja) {
+    --font-cjk:
+        "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP",
+        "Yu Gothic UI", "Meiryo", "PingFang SC";
+}
+:root:lang(zh-Hant) {
+    --font-cjk:
+        "PingFang TC", "Noto Sans CJK TC", "Microsoft JhengHei",
+        "Hiragino Sans", "PingFang SC";
+}
+
+/*
+ * Dark: a blueprint-blue table. Surfaces get lighter the higher they float.
+ * The diagram stays on a white sheet so it looks the way it will export;
+ * primary actions are paper-white, and amber only marks AI changes.
+ */
+.dark {
+    /* Neutral greys: the canvas matches draw.io's own dark workspace */
+    --canvas: #1b1d1e;
+    --background: #1b1d1e;
+    --foreground: #ececec;
+
+    --card: #242627;
+    --card-foreground: #ececec;
+    --popover: #2a2c2d;
+    --popover-foreground: #ececec;
+
+    --primary: #ececec;
+    --primary-foreground: #1b1d1e;
+    --secondary: #2d2f30;
+    --secondary-foreground: #ececec;
+    --muted: #2d2f30;
+    --muted-foreground: #a7a9aa;
+    --faint: #8a8c8d;
+    --accent: #353738;
+    --accent-foreground: #ececec;
+    --destructive: #f07167;
+
+    --border: rgb(255 255 255 / 0.1);
+    --input: rgb(255 255 255 / 0.16);
+    --ring: #ececec;
+
+    --marker: #f5b13d;
+    --marker-soft: rgb(245 177 61 / 0.16);
+    --marker-ink: #f7c46b;
+
+    --surface-0: #242627;
+    --surface-1: #202223;
+    --surface-2: #2d2f30;
+    --border-subtle: rgb(255 255 255 / 0.08);
+    --border-default: rgb(255 255 255 / 0.13);
+    --interactive-hover: #353738;
+    --interactive-active: #3c3e3f;
+    --success: #4fd18b;
+    --success-muted: rgb(79 209 139 / 0.14);
+
+    --shadow-float:
+        0 0 0 1px rgb(255 255 255 / 0.07), 0 14px 34px -12px rgb(0 0 0 / 0.6);
+    --shadow-pop:
+        0 0 0 1px rgb(255 255 255 / 0.1), 0 22px 56px -14px rgb(0 0 0 / 0.7);
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+    html {
+        color-scheme: light;
+    }
+    html.dark {
+        color-scheme: dark;
+    }
+    body {
+        @apply bg-background text-foreground font-sans;
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+    }
+    ::selection {
+        background: var(--marker-soft);
+        color: inherit;
+    }
+}
+
+/* Fix for Radix ScrollArea viewport horizontal overflow */
+[data-slot="scroll-area-viewport"] > div {
+    display: block !important;
+    width: 100% !important;
+}
+
+@layer utilities {
+    .scrollbar-thin {
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in oklab, var(--foreground) 18%, transparent)
+            transparent;
+    }
+    .scrollbar-thin::-webkit-scrollbar {
+        width: 6px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+        background-color: color-mix(
+            in oklab,
+            var(--foreground) 18%,
+            transparent
+        );
+        border-radius: 3px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+        background-color: color-mix(
+            in oklab,
+            var(--foreground) 30%,
+            transparent
+        );
+    }
+
+    /* Diagram pictures always render as on paper, also in dark mode
+       (draw.io SVGs use light-dark() colors) */
+    .sheet-light {
+        color-scheme: light;
+    }
+    .shadow-float {
+        box-shadow: var(--shadow-float);
+    }
+    .shadow-pop {
+        box-shadow: var(--shadow-pop);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes messageIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* The first prompt moves from the middle of the canvas into the panel */
+@keyframes panelIn {
+    from {
+        opacity: 0;
+        transform: translateX(12px) scale(0.985);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+/* A highlight sweeps across "Thinking..." text (Shimmer) */
+@keyframes shimmer {
+    from {
+        background-position: 100% center;
+    }
+    to {
+        background-position: 0% center;
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.25s var(--ease-out) forwards;
+}
+.animate-message-in {
+    animation: messageIn 0.22s var(--ease-out) forwards;
+}
+.animate-panel-in {
+    animation: panelIn 0.32s var(--ease-out) both;
+}
+.animate-shimmer {
+    animation: shimmer var(--shimmer-duration, 2s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-fade-in,
+    .animate-message-in,
+    .animate-panel-in,
+    .animate-shimmer {
+        animation: none;
+    }
+}

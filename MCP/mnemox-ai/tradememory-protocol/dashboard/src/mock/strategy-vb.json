@@ -1,0 +1,287 @@
+{
+  "_disclaimer": "⚠️ Illustrative demo dataset. Synthetic trades generated for interface preview only - not a backtest, not live trading results. Account $100,000, risk $250/trade (1R).",
+  "name": "VolBreakout",
+  "total_trades": 220,
+  "win_rate": 0.391,
+  "profit_factor": 0.94,
+  "avg_pnl_r": -0.04,
+  "avg_hold_seconds": 2104,
+  "best_session": "London",
+  "worst_session": "Asia",
+  "baseline_pf": 1.17,
+  "baseline_wr": 0.45,
+  "trades": [
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0200",
+      "date": "2026-01-07",
+      "side": "BUY",
+      "pnl": -240.69,
+      "pnl_r": -0.96,
+      "session": "London",
+      "hold_seconds": 1928
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0201",
+      "date": "2026-01-09",
+      "side": "BUY",
+      "pnl": -279.15,
+      "pnl_r": -1.12,
+      "session": "London",
+      "hold_seconds": 1997
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0202",
+      "date": "2026-01-12",
+      "side": "BUY",
+      "pnl": -273.57,
+      "pnl_r": -1.09,
+      "session": "London",
+      "hold_seconds": 1996
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0203",
+      "date": "2026-01-14",
+      "side": "BUY",
+      "pnl": -151.19,
+      "pnl_r": -0.6,
+      "session": "NY",
+      "hold_seconds": 2358
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0204",
+      "date": "2026-01-15",
+      "side": "BUY",
+      "pnl": 777.8,
+      "pnl_r": 3.11,
+      "session": "NY",
+      "hold_seconds": 1457
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0205",
+      "date": "2026-01-16",
+      "side": "BUY",
+      "pnl": -297.57,
+      "pnl_r": -1.19,
+      "session": "Asia",
+      "hold_seconds": 1225
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0206",
+      "date": "2026-01-20",
+      "side": "BUY",
+      "pnl": 293.91,
+      "pnl_r": 1.18,
+      "session": "London",
+      "hold_seconds": 1422
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0207",
+      "date": "2026-01-23",
+      "side": "BUY",
+      "pnl": -209.07,
+      "pnl_r": -0.84,
+      "session": "Asia",
+      "hold_seconds": 1561
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0208",
+      "date": "2026-01-26",
+      "side": "BUY",
+      "pnl": 305.26,
+      "pnl_r": 1.22,
+      "session": "London",
+      "hold_seconds": 1587
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0209",
+      "date": "2026-01-27",
+      "side": "BUY",
+      "pnl": 179.0,
+      "pnl_r": 0.72,
+      "session": "London",
+      "hold_seconds": 3357
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0210",
+      "date": "2026-01-28",
+      "side": "BUY",
+      "pnl": 406.81,
+      "pnl_r": 1.63,
+      "session": "London",
+      "hold_seconds": 846
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0211",
+      "date": "2026-01-29",
+      "side": "BUY",
+      "pnl": -256.06,
+      "pnl_r": -1.02,
+      "session": "Asia",
+      "hold_seconds": 2135
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0212",
+      "date": "2026-01-30",
+      "side": "BUY",
+      "pnl": -294.54,
+      "pnl_r": -1.18,
+      "session": "London",
+      "hold_seconds": 1591
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0213",
+      "date": "2026-02-02",
+      "side": "BUY",
+      "pnl": -218.25,
+      "pnl_r": -0.87,
+      "session": "NY",
+      "hold_seconds": 1672
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0214",
+      "date": "2026-02-05",
+      "side": "BUY",
+      "pnl": 390.76,
+      "pnl_r": 1.56,
+      "session": "London",
+      "hold_seconds": 891
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0215",
+      "date": "2026-02-06",
+      "side": "BUY",
+      "pnl": -241.25,
+      "pnl_r": -0.97,
+      "session": "London",
+      "hold_seconds": 2024
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0216",
+      "date": "2026-02-10",
+      "side": "BUY",
+      "pnl": -165.35,
+      "pnl_r": -0.66,
+      "session": "NY",
+      "hold_seconds": 1751
+    },
+    {
+      "id": "DEMO-VB_XAUUSD_BUY-0217",
+      "date": "2026-02-17",
+      "side": "BUY",
+      "pnl": 174.98,
+      "pnl_r": 0.7,
+      "session": "NY",
+      "hold_seconds": 2736
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0218",
+      "date": "2026-02-18",
+      "side": "BUY",
+      "pnl": -276.01,
+      "pnl_r": -1.1,
+      "session": "Asia",
+      "hold_seconds": 2281
+    },
+    {
+      "id": "DEMO-VB_EURUSD_BUY-0219",
+      "date": "2026-02-25",
+      "side": "BUY",
+      "pnl": -252.13,
+      "pnl_r": -1.01,
+      "session": "Asia",
+      "hold_seconds": 1404
+    }
+  ],
+  "session_heatmap": [
+    {
+      "session": "Asia",
+      "day": "Fri",
+      "trades": 19,
+      "avg_pnl": -98.51
+    },
+    {
+      "session": "Asia",
+      "day": "Mon",
+      "trades": 15,
+      "avg_pnl": -75.23
+    },
+    {
+      "session": "Asia",
+      "day": "Thu",
+      "trades": 9,
+      "avg_pnl": -8.24
+    },
+    {
+      "session": "Asia",
+      "day": "Tue",
+      "trades": 14,
+      "avg_pnl": -131.95
+    },
+    {
+      "session": "Asia",
+      "day": "Wed",
+      "trades": 10,
+      "avg_pnl": -259.07
+    },
+    {
+      "session": "London",
+      "day": "Fri",
+      "trades": 19,
+      "avg_pnl": 39.33
+    },
+    {
+      "session": "London",
+      "day": "Mon",
+      "trades": 23,
+      "avg_pnl": 56.76
+    },
+    {
+      "session": "London",
+      "day": "Thu",
+      "trades": 18,
+      "avg_pnl": 149.59
+    },
+    {
+      "session": "London",
+      "day": "Tue",
+      "trades": 17,
+      "avg_pnl": 234.69
+    },
+    {
+      "session": "London",
+      "day": "Wed",
+      "trades": 19,
+      "avg_pnl": 57.25
+    },
+    {
+      "session": "NY",
+      "day": "Fri",
+      "trades": 8,
+      "avg_pnl": -132.02
+    },
+    {
+      "session": "NY",
+      "day": "Mon",
+      "trades": 14,
+      "avg_pnl": -144.93
+    },
+    {
+      "session": "NY",
+      "day": "Thu",
+      "trades": 9,
+      "avg_pnl": 138.4
+    },
+    {
+      "session": "NY",
+      "day": "Tue",
+      "trades": 14,
+      "avg_pnl": -81.87
+    },
+    {
+      "session": "NY",
+      "day": "Wed",
+      "trades": 12,
+      "avg_pnl": -125.34
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mnemox-ai.idea-reality-mcp",
+  "type": "mcp",
+  "name": "Idea Reality MCP",
+  "slug": "idea-reality-mcp",
+  "vendor": "mnemox-ai",
+  "description": "Pre-build reality check for AI coding agents. Scans GitHub, HN, npm, PyPI, Product Hunt. MCP server. 290+ stars.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/mnemox-ai/idea-reality-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "developer-tools",
+    "github-api",
+    "idea-validation",
+    "market-research"
+  ],
+  "tags": [
+    "ai-agents",
+    "developer-tools",
+    "github-api",
+    "idea-validation",
+    "market-research",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:20Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "mnemox-ai/idea-reality-mcp",
+    "url": "https://github.com/mnemox-ai/idea-reality-mcp",
+    "commit": "83281b4cf7b66da8e80ad6e2527a154cefdaa480",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 826,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "cursor",
+    "changes": [
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "uvx",
+      "args": [
+        "idea-reality-mcp"
+      ]
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "idea-reality-mcp"
+    ],
+    "env": [
+      "GITHUB_TOKEN",
+      "PRODUCTHUNT_TOKEN"
+    ],
+    "credentials": [
+      "GITHUB_TOKEN",
+      "PRODUCTHUNT_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

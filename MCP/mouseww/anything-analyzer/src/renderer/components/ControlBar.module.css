@@ -1,0 +1,47 @@
+.controlBar {
+  flex-shrink: 0;
+  background: var(--color-sidebar);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mainRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.leftGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.rightGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.customRow {
+  padding: 0 var(--space-md) var(--space-sm);
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+}
+
+.customInput {
+  flex: 1;
+}
+
+.customBtns {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.statusTag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

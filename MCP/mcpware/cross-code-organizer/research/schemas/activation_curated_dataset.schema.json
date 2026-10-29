@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcpware.dev/schemas/activation-curated-dataset.schema.json",
+  "title": "Activation Scanner Curated Dataset Row",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "additionalProperties": true,
+    "required": [
+      "id",
+      "label",
+      "family",
+      "source_type",
+      "source",
+      "pair_id",
+      "split_group",
+      "text",
+      "notes"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "label": {
+        "type": "string",
+        "enum": ["clean", "poisoned"]
+      },
+      "family": {
+        "type": "string",
+        "enum": [
+          "instruction_chaining",
+          "secret_file_access",
+          "credential_forwarding",
+          "network_exfiltration",
+          "hidden_persistence_logging",
+          "live_system_access",
+          "system_inventory",
+          "tool_shadowing"
+        ]
+      },
+      "source_type": {
+        "type": "string",
+        "enum": [
+          "synthetic_curated",
+          "real_carrier_adapted",
+          "public_dataset",
+          "pentest_case",
+          "real_incident",
+          "regression_fixture"
+        ]
+      },
+      "source": {
+        "type": "string",
+        "minLength": 1
+      },
+      "pair_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "split_group": {
+        "type": "string",
+        "minLength": 1
+      },
+      "text": {
+        "type": "string",
+        "minLength": 20
+      },
+      "notes": {
+        "type": "string",
+        "minLength": 1
+      },
+      "carrier": {
+        "type": "string"
+      },
+      "curriculum_level": {
+        "type": "string",
+        "enum": [
+          "L0_regression",
+          "L1_clear_synthetic_pair",
+          "L2_benign_lookalike",
+          "L3_subtle_intent",
+          "L4_real_carrier_adapted",
+          "L5_external_holdout"
+        ]
+      },
+      "attack_goal": {
+        "type": "string"
+      },
+      "risk_action": {
+        "type": "string"
+      },
+      "label_confidence": {
+        "type": "string",
+        "enum": ["gold", "high", "medium", "low"]
+      },
+      "review_status": {
+        "type": "string",
+        "enum": ["accepted", "needs_review", "holdout_only", "rejected"]
+      }
+    }
+  }
+}

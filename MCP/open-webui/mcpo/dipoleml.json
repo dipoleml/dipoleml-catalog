@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.open-webui.mcpo",
+  "type": "mcp",
+  "name": "Mcpo",
+  "slug": "mcpo",
+  "vendor": "open-webui",
+  "description": "A simple, secure MCP-to-OpenAPI proxy server",
+  "version": "0.0.0",
+  "homepage": "https://github.com/open-webui/mcpo",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "mcp-to-openapi",
+    "open-webui",
+    "openapi"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-server",
+    "mcp-to-openapi",
+    "open-webui",
+    "openapi"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "open-webui",
+    "brandName": "open-webui",
+    "source": "https://github.com/open-webui.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "open-webui/mcpo",
+    "url": "https://github.com/open-webui/mcpo",
+    "commit": "788ff92e5288a899a743a252edd5748f4ad4ab1f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4414,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:44Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcpo"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

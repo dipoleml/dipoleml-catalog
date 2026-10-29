@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Mibayy/token-savior",
+  "description": "Structural codebase MCP server with persistent memory: navigate by symbol, recall across sessions.",
+  "repository": {
+    "url": "https://github.com/Mibayy/token-savior",
+    "source": "github"
+  },
+  "version": "4.19.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "token-savior-recall",
+      "version": "4.19.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "WORKSPACE_ROOTS",
+          "description": "Comma-separated list of absolute paths to project roots to index.",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "TOKEN_SAVIOR_CLIENT",
+          "description": "Optional client identifier (e.g. 'claude-code', 'cursor', 'hermes') for usage attribution.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "TOKEN_SAVIOR_PROFILE",
+          "description": "Manifest size. 'optimized' (recommended) advertises the Pareto-optimal 15-tool set; 'auto' sizes it from your own usage; 'full' advertises every tool; 'compact-only' if you already run symbol navigation elsewhere.",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

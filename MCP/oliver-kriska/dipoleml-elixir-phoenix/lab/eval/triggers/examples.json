@@ -1,0 +1,17 @@
+{
+  "skill": "examples",
+  "should_trigger": [
+    "Show me how to stream large LiveView lists efficiently",
+    "What does a /phx:work artifact output look like?",
+    "How do I build a multi-step form with streams?",
+    "Walk me through implementing a presence feature",
+    "What's a proper Oban worker implementation?"
+  ],
+  "should_not_trigger": [
+    "Debug this LiveView mount connection error",
+    "What are Phoenix security best practices?",
+    "Write tests for my Ecto changeset",
+    "Deploy my app to Fly.io with releases",
+    "Why is my Ecto query slow?"
+  ]
+}

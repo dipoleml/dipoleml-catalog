@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.better-auth.better-icons",
+  "type": "mcp",
+  "name": "Better Icons",
+  "slug": "better-icons",
+  "vendor": "better-auth",
+  "description": "Skill and MCP server for searching and retrieving icons",
+  "version": "1.0.5",
+  "homepage": "https://github.com/better-auth/better-icons",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "betterauth",
+    "brandName": "better-auth",
+    "source": "https://cdn.simpleicons.org/betterauth",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:43Z",
+    "resolver": "simple-icons:title"
+  },
+  "source": {
+    "repo": "better-auth/better-icons",
+    "url": "https://github.com/better-auth/better-icons",
+    "commit": "033316ecb8f4982235af4111a2257e80231f5ab1",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1444,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "better-icons"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "better-icons"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

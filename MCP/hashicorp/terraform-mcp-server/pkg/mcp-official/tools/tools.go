@@ -1,0 +1,236 @@
+// Copyright IBM Corp. 2025
+// SPDX-License-Identifier: MPL-2.0
+
+package tools
+
+import (
+	"log/slog"
+	"os"
+	"strings"
+
+	registryTools "github.com/hashicorp/terraform-mcp-server/pkg/mcp-official/tools/registry"
+	tfeTools "github.com/hashicorp/terraform-mcp-server/pkg/mcp-official/tools/tfe"
+	"github.com/hashicorp/terraform-mcp-server/pkg/toolsets"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// officialFactories has one entry per tool actually ported to the official
+// go-sdk so far. mcp.AddTool is generic per tool (different Arguments/Result
+// types), so each entry is a closure that calls it directly rather than a
+// plain map[string]func(*log.Logger) server.ServerTool like the mark3labs
+// side uses. Tools that log, take the server's logger from RegisterTools.
+
+var officialFactories = map[string]func(svr *mcp.Server, logger *slog.Logger){
+	// Add entries here as each tool gets ported to the official go-sdk
+	// Public Registry tools
+	"search_provider_docs": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.SearchProviderDocsTool(), registryTools.SearchProviderDocsFunc(logger))
+	},
+	"get_provider_details": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.GetProviderDetailsTool(), registryTools.GetProviderDetailsFunc(logger))
+	},
+	"get_latest_provider_version": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.GetLatestProviderVersionTool(), registryTools.GetLatestProviderVersionFunc(logger))
+	},
+	"get_provider_capabilities": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.GetProviderCapabilitiesTool(), registryTools.GetProviderCapabilitiesFunc(logger))
+	},
+	"search_modules": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.SearchModulesTool(), registryTools.SearchModulesFunc(logger))
+	},
+	"get_latest_module_version": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.GetLatestModuleVersionTool(), registryTools.GetLatestModuleVersionFunc(logger))
+	},
+	"get_module_details": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.GetModuleDetailsTool(), registryTools.GetModuleDetailsFunc(logger))
+	},
+	"search_policies": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.SearchPoliciesTool(), registryTools.SearchPoliciesFunc(logger))
+	},
+	"get_policy_details": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, registryTools.GetPolicyDetailsTool(), registryTools.GetPolicyDetailsFunc(logger))
+	},
+	// TFE tools
+	"list_workspaces": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListWorkspacesTool(), tfeTools.ListWorkspacesFunc)
+	},
+	"create_workspace": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateWorkspaceTool(), tfeTools.CreateWorkspaceFunc)
+	},
+	"get_workspace_details": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetWorkspaceDetailsTool(), tfeTools.GetWorkspaceDetailsFunc(logger))
+	},
+	"update_workspace": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.UpdateWorkspaceTool(), tfeTools.UpdateWorkspaceFunc)
+	},
+	"delete_workspace_safely": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.DeleteWorkspaceSafelyTool(), tfeTools.DeleteWorkspaceSafelyFunc)
+	},
+	"list_terraform_orgs": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListTerraformOrganizationsTool(), tfeTools.ListTerraformOrganizationsFunc)
+	},
+	"list_terraform_projects": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListProjectsTool(), tfeTools.ListProjectsFunc)
+	},
+	"create_project": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateProjectTool(), tfeTools.CreateProjectFunc)
+	},
+	"get_project": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetProjectTool(), tfeTools.GetProjectFunc)
+	},
+	"delete_project": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.DeleteProjectTool(), tfeTools.DeleteProjectFunc)
+	},
+	"delete_team": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.DeleteTeamTool(), tfeTools.DeleteTeamFunc)
+	},
+	"whoami": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.WhoAmITool(), tfeTools.WhoAmIFunc)
+	},
+	"get_token_permissions": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetTokenPermissionsTool(), tfeTools.GetTokenPermissionsFunc)
+	},
+	"list_state_versions": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListStateVersionsTool(), tfeTools.ListStateVersionsFunc)
+	},
+	"get_state_version": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetStateVersionTool(), tfeTools.GetStateVersionFunc)
+	},
+	"list_teams": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListTeamsTool(), tfeTools.ListTeamsFunc)
+	},
+	"get_team": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetTeamTool(), tfeTools.GetTeamFunc)
+	},
+	"create_team": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateTeamTool(), tfeTools.CreateTeamFunc)
+	},
+	"add_team_member": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.AddTeamMemberTool(), tfeTools.AddTeamMemberFunc)
+	},
+	"grant_team_access": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GrantTeamAccessTool(), tfeTools.GrantTeamAccessFunc)
+	},
+	"list_stacks": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListStacksTool(), tfeTools.ListStacksFunc)
+	},
+	"get_stack_details": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetStackDetailsTool(), tfeTools.GetStackDetailsFunc)
+	},
+	"list_variable_sets": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListVariableSetsTool(), tfeTools.ListVariableSetsFunc)
+	},
+	"create_variable_set": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateVariableSetTool(), tfeTools.CreateVariableSetFunc)
+	},
+	"create_variable_in_variable_set": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateVariableInVariableSetTool(), tfeTools.CreateVariableInVariableSetFunc)
+	},
+	"delete_variable_in_variable_set": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.DeleteVariableInVariableSetTool(), tfeTools.DeleteVariableInVariableSetFunc)
+	},
+	"attach_variable_set_to_workspaces": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.AttachVariableSetToWorkspacesTool(), tfeTools.AttachVariableSetToWorkspacesFunc)
+	},
+	"detach_variable_set_from_workspaces": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.DetachVariableSetFromWorkspacesTool(), tfeTools.DetachVariableSetFromWorkspacesFunc)
+	},
+	"list_runs": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListRunsTool(), tfeTools.ListRunsFunc)
+	},
+	"get_run_details": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetRunDetailsTool(), tfeTools.GetRunDetailsFunc)
+	},
+	"get_run_comments": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetRunCommentsTool(), tfeTools.GetRunCommentsFunc)
+	},
+	"action_run": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ActionRunTool(), tfeTools.ActionRunFunc)
+	},
+	"get_plan_logs": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetPlanLogsTool(), tfeTools.GetPlanLogsFunc)
+	},
+	"get_plan_details": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetPlanDetailsTool(), tfeTools.GetPlanDetailsFunc)
+	},
+	"get_plan_json_output": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetPlanJSONOutputTool(), tfeTools.GetPlanJSONOutputFunc)
+	},
+	"get_apply_logs": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetApplyLogsTool(), tfeTools.GetApplyLogsFunc)
+	},
+	"get_apply_details": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetApplyDetailsTool(), tfeTools.GetApplyDetailsFunc)
+	},
+	"get_sentinel_mock": func(svr *mcp.Server, logger *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetSentinelMockTool(), tfeTools.GetSentinelMockFunc(logger))
+	},
+	"list_workspace_variables": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListWorkspaceVariablesTool(), tfeTools.ListWorkspaceVariablesFunc)
+	},
+	"create_workspace_variable": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateWorkspaceVariableTool(), tfeTools.CreateWorkspaceVariableFunc)
+	},
+	"update_workspace_variable": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.UpdateWorkspaceVariableTool(), tfeTools.UpdateWorkspaceVariableFunc)
+	},
+	"search_private_modules": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.SearchPrivateModulesTool(), tfeTools.SearchPrivateModulesFunc)
+	},
+	"get_private_module_details": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetPrivateModuleDetailsTool(), tfeTools.GetPrivateModuleDetailsFunc)
+	},
+	"get_private_provider_details": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.GetPrivateProviderDetailsTool(), tfeTools.GetPrivateProviderDetailsFunc)
+	},
+	"search_private_providers": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.SearchPrivateProvidersTool(), tfeTools.SearchPrivateProvidersFunc)
+	},
+	"force_unlock_workspace": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ForceUnlockWorkspaceTool(), tfeTools.ForceUnlockWorkspaceFunc)
+	},
+	"read_workspace_tags": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ReadWorkspaceTagsTool(), tfeTools.ReadWorkspaceTagsFunc)
+	},
+	"list_workspace_policy_sets": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.ListWorkspacePolicySetsTool(), tfeTools.ListWorkspacePolicySetsFunc)
+	},
+	"attach_policy_set_to_workspaces": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.AttachPolicySetToWorkspacesTool(), tfeTools.AttachPolicySetToWorkspacesFunc)
+	},
+	"create_workspace_tags": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateWorkspaceTagsTool(), tfeTools.CreateWorkspaceTagsFunc)
+	},
+	"create_no_code_workspace": func(svr *mcp.Server, _ *slog.Logger) {
+		mcp.AddTool(svr, tfeTools.CreateNoCodeWorkspaceTool(), tfeTools.CreateNoCodeWorkspaceFunc)
+	},
+}
+
+// officialSpecialFactories contains tools whose registration depends on
+// runtime configuration and therefore cannot use officialFactories directly.
+var officialSpecialFactories = map[string]func(svr *mcp.Server, logger *slog.Logger, tfOpsEnabled bool){
+	"create_run": func(svr *mcp.Server, _ *slog.Logger, tfOpsEnabled bool) {
+		if tfOpsEnabled {
+			mcp.AddTool(svr, tfeTools.CreateRunTool(), tfeTools.CreateRunFunc)
+			return
+		}
+		mcp.AddTool(svr, tfeTools.CreateRunSafeTool(), tfeTools.CreateRunSafeFunc)
+	},
+}
+
+func RegisterTools(svr *mcp.Server, logger *slog.Logger, filter toolsets.ToolFilter) {
+	tfOpsEnabled := strings.EqualFold(os.Getenv("ENABLE_TF_OPERATIONS"), "true")
+
+	for _, td := range filter.EnabledTools(nil) {
+		if td.RequiresTFOps && !tfOpsEnabled {
+			continue
+		}
+		if register, ok := officialSpecialFactories[td.Name]; ok {
+			register(svr, logger, tfOpsEnabled)
+			continue
+		}
+		if register, ok := officialFactories[td.Name]; ok {
+			register(svr, logger)
+		}
+	}
+}

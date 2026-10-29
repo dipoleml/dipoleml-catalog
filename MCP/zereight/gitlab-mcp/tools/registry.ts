@@ -1,0 +1,2790 @@
+import { toJSONSchema } from "../utils/schema.js";
+import { USE_GITLAB_WIKI, USE_MILESTONE, USE_PIPELINE, SSE, STREAMABLE_HTTP } from "../config.js";
+import { getToolDescription } from "./tool-descriptions.js";
+import {
+  ApproveMergeRequestSchema,
+  BulkPublishDraftNotesSchema,
+  CancelPipelineJobSchema,
+  ErasePipelineJobSchema,
+  CancelPipelineSchema,
+  ConvertWorkItemTypeSchema,
+  CreateBranchSchema,
+  CreateDraftNoteSchema,
+  CreateGroupSchema,
+  CreateGroupWikiPageSchema,
+  CreateIssueLinkSchema,
+  CreateIssueNoteSchema,
+  CreateIssueSchema,
+  CreateIssueEmojiReactionSchema,
+  CreateIssueNoteEmojiReactionSchema,
+  ListIssueEmojiReactionsSchema,
+  ListIssueNoteEmojiReactionsSchema,
+  CreateLabelSchema,
+  MarkAllTodosDoneSchema,
+  ListTodosSchema,
+  MarkTodoDoneSchema,
+  CreateMergeRequestDiscussionNoteSchema,
+  CreateMergeRequestEmojiReactionSchema,
+  ListMergeRequestEmojiReactionsSchema,
+  ListMergeRequestNoteEmojiReactionsSchema,
+  CreateMergeRequestNoteSchema,
+  CreateMergeRequestNoteEmojiReactionSchema,
+  CreateMergeRequestSchema,
+  CreateMergeRequestThreadSchema,
+  CreateNoteSchema,
+  CreateCommitStatusSchema,
+  CreateOrUpdateFileSchema,
+  CreatePipelineSchema,
+  CreateProjectMilestoneSchema,
+  CreateGroupMilestoneSchema,
+  CreateReleaseEvidenceSchema,
+  CreateReleaseSchema,
+  CreateRepositorySchema,
+  CreateTagSchema,
+  CreateTimelineEventSchema,
+  CreateWebhookSchema,
+  CreateWikiPageSchema,
+  CreateWorkItemNoteSchema,
+  CreateWorkItemEmojiReactionSchema,
+  CreateWorkItemNoteEmojiReactionSchema,
+  ListWorkItemEmojiReactionsSchema,
+  ListWorkItemNoteEmojiReactionsSchema,
+  CreateWorkItemSchema,
+  DeleteBranchSchema,
+  GetProtectedBranchSchema,
+  ListProtectedBranchesSchema,
+  ProtectBranchSchema,
+  UpdateProtectedBranchSchema,
+  ProtectTagSchema,
+  UnprotectBranchSchema,
+  UnprotectTagSchema,
+  UpdateDefaultBranchSchema,
+  DeleteDraftNoteSchema,
+  DeleteGroupMilestoneSchema,
+  DeleteGroupWikiPageSchema,
+  DeleteIssueLinkSchema,
+  DeleteIssueSchema,
+  DeleteIssueEmojiReactionSchema,
+  DeleteIssueNoteEmojiReactionSchema,
+  DeleteLabelSchema,
+  DeleteMergeRequestDiscussionNoteSchema,
+  DeleteMergeRequestNoteSchema,
+  DeleteMergeRequestEmojiReactionSchema,
+  DeleteMergeRequestNoteEmojiReactionSchema,
+  DeleteProjectMilestoneSchema,
+  DeleteReleaseSchema,
+  DeleteTagSchema,
+  DeleteWebhookSchema,
+  DeleteWikiPageSchema,
+  DeleteWorkItemEmojiReactionSchema,
+  DeleteWorkItemNoteEmojiReactionSchema,
+  DownloadAttachmentSchema,
+  DownloadAttachmentRemoteSchema,
+  DownloadJobArtifactsSchema,
+  DownloadJobArtifactsRemoteSchema,
+  DownloadReleaseAssetSchema,
+  EditProjectMilestoneSchema,
+  EditGroupMilestoneSchema,
+  ExecuteGraphQLSchema,
+  ForkRepositorySchema,
+  HealthCheckSchema,
+  GetBranchSchema,
+  GetBranchDiffsSchema,
+  GetCommitDiffSchema,
+  GetCommitSchema,
+  GetFileBlameSchema,
+  GetDeploymentSchema,
+  CreateDeploymentSchema,
+  UpdateDeploymentSchema,
+  DeploymentApprovalSchema,
+  ListDeploymentMergeRequestsSchema,
+  GetDraftNoteSchema,
+  GetEnvironmentSchema,
+  UpdateEnvironmentSchema,
+  StopEnvironmentSchema,
+  StopStaleEnvironmentsSchema,
+  DeleteReviewAppEnvironmentsSchema,
+  PipelineTriggerIdSchema,
+  ListPipelineTriggersSchema,
+  CreatePipelineTriggerSchema,
+  UpdatePipelineTriggerSchema,
+  TriggerPipelineSchema,
+  GetFileContentsSchema,
+  GetGroupWikiPageSchema,
+  GetIssueLinkSchema,
+  GetIssueSchema,
+  GetJobArtifactFileSchema,
+  GetLabelSchema,
+  GetMergeRequestApprovalStateSchema,
+  GetMergeRequestConflictsSchema,
+  GetMergeRequestDiffsSchema,
+  GetMergeRequestFileDiffSchema,
+  GetMergeRequestDiscussionSchema,
+  GetMergeRequestNoteSchema,
+  GetMergeRequestNotesSchema,
+  GetMergeRequestSchema,
+  GetMergeRequestVersionSchema,
+  GetMilestoneBurndownEventsSchema,
+  GetMilestoneIssuesSchema,
+  GetMilestoneMergeRequestsSchema,
+  GetGroupMilestoneSchema,
+  GetGroupMilestoneIssuesSchema,
+  GetGroupMilestoneMergeRequestsSchema,
+  GetGroupMilestoneBurndownEventsSchema,
+  GetNamespaceSchema,
+  GetPipelineJobOutputSchema,
+  PipelineJobControlSchema,
+  GetPipelineSchema,
+  GetRunnerSchema,
+  GetPipelineVariablesSchema,
+  UpdatePipelineMetadataSchema,
+  DeletePipelineSchema,
+  PipelineReportSchema,
+  WaitForPipelineSchema,
+  WaitForPipelineJobSchema,
+  PlayPipelineJobsSchema,
+  GetProjectEventsSchema,
+  GetProjectMilestoneSchema,
+  GetProjectSchema,
+  GetReleaseSchema,
+  GetRepositoryTreeSchema,
+  GetTagSchema,
+  GetTagSignatureSchema,
+  GetProtectedTagSchema,
+  GetTimelineEventsSchema,
+  GetUsersSchema,
+  GetUserSchema,
+  WhoAmISchema,
+  GetWebhookEventSchema,
+  GetWikiPageSchema,
+  GetWorkItemSchema,
+  ListBranchesSchema,
+  ListCommitsSchema,
+  ListCommitStatusesSchema,
+  ListCustomFieldDefinitionsSchema,
+  ListDeploymentsSchema,
+  ListDraftNotesSchema,
+  ListEnvironmentsSchema,
+  ListEventsSchema,
+  ListGroupIterationsSchema,
+  ListGroupMilestonesSchema,
+  ListGroupProjectsSchema,
+  ListGroupWikiPagesSchema,
+  ListIssueDiscussionsSchema,
+  ListIssueLinksSchema,
+  ListIssuesSchema,
+  ListJobArtifactsSchema,
+  ListLabelsSchema,
+  ListMergeRequestChangedFilesSchema,
+  ListMergeRequestDiffsSchema,
+  ListMergeRequestDiscussionsSchema,
+  ListMergeRequestPipelinesSchema,
+  ListMergeRequestVersionsSchema,
+  ListMergeRequestsSchema,
+  ListGroupMergeRequestsSchema,
+  ListNamespacesSchema,
+  ListPipelineJobsSchema,
+  ListPipelineTriggerJobsSchema,
+  ValidateCiLintSchema,
+  ValidateProjectCiLintSchema,
+  ListCiCatalogResourcesSchema,
+  GetCiCatalogResourceSchema,
+  ListPipelinesSchema,
+  ListPipelineSchedulesSchema,
+  GetPipelineScheduleSchema,
+  ListPipelineSchedulePipelinesSchema,
+  CreatePipelineScheduleSchema,
+  UpdatePipelineScheduleSchema,
+  DeletePipelineScheduleSchema,
+  PlayPipelineScheduleSchema,
+  TakeOwnershipPipelineScheduleSchema,
+  GetPipelineScheduleVariableSchema,
+  CreatePipelineScheduleVariableSchema,
+  UpdatePipelineScheduleVariableSchema,
+  DeletePipelineScheduleVariableSchema,
+  ListGroupMembersSchema,
+  ListProjectMembersSchema,
+  ListProjectMilestonesSchema,
+  ListProjectsSchema,
+  ListProjectRunnersSchema,
+  ListReleasesSchema,
+  ListTagsSchema,
+  ListProtectedTagsSchema,
+  ListWebhookEventsSchema,
+  ListWebhooksSchema,
+  ListWikiPagesSchema,
+  ListWorkItemNotesSchema,
+  ListWorkItemStatusesSchema,
+  ListWorkItemsSchema,
+  MarkdownUploadSchema,
+  MarkdownUploadRemoteSchema,
+  MergeMergeRequestSchema,
+  MoveWorkItemSchema,
+  MyIssuesSchema,
+  OrbitQuerySchema,
+  OrbitSchemaSchema,
+  OrbitStatusSchema,
+  OrbitToolsSchema,
+  PlayPipelineJobSchema,
+  PromoteProjectMilestoneSchema,
+  PublishDraftNoteSchema,
+  PushFilesSchema,
+  ResolveMergeRequestThreadSchema,
+  RetryPipelineJobSchema,
+  RetryPipelineSchema,
+  SearchCodeSchema,
+  SearchGroupCodeSchema,
+  SearchProjectCodeSchema,
+  SearchRepositoriesSchema,
+  ListSnippetsSchema,
+  GetSnippetSchema,
+  CreateSnippetSchema,
+  UpdateSnippetSchema,
+  DeleteSnippetSchema,
+  UnapproveMergeRequestSchema,
+  RebaseMergeRequestSchema,
+  UpdateDraftNoteSchema,
+  UpdateGroupWikiPageSchema,
+  UpdateIssueNoteSchema,
+  UpdateIssueSchema,
+  UpdateIssueDescriptionPatchSchema,
+  UpdateLabelSchema,
+  UpdateProjectSchema,
+  UpdateMergeRequestDiscussionNoteSchema,
+  UpdateMergeRequestNoteSchema,
+  UpdateMergeRequestSchema,
+  UpdateReleaseSchema,
+  UpdateWebhookSchema,
+  UpdateWikiPageSchema,
+  UpdateWorkItemSchema,
+  VerifyNamespaceSchema,
+  ListProjectVariablesSchema,
+  GetProjectVariableSchema,
+  CreateProjectVariableSchema,
+  UpdateProjectVariableSchema,
+  DeleteProjectVariableSchema,
+  ListGroupVariablesSchema,
+  GetGroupVariableSchema,
+  CreateGroupVariableSchema,
+  UpdateGroupVariableSchema,
+  DeleteGroupVariableSchema,
+  GetDependencyProxySettingsSchema,
+  UpdateDependencyProxySettingsSchema,
+  ListDependencyProxyBlobsSchema,
+  PurgeDependencyProxyCacheSchema,
+  ListProjectVulnerabilitiesSchema,
+  GetVulnerabilitySchema,
+  DismissVulnerabilitySchema,
+  ConfirmVulnerabilitySchema,
+} from "../schemas.js";
+import { GitLabApiRequestSchema } from "./gitlab-api-request.js";
+import { HelpInputSchema } from "../server/mcp-help.js";
+
+const IS_REMOTE = SSE || STREAMABLE_HTTP;
+
+// Define all available tools
+export const allTools = [
+  {
+    name: "merge_merge_request",
+    description: "Merge a merge request",
+    inputSchema: toJSONSchema(MergeMergeRequestSchema),
+  },
+  {
+    name: "approve_merge_request",
+    description: "Approve a merge request",
+    inputSchema: toJSONSchema(ApproveMergeRequestSchema),
+  },
+  {
+    name: "unapprove_merge_request",
+    description: "Unapprove a merge request",
+    inputSchema: toJSONSchema(UnapproveMergeRequestSchema),
+  },
+  {
+    name: "get_merge_request_approval_state",
+    description: "Get merge request approval details including approvers",
+    inputSchema: toJSONSchema(GetMergeRequestApprovalStateSchema),
+  },
+  {
+    name: "get_merge_request_conflicts",
+    description: "Get the conflicts of a merge request",
+    inputSchema: toJSONSchema(GetMergeRequestConflictsSchema),
+  },
+  {
+    name: "list_merge_request_pipelines",
+    description: "List pipelines for a merge request with pagination",
+    inputSchema: toJSONSchema(ListMergeRequestPipelinesSchema),
+  },
+  {
+    name: "execute_graphql",
+    description: "Execute a GitLab GraphQL query",
+    inputSchema: toJSONSchema(ExecuteGraphQLSchema),
+  },
+  {
+    name: "create_or_update_file",
+    description: "Create or update a file in a GitLab project",
+    inputSchema: toJSONSchema(CreateOrUpdateFileSchema),
+  },
+  {
+    name: "search_repositories",
+    description: "Search for GitLab projects",
+    inputSchema: toJSONSchema(SearchRepositoriesSchema),
+  },
+  {
+    name: "create_repository",
+    description: "Create a new GitLab project",
+    inputSchema: toJSONSchema(CreateRepositorySchema),
+  },
+  {
+    name: "create_group",
+    description: "Create new group or subgroup",
+    inputSchema: toJSONSchema(CreateGroupSchema),
+  },
+  {
+    name: "get_file_contents",
+    description: "Get contents of a file or directory from a GitLab project",
+    inputSchema: toJSONSchema(GetFileContentsSchema),
+  },
+  {
+    name: "push_files",
+    description: "Push multiple files in a single commit",
+    inputSchema: toJSONSchema(PushFilesSchema),
+  },
+  {
+    name: "create_issue",
+    description: "Create a new issue",
+    inputSchema: toJSONSchema(CreateIssueSchema),
+  },
+  {
+    name: "create_merge_request",
+    description: "Create a new merge request",
+    inputSchema: toJSONSchema(CreateMergeRequestSchema),
+  },
+  {
+    name: "fork_repository",
+    description: "Fork a project to your account or specified namespace",
+    inputSchema: toJSONSchema(ForkRepositorySchema),
+  },
+  {
+    name: "create_branch",
+    description: "Create a new branch",
+    inputSchema: toJSONSchema(CreateBranchSchema),
+  },
+  {
+    name: "get_branch",
+    description: "Get branch details (commit, protection status)",
+    inputSchema: toJSONSchema(GetBranchSchema),
+  },
+  {
+    name: "list_branches",
+    description: "List branches in project with search filter",
+    inputSchema: toJSONSchema(ListBranchesSchema),
+  },
+  {
+    name: "delete_branch",
+    description: "Delete branch from project",
+    inputSchema: toJSONSchema(DeleteBranchSchema),
+  },
+  {
+    name: "list_protected_branches",
+    description: "List protected branches in a project, supports search filter",
+    inputSchema: toJSONSchema(ListProtectedBranchesSchema),
+  },
+  {
+    name: "get_protected_branch",
+    description: "Get details of a single protected branch (access levels, force push settings)",
+    inputSchema: toJSONSchema(GetProtectedBranchSchema),
+  },
+  {
+    name: "protect_branch",
+    description: "Protect a repository branch (set push/merge/unprotect access levels)",
+    inputSchema: toJSONSchema(ProtectBranchSchema),
+  },
+  {
+    name: "update_protected_branch",
+    description:
+      "Update an existing protected branch rule in place (access levels, force push, code owner approval)",
+    inputSchema: toJSONSchema(UpdateProtectedBranchSchema),
+  },
+  {
+    name: "unprotect_branch",
+    description: "Remove protection from a previously protected branch",
+    inputSchema: toJSONSchema(UnprotectBranchSchema),
+  },
+  {
+    name: "update_default_branch",
+    description: "Change the default branch of a project",
+    inputSchema: toJSONSchema(UpdateDefaultBranchSchema),
+  },
+  {
+    name: "get_merge_request",
+    description:
+      "Get details of a merge request (merge_request_iid or source_branch required). Set include_summaries=true for deployment/commit/approval summaries",
+    inputSchema: toJSONSchema(GetMergeRequestSchema),
+  },
+  {
+    name: "get_merge_request_diffs",
+    description:
+      "Get the changes/diffs of a merge request (merge_request_iid or source_branch required)",
+    inputSchema: toJSONSchema(GetMergeRequestDiffsSchema),
+  },
+  {
+    name: "list_merge_request_changed_files",
+    description:
+      "List changed file paths in a merge request without diff content (merge_request_iid or source_branch required)",
+    inputSchema: toJSONSchema(ListMergeRequestChangedFilesSchema),
+  },
+  {
+    name: "list_merge_request_diffs",
+    description:
+      "List merge request diffs with pagination (merge_request_iid or source_branch required)",
+    inputSchema: toJSONSchema(ListMergeRequestDiffsSchema),
+  },
+  {
+    name: "get_merge_request_file_diff",
+    description:
+      "Get diffs for specific files from a merge request (merge_request_iid or source_branch required)",
+    inputSchema: toJSONSchema(GetMergeRequestFileDiffSchema),
+  },
+  {
+    name: "list_merge_request_versions",
+    description: "List all versions of a merge request",
+    inputSchema: toJSONSchema(ListMergeRequestVersionsSchema),
+  },
+  {
+    name: "get_merge_request_version",
+    description: "Get a specific version of a merge request",
+    inputSchema: toJSONSchema(GetMergeRequestVersionSchema),
+  },
+  {
+    name: "get_branch_diffs",
+    description: "Get diffs between two branches or commits",
+    inputSchema: toJSONSchema(GetBranchDiffsSchema),
+  },
+  {
+    name: "update_merge_request",
+    description: "Update a merge request (merge_request_iid or source_branch required)",
+    inputSchema: toJSONSchema(UpdateMergeRequestSchema),
+  },
+  {
+    name: "create_note",
+    description: "Create a new note (comment) to an issue or merge request",
+    inputSchema: toJSONSchema(CreateNoteSchema),
+  },
+  {
+    name: "create_merge_request_thread",
+    description: "Create a new thread on a merge request",
+    inputSchema: toJSONSchema(CreateMergeRequestThreadSchema),
+  },
+  {
+    name: "resolve_merge_request_thread",
+    description: "Resolve a thread on a merge request",
+    inputSchema: toJSONSchema(ResolveMergeRequestThreadSchema),
+  },
+  {
+    name: "mr_discussions",
+    description: "List discussion items for a merge request",
+    inputSchema: toJSONSchema(ListMergeRequestDiscussionsSchema),
+  },
+  {
+    name: "get_merge_request_discussion",
+    description: "Get a single discussion item for a merge request",
+    inputSchema: toJSONSchema(GetMergeRequestDiscussionSchema),
+  },
+  {
+    name: "delete_merge_request_discussion_note",
+    description: "Delete a discussion note on a merge request",
+    inputSchema: toJSONSchema(DeleteMergeRequestDiscussionNoteSchema),
+  },
+  {
+    name: "update_merge_request_discussion_note",
+    description: "Update a discussion note on a merge request",
+    inputSchema: toJSONSchema(UpdateMergeRequestDiscussionNoteSchema),
+  },
+  {
+    name: "create_merge_request_discussion_note",
+    description: "Add a new discussion note to an existing merge request thread",
+    inputSchema: toJSONSchema(CreateMergeRequestDiscussionNoteSchema),
+  },
+  {
+    name: "create_merge_request_note",
+    description: "Add a new note to a merge request",
+    inputSchema: toJSONSchema(CreateMergeRequestNoteSchema),
+  },
+  {
+    name: "delete_merge_request_note",
+    description: "Delete an existing merge request note",
+    inputSchema: toJSONSchema(DeleteMergeRequestNoteSchema),
+  },
+  {
+    name: "get_merge_request_note",
+    description: "Get a specific note for a merge request",
+    inputSchema: toJSONSchema(GetMergeRequestNoteSchema),
+  },
+  {
+    name: "get_merge_request_notes",
+    description: "List notes for a merge request",
+    inputSchema: toJSONSchema(GetMergeRequestNotesSchema),
+  },
+  {
+    name: "update_merge_request_note",
+    description: "Modify an existing merge request note",
+    inputSchema: toJSONSchema(UpdateMergeRequestNoteSchema),
+  },
+  {
+    name: "get_draft_note",
+    description: "Get a single draft note from a merge request",
+    inputSchema: toJSONSchema(GetDraftNoteSchema),
+  },
+  {
+    name: "list_draft_notes",
+    description: "List draft notes for a merge request",
+    inputSchema: toJSONSchema(ListDraftNotesSchema),
+  },
+  {
+    name: "create_draft_note",
+    description: "Create a draft note for a merge request",
+    inputSchema: toJSONSchema(CreateDraftNoteSchema),
+  },
+  {
+    name: "update_draft_note",
+    description: "Update an existing draft note",
+    inputSchema: toJSONSchema(UpdateDraftNoteSchema),
+  },
+  {
+    name: "delete_draft_note",
+    description: "Delete a draft note",
+    inputSchema: toJSONSchema(DeleteDraftNoteSchema),
+  },
+  {
+    name: "publish_draft_note",
+    description: "Publish a single draft note",
+    inputSchema: toJSONSchema(PublishDraftNoteSchema),
+  },
+  {
+    name: "bulk_publish_draft_notes",
+    description:
+      "Publish all draft notes for a merge request. Optionally sets reviewer_state and posts a summary note (GitLab 19.2+). Can set reviewer_state even with no drafts.",
+    inputSchema: toJSONSchema(BulkPublishDraftNotesSchema),
+  },
+  // --- Merge request emoji reaction tools ---
+  {
+    name: "list_merge_request_emoji_reactions",
+    description: "List all emoji reactions on a merge request",
+    inputSchema: toJSONSchema(ListMergeRequestEmojiReactionsSchema),
+  },
+  {
+    name: "list_merge_request_note_emoji_reactions",
+    description:
+      "List all emoji reactions on a merge request note. Pass discussion_id for discussion thread replies.",
+    inputSchema: toJSONSchema(ListMergeRequestNoteEmojiReactionsSchema),
+  },
+  {
+    name: "create_merge_request_emoji_reaction",
+    description: "Add an emoji reaction to a merge request (e.g. thumbsup, rocket, eyes)",
+    inputSchema: toJSONSchema(CreateMergeRequestEmojiReactionSchema),
+  },
+  {
+    name: "delete_merge_request_emoji_reaction",
+    description: "Remove an emoji reaction from a merge request",
+    inputSchema: toJSONSchema(DeleteMergeRequestEmojiReactionSchema),
+  },
+  {
+    name: "create_merge_request_note_emoji_reaction",
+    description:
+      "Add an emoji reaction to a merge request note. Pass discussion_id for discussion thread replies.",
+    inputSchema: toJSONSchema(CreateMergeRequestNoteEmojiReactionSchema),
+  },
+  {
+    name: "delete_merge_request_note_emoji_reaction",
+    description:
+      "Remove an emoji reaction from a merge request note. Pass discussion_id for discussion thread replies.",
+    inputSchema: toJSONSchema(DeleteMergeRequestNoteEmojiReactionSchema),
+  },
+  {
+    name: "update_issue_note",
+    description: "Modify an existing issue thread note",
+    inputSchema: toJSONSchema(UpdateIssueNoteSchema),
+  },
+  {
+    name: "create_issue_note",
+    description: "Add a note to an issue, optionally replying to a discussion thread",
+    inputSchema: toJSONSchema(CreateIssueNoteSchema),
+  },
+  // --- Issue emoji reaction tools ---
+  {
+    name: "list_issue_emoji_reactions",
+    description: "List all emoji reactions on an issue",
+    inputSchema: toJSONSchema(ListIssueEmojiReactionsSchema),
+  },
+  {
+    name: "list_issue_note_emoji_reactions",
+    description:
+      "List all emoji reactions on an issue note. Pass discussion_id for discussion thread replies.",
+    inputSchema: toJSONSchema(ListIssueNoteEmojiReactionsSchema),
+  },
+  {
+    name: "create_issue_emoji_reaction",
+    description: "Add an emoji reaction to an issue (e.g. thumbsup, rocket, eyes)",
+    inputSchema: toJSONSchema(CreateIssueEmojiReactionSchema),
+  },
+  {
+    name: "delete_issue_emoji_reaction",
+    description: "Remove an emoji reaction from an issue",
+    inputSchema: toJSONSchema(DeleteIssueEmojiReactionSchema),
+  },
+  {
+    name: "create_issue_note_emoji_reaction",
+    description:
+      "Add an emoji reaction to an issue note. Pass discussion_id for discussion thread replies.",
+    inputSchema: toJSONSchema(CreateIssueNoteEmojiReactionSchema),
+  },
+  {
+    name: "delete_issue_note_emoji_reaction",
+    description:
+      "Remove an emoji reaction from an issue note. Pass discussion_id for discussion thread replies.",
+    inputSchema: toJSONSchema(DeleteIssueNoteEmojiReactionSchema),
+  },
+  {
+    name: "list_issues",
+    description: "List issues (default: created by current user; use scope='all' for all)",
+    inputSchema: toJSONSchema(ListIssuesSchema),
+  },
+  {
+    name: "my_issues",
+    description: "List issues assigned to the authenticated user",
+    inputSchema: toJSONSchema(MyIssuesSchema),
+  },
+  {
+    name: "get_issue",
+    description:
+      "Get details of a specific issue. Returns the issue with a slim nested milestone by default; set full_response=true for the complete milestone object",
+    inputSchema: toJSONSchema(GetIssueSchema),
+  },
+  {
+    name: "update_issue",
+    description:
+      "Update an issue. Returns a slim confirmation by default; set full_response=true for the complete updated issue object",
+    inputSchema: toJSONSchema(UpdateIssueSchema),
+  },
+  {
+    name: "update_issue_description_patch",
+    description:
+      "Apply a patch (search/replace or unified diff) to an issue description. " +
+      "Reduces token usage by allowing small changes without sending the full description. " +
+      "Supports dry_run to preview changes and create_note to summarize updates.",
+    inputSchema: toJSONSchema(UpdateIssueDescriptionPatchSchema),
+  },
+  {
+    name: "delete_issue",
+    description: "Delete an issue",
+    inputSchema: toJSONSchema(DeleteIssueSchema),
+  },
+  {
+    name: "list_todos",
+    description: "List GitLab to-do items for the current user",
+    inputSchema: toJSONSchema(ListTodosSchema),
+  },
+  {
+    name: "mark_todo_done",
+    description: "Mark a GitLab to-do item as done",
+    inputSchema: toJSONSchema(MarkTodoDoneSchema),
+  },
+  {
+    name: "mark_all_todos_done",
+    description: "Mark all pending GitLab to-do items as done for the current user",
+    inputSchema: toJSONSchema(MarkAllTodosDoneSchema),
+  },
+  {
+    name: "list_issue_links",
+    description: "List all issue links for a specific issue",
+    inputSchema: toJSONSchema(ListIssueLinksSchema),
+  },
+  {
+    name: "list_issue_discussions",
+    description: "List discussions for an issue",
+    inputSchema: toJSONSchema(ListIssueDiscussionsSchema),
+  },
+  {
+    name: "get_issue_link",
+    description: "Get a specific issue link",
+    inputSchema: toJSONSchema(GetIssueLinkSchema),
+  },
+  {
+    name: "create_issue_link",
+    description: "Create an issue link between two issues",
+    inputSchema: toJSONSchema(CreateIssueLinkSchema),
+  },
+  {
+    name: "delete_issue_link",
+    description: "Delete an issue link",
+    inputSchema: toJSONSchema(DeleteIssueLinkSchema),
+  },
+  {
+    name: "list_namespaces",
+    description:
+      "List all namespaces (users and groups) available to the current user. Filter by kind='group' for groups only.",
+    inputSchema: toJSONSchema(ListNamespacesSchema),
+  },
+  {
+    name: "get_namespace",
+    description:
+      "Get details of a namespace (user or group) by ID or path. Groups are namespaces with kind='group'.",
+    inputSchema: toJSONSchema(GetNamespaceSchema),
+  },
+  {
+    name: "verify_namespace",
+    description:
+      "Verify if a namespace path exists. Use parent_id to scope the check to a specific parent namespace — required for nested namespaces where the same path may exist under different parents.",
+    inputSchema: toJSONSchema(VerifyNamespaceSchema),
+  },
+  {
+    name: "get_project",
+    description: "Get details of a specific project",
+    inputSchema: toJSONSchema(GetProjectSchema),
+  },
+  {
+    name: "list_projects",
+    description: "List projects accessible by the current user",
+    inputSchema: toJSONSchema(ListProjectsSchema),
+  },
+  {
+    name: "update_project",
+    description:
+      "Update project settings such as description, visibility, default branch, and feature access levels",
+    inputSchema: toJSONSchema(UpdateProjectSchema),
+  },
+  {
+    name: "list_project_members",
+    description: "List members of a GitLab project",
+    inputSchema: toJSONSchema(ListProjectMembersSchema),
+  },
+  {
+    name: "list_group_members",
+    description: "List members of a GitLab group with optional name or username search",
+    inputSchema: toJSONSchema(ListGroupMembersSchema),
+  },
+  {
+    name: "list_labels",
+    description: "List labels for a project",
+    inputSchema: toJSONSchema(ListLabelsSchema),
+  },
+  {
+    name: "get_label",
+    description: "Get a single label from a project",
+    inputSchema: toJSONSchema(GetLabelSchema),
+  },
+  {
+    name: "create_label",
+    description: "Create a new label in a project",
+    inputSchema: toJSONSchema(CreateLabelSchema),
+  },
+  {
+    name: "update_label",
+    description: "Update an existing label in a project",
+    inputSchema: toJSONSchema(UpdateLabelSchema),
+  },
+  {
+    name: "delete_label",
+    description: "Delete a label from a project",
+    inputSchema: toJSONSchema(DeleteLabelSchema),
+  },
+  {
+    name: "list_group_projects",
+    description: "List projects in a group",
+    inputSchema: toJSONSchema(ListGroupProjectsSchema),
+  },
+  {
+    name: "list_wiki_pages",
+    description: "List wiki pages in a project",
+    inputSchema: toJSONSchema(ListWikiPagesSchema),
+  },
+  {
+    name: "get_wiki_page",
+    description: "Get details of a specific wiki page",
+    inputSchema: toJSONSchema(GetWikiPageSchema),
+  },
+  {
+    name: "create_wiki_page",
+    description: "Create a wiki page in a project",
+    inputSchema: toJSONSchema(CreateWikiPageSchema),
+  },
+  {
+    name: "update_wiki_page",
+    description: "Update a wiki page in a project",
+    inputSchema: toJSONSchema(UpdateWikiPageSchema),
+  },
+  {
+    name: "delete_wiki_page",
+    description: "Delete a wiki page from a project",
+    inputSchema: toJSONSchema(DeleteWikiPageSchema),
+  },
+  {
+    name: "list_group_wiki_pages",
+    description: "List wiki pages in a group",
+    inputSchema: toJSONSchema(ListGroupWikiPagesSchema),
+  },
+  {
+    name: "get_group_wiki_page",
+    description: "Get details of a specific group wiki page",
+    inputSchema: toJSONSchema(GetGroupWikiPageSchema),
+  },
+  {
+    name: "create_group_wiki_page",
+    description: "Create a wiki page in a group",
+    inputSchema: toJSONSchema(CreateGroupWikiPageSchema),
+  },
+  {
+    name: "update_group_wiki_page",
+    description: "Update a wiki page in a group",
+    inputSchema: toJSONSchema(UpdateGroupWikiPageSchema),
+  },
+  {
+    name: "delete_group_wiki_page",
+    description: "Delete a wiki page from a group",
+    inputSchema: toJSONSchema(DeleteGroupWikiPageSchema),
+  },
+  {
+    name: "get_repository_tree",
+    description: "List files and directories in a repository",
+    inputSchema: toJSONSchema(GetRepositoryTreeSchema),
+  },
+  {
+    name: "list_pipelines",
+    description: "List pipelines with filtering options",
+    inputSchema: toJSONSchema(ListPipelinesSchema),
+  },
+  {
+    name: "get_pipeline",
+    description: "Get details of a specific pipeline",
+    inputSchema: toJSONSchema(GetPipelineSchema),
+  },
+  {
+    name: "get_pipeline_variables",
+    description: "Get variables configured for a pipeline",
+    inputSchema: toJSONSchema(GetPipelineVariablesSchema),
+  },
+  {
+    name: "get_pipeline_test_report",
+    description: "Get pipeline test report",
+    inputSchema: toJSONSchema(PipelineReportSchema),
+  },
+  {
+    name: "get_pipeline_test_report_summary",
+    description: "Get pipeline test report summary",
+    inputSchema: toJSONSchema(PipelineReportSchema),
+  },
+  {
+    name: "delete_pipeline",
+    description:
+      "Delete a pipeline. Requires the project Owner role, cannot be undone, and does not automatically delete child pipelines.",
+    inputSchema: toJSONSchema(DeletePipelineSchema),
+  },
+  {
+    name: "update_pipeline_metadata",
+    description: "Update pipeline metadata",
+    inputSchema: toJSONSchema(UpdatePipelineMetadataSchema),
+  },
+  {
+    name: "list_deployments",
+    description: "List deployments with filtering options",
+    inputSchema: toJSONSchema(ListDeploymentsSchema),
+  },
+  {
+    name: "get_deployment",
+    description:
+      "Get deployment details, including approval_summary, approvals, and pending_approval_count when GitLab provides them",
+    inputSchema: toJSONSchema(GetDeploymentSchema),
+  },
+  {
+    name: "create_deployment",
+    description: "Create a deployment",
+    inputSchema: toJSONSchema(CreateDeploymentSchema),
+  },
+  {
+    name: "update_deployment",
+    description: "Update a deployment status",
+    inputSchema: toJSONSchema(UpdateDeploymentSchema),
+  },
+  {
+    name: "delete_deployment",
+    description: "Delete a deployment",
+    inputSchema: toJSONSchema(GetDeploymentSchema),
+  },
+  {
+    name: "list_deployment_merge_requests",
+    description: "List merge requests shipped with a deployment",
+    inputSchema: toJSONSchema(ListDeploymentMergeRequestsSchema),
+  },
+  {
+    name: "approve_deployment",
+    description: "Approve or reject a protected-environment deployment",
+    inputSchema: toJSONSchema(DeploymentApprovalSchema),
+  },
+  {
+    name: "list_environments",
+    description: "List environments in a project",
+    inputSchema: toJSONSchema(ListEnvironmentsSchema),
+  },
+  {
+    name: "get_environment",
+    description: "Get details of a specific environment",
+    inputSchema: toJSONSchema(GetEnvironmentSchema),
+  },
+  {
+    name: "update_environment",
+    description: "Update an environment",
+    inputSchema: toJSONSchema(UpdateEnvironmentSchema),
+  },
+  {
+    name: "delete_environment",
+    description: "Delete a stopped environment",
+    inputSchema: toJSONSchema(GetEnvironmentSchema),
+  },
+  {
+    name: "stop_environment",
+    description: "Stop an environment",
+    inputSchema: toJSONSchema(StopEnvironmentSchema),
+  },
+  {
+    name: "stop_stale_environments",
+    description:
+      "Stop eligible stale environments; protected environments are excluded and environments are stopped, not deleted",
+    inputSchema: toJSONSchema(StopStaleEnvironmentsSchema),
+  },
+  {
+    name: "delete_review_app_environments",
+    description:
+      "Schedule deletion of stopped review-app environments one week later; dry_run defaults to true and actual scheduling requires dry_run=false",
+    inputSchema: toJSONSchema(DeleteReviewAppEnvironmentsSchema),
+  },
+  {
+    name: "list_pipeline_triggers",
+    description: "List project pipeline trigger tokens",
+    inputSchema: toJSONSchema(ListPipelineTriggersSchema),
+  },
+  {
+    name: "get_pipeline_trigger",
+    description: "Get a project pipeline trigger",
+    inputSchema: toJSONSchema(PipelineTriggerIdSchema),
+  },
+  {
+    name: "create_pipeline_trigger",
+    description: "Create a project pipeline trigger",
+    inputSchema: toJSONSchema(CreatePipelineTriggerSchema),
+  },
+  {
+    name: "update_pipeline_trigger",
+    description: "Update a project pipeline trigger",
+    inputSchema: toJSONSchema(UpdatePipelineTriggerSchema),
+  },
+  {
+    name: "delete_pipeline_trigger",
+    description: "Delete a project pipeline trigger",
+    inputSchema: toJSONSchema(PipelineTriggerIdSchema),
+  },
+  {
+    name: "trigger_pipeline",
+    description: "Trigger a pipeline with a pipeline trigger token",
+    inputSchema: toJSONSchema(TriggerPipelineSchema),
+  },
+  {
+    name: "list_pipeline_jobs",
+    description: "List all jobs in a specific pipeline",
+    inputSchema: toJSONSchema(ListPipelineJobsSchema),
+  },
+  {
+    name: "list_pipeline_trigger_jobs",
+    description: "List trigger jobs (bridges) in a pipeline",
+    inputSchema: toJSONSchema(ListPipelineTriggerJobsSchema),
+  },
+  {
+    name: "get_pipeline_job",
+    description: "Get details of a GitLab pipeline job number",
+    inputSchema: toJSONSchema(PipelineJobControlSchema),
+  },
+  {
+    name: "get_pipeline_job_output",
+    description:
+      "Get a pipeline job trace. It is read-only. Without pattern, lines come from the end of the log: limit is the maximum lines (default and max 1000) and offset is how many lines to skip from the end (default 0). With pattern, the full log is searched and limit and offset are ignored; a log over 10,000,000 characters is searched only in its last 10,000,000 characters, which can start partway through a line, and the result says which line that is. pattern is a substring unless regex is true, which treats it as an RE2 regular expression matched in linear time (no backreferences or lookaround); invalid or unsupported expressions, expressions over 1,000 compiled instructions (large {n} repetitions), and patterns longer than 500 characters return an error. case_sensitive defaults to false. context_lines (default 5, maximum 50) includes lines before and after each match, and overlapping windows are merged. max_matches (default 20, maximum 100) caps returned matches, and returned lines stop at 100,000 characters of text in total. Results are plain text with 1-based line numbers from the start of the log plus total_lines, total_matches, shown_matches, truncated, and output_truncated (true when the character limit cut the output). ANSI escape codes and GitLab section_start/section_end markers are removed before matching and in returned fragments. Provide project_id as a numeric ID or URL-encoded path and job_id as the job ID.",
+    inputSchema: toJSONSchema(GetPipelineJobOutputSchema),
+  },
+  {
+    name: "validate_ci_lint",
+    description: "Validate provided GitLab CI/CD YAML content for a project",
+    inputSchema: toJSONSchema(ValidateCiLintSchema),
+  },
+  {
+    name: "validate_project_ci_lint",
+    description: "Validate an existing .gitlab-ci.yml configuration for a project",
+    inputSchema: toJSONSchema(ValidateProjectCiLintSchema),
+  },
+  {
+    name: "list_ci_catalog_resources",
+    description: "List GitLab CI/CD Catalog resources/components visible to the user",
+    inputSchema: toJSONSchema(ListCiCatalogResourcesSchema),
+  },
+  {
+    name: "get_ci_catalog_resource",
+    description:
+      "Get details for a GitLab CI/CD Catalog resource, including versions and components",
+    inputSchema: toJSONSchema(GetCiCatalogResourceSchema),
+  },
+  {
+    name: "create_pipeline",
+    description: "Create a new pipeline for a branch or tag",
+    inputSchema: toJSONSchema(CreatePipelineSchema),
+  },
+  {
+    name: "retry_pipeline",
+    description: "Retry a failed or canceled pipeline",
+    inputSchema: toJSONSchema(RetryPipelineSchema),
+  },
+  {
+    name: "cancel_pipeline",
+    description: "Cancel a running pipeline",
+    inputSchema: toJSONSchema(CancelPipelineSchema),
+  },
+  {
+    name: "list_pipeline_schedules",
+    description: "List pipeline schedules in a project, optionally filtered to active or inactive",
+    inputSchema: toJSONSchema(ListPipelineSchedulesSchema),
+  },
+  {
+    name: "get_pipeline_schedule",
+    description:
+      "Get details of a specific pipeline schedule, including its variables and last pipeline",
+    inputSchema: toJSONSchema(GetPipelineScheduleSchema),
+  },
+  {
+    name: "list_pipeline_schedule_pipelines",
+    description: "List the pipelines that a pipeline schedule has triggered",
+    inputSchema: toJSONSchema(ListPipelineSchedulePipelinesSchema),
+  },
+  {
+    name: "create_pipeline_schedule",
+    description: "Create a new pipeline schedule for a branch or tag",
+    inputSchema: toJSONSchema(CreatePipelineScheduleSchema),
+  },
+  {
+    name: "update_pipeline_schedule",
+    description: "Update an existing pipeline schedule",
+    inputSchema: toJSONSchema(UpdatePipelineScheduleSchema),
+  },
+  {
+    name: "delete_pipeline_schedule",
+    description: "Delete a pipeline schedule",
+    inputSchema: toJSONSchema(DeletePipelineScheduleSchema),
+  },
+  {
+    name: "play_pipeline_schedule",
+    description: "Run a pipeline schedule immediately",
+    inputSchema: toJSONSchema(PlayPipelineScheduleSchema),
+  },
+  {
+    name: "take_ownership_pipeline_schedule",
+    description: "Take ownership of a pipeline schedule",
+    inputSchema: toJSONSchema(TakeOwnershipPipelineScheduleSchema),
+  },
+  {
+    name: "get_pipeline_schedule_variable",
+    description: "Get a single variable of a pipeline schedule",
+    inputSchema: toJSONSchema(GetPipelineScheduleVariableSchema),
+  },
+  {
+    name: "create_pipeline_schedule_variable",
+    description: "Create a variable for a pipeline schedule",
+    inputSchema: toJSONSchema(CreatePipelineScheduleVariableSchema),
+  },
+  {
+    name: "update_pipeline_schedule_variable",
+    description: "Update a variable of a pipeline schedule",
+    inputSchema: toJSONSchema(UpdatePipelineScheduleVariableSchema),
+  },
+  {
+    name: "delete_pipeline_schedule_variable",
+    description: "Delete a variable from a pipeline schedule",
+    inputSchema: toJSONSchema(DeletePipelineScheduleVariableSchema),
+  },
+  {
+    name: "play_pipeline_job",
+    description: "Run a manual pipeline job",
+    inputSchema: toJSONSchema(PlayPipelineJobSchema),
+  },
+  {
+    name: "play_pipeline_jobs",
+    description: "Play multiple manual pipeline jobs sequentially",
+    inputSchema: toJSONSchema(PlayPipelineJobsSchema),
+  },
+  {
+    name: "retry_pipeline_job",
+    description: "Retry a failed or canceled pipeline job",
+    inputSchema: toJSONSchema(RetryPipelineJobSchema),
+  },
+  {
+    name: "cancel_pipeline_job",
+    description: "Cancel a running pipeline job",
+    inputSchema: toJSONSchema(CancelPipelineJobSchema),
+  },
+  {
+    name: "erase_pipeline_job",
+    description: "Erase a pipeline job log and artifacts",
+    inputSchema: toJSONSchema(ErasePipelineJobSchema),
+  },
+  {
+    name: "wait_for_pipeline",
+    description: "Wait for a pipeline to reach a terminal status",
+    inputSchema: toJSONSchema(WaitForPipelineSchema),
+  },
+  {
+    name: "wait_for_job",
+    description: "Wait for a job to reach a terminal status",
+    inputSchema: toJSONSchema(WaitForPipelineJobSchema),
+  },
+  {
+    name: "list_job_artifacts",
+    description: "List artifact files in a job's archive",
+    inputSchema: toJSONSchema(ListJobArtifactsSchema),
+  },
+  {
+    name: "download_job_artifacts",
+    description: IS_REMOTE
+      ? "Get a download URL for a job's artifact archive (zip)"
+      : "Download job artifact archive (zip) and save it under the download directory",
+    inputSchema: IS_REMOTE
+      ? toJSONSchema(DownloadJobArtifactsRemoteSchema)
+      : toJSONSchema(DownloadJobArtifactsSchema),
+  },
+  {
+    name: "get_job_artifact_file",
+    description: "Get content of a single file from a job's artifacts",
+    inputSchema: toJSONSchema(GetJobArtifactFileSchema),
+  },
+  {
+    name: "list_merge_requests",
+    description:
+      "List merge requests (without project_id: user's MRs; with project_id: project MRs)",
+    inputSchema: toJSONSchema(ListMergeRequestsSchema),
+  },
+  {
+    name: "list_group_merge_requests",
+    description: "List merge requests across all projects of a group and its subgroups",
+    inputSchema: toJSONSchema(ListGroupMergeRequestsSchema),
+  },
+  {
+    name: "list_milestones",
+    description: "List milestones with filtering options",
+    inputSchema: toJSONSchema(ListProjectMilestonesSchema),
+  },
+  {
+    name: "get_milestone",
+    description: "Get details of a specific milestone",
+    inputSchema: toJSONSchema(GetProjectMilestoneSchema),
+  },
+  {
+    name: "create_milestone",
+    description: "Create a new milestone",
+    inputSchema: toJSONSchema(CreateProjectMilestoneSchema),
+  },
+  {
+    name: "edit_milestone",
+    description: "Edit an existing milestone",
+    inputSchema: toJSONSchema(EditProjectMilestoneSchema),
+  },
+  {
+    name: "delete_milestone",
+    description: "Delete a milestone",
+    inputSchema: toJSONSchema(DeleteProjectMilestoneSchema),
+  },
+  {
+    name: "get_milestone_issue",
+    description: "Get issues associated with a specific milestone",
+    inputSchema: toJSONSchema(GetMilestoneIssuesSchema),
+  },
+  {
+    name: "get_milestone_merge_requests",
+    description: "Get merge requests associated with a specific milestone",
+    inputSchema: toJSONSchema(GetMilestoneMergeRequestsSchema),
+  },
+  {
+    name: "promote_milestone",
+    description: "Promote a milestone to the next stage",
+    inputSchema: toJSONSchema(PromoteProjectMilestoneSchema),
+  },
+  {
+    name: "get_milestone_burndown_events",
+    description: "Get burndown events for a specific milestone",
+    inputSchema: toJSONSchema(GetMilestoneBurndownEventsSchema),
+  },
+  {
+    name: "list_group_milestones",
+    description: "List group milestones with filtering options",
+    inputSchema: toJSONSchema(ListGroupMilestonesSchema),
+  },
+  {
+    name: "get_group_milestone",
+    description: "Get details of a specific group milestone",
+    inputSchema: toJSONSchema(GetGroupMilestoneSchema),
+  },
+  {
+    name: "create_group_milestone",
+    description: "Create a new group milestone",
+    inputSchema: toJSONSchema(CreateGroupMilestoneSchema),
+  },
+  {
+    name: "edit_group_milestone",
+    description: "Edit an existing group milestone",
+    inputSchema: toJSONSchema(EditGroupMilestoneSchema),
+  },
+  {
+    name: "delete_group_milestone",
+    description: "Delete a group milestone",
+    inputSchema: toJSONSchema(DeleteGroupMilestoneSchema),
+  },
+  {
+    name: "get_group_milestone_issue",
+    description: "Get issues associated with a specific group milestone",
+    inputSchema: toJSONSchema(GetGroupMilestoneIssuesSchema),
+  },
+  {
+    name: "get_group_milestone_merge_requests",
+    description: "Get merge requests associated with a specific group milestone",
+    inputSchema: toJSONSchema(GetGroupMilestoneMergeRequestsSchema),
+  },
+  {
+    name: "get_group_milestone_burndown_events",
+    description: "Get burndown events for a specific group milestone",
+    inputSchema: toJSONSchema(GetGroupMilestoneBurndownEventsSchema),
+  },
+  {
+    name: "get_users",
+    description: "Get GitLab user details by usernames",
+    inputSchema: toJSONSchema(GetUsersSchema),
+  },
+  {
+    name: "get_user",
+    description: "Get user details by ID",
+    inputSchema: toJSONSchema(GetUserSchema),
+  },
+  {
+    name: "whoami",
+    description: "Get current authenticated user details",
+    inputSchema: toJSONSchema(WhoAmISchema),
+  },
+  {
+    name: "list_commits",
+    description: "List repository commits with filtering options",
+    inputSchema: toJSONSchema(ListCommitsSchema),
+  },
+  {
+    name: "get_commit",
+    description: "Get details of a specific commit",
+    inputSchema: toJSONSchema(GetCommitSchema),
+  },
+  {
+    name: "get_commit_diff",
+    description: "Get changes/diffs of a specific commit",
+    inputSchema: toJSONSchema(GetCommitDiffSchema),
+  },
+  {
+    name: "get_file_blame",
+    description:
+      "Get git blame for a file at a given ref. Each entry maps a contiguous range of source lines to the commit that last changed them (id, author, authored_date, message). Use range_start/range_end to limit blame to specific lines.",
+    inputSchema: toJSONSchema(GetFileBlameSchema),
+  },
+  {
+    name: "list_commit_statuses",
+    description: "List statuses for a commit",
+    inputSchema: toJSONSchema(ListCommitStatusesSchema),
+  },
+  {
+    name: "create_commit_status",
+    description: "Create or update the status of a commit",
+    inputSchema: toJSONSchema(CreateCommitStatusSchema),
+  },
+  {
+    name: "list_group_iterations",
+    description: "List group iterations with filtering options",
+    inputSchema: toJSONSchema(ListGroupIterationsSchema),
+  },
+  {
+    name: "upload_markdown",
+    description: IS_REMOTE
+      ? "Upload base64-encoded content for use in markdown"
+      : "Upload a file for use in markdown content",
+    inputSchema: IS_REMOTE
+      ? toJSONSchema(MarkdownUploadRemoteSchema)
+      : toJSONSchema(MarkdownUploadSchema),
+  },
+  {
+    name: "download_attachment",
+    description: IS_REMOTE
+      ? "Download an uploaded file from a project (images returned inline as base64, other files returned as download URL)"
+      : "Download an uploaded file from a project (images returned as base64; other files, or images with local_path, are saved as new files under the download directory)",
+    inputSchema: IS_REMOTE
+      ? toJSONSchema(DownloadAttachmentRemoteSchema)
+      : toJSONSchema(DownloadAttachmentSchema),
+  },
+  {
+    name: "health_check",
+    description:
+      "Verify server status and authentication. Always reports the MCP server version (mcp_server_version). When authenticated, also reports the GitLab instance version from GET /api/v4/version (version, revision, enterprise). Version lookup failures do not fail the health check — those fields are omitted.",
+    inputSchema: toJSONSchema(HealthCheckSchema),
+  },
+  {
+    name: "list_events",
+    description: "List events for the authenticated user (before/after: YYYY-MM-DD)",
+    inputSchema: toJSONSchema(ListEventsSchema),
+  },
+  {
+    name: "get_project_events",
+    description: "List events for a project (before/after: YYYY-MM-DD)",
+    inputSchema: toJSONSchema(GetProjectEventsSchema),
+  },
+  {
+    name: "list_releases",
+    description: "List all releases for a project",
+    inputSchema: toJSONSchema(ListReleasesSchema),
+  },
+  {
+    name: "get_release",
+    description: "Get a release by tag name",
+    inputSchema: toJSONSchema(GetReleaseSchema),
+  },
+  {
+    name: "create_release",
+    description: "Create a new release",
+    inputSchema: toJSONSchema(CreateReleaseSchema),
+  },
+  {
+    name: "update_release",
+    description: "Update an existing release",
+    inputSchema: toJSONSchema(UpdateReleaseSchema),
+  },
+  {
+    name: "delete_release",
+    description: "Delete a release (does not delete the tag)",
+    inputSchema: toJSONSchema(DeleteReleaseSchema),
+  },
+  {
+    name: "create_release_evidence",
+    description: "Create release evidence (Premium/Ultimate)",
+    inputSchema: toJSONSchema(CreateReleaseEvidenceSchema),
+  },
+  {
+    name: "download_release_asset",
+    description: IS_REMOTE
+      ? "Get a download URL for a release asset file"
+      : "Download a release asset file by direct asset path",
+    inputSchema: toJSONSchema(DownloadReleaseAssetSchema),
+  },
+  {
+    name: "list_tags",
+    description: "List repository tags for a project",
+    inputSchema: toJSONSchema(ListTagsSchema),
+  },
+  {
+    name: "get_tag",
+    description: "Get a repository tag by name",
+    inputSchema: toJSONSchema(GetTagSchema),
+  },
+  {
+    name: "create_tag",
+    description: "Create a new repository tag",
+    inputSchema: toJSONSchema(CreateTagSchema),
+  },
+  {
+    name: "delete_tag",
+    description: "Delete a repository tag",
+    inputSchema: toJSONSchema(DeleteTagSchema),
+  },
+  {
+    name: "get_tag_signature",
+    description: "Get the X.509 signature of a signed tag (404 if unsigned)",
+    inputSchema: toJSONSchema(GetTagSignatureSchema),
+  },
+  {
+    name: "list_protected_tags",
+    description: "List protected tags in a project",
+    inputSchema: toJSONSchema(ListProtectedTagsSchema),
+  },
+  {
+    name: "get_protected_tag",
+    description: "Get details of a single protected tag or wildcard (create access levels)",
+    inputSchema: toJSONSchema(GetProtectedTagSchema),
+  },
+  {
+    name: "protect_tag",
+    description: "Protect a repository tag or wildcard (set who can create it)",
+    inputSchema: toJSONSchema(ProtectTagSchema),
+  },
+  {
+    name: "unprotect_tag",
+    description: "Remove protection from a previously protected tag or wildcard",
+    inputSchema: toJSONSchema(UnprotectTagSchema),
+  },
+  // --- Snippet tools ---
+  {
+    name: "list_snippets",
+    description:
+      "List snippets — project snippets when project_id is given, otherwise personal snippets",
+    inputSchema: toJSONSchema(ListSnippetsSchema),
+  },
+  {
+    name: "get_snippet",
+    description:
+      "Get a snippet's metadata. Set include_content=true to also fetch the raw file content.",
+    inputSchema: toJSONSchema(GetSnippetSchema),
+  },
+  {
+    name: "create_snippet",
+    description:
+      "Create a snippet — project-scoped when project_id is given, otherwise a personal snippet. Requires title plus either file_name + content (single file) or files[] (multi-file); the two shapes cannot be mixed.",
+    inputSchema: toJSONSchema(CreateSnippetSchema),
+  },
+  {
+    name: "update_snippet",
+    description:
+      "Update an existing snippet (provide at least one field to change). For multi-file edits — renames, deletions, additions — pass files[] with action (create/update/delete/move) and previous_path. The file_name + content shortcut still works for single-file content replacement.",
+    inputSchema: toJSONSchema(UpdateSnippetSchema),
+  },
+  {
+    name: "delete_snippet",
+    description: "Delete a snippet",
+    inputSchema: toJSONSchema(DeleteSnippetSchema),
+  },
+  // --- Work item tools (GraphQL-based) ---
+  {
+    name: "get_work_item",
+    description: "Get a work item with full details including status, hierarchy, type, and widgets",
+    inputSchema: toJSONSchema(GetWorkItemSchema),
+  },
+  {
+    name: "list_work_items",
+    description: "List work items with filters (type, state, search, assignees, labels)",
+    inputSchema: toJSONSchema(ListWorkItemsSchema),
+  },
+  {
+    name: "create_work_item",
+    description: "Create a work item (issue, task, incident, epic, etc.) with full field support",
+    inputSchema: toJSONSchema(CreateWorkItemSchema),
+  },
+  {
+    name: "update_work_item",
+    description:
+      "Update a work item (title, description, labels, assignees, state, parent, custom fields, etc.)",
+    inputSchema: toJSONSchema(UpdateWorkItemSchema),
+  },
+  {
+    name: "convert_work_item_type",
+    description: "Convert a work item to a different type",
+    inputSchema: toJSONSchema(ConvertWorkItemTypeSchema),
+  },
+  {
+    name: "list_work_item_statuses",
+    description: "List available statuses for a work item type (Premium/Ultimate)",
+    inputSchema: toJSONSchema(ListWorkItemStatusesSchema),
+  },
+  {
+    name: "list_custom_field_definitions",
+    description: "List custom field definitions for a work item type",
+    inputSchema: toJSONSchema(ListCustomFieldDefinitionsSchema),
+  },
+  {
+    name: "move_work_item",
+    description: "Move a work item to a different project",
+    inputSchema: toJSONSchema(MoveWorkItemSchema),
+  },
+  {
+    name: "list_work_item_notes",
+    description: "List notes and discussions on a work item",
+    inputSchema: toJSONSchema(ListWorkItemNotesSchema),
+  },
+  {
+    name: "create_work_item_note",
+    description: "Add a note to a work item (supports Markdown, internal notes, threads)",
+    inputSchema: toJSONSchema(CreateWorkItemNoteSchema),
+  },
+  // --- Work item emoji reaction tools (GraphQL-based) ---
+  {
+    name: "list_work_item_emoji_reactions",
+    description: "List all emoji reactions on a work item",
+    inputSchema: toJSONSchema(ListWorkItemEmojiReactionsSchema),
+  },
+  {
+    name: "list_work_item_note_emoji_reactions",
+    description: "List all emoji reactions on a work item note (comment, thread, or thread reply)",
+    inputSchema: toJSONSchema(ListWorkItemNoteEmojiReactionsSchema),
+  },
+  {
+    name: "create_work_item_emoji_reaction",
+    description: "Add an emoji reaction to a work item (e.g. thumbsup, rocket, eyes)",
+    inputSchema: toJSONSchema(CreateWorkItemEmojiReactionSchema),
+  },
+  {
+    name: "delete_work_item_emoji_reaction",
+    description: "Remove an emoji reaction from a work item",
+    inputSchema: toJSONSchema(DeleteWorkItemEmojiReactionSchema),
+  },
+  {
+    name: "create_work_item_note_emoji_reaction",
+    description: "Add an emoji reaction to a work item note (comment, thread, or thread reply)",
+    inputSchema: toJSONSchema(CreateWorkItemNoteEmojiReactionSchema),
+  },
+  {
+    name: "delete_work_item_note_emoji_reaction",
+    description:
+      "Remove an emoji reaction from a work item note (comment, thread, or thread reply)",
+    inputSchema: toJSONSchema(DeleteWorkItemNoteEmojiReactionSchema),
+  },
+  // --- Incident timeline event tools ---
+  {
+    name: "get_timeline_events",
+    description: "List timeline events for an incident",
+    inputSchema: toJSONSchema(GetTimelineEventsSchema),
+  },
+  {
+    name: "create_timeline_event",
+    description: "Create a timeline event on an incident",
+    inputSchema: toJSONSchema(CreateTimelineEventSchema),
+  },
+  {
+    name: "list_webhooks",
+    description: "List webhooks for a project or group",
+    inputSchema: toJSONSchema(ListWebhooksSchema),
+  },
+  {
+    name: "create_webhook",
+    description: "Create a webhook on a project or group",
+    inputSchema: toJSONSchema(CreateWebhookSchema),
+  },
+  {
+    name: "update_webhook",
+    description: "Update an existing project or group webhook",
+    inputSchema: toJSONSchema(UpdateWebhookSchema),
+  },
+  {
+    name: "delete_webhook",
+    description: "Delete a project or group webhook",
+    inputSchema: toJSONSchema(DeleteWebhookSchema),
+  },
+  {
+    name: "list_webhook_events",
+    description: "List recent webhook events (past 7 days)",
+    inputSchema: toJSONSchema(ListWebhookEventsSchema),
+  },
+  {
+    name: "get_webhook_event",
+    description: "Get full details of a specific webhook event",
+    inputSchema: toJSONSchema(GetWebhookEventSchema),
+  },
+  {
+    name: "search_code",
+    description: "Search for code across all projects (requires advanced search or Zoekt)",
+    inputSchema: toJSONSchema(SearchCodeSchema),
+  },
+  {
+    name: "search_project_code",
+    description: "Search for code within a specific project (requires advanced search or Zoekt)",
+    inputSchema: toJSONSchema(SearchProjectCodeSchema),
+  },
+  {
+    name: "search_group_code",
+    description: "Search for code within a specific group (requires advanced search or Zoekt)",
+    inputSchema: toJSONSchema(SearchGroupCodeSchema),
+  },
+  // --- CI/CD Variable tools ---
+  {
+    name: "list_project_variables",
+    description: "List CI/CD variables for a project",
+    inputSchema: toJSONSchema(ListProjectVariablesSchema),
+  },
+  {
+    name: "get_project_variable",
+    description: "Get a single CI/CD variable from a project",
+    inputSchema: toJSONSchema(GetProjectVariableSchema),
+  },
+  {
+    name: "create_project_variable",
+    description: "Create a CI/CD variable for a project",
+    inputSchema: toJSONSchema(CreateProjectVariableSchema),
+  },
+  {
+    name: "update_project_variable",
+    description: "Update an existing CI/CD variable in a project",
+    inputSchema: toJSONSchema(UpdateProjectVariableSchema),
+  },
+  {
+    name: "delete_project_variable",
+    description: "Delete a CI/CD variable from a project",
+    inputSchema: toJSONSchema(DeleteProjectVariableSchema),
+  },
+  {
+    name: "list_group_variables",
+    description: "List CI/CD variables for a group",
+    inputSchema: toJSONSchema(ListGroupVariablesSchema),
+  },
+  {
+    name: "get_group_variable",
+    description: "Get a single CI/CD variable from a group",
+    inputSchema: toJSONSchema(GetGroupVariableSchema),
+  },
+  {
+    name: "create_group_variable",
+    description: "Create a CI/CD variable for a group",
+    inputSchema: toJSONSchema(CreateGroupVariableSchema),
+  },
+  {
+    name: "update_group_variable",
+    description: "Update an existing CI/CD variable in a group",
+    inputSchema: toJSONSchema(UpdateGroupVariableSchema),
+  },
+  {
+    name: "delete_group_variable",
+    description: "Delete a CI/CD variable from a group",
+    inputSchema: toJSONSchema(DeleteGroupVariableSchema),
+  },
+  // --- Dependency proxy tools ---
+  {
+    name: "get_dependency_proxy_settings",
+    description: "Get dependency proxy settings for a group",
+    inputSchema: toJSONSchema(GetDependencyProxySettingsSchema),
+  },
+  {
+    name: "update_dependency_proxy_settings",
+    description:
+      "Update dependency proxy settings for a group (enable/disable, credentials for authenticated Docker Hub pulls)",
+    inputSchema: toJSONSchema(UpdateDependencyProxySettingsSchema),
+  },
+  {
+    name: "list_dependency_proxy_blobs",
+    description: "List cached dependency proxy blobs for a group",
+    inputSchema: toJSONSchema(ListDependencyProxyBlobsSchema),
+  },
+  {
+    name: "purge_dependency_proxy_cache",
+    description: "Schedule purge of all cached dependency proxy blobs for a group",
+    inputSchema: toJSONSchema(PurgeDependencyProxyCacheSchema),
+  },
+  // --- Vulnerability tools ---
+  {
+    name: "list_project_vulnerabilities",
+    description:
+      "List vulnerabilities for a project with optional state, severity, and report type filters (GraphQL-backed, cursor pagination)",
+    inputSchema: toJSONSchema(ListProjectVulnerabilitiesSchema),
+  },
+  {
+    name: "get_vulnerability",
+    description: "Get full details of a specific vulnerability",
+    inputSchema: toJSONSchema(GetVulnerabilitySchema),
+  },
+  {
+    name: "dismiss_vulnerability",
+    description:
+      "Dismiss a vulnerability with a reason (acceptable_risk, false_positive, used_in_tests, mitigating_control, not_applicable) and optional comment",
+    inputSchema: toJSONSchema(DismissVulnerabilitySchema),
+  },
+  {
+    name: "confirm_vulnerability",
+    description: "Confirm a vulnerability as a real finding requiring remediation",
+    inputSchema: toJSONSchema(ConfirmVulnerabilitySchema),
+  },
+  // --- GitLab Orbit (knowledge graph) tools ---
+  {
+    name: "orbit_query",
+    description: "Execute a GitLab Orbit graph query over the indexed SDLC knowledge graph",
+    inputSchema: toJSONSchema(OrbitQuerySchema),
+  },
+  {
+    name: "orbit_get_schema",
+    description: "Fetch the current GitLab Orbit graph schema (node and edge types)",
+    inputSchema: toJSONSchema(OrbitSchemaSchema),
+  },
+  {
+    name: "orbit_get_status",
+    description: "Check GitLab Orbit indexing status for the enabled scope",
+    inputSchema: toJSONSchema(OrbitStatusSchema),
+  },
+  {
+    name: "orbit_list_tools",
+    description: "List the MCP tool definitions exposed by GitLab Orbit",
+    inputSchema: toJSONSchema(OrbitToolsSchema),
+  },
+  {
+    name: "list_project_runners",
+    description: "List runners available to a project",
+    inputSchema: toJSONSchema(ListProjectRunnersSchema),
+  },
+  {
+    name: "get_runner",
+    description: "Get one runner by ID",
+    inputSchema: toJSONSchema(GetRunnerSchema),
+  },
+  {
+    name: "rebase_merge_request",
+    description: "Rebase the source branch of a merge request onto its target branch",
+    inputSchema: toJSONSchema(RebaseMergeRequestSchema),
+  },
+  // --- Explicit opt-in raw API. Not in `all` and not activatable via discover_tools. ---
+  {
+    name: "gitlab_api_request",
+    description:
+      "DANGER: bypasses group and project restrictions, tool allowlists (GITLAB_TOOLS and GITLAB_DENIED_TOOLS_REGEX on other tools), and individual tool safety checks. The full token scope is exposed.",
+    inputSchema: toJSONSchema(GitLabApiRequestSchema),
+  },
+  // --- Meta tool: Dynamic tool discovery ---
+  {
+    name: "discover_tools",
+    description:
+      "Discover and activate additional tool categories for this session. Call without arguments to see available categories.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        category: {
+          type: "string",
+          description:
+            "Toolset category to activate (e.g. 'pipelines', 'wiki'). Omit to list available categories.",
+        },
+      },
+    },
+  },
+  {
+    name: "help",
+    description:
+      "Return a short GitLab workflow guide. Omit topic for the overview and topic list.",
+    inputSchema: toJSONSchema(HelpInputSchema),
+  },
+];
+
+// Define which tools are read-only
+export const readOnlyTools = new Set([
+  "discover_tools",
+  "help",
+  "health_check",
+  "search_repositories",
+  "search_code",
+  "search_project_code",
+  "search_group_code",
+  "execute_graphql",
+  // Mixed-access: listed in readonly so GET still works. Writes are rejected in the handler.
+  "gitlab_api_request",
+  "get_file_contents",
+  "get_merge_request",
+  "get_merge_request_diffs",
+  "list_merge_request_changed_files",
+  "list_merge_request_diffs",
+  "get_merge_request_file_diff",
+  "list_merge_request_versions",
+  "get_merge_request_version",
+  "get_branch",
+  "list_branches",
+  "get_branch_diffs",
+  "list_protected_branches",
+  "get_protected_branch",
+  "list_merge_request_pipelines",
+  "get_merge_request_note",
+  "get_merge_request_notes",
+  "get_draft_note",
+  "list_draft_notes",
+  "mr_discussions",
+  "get_merge_request_discussion",
+  "list_issues",
+  "list_todos",
+  "my_issues",
+  "list_merge_requests",
+  "list_group_merge_requests",
+  "get_issue",
+  "list_issue_links",
+  "list_issue_discussions",
+  "get_issue_link",
+  "list_namespaces",
+  "get_namespace",
+  "verify_namespace",
+  "get_project",
+  "list_projects",
+  "list_project_members",
+  "list_group_members",
+  "get_pipeline",
+  "get_pipeline_variables",
+  "get_pipeline_test_report",
+  "get_pipeline_test_report_summary",
+  "list_pipelines",
+  "list_pipeline_schedules",
+  "get_pipeline_schedule",
+  "list_pipeline_schedule_pipelines",
+  "get_pipeline_schedule_variable",
+  "list_deployments",
+  "get_deployment",
+  "list_deployment_merge_requests",
+  "list_environments",
+  "get_environment",
+  "list_pipeline_triggers",
+  "get_pipeline_trigger",
+  "list_pipeline_jobs",
+  "list_pipeline_trigger_jobs",
+  "get_pipeline_job",
+  "get_pipeline_job_output",
+  "list_project_runners",
+  "get_runner",
+  "wait_for_pipeline",
+  "wait_for_job",
+  "validate_ci_lint",
+  "validate_project_ci_lint",
+  "list_ci_catalog_resources",
+  "get_ci_catalog_resource",
+  "list_job_artifacts",
+  "download_job_artifacts",
+  "get_job_artifact_file",
+  "list_labels",
+  "get_label",
+  "list_group_projects",
+  "get_repository_tree",
+  "list_milestones",
+  "get_milestone",
+  "get_milestone_issue",
+  "get_milestone_merge_requests",
+  "get_milestone_burndown_events",
+  "list_group_milestones",
+  "get_group_milestone",
+  "get_group_milestone_issue",
+  "get_group_milestone_merge_requests",
+  "get_group_milestone_burndown_events",
+  "list_wiki_pages",
+  "get_wiki_page",
+  "list_group_wiki_pages",
+  "get_group_wiki_page",
+  "get_users",
+  "get_user",
+  "whoami",
+  "list_commits",
+  "get_commit",
+  "get_commit_diff",
+  "get_file_blame",
+  "list_commit_statuses",
+  "list_group_iterations",
+  "get_group_iteration",
+  "download_attachment",
+  "list_events",
+  "get_project_events",
+  "list_releases",
+  "get_release",
+  "download_release_asset",
+  "list_tags",
+  "get_tag",
+  "get_tag_signature",
+  "list_protected_tags",
+  "get_protected_tag",
+  "list_snippets",
+  "get_snippet",
+  "get_merge_request_approval_state",
+  "get_work_item",
+  "list_work_items",
+  "list_work_item_statuses",
+  "list_custom_field_definitions",
+  "list_work_item_notes",
+  "list_merge_request_emoji_reactions",
+  "list_merge_request_note_emoji_reactions",
+  "list_issue_emoji_reactions",
+  "list_issue_note_emoji_reactions",
+  "list_work_item_emoji_reactions",
+  "list_work_item_note_emoji_reactions",
+  "get_timeline_events",
+  "get_merge_request_conflicts",
+  "list_webhooks",
+  "list_webhook_events",
+  "get_webhook_event",
+  "list_project_variables",
+  "get_project_variable",
+  "list_group_variables",
+  "get_group_variable",
+  "get_dependency_proxy_settings",
+  "list_dependency_proxy_blobs",
+  "list_project_vulnerabilities",
+  "get_vulnerability",
+  "orbit_query",
+  "orbit_get_schema",
+  "orbit_get_status",
+  "orbit_list_tools",
+]);
+
+// Stays in readOnlyTools so readonly mode can still run queries, but mutations
+// are allowed in other permission modes and rejected only at call time.
+const MIXED_ACCESS_TOOLS = new Set(["execute_graphql", "gitlab_api_request"]);
+
+// Read-only on GitLab, but in stdio mode they save files to the local disk. They stay
+// listed in readonly mode, where the handlers refuse anything that would write a file
+// (only inline images are returned), and never advertise readOnlyHint.
+const LOCAL_FILE_WRITE_TOOLS = new Set(
+  IS_REMOTE ? [] : ["download_attachment", "download_job_artifacts"]
+);
+
+export function advertisesReadOnly(toolName: string): boolean {
+  return (
+    readOnlyTools.has(toolName) &&
+    !MIXED_ACCESS_TOOLS.has(toolName) &&
+    !LOCAL_FILE_WRITE_TOOLS.has(toolName)
+  );
+}
+
+// Define which tools are destructive (data loss potential)
+export const destructiveTools = new Set([
+  "delete_pipeline",
+  "erase_pipeline_job",
+  // Teardown verbs without a `delete_` prefix tear down live pipelines/environments too.
+  "cancel_pipeline",
+  "cancel_pipeline_job",
+  "delete_deployment",
+  "approve_deployment",
+  "delete_environment",
+  "stop_environment",
+  "stop_stale_environments",
+  "delete_review_app_environments",
+  "delete_pipeline_trigger",
+  "delete_issue",
+  "delete_issue_link",
+  "delete_label",
+  "delete_wiki_page",
+  "delete_group_wiki_page",
+  "delete_milestone",
+  "delete_group_milestone",
+  "delete_release",
+  "delete_tag",
+  "delete_webhook",
+  "delete_snippet",
+  "delete_merge_request_note",
+  "delete_merge_request_discussion_note",
+  "delete_draft_note",
+  "delete_merge_request_emoji_reaction",
+  "delete_merge_request_note_emoji_reaction",
+  "delete_issue_emoji_reaction",
+  "delete_issue_note_emoji_reaction",
+  "delete_work_item_emoji_reaction",
+  "delete_work_item_note_emoji_reaction",
+  "delete_branch",
+  "unprotect_branch",
+  "protect_branch",
+  // Can loosen protection (force push, wider access). Not in deleteTools: the rule stays,
+  // and modify mode needs an in-place update because unprotect_branch is blocked there.
+  "update_protected_branch",
+  "unprotect_tag",
+  "protect_tag",
+  "update_default_branch",
+  "merge_merge_request",
+  "rebase_merge_request",
+  "push_files",
+  "delete_project_variable",
+  "delete_group_variable",
+  "delete_pipeline_schedule",
+  "delete_pipeline_schedule_variable",
+  "purge_dependency_proxy_cache",
+  // Can DELETE (and other writes). Hint is true; modify mode still lists the tool and
+  // the handler rejects DELETE. Putting it in deleteTools would hide GET/POST too.
+  "gitlab_api_request",
+]);
+
+// Tools blocked in "modify" permission mode: permanent deletions plus destructive
+// teardown verbs that do not start with `delete_` (see the comment inside).
+// Invariant: deleteTools is a subset of destructiveTools — every blocked tool is also
+// annotated with `destructiveHint`. Add new blocked tools to both sets.
+export const deleteTools = new Set([
+  "delete_pipeline",
+  "erase_pipeline_job",
+  "delete_deployment",
+  "delete_environment",
+  "delete_review_app_environments",
+  "delete_pipeline_trigger",
+  "delete_branch",
+  "delete_draft_note",
+  "delete_group_variable",
+  "delete_group_wiki_page",
+  "delete_group_milestone",
+  "delete_issue",
+  "delete_issue_emoji_reaction",
+  "delete_issue_link",
+  "delete_issue_note_emoji_reaction",
+  "delete_label",
+  "delete_merge_request_discussion_note",
+  "delete_merge_request_emoji_reaction",
+  "delete_merge_request_note",
+  "delete_merge_request_note_emoji_reaction",
+  "delete_milestone",
+  "delete_pipeline_schedule",
+  "delete_pipeline_schedule_variable",
+  "delete_project_variable",
+  "delete_release",
+  "delete_snippet",
+  "delete_tag",
+  "delete_webhook",
+  "delete_wiki_page",
+  "delete_work_item_emoji_reaction",
+  "delete_work_item_note_emoji_reaction",
+  "purge_dependency_proxy_cache",
+  // Destructive teardown operations whose names do not start with `delete_`:
+  // stopping/cancelling live pipelines and environments, and removing branch or tag protection.
+  "cancel_pipeline",
+  "cancel_pipeline_job",
+  "stop_environment",
+  "stop_stale_environments",
+  "unprotect_branch",
+  "unprotect_tag",
+]);
+
+// Define which tools are related to wiki and can be toggled by USE_GITLAB_WIKI
+export const wikiToolNames = new Set([
+  "list_wiki_pages",
+  "get_wiki_page",
+  "create_wiki_page",
+  "update_wiki_page",
+  "delete_wiki_page",
+  "list_group_wiki_pages",
+  "get_group_wiki_page",
+  "create_group_wiki_page",
+  "update_group_wiki_page",
+  "delete_group_wiki_page",
+  "upload_wiki_attachment",
+]);
+
+// Define which tools are related to milestones and can be toggled by USE_MILESTONE
+export const milestoneToolNames = new Set([
+  "list_milestones",
+  "get_milestone",
+  "create_milestone",
+  "edit_milestone",
+  "delete_milestone",
+  "get_milestone_issue",
+  "get_milestone_merge_requests",
+  "promote_milestone",
+  "get_milestone_burndown_events",
+  "list_group_milestones",
+  "get_group_milestone",
+  "create_group_milestone",
+  "edit_group_milestone",
+  "delete_group_milestone",
+  "get_group_milestone_issue",
+  "get_group_milestone_merge_requests",
+  "get_group_milestone_burndown_events",
+]);
+
+// Define which tools are related to pipelines and can be toggled by USE_PIPELINE
+export const pipelineToolNames = new Set([
+  "list_pipelines",
+  "get_pipeline",
+  "get_pipeline_variables",
+  "get_pipeline_test_report",
+  "get_pipeline_test_report_summary",
+  "delete_pipeline",
+  "update_pipeline_metadata",
+  "list_deployments",
+  "get_deployment",
+  "create_deployment",
+  "update_deployment",
+  "delete_deployment",
+  "list_deployment_merge_requests",
+  "approve_deployment",
+  "list_environments",
+  "get_environment",
+  "update_environment",
+  "delete_environment",
+  "stop_environment",
+  "stop_stale_environments",
+  "delete_review_app_environments",
+  "list_pipeline_triggers",
+  "get_pipeline_trigger",
+  "create_pipeline_trigger",
+  "update_pipeline_trigger",
+  "delete_pipeline_trigger",
+  "trigger_pipeline",
+  "list_pipeline_jobs",
+  "list_pipeline_trigger_jobs",
+  "get_pipeline_job",
+  "get_pipeline_job_output",
+  "play_pipeline_jobs",
+  "erase_pipeline_job",
+  "wait_for_pipeline",
+  "wait_for_job",
+  "validate_ci_lint",
+  "validate_project_ci_lint",
+  "create_pipeline",
+  "retry_pipeline",
+  "cancel_pipeline",
+  "list_pipeline_schedules",
+  "get_pipeline_schedule",
+  "list_pipeline_schedule_pipelines",
+  "create_pipeline_schedule",
+  "update_pipeline_schedule",
+  "delete_pipeline_schedule",
+  "play_pipeline_schedule",
+  "take_ownership_pipeline_schedule",
+  "get_pipeline_schedule_variable",
+  "create_pipeline_schedule_variable",
+  "update_pipeline_schedule_variable",
+  "delete_pipeline_schedule_variable",
+  "play_pipeline_job",
+  "retry_pipeline_job",
+  "cancel_pipeline_job",
+  "list_job_artifacts",
+  "download_job_artifacts",
+  "get_job_artifact_file",
+  "list_project_runners",
+  "get_runner",
+]);
+
+// --- Toolset definitions ---
+
+export type ToolsetId =
+  | "core"
+  | "merge_requests"
+  | "issues"
+  | "repositories"
+  | "branches"
+  | "projects"
+  | "labels"
+  | "ci"
+  | "groups"
+  | "pipelines"
+  | "milestones"
+  | "wiki"
+  | "releases"
+  | "tags"
+  | "snippets"
+  | "users"
+  | "workitems"
+  | "webhooks"
+  | "search"
+  | "variables"
+  | "dependency_proxy"
+  | "vulnerabilities"
+  | "orbit"
+  | "api";
+
+export interface ToolsetDefinition {
+  readonly id: ToolsetId;
+  readonly isDefault: boolean;
+  /**
+   * Enabled only when this id is written in GITLAB_TOOLSETS.
+   * Excluded from `GITLAB_TOOLSETS=all` and from `discover_tools`.
+   */
+  readonly explicitOnly?: boolean;
+  readonly tools: ReadonlySet<string>;
+}
+
+export const TOOLSET_DEFINITIONS: readonly ToolsetDefinition[] = [
+  {
+    id: "core",
+    isDefault: true,
+    tools: new Set([
+      "list_merge_requests",
+      "get_merge_request",
+      "get_merge_request_approval_state",
+      "list_merge_request_changed_files",
+      "get_merge_request_file_diff",
+      "list_merge_request_diffs",
+      "get_merge_request_diffs",
+      "mr_discussions",
+      "get_merge_request_discussion",
+      "get_merge_request_note",
+      "get_merge_request_notes",
+      "create_merge_request",
+      "create_merge_request_thread",
+      "resolve_merge_request_thread",
+      "update_merge_request",
+      "list_issues",
+      "my_issues",
+      "get_issue",
+      "create_issue",
+      "update_issue",
+      "create_issue_note",
+      "list_issue_discussions",
+      "update_issue_description_patch",
+      "get_file_contents",
+      "get_repository_tree",
+      "search_repositories",
+      "get_branch",
+      "list_branches",
+      "list_commits",
+      "get_commit",
+      "get_commit_diff",
+      "get_file_blame",
+      "get_project",
+      "list_projects",
+      "list_project_members",
+      "list_labels",
+      "whoami",
+      "health_check",
+    ]),
+  },
+  {
+    id: "merge_requests",
+    isDefault: false,
+    tools: new Set([
+      "merge_merge_request",
+      "rebase_merge_request",
+      "approve_merge_request",
+      "unapprove_merge_request",
+      "get_merge_request_approval_state",
+      "get_branch",
+      "list_branches",
+      "get_merge_request_conflicts",
+      "list_merge_request_pipelines",
+      "get_merge_request",
+      "get_merge_request_diffs",
+      "list_merge_request_changed_files",
+      "list_merge_request_diffs",
+      "get_merge_request_file_diff",
+      "list_merge_request_versions",
+      "get_merge_request_version",
+      "update_merge_request",
+      "create_merge_request",
+      "list_merge_requests",
+      "list_group_merge_requests",
+      "get_branch_diffs",
+      "mr_discussions",
+      "get_merge_request_discussion",
+      "create_merge_request_note",
+      "update_merge_request_note",
+      "delete_merge_request_note",
+      "get_merge_request_note",
+      "get_merge_request_notes",
+      "delete_merge_request_discussion_note",
+      "update_merge_request_discussion_note",
+      "create_merge_request_discussion_note",
+      "get_draft_note",
+      "list_draft_notes",
+      "create_draft_note",
+      "update_draft_note",
+      "delete_draft_note",
+      "publish_draft_note",
+      "bulk_publish_draft_notes",
+      "create_merge_request_thread",
+      "resolve_merge_request_thread",
+      "list_merge_request_emoji_reactions",
+      "list_merge_request_note_emoji_reactions",
+      "create_merge_request_emoji_reaction",
+      "delete_merge_request_emoji_reaction",
+      "create_merge_request_note_emoji_reaction",
+      "delete_merge_request_note_emoji_reaction",
+    ]),
+  },
+  {
+    id: "issues",
+    isDefault: false,
+    tools: new Set([
+      "create_issue",
+      "list_issues",
+      "my_issues",
+      "get_issue",
+      "update_issue",
+      "update_issue_description_patch",
+      "delete_issue",
+      "list_todos",
+      "mark_todo_done",
+      "mark_all_todos_done",
+      "create_issue_note",
+      "update_issue_note",
+      "list_issue_links",
+      "list_issue_discussions",
+      "get_issue_link",
+      "create_issue_link",
+      "delete_issue_link",
+      "create_note",
+      "list_issue_emoji_reactions",
+      "list_issue_note_emoji_reactions",
+      "create_issue_emoji_reaction",
+      "delete_issue_emoji_reaction",
+      "create_issue_note_emoji_reaction",
+      "delete_issue_note_emoji_reaction",
+    ]),
+  },
+  {
+    id: "repositories",
+    isDefault: false,
+    tools: new Set([
+      "search_repositories",
+      "create_repository",
+      "get_file_contents",
+      "push_files",
+      "create_or_update_file",
+      "fork_repository",
+      "get_repository_tree",
+    ]),
+  },
+  {
+    id: "branches",
+    isDefault: false,
+    tools: new Set([
+      "create_branch",
+      "get_branch",
+      "list_branches",
+      "delete_branch",
+      "list_protected_branches",
+      "get_protected_branch",
+      "protect_branch",
+      "update_protected_branch",
+      "unprotect_branch",
+      "update_default_branch",
+      "list_commits",
+      "get_commit",
+      "get_commit_diff",
+      "get_file_blame",
+      "list_commit_statuses",
+      "create_commit_status",
+    ]),
+  },
+  {
+    id: "projects",
+    isDefault: false,
+    tools: new Set([
+      "get_project",
+      "list_projects",
+      "update_project",
+      "list_project_members",
+      "list_group_members",
+      "list_namespaces",
+      "get_namespace",
+      "verify_namespace",
+      "list_group_projects",
+      "list_group_iterations",
+      "health_check",
+    ]),
+  },
+  {
+    id: "labels",
+    isDefault: false,
+    tools: new Set(["list_labels", "get_label", "create_label", "update_label", "delete_label"]),
+  },
+  {
+    id: "ci",
+    isDefault: false,
+    tools: new Set([
+      "validate_ci_lint",
+      "validate_project_ci_lint",
+      "list_ci_catalog_resources",
+      "get_ci_catalog_resource",
+    ]),
+  },
+  {
+    id: "groups",
+    isDefault: false,
+    tools: new Set(["create_group"]),
+  },
+  {
+    id: "pipelines",
+    isDefault: false,
+    tools: new Set([
+      "list_pipelines",
+      "get_pipeline",
+      "get_pipeline_variables",
+      "get_pipeline_test_report",
+      "get_pipeline_test_report_summary",
+      "delete_pipeline",
+      "update_pipeline_metadata",
+      "list_deployments",
+      "get_deployment",
+      "create_deployment",
+      "update_deployment",
+      "delete_deployment",
+      "list_deployment_merge_requests",
+      "approve_deployment",
+      "list_environments",
+      "get_environment",
+      "update_environment",
+      "delete_environment",
+      "stop_environment",
+      "stop_stale_environments",
+      "delete_review_app_environments",
+      "list_pipeline_triggers",
+      "get_pipeline_trigger",
+      "create_pipeline_trigger",
+      "update_pipeline_trigger",
+      "delete_pipeline_trigger",
+      "trigger_pipeline",
+      "list_pipeline_jobs",
+      "list_pipeline_trigger_jobs",
+      "get_pipeline_job",
+      "get_pipeline_job_output",
+      "create_pipeline",
+      "retry_pipeline",
+      "cancel_pipeline",
+      "list_pipeline_schedules",
+      "get_pipeline_schedule",
+      "list_pipeline_schedule_pipelines",
+      "create_pipeline_schedule",
+      "update_pipeline_schedule",
+      "delete_pipeline_schedule",
+      "play_pipeline_schedule",
+      "take_ownership_pipeline_schedule",
+      "get_pipeline_schedule_variable",
+      "create_pipeline_schedule_variable",
+      "update_pipeline_schedule_variable",
+      "delete_pipeline_schedule_variable",
+      "play_pipeline_job",
+      "play_pipeline_jobs",
+      "retry_pipeline_job",
+      "cancel_pipeline_job",
+      "erase_pipeline_job",
+      "wait_for_pipeline",
+      "wait_for_job",
+      "list_job_artifacts",
+      "download_job_artifacts",
+      "get_job_artifact_file",
+      "list_project_runners",
+      "get_runner",
+    ]),
+  },
+  {
+    id: "milestones",
+    isDefault: false,
+    tools: new Set([
+      "list_milestones",
+      "get_milestone",
+      "create_milestone",
+      "edit_milestone",
+      "delete_milestone",
+      "get_milestone_issue",
+      "get_milestone_merge_requests",
+      "promote_milestone",
+      "get_milestone_burndown_events",
+      "list_group_milestones",
+      "get_group_milestone",
+      "create_group_milestone",
+      "edit_group_milestone",
+      "delete_group_milestone",
+      "get_group_milestone_issue",
+      "get_group_milestone_merge_requests",
+      "get_group_milestone_burndown_events",
+    ]),
+  },
+  {
+    id: "wiki",
+    isDefault: false,
+    tools: new Set([
+      "list_wiki_pages",
+      "get_wiki_page",
+      "create_wiki_page",
+      "update_wiki_page",
+      "delete_wiki_page",
+      "list_group_wiki_pages",
+      "get_group_wiki_page",
+      "create_group_wiki_page",
+      "update_group_wiki_page",
+      "delete_group_wiki_page",
+    ]),
+  },
+  {
+    id: "releases",
+    isDefault: false,
+    tools: new Set([
+      "list_releases",
+      "get_release",
+      "create_release",
+      "update_release",
+      "delete_release",
+      "create_release_evidence",
+      "download_release_asset",
+    ]),
+  },
+  {
+    id: "tags",
+    isDefault: false,
+    tools: new Set([
+      "list_tags",
+      "get_tag",
+      "create_tag",
+      "delete_tag",
+      "get_tag_signature",
+      "list_protected_tags",
+      "get_protected_tag",
+      "protect_tag",
+      "unprotect_tag",
+    ]),
+  },
+  {
+    id: "snippets",
+    isDefault: false,
+    tools: new Set([
+      "list_snippets",
+      "get_snippet",
+      "create_snippet",
+      "update_snippet",
+      "delete_snippet",
+    ]),
+  },
+  {
+    id: "users",
+    isDefault: false,
+    tools: new Set([
+      "get_users",
+      "get_user",
+      "whoami",
+      "list_events",
+      "get_project_events",
+      "upload_markdown",
+      "download_attachment",
+    ]),
+  },
+  {
+    id: "workitems",
+    isDefault: false,
+    tools: new Set([
+      "get_work_item",
+      "list_work_items",
+      "create_work_item",
+      "update_work_item",
+      "convert_work_item_type",
+      "list_work_item_statuses",
+      "list_custom_field_definitions",
+      "move_work_item",
+      "list_work_item_notes",
+      "create_work_item_note",
+      "list_work_item_emoji_reactions",
+      "list_work_item_note_emoji_reactions",
+      "create_work_item_emoji_reaction",
+      "delete_work_item_emoji_reaction",
+      "create_work_item_note_emoji_reaction",
+      "delete_work_item_note_emoji_reaction",
+      "get_timeline_events",
+      "create_timeline_event",
+    ]),
+  },
+  {
+    id: "webhooks",
+    isDefault: false,
+    tools: new Set([
+      "list_webhooks",
+      "create_webhook",
+      "update_webhook",
+      "delete_webhook",
+      "list_webhook_events",
+      "get_webhook_event",
+    ]),
+  },
+  {
+    id: "search",
+    isDefault: false,
+    tools: new Set(["search_code", "search_project_code", "search_group_code"]),
+  },
+  {
+    id: "variables",
+    isDefault: false,
+    tools: new Set([
+      "list_project_variables",
+      "get_project_variable",
+      "create_project_variable",
+      "update_project_variable",
+      "delete_project_variable",
+      "list_group_variables",
+      "get_group_variable",
+      "create_group_variable",
+      "update_group_variable",
+      "delete_group_variable",
+    ]),
+  },
+  {
+    id: "dependency_proxy",
+    isDefault: false,
+    tools: new Set([
+      "get_dependency_proxy_settings",
+      "update_dependency_proxy_settings",
+      "list_dependency_proxy_blobs",
+      "purge_dependency_proxy_cache",
+    ]),
+  },
+  {
+    id: "vulnerabilities",
+    isDefault: false,
+    tools: new Set([
+      "list_project_vulnerabilities",
+      "get_vulnerability",
+      "dismiss_vulnerability",
+      "confirm_vulnerability",
+    ]),
+  },
+  {
+    id: "orbit",
+    isDefault: false,
+    tools: new Set(["orbit_query", "orbit_get_schema", "orbit_get_status", "orbit_list_tools"]),
+  },
+  {
+    id: "api",
+    isDefault: false,
+    explicitOnly: true,
+    tools: new Set(["gitlab_api_request"]),
+  },
+] as const;
+
+// Derived lookup: tool name → toolset IDs. Most tools belong to one category.
+// The default `core` toolset intentionally overlaps with the full opt-in
+// categories so users get a small starter surface without losing the ability
+// to enable complete categories later.
+export const TOOLSETS_BY_TOOL_NAME = new Map<string, Set<ToolsetId>>();
+for (const def of TOOLSET_DEFINITIONS) {
+  for (const tool of def.tools) {
+    const toolsets = TOOLSETS_BY_TOOL_NAME.get(tool) ?? new Set<ToolsetId>();
+    toolsets.add(def.id);
+    TOOLSETS_BY_TOOL_NAME.set(tool, toolsets);
+  }
+}
+
+export const DEFAULT_TOOLSET_IDS: ReadonlySet<ToolsetId> = new Set(
+  TOOLSET_DEFINITIONS.filter(d => d.isDefault).map(d => d.id)
+);
+
+export const ALL_TOOLSET_IDS: ReadonlySet<ToolsetId> = new Set(TOOLSET_DEFINITIONS.map(d => d.id));
+
+/** Toolsets `GITLAB_TOOLSETS=all` and `discover_tools` may enable. Excludes explicitOnly. */
+export const DISCOVERABLE_TOOLSET_IDS: ReadonlySet<ToolsetId> = new Set(
+  TOOLSET_DEFINITIONS.filter(definition => definition.explicitOnly !== true).map(
+    definition => definition.id
+  )
+);
+
+export function isExplicitOnlyToolsetId(id: string): boolean {
+  return TOOLSET_DEFINITIONS.some(
+    definition => definition.id === id && definition.explicitOnly === true
+  );
+}
+
+/** True when every toolset that contains the tool is explicit-only. */
+export function isExplicitToolsetOnlyTool(toolName: string): boolean {
+  const toolsetIds = TOOLSETS_BY_TOOL_NAME.get(toolName);
+  if (toolsetIds === undefined || toolsetIds.size === 0) {
+    return false;
+  }
+  for (const toolsetId of toolsetIds) {
+    if (!isExplicitOnlyToolsetId(toolsetId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Smallest toolset containing the tool, i.e. the cheapest category to activate for it.
+ * Returns undefined for tools outside every toolset (e.g. `execute_graphql`) and unknown names.
+ */
+export function findSmallestToolsetForTool(toolName: string): ToolsetId | undefined {
+  const candidates = TOOLSET_DEFINITIONS.filter(d => d.tools.has(toolName));
+  const smallest = candidates.reduce<ToolsetDefinition | undefined>(
+    (best, d) => (best === undefined || d.tools.size < best.tools.size ? d : best),
+    undefined
+  );
+  return smallest?.id;
+}
+
+// Update discover_tools description with all known categories (must be after TOOLSET_DEFINITIONS)
+const discoverTool = allTools.find(t => t.name === "discover_tools");
+if (discoverTool) {
+  discoverTool.description = `Discover and activate additional tool categories for this session. Available categories: ${[...DISCOVERABLE_TOOLSET_IDS].join(", ")}. Already-active categories are listed in the response. Explicit-only toolsets are omitted; list them in GITLAB_TOOLSETS.`;
+}
+
+const allToolNames: ReadonlySet<string> = new Set(allTools.map(tool => tool.name));
+
+for (const tool of allTools) {
+  tool.description = getToolDescription(tool.name, tool.description, allToolNames);
+}
+
+export function parseEnabledToolsets(raw: string | undefined): ReadonlySet<ToolsetId> {
+  if (!raw || raw.trim() === "") {
+    return DEFAULT_TOOLSET_IDS;
+  }
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === "all") {
+    return DISCOVERABLE_TOOLSET_IDS;
+  }
+  const selected = new Set(
+    trimmed
+      .split(",")
+      .map(s => s.trim())
+      .filter((s): s is ToolsetId => ALL_TOOLSET_IDS.has(s as ToolsetId))
+  );
+  if (selected.size === 0) {
+    console.warn(
+      `No valid toolsets found in configuration (${raw}). Falling back to default toolsets.`
+    );
+    return DEFAULT_TOOLSET_IDS;
+  }
+  return selected;
+}
+
+export function parseIndividualTools(raw: string | undefined): ReadonlySet<string> {
+  if (!raw || raw.trim() === "") {
+    return new Set();
+  }
+  const allToolNames = new Set(allTools.map((t: { name: string }) => t.name));
+  const parsed = raw
+    .trim()
+    .split(",")
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+  const unknown = parsed.filter(name => !allToolNames.has(name));
+  if (unknown.length > 0) {
+    console.warn(`Unknown tool names in GITLAB_TOOLS (will be ignored): ${unknown.join(", ")}`);
+  }
+  return new Set(parsed);
+}
+
+export function buildFeatureFlagOverrides(): ReadonlySet<string> {
+  const overrides = new Set<string>();
+  if (USE_GITLAB_WIKI) {
+    for (const t of wikiToolNames) overrides.add(t);
+  }
+  if (USE_MILESTONE) {
+    for (const t of milestoneToolNames) overrides.add(t);
+  }
+  if (USE_PIPELINE) {
+    for (const t of pipelineToolNames) overrides.add(t);
+  }
+  return overrides;
+}
+
+export function isToolInEnabledToolset(
+  toolName: string,
+  enabledToolsets: ReadonlySet<ToolsetId>
+): boolean {
+  const toolsetIds = TOOLSETS_BY_TOOL_NAME.get(toolName);
+  // Tools not in any toolset (e.g. execute_graphql) are excluded by default
+  if (toolsetIds === undefined) return false;
+  for (const toolsetId of toolsetIds) {
+    if (enabledToolsets.has(toolsetId)) return true;
+  }
+  return false;
+}
+
+/**
+ * True only when every tool in the set is already exposed.
+ * Partial overlap (for example `core` sharing names with `merge_requests`) is not active.
+ * `isExcluded` covers tools the caller will not list; those do not keep the toolset inactive.
+ * An empty set is fully active, matching `Array.prototype.every`.
+ */
+export function isToolsetFullyActive(
+  tools: Iterable<string>,
+  currentToolNames: ReadonlySet<string>,
+  isExcluded?: (toolName: string) => boolean
+): boolean {
+  for (const toolName of tools) {
+    if (currentToolNames.has(toolName) || isExcluded?.(toolName)) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+export interface DiscoverableCategory {
+  readonly id: ToolsetId;
+  readonly toolCount: number;
+  readonly active: boolean;
+  readonly isDefault: boolean;
+}
+
+/** Category listing returned by `discover_tools` when no category argument is given. */
+export function listDiscoverableCategories(
+  currentToolNames: ReadonlySet<string>,
+  isExcluded?: (toolName: string) => boolean
+): DiscoverableCategory[] {
+  return TOOLSET_DEFINITIONS.filter(def => def.explicitOnly !== true).map(def => ({
+    id: def.id,
+    toolCount: def.tools.size,
+    active: isToolsetFullyActive(def.tools, currentToolNames, isExcluded),
+    isDefault: def.isDefault,
+  }));
+}

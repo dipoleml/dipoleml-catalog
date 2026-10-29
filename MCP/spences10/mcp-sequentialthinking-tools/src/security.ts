@@ -1,0 +1,145 @@
+import type {
+	SecurityWarning,
+	ThoughtRecord,
+	ToolRecommendation,
+	ToolReference,
+} from './types.js';
+
+const injection_patterns: Array<{ name: string; pattern: RegExp }> = [
+	{
+		name: 'ignore-instructions',
+		pattern:
+			/\bignore\s+(all\s+)?(previous|prior|above|system|developer)\s+instructions?\b/i,
+	},
+	{
+		name: 'override-role',
+		pattern:
+			/\b(system|developer)\s+(prompt|message|instruction)s?\b/i,
+	},
+	{
+		name: 'secret-exfiltration',
+		pattern:
+			/\b(reveal|print|dump|exfiltrate|leak|show)\s+(the\s+)?(secret|secrets|token|tokens|api\s*key|password|credentials?)\b/i,
+	},
+	{
+		name: 'tool-coercion',
+		pattern:
+			/\b(call|use|run|execute)\s+[^\n]{0,80}\b(tool|bash|shell|curl|wget)\b/i,
+	},
+	{
+		name: 'hidden-instruction',
+		pattern: /\bdo\s+not\s+(tell|mention|disclose|reveal)\b/i,
+	},
+];
+
+// Global copies so every occurrence is redacted; the shared patterns
+// stay non-global so `pattern.test` in scan_text remains stateless.
+const redaction_patterns = injection_patterns.map(
+	({ pattern }) => new RegExp(pattern.source, `${pattern.flags}g`),
+);
+
+const redaction = '[redacted: possible prompt-injection text]';
+
+export function scan_text(
+	field: string,
+	value: string | undefined,
+): SecurityWarning[] {
+	if (!value) {
+		return [];
+	}
+	return injection_patterns
+		.filter(({ pattern }) => pattern.test(value))
+		.map(({ name }) => ({ field, pattern: name }));
+}
+
+export function sanitize_text(value: string): string {
+	return redaction_patterns.reduce(
+		(sanitized, pattern) => sanitized.replace(pattern, redaction),
+		value,
+	);
+}
+
+export function scan_record(
+	record: ThoughtRecord,
+): SecurityWarning[] {
+	return [
+		...scan_text('thought', record.thought),
+		...(record.remaining_steps ?? []).flatMap((step, index) =>
+			scan_text(`remaining_steps.${index}`, step),
+		),
+		...(record.available_tools ?? []).flatMap((tool, index) =>
+			scan_tool_reference(tool, `available_tools.${index}`),
+		),
+		...(record.recommended_tools ?? []).flatMap((tool, index) =>
+			scan_tool_recommendation(tool, `recommended_tools.${index}`),
+		),
+	];
+}
+
+export function sanitize_record(
+	record: ThoughtRecord,
+): ThoughtRecord {
+	return {
+		...record,
+		thought: sanitize_text(record.thought),
+		available_tools: record.available_tools?.map(
+			sanitize_tool_reference,
+		),
+		recommended_tools: record.recommended_tools?.map(
+			sanitize_tool_recommendation,
+		),
+		remaining_steps: record.remaining_steps?.map(sanitize_text),
+	};
+}
+
+function scan_tool_reference(
+	tool: ToolReference,
+	field: string,
+): SecurityWarning[] {
+	if (typeof tool === 'string') {
+		return scan_text(field, tool);
+	}
+	return [
+		...scan_text(`${field}.name`, tool.name),
+		...scan_text(`${field}.description`, tool.description),
+	];
+}
+
+function scan_tool_recommendation(
+	tool: ToolRecommendation,
+	field: string,
+): SecurityWarning[] {
+	return [
+		...scan_text(`${field}.tool_name`, tool.tool_name),
+		...scan_text(`${field}.rationale`, tool.rationale),
+		...(tool.alternatives ?? []).flatMap((alternative, index) =>
+			scan_text(`${field}.alternatives.${index}`, alternative),
+		),
+	];
+}
+
+function sanitize_tool_reference(tool: ToolReference): ToolReference {
+	if (typeof tool === 'string') {
+		return sanitize_text(tool);
+	}
+	return {
+		...tool,
+		name: sanitize_text(tool.name),
+		description: tool.description
+			? sanitize_text(tool.description)
+			: undefined,
+	};
+}
+
+function sanitize_tool_recommendation(
+	tool: ToolRecommendation,
+): ToolRecommendation {
+	return {
+		...tool,
+		tool_name: sanitize_text(tool.tool_name),
+		rationale: tool.rationale
+			? sanitize_text(tool.rationale)
+			: undefined,
+		alternatives: tool.alternatives?.map(sanitize_text),
+	};
+}

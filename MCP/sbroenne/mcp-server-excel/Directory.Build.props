@@ -1,0 +1,74 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Common properties for all projects -->
+    <Version>2.5.7</Version>
+    <AssemblyVersion>2.5.7.0</AssemblyVersion>
+    <FileVersion>2.5.7.0</FileVersion>
+    <Authors>Stefan Broenner</Authors>
+    <Company>Open Source Developer</Company>
+    <Product>Sbroenne.ExcelMcp</Product>
+    <Copyright>Copyright © 2025 Stefan Broenner</Copyright>
+
+    <!-- Repository information. PackageProjectUrl points at the documentation site
+         so NuGet package pages link to the canonical docs, not straight to GitHub. -->
+    <PackageProjectUrl>https://excelmcpserver.dev/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sbroenne/mcp-server-excel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+
+    <!-- Build settings -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>14</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+
+    <!--
+      Suppressed warnings (cannot be fixed - see docs/DEVELOPMENT.md for details):
+      - CA1416: Windows-only APIs (this is a Windows-only COM automation project)
+      - SYSLIB1045: GeneratedRegexAttribute pattern (not applicable to our regex usage)
+      - IL2026: Reflection/dynamic code incompatible with trimming (Excel COM uses dynamic)
+      - IL3050: Code incompatible with Native AOT (Excel COM requires runtime COM activation)
+      - CS1573: Parameter has no matching param tag (batch parameter is internal, filtered by generators)
+      - CA1848: Use LoggerMessage delegates (perf optimization not needed for our diagnostic logging)
+      - CA1873: Logging argument evaluation (diagnostics only, performance not critical)
+      - CA1875: Regex.Count vs Regex.Matches.Count (test code readability, not perf critical)
+    -->
+    <NoWarn>$(NoWarn);CA1416;SYSLIB1045;IL2026;IL3050;CS1573;CA1848;CA1873;CA1875</NoWarn>
+
+    <!-- Deterministic builds for reproducibility -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Code Analysis -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <CodeAnalysisTreatWarningsAsErrors>true</CodeAnalysisTreatWarningsAsErrors>
+
+    <!-- Generate XML documentation for all projects to enable IDE0005 analyzer -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+
+    <!-- Security -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
+
+  </PropertyGroup>
+
+  <!-- Development rebuilds stop only this worktree's CLI services, without saving.
+       Hosted CI has no local service; self-hosted desktops can have one. -->
+  <Target Name="StopExcelCliService"
+          BeforeTargets="BeforeBuild"
+          Condition="'$(MSBuildProjectName)' == 'ExcelMcp.CLI' AND ('$(CI)' != 'true' OR '$(RUNNER_ENVIRONMENT)' == 'self-hosted')">
+    <Exec Command="pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)scripts\Stop-ExcelCliService.ps1&quot;" />
+  </Target>
+
+  <!-- Import user-specific properties (gitignored, for local secrets) -->
+  <Import Project="Directory.Build.props.user" Condition="Exists('Directory.Build.props.user')" />
+
+</Project>

@@ -1,0 +1,149 @@
+/**
+ * Configuration types for TOML-based multi-database setup
+ */
+
+/**
+ * SSH tunnel configuration (inline per-source)
+ */
+export interface SSHConfig {
+  ssh_host?: string;
+  ssh_port?: number;
+  ssh_user?: string;
+  ssh_password?: string;
+  ssh_key?: string;
+  ssh_passphrase?: string;
+  /**
+   * Internal, not a TOML option: set when `ssh_key` was picked up from `~/.ssh/config`
+   * while resolving `--ssh-host`, so it is not mistaken for an explicitly configured key.
+   */
+  ssh_key_discovered?: boolean;
+  /** Path to an SSH agent socket (overrides SSH_AUTH_SOCK for this source) */
+  ssh_agent?: string;
+  /**
+   * ProxyJump configuration for multi-hop SSH connections.
+   * Comma-separated list of jump hosts: "jump1.example.com,user@jump2.example.com:2222"
+   */
+  ssh_proxy_jump?: string;
+  /** Interval in seconds between keepalive packets (default: 0 = disabled) */
+  ssh_keepalive_interval?: number;
+  /** Maximum number of missed keepalive responses before disconnecting (default: 3) */
+  ssh_keepalive_count_max?: number;
+}
+
+/**
+ * Database connection parameters (alternative to DSN)
+ */
+export interface ConnectionParams {
+  type: "postgres" | "mysql" | "mariadb" | "sqlserver" | "sqlite" | "oracle";
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  aws_iam_auth?: boolean; // Enable AWS IAM auth token generation for RDS
+  aws_region?: string; // AWS region required when aws_iam_auth is enabled
+  aws_profile?: string; // Named AWS shared-config profile for RDS IAM auth
+  instanceName?: string; // SQL Server named instance support
+  sslmode?: "disable" | "require" | "verify-ca" | "verify-full"; // SSL mode for network databases (not SQLite; verify-ca: PostgreSQL only; verify-full: PostgreSQL, SQL Server, Oracle)
+  sslrootcert?: string; // CA certificate path (PostgreSQL only; requires verify-ca or verify-full)
+  sslcert?: string; // PEM client certificate path for client certificate authentication (PostgreSQL only; requires sslkey and sslmode require/verify-ca/verify-full)
+  sslkey?: string; // PEM private key path for sslcert (PostgreSQL only; unencrypted)
+  // SQL Server authentication options
+  authentication?: "ntlm" | "azure-active-directory-access-token";
+  domain?: string; // Required for NTLM authentication
+}
+
+/**
+ * Source configuration from [[sources]] array in TOML
+ */
+export interface SourceConfig extends ConnectionParams, SSHConfig {
+  id: string;
+  description?: string; // Human-readable description of this data source
+  dsn?: string;
+  connection_timeout?: number; // Connection timeout in seconds
+  query_timeout?: number; // Query timeout in seconds (all but SQLite). PostgreSQL/MySQL/MariaDB enforce it on the server, with a client-side fallback (see utils/query-timeout.ts)
+  pool_max_connections?: number; // Maximum PostgreSQL connections per source (1-1000)
+  init_script?: string; // Optional SQL script to run on connection (for demo mode or initialization)
+  lazy?: boolean; // Defer connection until first query (default: false)
+  search_path?: string; // Comma-separated list of schemas for PostgreSQL search_path (e.g., "myschema,public")
+  timezone?: string; // MySQL/MariaDB: how the driver interprets DATETIME values. "Z" (UTC), "local", or "±HH:MM" (e.g., "+09:00")
+  charset?: string; // MySQL/MariaDB: connection character set (e.g., "utf8mb4"). May be combined with collation; when both are set, collation takes precedence (it implies its character set).
+  collation?: string; // MySQL/MariaDB: connection collation (e.g., "utf8mb4_0900_ai_ci"). Takes precedence over charset when both are set.
+}
+
+/**
+ * Custom tool parameter configuration
+ */
+export interface ParameterConfig {
+  name: string;
+  type: "string" | "integer" | "float" | "boolean" | "array";
+  description: string;
+  required?: boolean; // Defaults to true
+  default?: any; // Makes parameter optional if set
+  allowed_values?: any[]; // Enum constraint
+}
+
+/**
+ * Built-in tool configuration for execute_sql
+ */
+export interface ExecuteSqlToolConfig {
+  name: "execute_sql"; // Must match BUILTIN_TOOL_EXECUTE_SQL from builtin-tools.ts
+  source: string;
+  readonly?: boolean;
+  max_rows?: number;
+}
+
+/**
+ * Built-in tool configuration for search_objects
+ */
+export interface SearchObjectsToolConfig {
+  name: "search_objects"; // Must match BUILTIN_TOOL_SEARCH_OBJECTS from builtin-tools.ts
+  source: string;
+}
+
+/**
+ * Built-in tool configuration for explain_sql
+ */
+export interface ExplainSqlToolConfig {
+  name: "explain_sql"; // Must match BUILTIN_TOOL_EXPLAIN_SQL from builtin-tools.ts
+  source: string;
+}
+
+/**
+ * Built-in tool configuration for health_check
+ */
+export interface HealthCheckToolConfig {
+  name: "health_check"; // Must match BUILTIN_TOOL_HEALTH_CHECK from builtin-tools.ts
+  source: string;
+}
+
+/**
+ * Custom tool configuration
+ */
+export interface CustomToolConfig {
+  name: string; // Must not be "execute_sql" or "search_objects"
+  source: string;
+  description: string;
+  statement: string;
+  parameters?: ParameterConfig[];
+  readonly?: boolean;
+  max_rows?: number;
+}
+
+/**
+ * Unified tool configuration (discriminated union)
+ */
+export type ToolConfig =
+  | ExecuteSqlToolConfig
+  | SearchObjectsToolConfig
+  | ExplainSqlToolConfig
+  | HealthCheckToolConfig
+  | CustomToolConfig;
+
+/**
+ * Complete TOML configuration file structure
+ */
+export interface TomlConfig {
+  sources: SourceConfig[];
+  tools?: ToolConfig[];
+}

@@ -1,0 +1,568 @@
+"""Tree-sitter parsing coordinator."""
+
+from __future__ import annotations
+
+import bisect
+import logging
+import os
+import re
+import struct
+from pathlib import Path
+
+from roam.observability import log_swallowed
+from roam.parser_pack import LanguageNotFoundError, get_parser, has_language
+
+log = logging.getLogger(__name__)
+
+# Map file extensions to tree-sitter language names.
+# This is the single canonical source of truth for extension → language mapping.
+# registry.py's _EXTENSION_MAP is derived from this dict (see registry.py).
+EXTENSION_MAP = {
+    ".vue": "vue",
+    ".svelte": "svelte",
+    # Python
+    ".py": "python",
+    ".pyi": "python",
+    # JavaScript / ESM variants
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    # TypeScript variants
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
+    ".hxx": "cpp",
+    ".hh": "cpp",
+    ".cs": "c_sharp",
+    ".rb": "ruby",
+    ".php": "php",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    # Scala
+    ".scala": "scala",
+    ".sc": "scala",
+    # Dart (Tier 1, dedicated extractor in dart_lang.py)
+    ".dart": "dart",
+    # Tier-2 / tree-sitter-only languages (no dedicated roam extractor)
+    ".lua": "lua",
+    ".zig": "zig",
+    ".el": "elisp",
+    ".ex": "elixir",
+    ".exs": "elixir",
+    ".erl": "erlang",
+    ".hs": "haskell",
+    ".ml": "ocaml",
+    ".mli": "ocaml",
+    ".r": "r",
+    ".R": "r",
+    ".jl": "julia",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".css": "css",
+    ".scss": "scss",
+    ".html": "html",
+    ".htm": "html",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".json": "json",
+    ".jsonc": "jsonc",
+    ".md": "markdown",
+    ".mdx": "mdx",
+    ".sql": "sql",
+    # HCL / Terraform (regex-only)
+    ".tf": "hcl",
+    ".tfvars": "hcl",
+    ".hcl": "hcl",
+    # Salesforce
+    ".cls": "apex",
+    ".trigger": "apex",
+    ".page": "visualforce",
+    ".component": "aura",
+    ".cmp": "aura",
+    ".app": "aura",
+    ".evt": "aura",
+    ".intf": "aura",
+    ".design": "aura",
+    # Visual FoxPro
+    ".prg": "foxpro",
+    ".scx": "foxpro",
+}
+
+# Grammar aliasing: languages that reuse existing tree-sitter grammars.
+# This allows languages with similar syntax to piggyback on available grammars
+# without requiring a dedicated tree-sitter parser.
+GRAMMAR_ALIASES = {
+    # C# (tree-sitter-language-pack uses "csharp", not "c_sharp")
+    "c_sharp": "csharp",
+    # Salesforce
+    "apex": "java",
+    "sfxml": "html",  # SF metadata XML → HTML parser (close enough for structure)
+    "aura": "html",
+    "visualforce": "html",
+    # JSONC (JSON with comments) → json grammar
+    "jsonc": "json",
+    # MDX (Markdown + JSX) → markdown grammar
+    "mdx": "markdown",
+}
+
+# 3 languages with regex-only extraction (no tree-sitter grammar in the pack).
+# Consumed by parser.py:288 (skip parse stage), languages/registry.py:165 (skip
+# extractor dispatch), cmd_syntax_check.py:114 (skip syntax-validation pass).
+# Adding a language here requires a corresponding regex-only *_lang.py
+# implementation in src/roam/languages/.
+REGEX_ONLY_LANGUAGES = frozenset({"foxpro", "yaml", "hcl"})
+
+# Languages whose entry in GRAMMAR_ALIASES is a STAND-IN: the grammar belongs to
+# a DIFFERENT language and merely resembles this one closely enough to extract
+# structure from. Extraction still works and is worth having; a syntax VERDICT
+# is not, because an ERROR node is then attributable to the grammar mismatch and
+# not to the source. Measured on a valid Salesforce class: `with sharing`,
+# inline SOQL, `update x.values()` and `global` each produce ERROR/MISSING nodes
+# under the java grammar, and apex_lang.py hand-writes regexes (_SHARING_RE,
+# _SOQL_FROM_RE, _DML_RE) for exactly those constructs — roam already knows the
+# grammar cannot parse them. The permissive stand-ins fail the other way: html
+# and markdown never emit ERROR nodes, so a .page/.cmp/.mdx file publishes
+# "clean" having verified nothing.
+#
+# c_sharp -> csharp is deliberately EXCLUDED: that is a naming alias for the
+# same language (the pack spells it "csharp"), not a stand-in, and C# keeps its
+# real syntax check.
+#
+# Consumed by cmd_syntax_check.py (skip + `grammar_is_stand_in` disclosure),
+# cmd_verify.py:_SYNTAX_SKIP_LANGS (same skip, one definition), and parse_file
+# below (routes ERROR nodes to the stand_in_grammar counter, not syntax_error).
+#
+# 6 entries, measured: every language whose configured grammar is a stand-in for
+# a different language rather than its own. Apex was the one that surfaced it --
+# routed to the java grammar, so 100% of valid Salesforce classes read as broken
+# -- and the sweep that followed found the other 5 by the same test: parse a
+# known-good file of that language and see whether the grammar can represent it.
+# Two directions of falseness live here, which is why the set is explicit rather
+# than derived: apex/aura/visualforce/sfxml emit ERROR nodes on valid source, and
+# jsonc/mdx emit none on invalid source, so a file publishes "clean" having
+# verified nothing.
+SYNTAX_UNVERIFIABLE_LANGUAGES = frozenset({"apex", "aura", "visualforce", "sfxml", "jsonc", "mdx"})
+
+# Track parse error stats.
+# ``stand_in_grammar`` counts files that parsed under a SYNTAX_UNVERIFIABLE
+# grammar and produced ERROR nodes. Those are NOT syntax errors in the source --
+# see SYNTAX_UNVERIFIABLE_LANGUAGES -- so they get their own name. They stay in
+# get_parse_error_count()'s total (the parse WAS degraded) so the corpus verdict
+# is unchanged by this split; only the wording changes.
+parse_errors = {
+    "no_grammar": 0,
+    "parse_error": 0,
+    "unreadable": 0,
+    "syntax_error": 0,
+    "stand_in_grammar": 0,
+}
+
+
+def _plugin_language_extensions() -> dict[str, str]:
+    try:
+        from roam.plugins import get_plugin_language_extensions
+
+        return get_plugin_language_extensions()
+    except ImportError:
+        return {}
+
+
+def _plugin_grammar_aliases() -> dict[str, str]:
+    try:
+        from roam.plugins import get_plugin_language_grammar_aliases
+
+        return get_plugin_language_grammar_aliases()
+    except ImportError:
+        return {}
+
+
+def _find_sct_path(scx_path: Path) -> Path | None:
+    """Find the companion .sct memo file for an .scx form file (case-insensitive)."""
+    base = scx_path.with_suffix("")
+    # Try common case variations first
+    for ext in (".sct", ".SCT", ".Sct"):
+        candidate = base.with_suffix(ext)
+        if candidate.exists():
+            return candidate
+    # Case-insensitive directory scan as fallback
+    parent = scx_path.parent
+    stem_lower = base.name.lower()
+    try:
+        for f in parent.iterdir():
+            if f.stem.lower() == stem_lower and f.suffix.lower() == ".sct":
+                return f
+    except OSError as exc:
+        # Loud-fallback per CLAUDE.md §"Make fallback chains loud" — an
+        # unreadable directory yields a None .sct path, which packs the .scx
+        # with an empty memo and silently produces an under-extracted FoxPro
+        # form. Surface the lineage so the missing memo has a discoverable cause.
+        log_swallowed(f"index.parser:find_sct:scan:{parent}", exc)
+    return None
+
+
+def _pack_scx_sct(scx_path: Path, scx_bytes: bytes) -> bytes:
+    """Pack .scx and .sct bytes into a single length-prefixed blob.
+
+    Format: 4-byte big-endian scx length + scx_bytes + sct_bytes.
+    The extractor unpacks this to get both files' data.
+    If the .sct is missing, returns just the header + scx_bytes (sct portion empty).
+    """
+    sct_path = _find_sct_path(scx_path)
+    sct_bytes = b""
+    if sct_path is not None:
+        try:
+            with open(sct_path, "rb") as f:
+                sct_bytes = f.read()
+        except OSError as exc:
+            # Loud-fallback per CLAUDE.md §"Make fallback chains loud" — the
+            # .sct path resolved but is unreadable; the blob is packed with an
+            # empty memo and the FoxPro form is silently under-extracted.
+            # Surface the lineage to distinguish this from a genuinely-absent .sct.
+            log_swallowed(f"index.parser:pack_scx:read_sct:{sct_path}", exc)
+    return struct.pack(">I", len(scx_bytes)) + scx_bytes + sct_bytes
+
+
+def detect_language(file_path: str) -> str | None:
+    """Detect the tree-sitter language name from a file path."""
+    # Salesforce metadata files: *.cls-meta.xml, *.object-meta.xml, etc.
+    if file_path.endswith("-meta.xml"):
+        return "sfxml"
+    _, ext = os.path.splitext(file_path)
+    ext = ext.lower()
+    language = EXTENSION_MAP.get(ext)
+    if language:
+        return language
+    return _plugin_language_extensions().get(ext)
+
+
+def read_source(path: Path) -> bytes | None:
+    """Read file bytes, trying utf-8 then latin-1."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+        # Validate it's decodable text
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                raw.decode("latin-1")
+            except UnicodeDecodeError:
+                return None
+        return raw
+    except OSError:
+        return None
+
+
+def _preprocess_vue(source: bytes) -> tuple[bytes, str]:
+    """Extract <script> blocks from a Vue SFC and return (processed_source, effective_language).
+
+    Handles both <script> and <script setup> blocks.
+    Preserves line numbers by replacing non-script regions with blank lines.
+    """
+    text = source.decode("utf-8", errors="replace")
+    lines = text.split("\n")
+    effective_lang = "javascript"
+
+    # Find all <script...>...</script> regions
+    script_pattern = re.compile(
+        r"<script(?P<attrs>\s[^>]*)?>(?P<body>.*?)</script>",
+        re.DOTALL,
+    )
+
+    # Track which lines belong to script blocks
+    script_line_flags = [False] * len(lines)
+
+    # Precompute newline offsets once so each offset -> line-number lookup is a
+    # bisect rather than an O(offset) rescan of the prefix string. The count of
+    # newlines before character offset `pos` equals the number of newline
+    # offsets strictly less than `pos`, i.e. bisect_left(newline_offsets, pos).
+    newline_offsets = [i for i, ch in enumerate(text) if ch == "\n"]
+
+    for match in script_pattern.finditer(text):
+        attrs = match.group("attrs") or ""
+        if 'lang="ts"' in attrs or "lang='ts'" in attrs or 'lang="tsx"' in attrs:
+            effective_lang = "typescript"
+
+        # Find the line range for the script content (excluding the tags)
+        # +1 to skip the opening tag line, no +1 on end to exclude </script>
+        content_start = bisect.bisect_left(newline_offsets, match.start("body")) + 1
+        content_end = bisect.bisect_left(newline_offsets, match.end("body"))
+
+        for i in range(content_start, min(content_end, len(lines))):
+            script_line_flags[i] = True
+
+    # Build output: keep script lines, blank out everything else
+    output_lines = []
+    for i, line in enumerate(lines):
+        if script_line_flags[i]:
+            output_lines.append(line)
+        else:
+            output_lines.append("")
+
+    processed = "\n".join(output_lines)
+    return processed.encode("utf-8"), effective_lang
+
+
+def parse_file(path: Path, language: str | None = None):
+    """Parse a file with tree-sitter and return (tree, source_bytes, language).
+
+    Returns (None, None, None) if parsing fails.
+    Failure categories:
+    - no_grammar: language detected but no tree-sitter grammar available (expected skip)
+    - parse_error: grammar exists but parsing failed (warning)
+    - unreadable: file could not be read (error)
+    """
+    if language is None:
+        language = detect_language(str(path))
+    if language is None:
+        return None, None, None  # Not a supported extension, expected skip
+
+    source = read_source(path)
+    if source is None:
+        parse_errors["unreadable"] += 1
+        log.warning("Unreadable file: %s", path)
+        return None, None, None
+
+    # Regex-only languages: return source without tree-sitter parsing
+    if language in REGEX_ONLY_LANGUAGES:
+        if str(path).lower().endswith(".scx"):
+            source = _pack_scx_sct(path, source)
+        return None, source, language
+
+    # Vue/Svelte SFC: extract <script> blocks and route to TS/JS
+    if language in ("vue", "svelte"):
+        source, language = _preprocess_vue(source)
+
+    # Resolve grammar alias (e.g. apex → java, sfxml → html)
+    plugin_alias = _plugin_grammar_aliases().get(language)
+    grammar = plugin_alias or GRAMMAR_ALIASES.get(language, language)
+
+    if not has_language(grammar):
+        parse_errors["no_grammar"] += 1
+        return None, None, None  # Grammar not available, expected skip
+
+    try:
+        parser = get_parser(grammar)
+    except (LanguageNotFoundError, LookupError):
+        parse_errors["no_grammar"] += 1
+        return None, None, None  # Grammar not available, expected skip
+
+    try:
+        tree = parser.parse(source)
+    except ValueError as e:
+        parse_errors["parse_error"] += 1
+        log.warning("Parse error in %s: %s", path, e)
+        return None, None, None
+    if tree is None:
+        parse_errors["parse_error"] += 1
+        log.warning("Parse error in %s: parser returned no tree", path)
+        return None, None, None
+
+    # tree-sitter is error-tolerant: it does not raise on malformed source,
+    # it returns a tree with ERROR nodes in it. So neither branch above sees
+    # a file of pure garbage — it "parses" and simply yields no symbols,
+    # which is indistinguishable from a genuinely empty module unless the
+    # error nodes are counted here.
+    try:
+        if tree.root_node.has_error:
+            # A stand-in grammar's ERROR nodes describe the grammar mismatch,
+            # not the file. Count them, name them differently.
+            if language in SYNTAX_UNVERIFIABLE_LANGUAGES:
+                parse_errors["stand_in_grammar"] += 1
+            else:
+                parse_errors["syntax_error"] += 1
+    except AttributeError as exc:  # pragma: no cover - older tree-sitter bindings
+        # Not silent: this counter decides whether a zero-symbol index is a
+        # legitimate empty tree or a broken one. A binding without
+        # ``has_error`` makes every file look clean, which downgrades a
+        # refusal into a false success -- exactly the failure this counter
+        # exists to prevent. Say so rather than swallowing it.
+        from roam.observability import log_swallowed
+
+        log_swallowed("index.parser:has_error_unavailable", exc)
+
+    return tree, source, language
+
+
+def extract_vue_template(source: bytes) -> tuple[str, int] | None:
+    """Extract the <template> block content from a Vue SFC.
+
+    Returns (template_content, start_line_number) or None if no template found.
+    The start_line_number is 1-based.
+
+    Uses depth-counting to handle nested <template #slot> tags correctly.
+    """
+    text = source.decode("utf-8", errors="replace")
+
+    # Find the outer <template...> open tag (the SFC root template)
+    outer_open = re.search(r"<template(\s[^>]*)?>", text)
+    if not outer_open:
+        return None
+
+    content_start = outer_open.end()
+    depth = 1
+
+    # Scan for all <template...> and </template> tags after the outer open
+    # Use non-greedy [^>]*? so that self-closing / isn't consumed by attributes
+    tag_re = re.compile(r"<(/?)template\b([^>]*?)(/?)>")
+    for m in tag_re.finditer(text, pos=content_start):
+        is_closing = m.group(1) == "/"
+        is_self_closing = m.group(3) == "/"
+
+        if is_self_closing:
+            continue  # <template ... /> doesn't affect depth
+        elif is_closing:
+            depth -= 1
+            if depth == 0:
+                # Found the matching close for the outer template
+                content = text[content_start : m.start()]
+                start_line = text[:content_start].count("\n") + 1
+                return content, start_line
+        else:
+            depth += 1
+
+    # No matching close tag found (malformed)
+    return None
+
+
+def scan_template_references(
+    template_content: str,
+    start_line: int,
+    known_symbols: set[str],
+    file_path: str,
+) -> list[dict]:
+    """Scan a Vue template block for identifiers matching known script symbols.
+
+    Returns a list of reference dicts compatible with the reference pipeline.
+    """
+    if not template_content or not known_symbols:
+        return []
+
+    # Patterns to extract expression strings from template
+    # Mustache interpolations: {{ expression }}
+    # Attribute bindings: :attr="expression" or v-bind:attr="expression"
+    # Directives: v-if="expression", v-for="expr", v-show="expr", etc.
+    # Event handlers: @event="handler" or v-on:event="handler"
+    expr_patterns = [
+        re.compile(r"\{\{(.*?)\}\}", re.DOTALL),  # {{ expr }}
+        re.compile(r'(?::|v-bind:)[\w.-]+="([^"]*)"'),  # :attr="expr"
+        re.compile(r'v-[\w-]+="([^"]*)"'),  # v-directive="expr"
+        re.compile(r'(?:@|v-on:)[\w.-]+="([^"]*)"'),  # @event="handler"
+    ]
+    # Identifier pattern
+    ident_re = re.compile(r"\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b")
+
+    # Also detect PascalCase component names: <MyComponent> → MyComponent
+    component_re = re.compile(r"<([A-Z][a-zA-Z0-9]+)")
+
+    refs = []
+    seen = set()
+
+    # Pass 1: Extract identifiers from template expressions on FULL content.
+    # This handles multi-line attribute values like :class="cn(\n  isRowFocused(row)\n)"
+    # where the opening " and closing " are on different lines.
+    for pattern in expr_patterns:
+        for match in pattern.finditer(template_content):
+            expr = match.group(1)
+            # Compute line number from match position
+            line_num = start_line + template_content[: match.start()].count("\n")
+            for ident_match in ident_re.finditer(expr):
+                name = ident_match.group(1)
+                if name in known_symbols and name not in seen:
+                    seen.add(name)
+                    refs.append(
+                        {
+                            "source_name": None,
+                            "target_name": name,
+                            "kind": "template",
+                            "line": line_num,
+                            "source_file": file_path,
+                        }
+                    )
+
+    # Pass 2: Detect PascalCase component usage (per-line — tags don't span lines)
+    lines = template_content.split("\n")
+    for line_offset, line in enumerate(lines):
+        line_num = start_line + line_offset
+        for match in component_re.finditer(line):
+            name = match.group(1)
+            if name in known_symbols and name not in seen:
+                seen.add(name)
+                refs.append(
+                    {
+                        "source_name": None,
+                        "target_name": name,
+                        "kind": "template",
+                        "line": line_num,
+                        "source_file": file_path,
+                    }
+                )
+
+    return refs
+
+
+def reset_parse_errors() -> None:
+    """Zero the counters at the start of an index run.
+
+    ``parse_errors`` is module state, so without this it accumulates for the
+    life of the process. That was harmless while it only fed a log line, but
+    the corpus verdict now reads it to decide an exit code, and a stale count
+    from an earlier run in the same process would refuse a perfectly good
+    index. In-process callers (the test suite's CliRunner, the MCP server)
+    are exactly where that happens; a one-shot CLI process never noticed.
+    """
+    for key in parse_errors:
+        parse_errors[key] = 0
+
+
+def get_parse_error_count() -> int:
+    """Return the total number of files this process failed to parse.
+
+    Sums every failure mode: unreadable bytes, a grammar that rejected the
+    file, and a language with no grammar installed. A caller that has just
+    run an index can use a zero here to distinguish "every file parsed and
+    simply defines no symbols" from "the parsers understood nothing" —
+    two situations that are otherwise identical in the database, because
+    both leave the ``symbols`` table empty.
+
+    Only meaningful in the process that did the indexing; the counters are
+    module state, not persisted. A caller that did not index must treat the
+    number as unknown rather than as zero.
+    """
+    return int(
+        parse_errors["unreadable"]
+        + parse_errors["parse_error"]
+        + parse_errors["no_grammar"]
+        + parse_errors["syntax_error"]
+        + parse_errors["stand_in_grammar"]
+    )
+
+
+def get_parse_error_summary() -> str:
+    """Return a summary of parse errors for logging."""
+    parts = []
+    if parse_errors["unreadable"]:
+        parts.append(f"{parse_errors['unreadable']} unreadable")
+    if parse_errors["parse_error"]:
+        parts.append(f"{parse_errors['parse_error']} parse errors")
+    if parse_errors["no_grammar"]:
+        parts.append(f"{parse_errors['no_grammar']} no grammar")
+    if parse_errors["syntax_error"]:
+        parts.append(f"{parse_errors['syntax_error']} with syntax errors")
+    if parse_errors["stand_in_grammar"]:
+        parts.append(f"{parse_errors['stand_in_grammar']} not syntax-checked (grammar is a stand-in)")
+    return ", ".join(parts) if parts else ""

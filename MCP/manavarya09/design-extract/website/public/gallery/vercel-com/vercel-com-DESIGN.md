@@ -1,0 +1,131 @@
+---
+site: "Vercel: Build and deploy the best web experiences with the AI Cloud"
+url: "https://vercel.com"
+generated_at: "2026-05-21T11:46:57.594Z"
+generator: "designlang@12.14.0"
+intent: landing
+material: material-you
+tokens:
+  colors:
+    primary: "#0068d6"
+    secondary: "#52aeff"
+    accent: "#0070f3"
+    background: "#fafafa"
+    foreground: "#171717"
+  typography:
+    sans: Geist
+    mono: Geist Mono
+    base: 16
+  spacing:
+    base: 2
+    scale: "[1, 24, 32, 36, 40, 44, 48, 85, 90, 96]"
+  radii:
+    xs: 2
+    sm: 5
+    md: 8
+    lg: 16
+    full: 50
+  shadows:
+    sm: "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.08) 0px 0px 0px 1px inset"
+---
+
+# Overview
+
+A **landing** page (heuristic confidence 0.61), dressed in **material-you** material (0.45).
+
+> "Build and deploy on the AI Cloud."
+
+The author writes in a **neutral** voice; headings tend to be **Title Case** case and **tight**.
+
+Reading order detected on the source: `feature-grid → hero → sidebar → nav → feature-grid → hero → feature-grid → feature-grid → nav → nav → nav → nav → nav → feature-grid → feature-grid → feature-grid → cta → feature-grid → feature-grid → feature-grid → footer → nav`.
+
+Source: <https://vercel.com>.
+
+# Colors
+
+| role | hex | usage |
+|---|---|---|
+| primary | `#0068d6` | 4 |
+| secondary | `#52aeff` | 4 |
+| accent | `#0070f3` | 3 |
+| background | `#fafafa` | — |
+| foreground | `#171717` | — |
+
+**Neutrals:** `#171717` · `#ebebeb` · `#4d4d4d` · `#ffffff` · `#666666`
+
+**Total unique colors detected:** 27.
+
+# Typography
+
+**Families**
+- `Geist` · 2877 uses
+- `Geist Mono` · 240 uses
+
+**Body size:** `16px` / line-height `24px`.
+
+**Heading scale**
+| level | size | weight | line-height |
+|---|---|---|---|
+| h1 | `48px` | `600` | `48px` |
+| h2 | `40px` | `600` | `48px` |
+| h3 | `32px` | `400` | `48px` |
+| h4 | `24px` | `600` | `32px` |
+
+# Layout
+
+**Spacing base:** `2px` increments.
+**Scale:** `1px` · `24px` · `32px` · `36px` · `40px` · `44px` · `48px` · `85px` · `90px` · `96px`
+
+**Layout primitives:** 56 grid containers · 500 flex containers.
+
+**Breakpoints:** `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px` · `[object Object]px`
+
+# Elevation and Depth
+
+**Shadow scale**
+- `sm` — `rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(255, 255, 255) 0px 0px 0px 2px, rgb(0, 114, 245) 0px 0px 0px 4px`
+- `sm` — `rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgb(235, 235, 235) 0px 0px 0px 1px`
+- `sm` — `rgb(235, 235, 235) 0px 0px 0px 1px`
+- `sm` — `rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.08) 0px 0px 0px 1px inset`
+- `sm` — `rgba(0, 0, 0, 0.08) 0px 0px 0px 1px`
+- `sm` — `rgba(0, 0, 0, 0.08) 0px 0px 0px 1px, rgba(0, 0, 0, 0.04) 0px 2px 2px 0px, rgb(250, 250, 250) 0px 0px 0px 1px`
+
+**Z-index layers:** 14 · ⚠ 1 issue(s)
+
+# Shapes
+
+**Radius scale**
+- `xs` — `2px`
+- `sm` — `5px`
+- `md` — `8px`
+- `lg` — `16px`
+- `full` — `32px`
+- `full` — `50px`
+
+# Components
+
+**Detected patterns:** `buttons` · `cards` · `inputs` · `links` · `navigation` · `footer` · `dropdowns` · `badges` · `tabs` · `tooltips` · `switches`
+
+**Anatomy**
+| kind | variants | sizes | instances |
+|---|---|---|---|
+| button | outline, link, tertiary | medium, md, xs | 64 |
+| card | — | — | 6 |
+
+# Do's and Don'ts
+
+**Do's**
+- Use `get`, `sign`, `learn` as the primary verbs in CTAs — these dominate the source.
+- Write headings in **Title Case** case, **tight** length.
+- Address the reader with the pronoun posture **you-only**.
+- Stay inside the **material-you** material — match shadow and radius habits.
+
+**Don'ts**
+- Don't ship copy on the colors flagged in accessibility — 2 contrast pair(s) fail WCAG AA on the source itself.
+- Don't 2 wcag contrast failures.
+- Don't 1267 !important rules — prefer specificity over overrides.
+- Don't 12166 duplicate css declarations.
+
+---
+_Generated by [designlang](https://github.com/Manavarya09/design-extract) v12.14.0 from <https://vercel.com>._
+_Compatible with the DESIGN.md convention pioneered by [design-extractor.com](https://www.design-extractor.com) — extended with intent, material, voice, anatomy, and library detection._

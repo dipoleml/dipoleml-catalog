@@ -1,0 +1,141 @@
+/**
+ * 프롬프트 응답/사용 팁 섹션
+ */
+
+export function buildPromptReferenceText(baseUrl: string): string {
+  return `## 응답 형식
+
+아래 JSON은 기본 JSON 응답의 구조입니다. 웹 읽기 전용 에이전트는 /browse/ 경로로 HTML 결과를 읽으세요. 쿼리 문자열이나 format은 필요 없습니다.
+
+### 성공 응답
+\`\`\`json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "total": 100,
+    "page": 1,
+    "pageSize": 30
+  }
+}
+\`\`\`
+
+### 에러 응답
+\`\`\`json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "에러 메시지"
+  }
+}
+\`\`\`
+
+### 에러 코드
+| 코드 | 설명 |
+|------|------|
+| MISSING_QUERY | 검색어가 누락됨 |
+| MISSING_PARAMS | 필수 파라미터 누락 |
+| MISSING_PRODUCT_ID | 제품 ID 누락 |
+| MISSING_STORE_CODE | 매장 코드 누락 |
+| NOT_FOUND | 결과를 찾을 수 없음 |
+| SEARCH_FAILED | 검색 실패 |
+| FETCH_FAILED | 데이터 조회 실패 |
+| DISPLAY_LOCATION_FAILED | 진열 위치 조회 실패 |
+| OLIVEYOUNG_STORE_SEARCH_FAILED | 올리브영 매장 조회 실패 |
+| OLIVEYOUNG_PRODUCT_SEARCH_FAILED | 올리브영 상품 조회 실패 |
+| OLIVEYOUNG_INVENTORY_CHECK_FAILED | 올리브영 재고 조회 실패 |
+| MEGABOX_THEATER_SEARCH_FAILED | 메가박스 지점 조회 실패 |
+| MEGABOX_MOVIE_LIST_FAILED | 메가박스 영화 목록 조회 실패 |
+| MEGABOX_SEAT_LIST_FAILED | 메가박스 좌석 조회 실패 |
+| LOTTECINEMA_THEATER_SEARCH_FAILED | 롯데시네마 지점 조회 실패 |
+| LOTTECINEMA_MOVIE_LIST_FAILED | 롯데시네마 영화 목록 조회 실패 |
+| LOTTECINEMA_SEAT_LIST_FAILED | 롯데시네마 좌석 조회 실패 |
+| CGV_THEATER_SEARCH_FAILED | CGV 극장 조회 실패 |
+| CGV_MOVIE_SEARCH_FAILED | CGV 영화 목록 조회 실패 |
+| CGV_TIMETABLE_FETCH_FAILED | CGV 시간표 조회 실패 |
+| GS25_STORE_SEARCH_FAILED | GS25 매장 조회 실패 |
+| GS25_PRODUCT_SEARCH_FAILED | GS25 상품 조회 실패 |
+| GS25_INVENTORY_CHECK_FAILED | GS25 재고 조회 실패 |
+| SEVENELEVEN_INVENTORY_CHECK_FAILED | 세븐일레븐 재고 조회 실패 |
+| PLACES_SEARCH_FAILED | 주변 장소 검색 실패 |
+| DEVELOPER_REQUEST_SUBMIT_FAILED | 개발자 요청 저장 실패 |
+
+---
+
+## 에이전트 실행 레시피
+
+- "콜라 어디가 싸?", "컵라면 가격 비교해줘": 먼저 \`compare_products\` 또는 /browse/compare/products를 호출합니다. 실제 재고와 매장 행사가가 필요하면 최저가 후보의 서비스별 재고/상품 도구로 한 번 더 확인합니다.
+- "강남역 근처 카페", "성수동 브런치 음식점": 브랜드를 되묻지 말고 \`find_places\` (service=places) 또는 /browse/places/search를 호출합니다. 이 검색은 키워드 기반이므로 좌표 반경 결과처럼 단정하지 않습니다.
+- "다이소 핫식스 재고", "올리브영 두바이초콜릿 있어?": 상품이 브랜드와 어색해 보여도 브랜드를 바꾸지 말고 먼저 다이소로 검색하거나 명시된 서비스로 검색합니다. 결과가 없을 때만 다른 서비스 대안을 제안합니다.
+- "GS25 강남 오감자 재고": 상품명과 위치를 분리해 상품 후보를 먼저 찾고, 선택한 itemCode나 keyword와 storeKeyword로 재고를 확인합니다.
+- "오늘 강남 CGV 시간표": 오늘 날짜는 KST 기준 YYYYMMDD로 계산하고, theaterCode가 없으면 극장 검색 후 시간표를 조회합니다.
+- MCP 기능이 제대로 동작하지 않거나 개선/신규 기능 요청이 있으면 \`submit_request\` (requestType=developer, request에 제목과 설명) 또는 연결된 MCP를 통해 개발자에게 전달합니다. 웹 GET으로 요청을 제출하지 않습니다. 제목과 설명은 필수입니다.
+- 도구 호출이 실패하면 같은 도구를 한 번 더 좁은 조건으로 재시도합니다. 두 번 실패하면 실패한 서비스와 요청 조건을 밝히고 추측으로 결과를 만들지 않습니다.
+- 결과에 imageUrl이 있으면 각 항목 이미지 표시를 우선합니다. 쿼리 문자열이 있는 이미지 URL도 그대로 사용합니다.
+
+---
+
+## 사용 팁
+
+1. **한글 검색어**: URL 인코딩이 자동으로 처리됩니다
+2. **페이지네이션**: 결과가 많을 경우 page 파라미터 사용
+3. **브랜드 고정**: 사용자가 "다이소에서", "GS25에서"처럼 브랜드를 명시하면 품목상 어색해 보여도 먼저 그 브랜드에서 실제 검색/조회하고, 결과가 없을 때만 다른 브랜드 대안을 짧게 제안합니다.
+   - 금지: "핫식스는 다이소가 아니라 편의점 상품이라서 조회할 수 없습니다"처럼 사전 판단으로 검색을 거부
+   - 원칙: 브랜드가 명시되면 일단 해당 브랜드에서 실제 조회 후, 결과가 없을 때만 다른 브랜드 제안
+   - 확장 해석: "안산 중앙역 주변 다이소 찾아주시고 핫식스 재고 찾아주세요"처럼 브랜드가 앞부분에만 나와도 뒤 요청 전체를 다이소 기준으로 처리
+4. **이미지 적극 표시**:
+   - **규칙 1**: MCP/REST 응답에 \`imageUrl\`이 있으면 반드시 마크다운 이미지로 렌더링하세요.
+   - **규칙 2**: 사용자가 따로 요청하기 전까지 이미지를 임의로 생략하지 마세요.
+   - **규칙 3**: 이미지가 여러 개이면 첫 번째만 대표로 보여주지 말고 각 항목의 이미지를 전부 표시하세요.
+   - **규칙 4**: "길어서 일부만 표시", "대표 이미지만 표시", "나머지는 생략" 같은 동작을 하지 마세요.
+   - **규칙 5**: 텍스트 요약보다 이미지 표시 의무가 우선이며, 이미지가 있으면 답변 길이 때문에라도 빼지 마세요.
+   - **규칙 6**: \`imageUrl\`에 query string이 있으면 \`?l=ko\` 같은 쿼리를 절대 삭제하거나 정규화하지 말고, 마크다운 이미지 src에 전체 URL을 그대로 사용하세요.
+   - **규칙 7**: 이미지 src를 비교하거나 캐시 키를 판단할 때도 hostname + pathname만 쓰지 말고 query string까지 포함한 전체 URL을 기준으로 취급하세요.
+5. **재고 확인 워크플로우**:
+   - 먼저 /browse/daiso/products로 제품 검색
+   - 결과에서 원하는 제품의 id 확인
+   - /browse/daiso/inventory/{실제id}/{확인한매장명}으로 재고 조회
+   - 진열 위치가 필요하면 재고 응답의 storeCode를 확인한 뒤 /browse/daiso/display-location/{실제productId}/{실제storeCode}로 조회
+   - 다이소 재고 조회는 storeCode가 필요하지 않습니다.
+6. **최소 정보 요청 처리**:
+   - 사용자가 상품명만 주면 먼저 상품 검색 도구로 후보를 찾고, 응답의 productId/itemCode/pluCd를 다음 단계에 전달합니다.
+   - 사용자가 위치를 대강 말하면 keyword/storeKeyword에 그대로 넣어 먼저 조회하고, 결과가 없을 때만 공백 제거, 역/점 접미어 제거 같은 변형을 시도합니다.
+   - 도구가 productId, itemCode, storeCode 같은 내부 ID를 요구하면 사용자에게 바로 ID를 요구하지 말고, 검색/재고 응답에서 먼저 확인합니다.
+   - "근처", "주변"처럼 위치가 없는 표현만 있으면 기본 좌표 결과를 단정하지 말고 사용자의 지역/역명/좌표를 물어봅니다.
+7. **상품명 단계 검색**:
+   - 재고 검색은 어떤 서비스이든 검색어 전체를 먼저 그대로 조회하고, 실패할 때만 공백/브랜드어 제거, 표기 변형, 더 짧은 핵심어 순으로 단계적으로 넓혀서 다시 시도합니다.
+   - 너무 넓은 축약어로만 매칭된 경우에는 확정 상품처럼 단정하지 말고, 추정 매칭임을 짧게 밝힌 뒤 재고를 안내합니다.
+   - 위치/브랜드/상품명은 한 인자에 섞지 말고 가능한 한 분리해서 도구에 전달합니다.
+8. **위치 기반 재고**: lat, lng 파라미터로 가까운 매장 우선 조회
+10. **세븐일레븐 재고 조회**: /browse/seveneleven/inventory에 keyword + storeKeyword를 함께 주면 매장별 수량을 바로 확인할 수 있습니다.
+11. **이마트24 재고 조회**: /browse/emart24/inventory는 pluCd + storeKeyword 조합도 지원하므로, 상품 선택 뒤 매장 코드를 다시 모으지 않아도 됩니다.
+12. **올리브영 재고 해석**: inventory.products[].storeInventory.stores[]가 있으면 그 매장별 stockLabel과 remainQuantity를 우선 사용하고, inStock는 그 주변 매장 기준 결과로 해석합니다.
+13. **올리브영 상품 이미지 표시**: /browse/oliveyoung/products 또는 search_products(service=oliveyoung) 결과에 imageUrl이 있으면 목록형 답변에서도 각 상품 이미지를 생략하지 말고 모두 렌더링합니다. 특히 \`?l=ko\` 같은 query string을 삭제하지 말고 전체 URL 그대로 마크다운 이미지 src에 넣습니다.
+14. **통합 가격 후보 비교**: 사용자가 브랜드를 특정하지 않고 "어디가 싸?", "비교해줘"처럼 물으면 \`compare_products\` 또는 /browse/compare/products를 먼저 사용합니다. 새 외부 키 없이 기존 상품 검색을 묶은 1차 가격 후보이므로 실제 재고/행사가는 각 서비스 상세 조회로 확인해야 합니다.
+15. **주변 음식점/카페 검색**: 음식점이나 카페만 물으면 \`find_places\` (service=places) 또는 /browse/places/search를 먼저 사용합니다. 이 기능은 네이버 지역 검색 기반 키워드 검색이므로 좌표 반경 검색처럼 단정하지 말고, \`searchMode: "keyword"\`임을 필요할 때 짧게 밝혀주세요.
+
+---
+
+## MCP 지원 서비스
+
+MCP를 지원하는 AI 에이전트(Claude 등)는 더 풍부한 기능을 사용할 수 있습니다.
+MCP 연결 정보: ${baseUrl}/mcp
+
+공개 도구는 정확히 10개이며 앞으로도 늘리지 않습니다. 서비스는 service, 작업은 operation으로 선택합니다.
+- search_products: 상품 검색
+- find_stores: 매장 검색
+- check_inventory: 재고 조회
+- get_product_details: 상품 상세·가격·진열 위치
+- find_places: 주변 장소·영화관 검색
+- get_showtimes: 영화·시간표·잔여석
+- get_fuel_info: 유가·주유소 조회
+- get_catalog: 인기 검색어·기획전
+- compare_products: 상품 비교
+- submit_request: 요청 제출 (현재 requestType=developer)
+
+예: search_products {"service":"daiso","query":"수납박스","pageSize":3}
+예: check_inventory {"service":"gs25","keyword":"오감자","storeKeyword":"강남"}
+기존 서비스별 도구 이름은 deprecated 호출 별칭으로만 유지하며 tools/list에 표시하지 않습니다. 새 에이전트는 위 10개만 사용하세요. 구형 매핑: https://github.com/hmmhmmhm/daiso-mcp/blob/main/docs/mcp-tools.md
+`;
+}

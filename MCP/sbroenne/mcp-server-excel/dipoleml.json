@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.sbroenne.mcp-server-excel",
+  "type": "mcp",
+  "name": "MCP Server Excel",
+  "slug": "mcp-server-excel",
+  "vendor": "sbroenne",
+  "description": "Automate real Microsoft Excel with AI via MCP Server or CLI — Power Query, DAX, VBA, PivotTables, and charts.",
+  "version": "2.5.7",
+  "homepage": "https://github.com/sbroenne/mcp-server-excel",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-automation",
+    "claude-ai",
+    "com-automation",
+    "conditional-formatting",
+    "data-connections",
+    "dax",
+    "dotnet",
+    "excel"
+  ],
+  "tags": [
+    "ai-automation",
+    "claude-ai",
+    "com-automation",
+    "conditional-formatting",
+    "data-connections",
+    "dax",
+    "dotnet",
+    "excel",
+    "excel-automation",
+    "excel-charts",
+    "excel-pivottables",
+    "excel-tables",
+    "github-copilot",
+    "mcp-server",
+    "model-context-protocol",
+    "named-ranges",
+    "power-pivot",
+    "power-query",
+    "vba",
+    "windows"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "microsoft",
+    "brandName": "microsoft",
+    "source": "https://github.com/sbroenne.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sbroenne/mcp-server-excel",
+    "url": "https://github.com/sbroenne/mcp-server-excel",
+    "commit": "6c0de58c064c46d6db068525e6b91e232bd842a5",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 834,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "excelmcp"
+    ],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

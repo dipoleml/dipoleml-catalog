@@ -1,0 +1,300 @@
+"""``roam test-impact <range>`` — tests transitively reachable from changed symbols.
+
+sharper scope than `roam affected-tests`. Walks BFS over the
+reverse call graph from each changed symbol, collects every test file
+reached, and ranks by the number of changed symbols that reach each
+test (so a test reachable from 5 changes ranks above one reachable
+from 1).
+"""
+
+from __future__ import annotations
+
+import subprocess
+from collections import defaultdict
+
+import click
+
+from roam.capability import roam_capability
+from roam.commands.changed_files import GIT_ERROR, GIT_NOT_AVAILABLE, GIT_TIMEOUT
+from roam.commands.resolve import ensure_index
+from roam.db.connection import batched_in, open_db
+from roam.exit_codes import EXIT_PARTIAL
+from roam.index.file_roles import is_test
+from roam.output.formatter import echo_text_warnings, json_envelope, to_json
+
+
+class _ChangedFilesError(RuntimeError):
+    """The requested changeset could not be measured."""
+
+
+def _changed_files(commit_range: str | None) -> list[str]:
+    args = ["git", "diff", "--name-only", "-z"]
+    if commit_range:
+        if commit_range.startswith("-"):
+            raise _ChangedFilesError(GIT_ERROR)
+        args.append(commit_range)
+    # Disambiguate revisions from paths and preserve Git's literal filenames.
+    args.append("--")
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise _ChangedFilesError(GIT_NOT_AVAILABLE) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise _ChangedFilesError(GIT_TIMEOUT) from exc
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _ChangedFilesError(GIT_ERROR) from exc
+    if proc.returncode != 0:
+        raise _ChangedFilesError(GIT_ERROR)
+    return [path.replace("\\", "/") for path in proc.stdout.split("\0") if path]
+
+
+@roam_capability(
+    name="test-impact",
+    category="workflow",
+    summary="List tests transitively reachable from symbols changed in <range>",
+    maturity="stable",
+    mcp_expose=True,
+    mcp_preset=("core",),
+    side_effect=False,
+    task_required=False,
+    destructive=False,
+    stale_sensitive=True,
+    ai_safe=True,
+    requires_index=True,
+)
+@click.command(name="test-impact")
+@click.argument("commit_range", required=False, default=None)
+@click.option("--max-hops", type=int, default=5, show_default=True, help="BFS depth from each changed symbol.")
+@click.option(
+    "--limit", "--top", "limit", type=int, default=20, show_default=True, help="Top N tests to surface."
+)  # W1142: --top alias
+@click.pass_context
+def test_impact(ctx, commit_range, max_hops, limit) -> None:
+    """List tests transitively reachable from symbols changed in <range>."""
+    json_mode = ctx.obj.get("json") if ctx.obj else False
+    sarif_mode = ctx.obj.get("sarif") if ctx.obj else False
+    ensure_index()
+
+    try:
+        files = _changed_files(commit_range)
+    except _ChangedFilesError as exc:
+        verdict = f"diff unavailable: {exc}; inspect the Git range before selecting tests"
+        warnings = [f"test_impact_git_diff_failed:{exc}"]
+        if sarif_mode:
+            from roam.output.sarif import test_impact_to_sarif, with_sarif_disclosures, write_sarif
+
+            document = with_sarif_disclosures(test_impact_to_sarif({"tests": []}), warnings)
+            document["runs"][0]["invocations"][0]["executionSuccessful"] = False
+            click.echo(write_sarif(document))
+        elif json_mode:
+            click.echo(
+                to_json(
+                    json_envelope(
+                        "test-impact",
+                        summary={
+                            "verdict": verdict,
+                            "state": "diff_unavailable",
+                            "git_error": str(exc),
+                            "count": 0,
+                            "count_definition": "emitted_test_rows; unavailable diff does not establish an empty selection",
+                            "partial_success": True,
+                            "warnings_out": warnings,
+                        },
+                        tests=[],
+                    )
+                )
+            )
+        else:
+            click.echo(f"VERDICT: {verdict}")
+        ctx.exit(EXIT_PARTIAL)
+    files = [f for f in files if not is_test(f)]
+    if not files:
+        verdict = f"no non-test source files changed in {commit_range or 'working tree'}"
+        if sarif_mode:
+            from roam.output.sarif import test_impact_to_sarif, write_sarif
+
+            click.echo(
+                write_sarif(
+                    test_impact_to_sarif(
+                        {
+                            "command": "test-impact",
+                            "summary": {"verdict": verdict, "count": 0},
+                            "changed_files": [],
+                            "tests": [],
+                        }
+                    )
+                )
+            )
+            return
+        if json_mode:
+            click.echo(
+                to_json(
+                    json_envelope(
+                        "test-impact",
+                        summary={"verdict": verdict, "count": 0, "state": "no_changed_files", "partial_success": True},
+                        tests=[],
+                    )
+                )
+            )
+        else:
+            click.echo(f"VERDICT: {verdict}")
+        return
+
+    try:
+        import networkx as nx
+
+        from roam.graph.builder import build_symbol_graph
+    except ImportError:
+        click.echo("Graph module not available. Run `roam index`.")
+        return
+
+    with open_db(readonly=True) as conn:
+        rows = batched_in(
+            conn,
+            "SELECT s.id FROM symbols s JOIN files f ON f.id = s.file_id WHERE f.path IN ({ph})",
+            files,
+        )
+        seed_ids = [r["id"] for r in rows]
+
+        if not seed_ids:
+            verdict = "changed files have no indexed symbols"
+            if sarif_mode:
+                from roam.output.sarif import test_impact_to_sarif, write_sarif
+
+                click.echo(
+                    write_sarif(
+                        test_impact_to_sarif(
+                            {
+                                "command": "test-impact",
+                                "summary": {"verdict": verdict, "count": 0},
+                                "changed_files": files,
+                                "tests": [],
+                            }
+                        )
+                    )
+                )
+                return
+            if json_mode:
+                click.echo(
+                    to_json(
+                        json_envelope(
+                            "test-impact",
+                            summary={
+                                "verdict": verdict,
+                                "count": 0,
+                                "state": "no_test_coverage",
+                                "partial_success": True,
+                            },
+                            tests=[],
+                        )
+                    )
+                )
+            else:
+                click.echo(f"VERDICT: {verdict}")
+            return
+
+        G = build_symbol_graph(conn)
+        # Reverse the graph so descendants are *callers* of the changed
+        # symbol. Tests are typically callers (or transitive callers).
+        RG = G.reverse(copy=False)
+
+        test_hits: defaultdict[str, int] = defaultdict(int)
+        for sid in seed_ids:
+            if sid not in RG:
+                continue
+            try:
+                lengths = nx.single_source_shortest_path_length(RG, sid, cutoff=int(max_hops))
+            except nx.NetworkXException:
+                continue
+            for nid in lengths:
+                if nid == sid:
+                    continue
+                node = G.nodes.get(nid, {}) or {}
+                path = (node.get("file_path") or "").replace("\\", "/")
+                if path and is_test(path):
+                    test_hits[path] += 1
+
+    ranked = sorted(test_hits.items(), key=lambda x: -x[1])
+    # W1142-followup: cap-hit disclosure. ``ranked`` holds every reachable
+    # test before slicing by --limit. Record the pre-slice population so
+    # agents can distinguish "N total tests" from "N of M, truncated".
+    total_tests_full = len(ranked)
+    items = [{"file": path, "reach_count": cnt} for path, cnt in ranked[:limit]]
+    items_truncated = total_tests_full > len(items)
+
+    verdict = (
+        f"{len(test_hits)} test file(s) reachable from {len(files)} changed file(s)"
+        if test_hits
+        else f"no tests reach the {len(files)} changed file(s) within {max_hops} hop(s)"
+    )
+
+    # W1331: the --limit cap-hit marker used to be built inside the JSON
+    # branch alone, so `--sarif` handed a CI gate the top-N slice as though
+    # it were the whole impacted-test set, and the text table said nothing
+    # about the rows it dropped. Build it once, render it in every branch.
+    _cap_warnings_out: list[str] = []
+    if items_truncated:
+        _cap_warnings_out.append(f"truncated to {len(items)} of {total_tests_full} — pass --limit larger to see more")
+
+    if sarif_mode:
+        # W1203: SARIF projection for CI / GitHub Code Scanning. Branches
+        # BEFORE json/text so the pre-existing paths stay byte-identical
+        # to pre-W1203.
+        from roam.output.sarif import test_impact_to_sarif, with_sarif_disclosures, write_sarif
+
+        sarif_doc = test_impact_to_sarif(
+            {
+                "command": "test-impact",
+                "summary": {"verdict": verdict, "count": len(test_hits)},
+                "changed_files": files,
+                "tests": items,
+            }
+        )
+        click.echo(write_sarif(with_sarif_disclosures(sarif_doc, _cap_warnings_out)))
+        echo_text_warnings(_cap_warnings_out)
+        return
+
+    if json_mode:
+        # W1142-followup: cap-hit disclosure (canonical Pattern-2 shape).
+        _summary = {
+            "verdict": verdict,
+            "count": len(items),
+            "total_count": total_tests_full,
+            "truncated": items_truncated,
+            "limit": limit,
+        }
+        if not test_hits:
+            _summary["state"] = "no_test_coverage"
+            _summary["partial_success"] = True
+        if _cap_warnings_out:
+            _summary["warnings_out"] = list(_cap_warnings_out)
+            _summary["partial_success"] = True
+        click.echo(
+            to_json(
+                json_envelope(
+                    "test-impact",
+                    summary=_summary,
+                    changed_files=files,
+                    tests=items,
+                )
+            )
+        )
+        return
+
+    echo_text_warnings(_cap_warnings_out)
+    click.echo(f"VERDICT: {verdict}")
+    if not items:
+        return
+    click.echo()
+    click.echo(f"{'Reach':>5}  Test file")
+    click.echo(f"{'-' * 5}  {'-' * 60}")
+    for it in items:
+        click.echo(f"{it['reach_count']:>5}  {it['file']}")

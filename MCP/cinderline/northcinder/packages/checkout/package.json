@@ -1,0 +1,41 @@
+{
+  "name": "@northcinder/checkout",
+  "version": "0.2.1",
+  "description": "NorthCinder exact-purchase authorization with versioned signed mandates, cross-process single-use nonces, ACP checkout, and buyer-session cart handoff",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "keywords": ["northcinder", "checkout", "mandate"],
+  "publishConfig": { "access": "public" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mock-acp-merchant": {
+      "types": "./dist/mock/acp-merchant.d.ts",
+      "default": "./dist/mock/acp-merchant.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@northcinder/adapter-kit": "workspace:*",
+    "@northcinder/protocol": "workspace:*",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@northcinder/adapter-shopify": "workspace:*",
+    "@types/node": "^20.17.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

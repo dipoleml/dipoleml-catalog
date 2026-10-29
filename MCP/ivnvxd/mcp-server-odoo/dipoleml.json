@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ivnvxd.mcp-server-odoo",
+  "type": "mcp",
+  "name": "MCP Server Odoo",
+  "slug": "mcp-server-odoo",
+  "vendor": "ivnvxd",
+  "description": "Model Context Protocol (MCP) server that enables AI assistants to securely interact with Odoo ERP systems through standardized resources and tools for data retrieval and manipulation.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ivnvxd/mcp-server-odoo",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "erp",
+    "model-context-protocol",
+    "odoo",
+    "odoo-mcp"
+  ],
+  "tags": [
+    "ai",
+    "erp",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "mcp-servers",
+    "model-context-protocol",
+    "odoo",
+    "odoo-mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ivnvxd",
+    "brandName": "ivnvxd",
+    "source": "https://github.com/ivnvxd.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:05Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ivnvxd/mcp-server-odoo",
+    "url": "https://github.com/ivnvxd/mcp-server-odoo",
+    "commit": "64b52df7ae3bb13cd6e07bebaf36913a1141ac48",
+    "path": "",
+    "license": "MPL-2.0",
+    "licenseClass": "green",
+    "stars": 407,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:50Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-server-odoo"
+    ],
+    "env": [
+      "ODOO_URL",
+      "ODOO_API_KEY",
+      "ODOO_RPC_TRANSPORT",
+      "ODOO_MCP_TRANSPORT",
+      "ODOO_MCP_HOST",
+      "ODOO_MCP_PORT",
+      "ODOO_MCP_ALLOWED_HOSTS"
+    ],
+    "credentials": [
+      "ODOO_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MPL-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

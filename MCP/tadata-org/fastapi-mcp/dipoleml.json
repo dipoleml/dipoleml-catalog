@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.tadata-org.fastapi-mcp",
+  "type": "mcp",
+  "name": "FastAPI MCP",
+  "slug": "fastapi-mcp",
+  "vendor": "tadata-org",
+  "description": "Expose your FastAPI endpoints as Model Context Protocol (MCP) tools, with Auth!",
+  "version": "0.0.0",
+  "homepage": "https://github.com/tadata-org/fastapi_mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "authentication",
+    "authorization",
+    "cursor",
+    "fastapi",
+    "modelcontextprotocol",
+    "openapi",
+    "windsurf"
+  ],
+  "tags": [
+    "ai",
+    "authentication",
+    "authorization",
+    "claude",
+    "cursor",
+    "fastapi",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "mcp-servers",
+    "modelcontextprotocol",
+    "openapi",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tadata-org",
+    "brandName": "tadata-org",
+    "source": "https://github.com/tadata-org.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:42Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "tadata-org/fastapi_mcp",
+    "url": "https://github.com/tadata-org/fastapi_mcp",
+    "commit": "e5cad13cabfc725bbcb047e526816d887d96da62",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 12023,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:16Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "fastapi-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

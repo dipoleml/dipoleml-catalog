@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chubbyskills"
+dynamic = ["version"]
+description = "Ingest Chinese platform content into a personal knowledge base: 14 agent skills plus a CLI for capture, indexing, search and source briefs."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = ["agent-skills", "knowledge-base", "transcription", "mcp"]
+
+# Core CLI is standard-library only. Platform capabilities opt into extras.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["PyYAML>=6,<7", "ruff>=0.12,<1"]
+video = ["funasr>=1.0.0", "transformers>=4.40", "modelscope>=1.10.0", "torch>=2.0.0", "torchaudio>=2.0.0"]
+podcast = ["funasr>=1.0.0", "transformers>=4.40", "modelscope>=1.10.0", "torch>=2.0.0", "torchaudio>=2.0.0"]
+wechat = ["beautifulsoup4>=4.12.0", "markitdown>=0.0.1", "pymupdf>=1.23.0"]
+
+[dependency-groups]
+# Picked up automatically by `uv run` so a bare
+# `uv run --with pytest pytest tests/ -q` works without extra flags.
+dev = ["pytest>=8,<9", "PyYAML>=6,<7"]
+
+[project.scripts]
+chubby = "tools.chubby:main"
+
+[project.urls]
+Homepage = "https://github.com/chubbyguan/chubbyskills"
+Issues = "https://github.com/chubbyguan/chubbyskills/issues"
+Changelog = "https://github.com/chubbyguan/chubbyskills/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+# `platforms/` and `templates/` are pure data directories, but their names are
+# legal package names, so shipping them here is what lets a non-editable
+# install resolve platform definitions and site/digest templates. The skill
+# directories cannot join them: `bilibili-transcribe` and friends are not valid
+# package names, and skills are distributed as directories for agents to
+# install rather than as importable modules.
+packages = ["tools", "chubby_common", "platforms", "templates", "bilibili_transcribe", "content_enrich", "douyin_transcribe", "industry_intelligence_radar", "knowledge_base_management", "learning_notes_automation", "podcast_transcribe", "tiktok_transcribe", "wechat_article_ingest", "weibo_transcribe", "x_ingest", "xiaohongshu_ingest", "youtube_transcribe", "zhihu_transcribe"]
+
+# The skill directories are distributed as directories for agents to install,
+# and their names (`bilibili-transcribe`) are not legal Python package names, so
+# they are mapped onto importable names rather than renamed. The mapping needs
+# no `__init__.py` in the skill directory, which keeps the portable bundle that
+# `install_skill.py` produces byte-identical to the repository copy.
+[tool.setuptools.package-dir]
+bilibili_transcribe = "bilibili-transcribe"
+content_enrich = "content-enrich"
+douyin_transcribe = "douyin-transcribe"
+industry_intelligence_radar = "industry-intelligence-radar"
+knowledge_base_management = "knowledge-base-management"
+learning_notes_automation = "learning-notes-automation"
+podcast_transcribe = "podcast-transcribe"
+tiktok_transcribe = "tiktok-transcribe"
+wechat_article_ingest = "wechat-article-ingest"
+weibo_transcribe = "weibo-transcribe"
+x_ingest = "x-ingest"
+xiaohongshu_ingest = "xiaohongshu-ingest"
+youtube_transcribe = "youtube-transcribe"
+zhihu_transcribe = "zhihu-transcribe"
+
+[tool.setuptools.package-data]
+platforms = ["*.yaml"]
+templates = ["site/*", "sites/*", "digest-prompts/*"]
+bilibili_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+content_enrich = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+douyin_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+industry_intelligence_radar = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+knowledge_base_management = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+learning_notes_automation = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+podcast_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+tiktok_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+wechat_article_ingest = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+weibo_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+x_ingest = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+xiaohongshu_ingest = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+youtube_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+zhihu_transcribe = ["SKILL.md", "*.md", "*.txt", "*.yaml", "*.yml", "*.json", "scripts/*", "references/*", "assets/*"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}

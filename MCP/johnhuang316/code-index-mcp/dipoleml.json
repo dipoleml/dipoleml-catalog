@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.johnhuang316.code-index-mcp",
+  "type": "mcp",
+  "name": "Code Index MCP",
+  "slug": "code-index-mcp",
+  "vendor": "johnhuang316",
+  "description": "A Model Context Protocol (MCP) server that helps large language models index, search, and analyze code repositories with minimal setup",
+  "version": "0.0.0",
+  "homepage": "https://github.com/johnhuang316/code-index-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "johnhuang316",
+    "brandName": "johnhuang316",
+    "source": "https://github.com/johnhuang316.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "johnhuang316/code-index-mcp",
+    "url": "https://github.com/johnhuang316/code-index-mcp",
+    "commit": "d395cbf99e8e3e8bc280255a76a84a9ac6cb5528",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1007,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "code-index-mcp"
+    ],
+    "env": [
+      "API_ENDPOINT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

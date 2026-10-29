@@ -1,0 +1,202 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "color": {
+      "palette": [
+        {
+          "slug": "primary",
+          "color": "#2702c2",
+          "name": "Primary"
+        },
+        {
+          "slug": "secondary",
+          "color": "#fffadd",
+          "name": "Secondary"
+        },
+        {
+          "slug": "accent",
+          "color": "#3139fb",
+          "name": "Accent"
+        },
+        {
+          "slug": "neutral-1",
+          "color": "#000000",
+          "name": "Neutral 1"
+        },
+        {
+          "slug": "neutral-2",
+          "color": "#fffcec",
+          "name": "Neutral 2"
+        },
+        {
+          "slug": "neutral-3",
+          "color": "#ffffff",
+          "name": "Neutral 3"
+        },
+        {
+          "slug": "neutral-4",
+          "color": "#696969",
+          "name": "Neutral 4"
+        },
+        {
+          "slug": "bg-fffcec",
+          "color": "#fffcec",
+          "name": "Background #fffcec"
+        },
+        {
+          "slug": "bg-3139fb",
+          "color": "#3139fb",
+          "name": "Background #3139fb"
+        },
+        {
+          "slug": "bg-ffffff",
+          "color": "#ffffff",
+          "name": "Background #ffffff"
+        }
+      ],
+      "gradients": []
+    },
+    "typography": {
+      "fontFamilies": [
+        {
+          "fontFamily": "Marlin",
+          "slug": "marlin",
+          "name": "Marlin"
+        },
+        {
+          "fontFamily": "Marlin Soft SQ",
+          "slug": "marlin-soft-sq",
+          "name": "Marlin Soft SQ"
+        },
+        {
+          "fontFamily": "Times",
+          "slug": "times",
+          "name": "Times"
+        },
+        {
+          "fontFamily": "InterVariable",
+          "slug": "intervariable",
+          "name": "InterVariable"
+        },
+        {
+          "fontFamily": "ABC Favorit Mono",
+          "slug": "abc-favorit-mono",
+          "name": "ABC Favorit Mono"
+        },
+        {
+          "fontFamily": "ABC Oracle",
+          "slug": "abc-oracle",
+          "name": "ABC Oracle"
+        },
+        {
+          "fontFamily": "Exposure VAR",
+          "slug": "exposure-var",
+          "name": "Exposure VAR"
+        }
+      ],
+      "fontSizes": [
+        {
+          "size": "45.51px",
+          "slug": "size-45.51",
+          "name": "45.51px"
+        },
+        {
+          "size": "40px",
+          "slug": "size-40",
+          "name": "40px"
+        },
+        {
+          "size": "36px",
+          "slug": "size-36",
+          "name": "36px"
+        },
+        {
+          "size": "32px",
+          "slug": "size-32",
+          "name": "32px"
+        },
+        {
+          "size": "28px",
+          "slug": "size-28",
+          "name": "28px"
+        },
+        {
+          "size": "24px",
+          "slug": "size-24",
+          "name": "24px"
+        },
+        {
+          "size": "20px",
+          "slug": "size-20",
+          "name": "20px"
+        },
+        {
+          "size": "17px",
+          "slug": "size-17",
+          "name": "17px"
+        }
+      ]
+    },
+    "spacing": {
+      "spacingSizes": [
+        {
+          "size": "2px",
+          "slug": "spacing-2",
+          "name": "2px"
+        },
+        {
+          "size": "32px",
+          "slug": "spacing-32",
+          "name": "32px"
+        },
+        {
+          "size": "37px",
+          "slug": "spacing-37",
+          "name": "37px"
+        },
+        {
+          "size": "48px",
+          "slug": "spacing-48",
+          "name": "48px"
+        },
+        {
+          "size": "64px",
+          "slug": "spacing-64",
+          "name": "64px"
+        },
+        {
+          "size": "72px",
+          "slug": "spacing-72",
+          "name": "72px"
+        },
+        {
+          "size": "80px",
+          "slug": "spacing-80",
+          "name": "80px"
+        },
+        {
+          "size": "90px",
+          "slug": "spacing-90",
+          "name": "90px"
+        }
+      ]
+    },
+    "layout": {
+      "contentSize": "1344px",
+      "wideSize": "1400px"
+    }
+  },
+  "styles": {
+    "color": {
+      "background": "#fffcec",
+      "text": "#000000"
+    },
+    "typography": {
+      "fontSize": "16px",
+      "lineHeight": "normal",
+      "fontFamily": "Marlin"
+    },
+    "spacing": {}
+  }
+}

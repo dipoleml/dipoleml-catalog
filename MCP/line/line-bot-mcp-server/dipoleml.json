@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.line.line-bot-mcp-server",
+  "type": "mcp",
+  "name": "Line Bot MCP Server",
+  "slug": "line-bot-mcp-server",
+  "vendor": "line",
+  "description": "MCP server that integrates the LINE Messaging API to connect an AI Agent to the LINE Official Account.",
+  "version": "0.0.1-local",
+  "homepage": "https://github.com/line/line-bot-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "line",
+    "linebot"
+  ],
+  "tags": [
+    "line",
+    "linebot",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "line",
+    "brandName": "line",
+    "source": "https://cdn.simpleicons.org/line",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:14Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "line/line-bot-mcp-server",
+    "url": "https://github.com/line/line-bot-mcp-server",
+    "commit": "3b6f23ad329d4e40f2c011a68d74f1ed1efb1999",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 793,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@line/line-bot-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "@line/line-bot-mcp-server"
+    ],
+    "env": [
+      "CHANNEL_ACCESS_TOKEN",
+      "YOUR_CHANNEL_ACCESS_TOKEN"
+    ],
+    "credentials": [
+      "CHANNEL_ACCESS_TOKEN",
+      "YOUR_CHANNEL_ACCESS_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

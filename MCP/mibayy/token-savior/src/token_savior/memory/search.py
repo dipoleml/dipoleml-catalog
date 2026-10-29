@@ -1,0 +1,425 @@
+"""A1-3: hybrid search (FTS5 + sqlite-vec) with RRF fusion.
+
+``hybrid_search`` is the search entry-point used by ``observation_search``.
+Behaviour:
+
+1. Always run an FTS5 query (existing keyword path).
+2. If ``VECTOR_SEARCH_AVAILABLE`` is False, or embedding the query yields
+   ``None``, or the ``obs_vectors`` table is missing, return FTS results
+   untouched — full backwards compatibility.
+3. Otherwise run a k-NN query against ``obs_vectors`` and fuse both rank
+   lists with Reciprocal Rank Fusion (RRF, k=60, the reference constant
+   from Cormack et al. 2009).
+
+All helpers here are deliberately DB-agnostic with respect to how the
+rows arrive — callers pass the SQL connection and the filter fragments,
+which keeps the quarantine / type / project_root logic centralised at
+one call-site in ``observation_search``.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+from typing import Any
+
+RRF_K = 60  # standard Reciprocal Rank Fusion constant.
+
+# Quelle fusion utiliser. Le defaut ne bouge pas : `rrf` est la production
+# d'aujourd'hui, garantie de position comprise. `additif` est la variante
+# mesurable, pas encore la production.
+#
+#     TS_FUSION=rrf       (defaut) RRF par rang + tetes remontees
+#     TS_FUSION=rrf_nu    RRF par rang seul, sans garantie de position
+#     TS_FUSION=additif   scores normalises additionnes, seuil semantique avant
+ENV_FUSION = "TS_FUSION"
+
+
+def rrf_merge(
+    *ranked_lists: list[dict[str, Any]],
+    limit: int = 20,
+    k: int = RRF_K,
+    garantie_position: bool = True,
+) -> list[dict[str, Any]]:
+    """Fuse N rank-ordered result lists into a single list using RRF.
+
+    Score per obs = Σ 1/(k + rank_i), where rank is 1-based within each
+    individual list. Metadata is taken from the first list the id appears in
+    (stable for debuggability).
+
+    La TETE de chaque liste est ensuite remontee devant, dans l'ordre des
+    listes. Le score continue de classer tout le reste.
+
+    Pourquoi. RRF sans garde laisse un resultat mediocre partout battre un
+    resultat excellent quelque part. Avec k = 60 :
+
+        classe 1 dans UNE liste   -> 1/61 = 0,0164
+        classe 3 dans DEUX listes -> 2/63 = 0,0317
+
+    Diagnostic pose en instrumentant les deux jambes SEPAREMENT plutot qu'en
+    lisant le resultat fusionne : la jambe lexicale placait 11 cibles sur 12
+    au rang 1, la fusion en faisait tomber trois.
+
+    Mesure sur 45 observations reelles, requetes en forme longue. Le jeu est
+    NEUTRE : chaque requete est batie sur des mots presents dans le contenu
+    de la cible et ABSENTS de son titre, pour qu'aucune jambe ne parte avec
+    un avantage offert.
+
+        RRF nu                 39/45 trouvees, rang moyen 2,08
+        garantie de presence   39/45 trouvees, rang moyen 2,08
+        garantie de position   39/45 trouvees, rang moyen 1,26
+
+    Historique de la decision, parce qu'elle a change. Un premier jeu, dont
+    les requetes venaient des TITRES, donnait a la position un avantage
+    suspect (rang 1,08 contre 2,71) et la garantie de presence avait ete
+    retenue par prudence. Refaite sans ce biais, la mesure montre que la
+    presence n'apporte rien du tout -- exactement le meme resultat que RRF nu
+    -- tandis que la position tient. La prudence etait de la timidite : elle
+    a coute une version qui ne corrigeait rien.
+
+    Ce qui n'est PAS corrige ici : six cibles restent hors du top 10 quelle
+    que soit la fusion. Elles sont toutes trouvees au rang 1 avec une requete
+    courte. C'est la dilution de la requete longue, un probleme distinct qui
+    se traite du cote de la construction de la requete, pas de la fusion.
+
+    Elargir la fenetre de recuperation ne sert a rien : mesure a x2, x5 et
+    x8, resultat identique. Les cibles manquantes sont recuperees puis
+    tronquees au classement, pas absentes de la recuperation.
+    """
+    scores: dict[int, float] = {}
+    metadata: dict[int, dict[str, Any]] = {}
+    for rows in ranked_lists:
+        for rank, row in enumerate(rows, start=1):
+            oid = row.get("id")
+            if oid is None:
+                continue
+            scores[oid] = scores.get(oid, 0.0) + 1.0 / (k + rank)
+            if oid not in metadata:
+                metadata[oid] = row
+
+    classement = [oid for oid, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)]
+
+    # `reversed` parce que chaque insertion se fait en position 0 : la tete de
+    # la premiere liste finit donc bien devant celle de la seconde.
+    tetes = ([rows[0].get("id") for rows in ranked_lists
+              if rows and rows[0].get("id") is not None]
+             if garantie_position else [])
+    for tete in reversed(tetes):
+        if tete in classement:
+            classement.remove(tete)
+            classement.insert(0, tete)
+
+    out: list[dict[str, Any]] = []
+    for oid in classement[:limit]:
+        row = dict(metadata[oid])
+        row["_rrf_score"] = round(scores[oid], 6)
+        out.append(row)
+    return out
+
+
+ENTITE_POIDS = 0.0  # pas de jambe entites chez nous : reserve, jamais devinee
+
+
+def _params_bm25(requete: str) -> tuple[float, float]:
+    """Point median et pente de la sigmoide, selon la longueur de la requete.
+
+    Un score bm25 brut monte avec le nombre de termes qui matchent : la meme
+    valeur ne veut pas dire la meme chose pour deux mots et pour douze. Sans
+    cette adaptation, une question humaine est systematiquement mieux notee
+    qu'un mot-cle, a pertinence egale.
+
+    Les cinq paliers viennent de mem0 (`mem0/utils/scoring.py:16-40`, etudie le
+    11/08/2026). Ce sont LEURS valeurs, sur LEUR corpus, avec LEUR tokenizer :
+    reprises comme point de depart mesurable, pas comme verite.
+    """
+    n = len(requete.split()) or 1
+    if n <= 3:
+        return 5.0, 0.7
+    if n <= 6:
+        return 7.0, 0.6
+    if n <= 9:
+        return 9.0, 0.5
+    if n <= 15:
+        return 10.0, 0.5
+    return 12.0, 0.5
+
+
+def _normaliser_bm25(brut: float, median: float, pente: float) -> float:
+    """Ramene un bm25 SQLite dans [0, 1] par une logistique.
+
+    SQLite rend un bm25 negatif, meilleur quand il est plus bas. On prend donc
+    son oppose avant de normaliser, pour que « plus grand » veuille dire
+    « meilleur » comme partout ailleurs dans cette fonction.
+    """
+    return 1.0 / (1.0 + math.exp(-pente * (-brut - median)))
+
+
+def additive_merge(
+    fts_rows: list[dict[str, Any]],
+    vec_rows: list[dict[str, Any]],
+    requete: str,
+    *,
+    limit: int = 20,
+    seuil_semantique: float = 0.0,
+    explain: bool = False,
+) -> list[dict[str, Any]]:
+    """Fusionne par SCORE normalise plutot que par rang.
+
+    Le defaut que ca vise. `rrf_merge` classe par 1/(k + rang) : deux resultats
+    au rang 1 pesent exactement pareil, que leur score soit excellent ou
+    mediocre. C'est ce qui laisse un mediocre-partout battre un excellent-
+    quelque-part, et c'est pour ca que la garantie de position existe. Le rang
+    jette la magnitude ; ici on la garde.
+
+    La regle importante vient de mem0 (`mem0/utils/scoring.py:74`) : le seuil
+    porte sur la jambe semantique AVANT la combinaison. Le lexical ne peut donc
+    que reordonner a l'interieur de l'ensemble semantiquement recevable, jamais
+    y faire entrer un candidat. C'est ce qui distingue cette addition du
+    reclassement lexical mesure le 08/08, qui degradait le MRR de 0,690 a 0,635
+    en reponderant un signal deja porte par l'embedding.
+
+    Un candidat present dans une seule jambe garde son score de l'autre a zero,
+    et le diviseur reste le meme pour tout le monde : sans quoi apparaitre dans
+    une seule liste deviendrait un avantage.
+    """
+    median, pente = _params_bm25(requete)
+
+    lex: dict[Any, float] = {}
+    for ligne in fts_rows:
+        oid = ligne.get("id")
+        if oid is None:
+            continue
+        brut = ligne.get("_bm25")
+        lex[oid] = _normaliser_bm25(float(brut), median, pente) if brut is not None else 0.0
+
+    # La distance cosinus est une DISTANCE : 0 = identique. On la retourne en
+    # similarite pour que les deux jambes aillent dans le meme sens.
+    sem: dict[Any, float] = {}
+    for ligne in vec_rows:
+        oid = ligne.get("id")
+        if oid is None:
+            continue
+        d = ligne.get("distance")
+        sem[oid] = max(0.0, 1.0 - float(d)) if d is not None else 0.0
+
+    meta: dict[Any, dict[str, Any]] = {}
+    for rows in (fts_rows, vec_rows):
+        for ligne in rows:
+            oid = ligne.get("id")
+            if oid is not None and oid not in meta:
+                meta[oid] = ligne
+
+    diviseur = 2.0 + ENTITE_POIDS
+
+    notes: list[tuple[float, Any]] = []
+    for oid in meta:
+        s = sem.get(oid, 0.0)
+        # Le seuil ne s'applique qu'a ce qui a une note semantique. Un resultat
+        # purement lexical n'est pas juge par un signal qu'il n'a pas.
+        if oid in sem and s < seuil_semantique:
+            continue
+        notes.append((min((s + lex.get(oid, 0.0)) / diviseur, 1.0), oid))
+
+    notes.sort(key=lambda t: (-t[0], t[1]))
+
+    sortie: list[dict[str, Any]] = []
+    for note, oid in notes[:limit]:
+        ligne = dict(meta[oid])
+        ligne["_score"] = round(note, 6)
+        if explain:
+            ligne["_score_detail"] = {
+                "semantique": round(sem.get(oid, 0.0), 6),
+                "lexical": round(lex.get(oid, 0.0), 6),
+                "diviseur": diviseur,
+                "seuil_semantique": seuil_semantique,
+                "bm25_median": median,
+                "bm25_pente": pente,
+            }
+        sortie.append(ligne)
+    return sortie
+
+
+# Seuils mesures, pas choisis : voir le commentaire dans hybrid_search.
+# Les deux valent 0,90 AUJOURD'HUI, et c'est delibere.
+#
+# Le decoupage en deux constantes nomme deux situations qui n'ont pas les
+# memes exigences : un voisin vectoriel qui vient en appui d'un resultat
+# lexical est deja cautionne par le leg lexical, tandis qu'un voisin seul est
+# l'unique signal disponible et doit convaincre a lui tout seul. FUSION peut
+# donc etre plus laxiste que SEULE ; l'inverse n'aurait pas de sens.
+#
+# Mais aucune mesure ne justifie a ce jour un ecart chiffre entre les deux, et
+# on n'en invente pas un. Souleve par andrebrait dans #79, qui a mesure puis
+# refute sa propre hypothese de depart : sur son corpus, 0,90 garde 90 % des
+# voisins pertinents pour 10 % de non-pertinents. Le seul resultat qui
+# survit est faible, et il refuse lui-meme d'agir dessus (n=20, corpus qu'il
+# a ecrit, requetes proches des observations) : entre 0,84 et 0,90 la part de
+# pertinents ne bouge pas alors que les non-pertinents passent de 2 % a 10 %.
+#
+# L'invariant FUSION >= SEULE est verifie dans
+# tests/test_vector_distance_floor.py, pour que cette intention soit
+# executable au lieu d'etre decorative, et pour qu'un futur ecart soit un
+# choix delibere et non un accident de frappe.
+# 0,90 -> 0,86 le 27/07/2026, parce que ce qu'on encode a change.
+#
+# La PR #91 fait entrer le TITRE de l'observation dans le vecteur, ce qui etait
+# un vrai defaut : un titre qui n'atteint jamais le vecteur est du signal jete.
+# Mais encoder plus deplace la distribution des distances, donc un seuil mesure
+# avant ce changement ne decrit plus ce code. C'est exactement le piege de #79,
+# ou une valeur avait ete jugee sur un corpus qui n'etait deja plus le bon.
+#
+# Balayage sur le corpus de tests/test_vector_distance_floor.py, titres encodes,
+# contre les attentes exactes des tests existants :
+#
+#     seuil   requetes muettes   bonne 1re reponse   sans bruit
+#     0,90        3/3                3/3               0/1   <- ancien
+#     0,89        3/3                3/3               1/1
+#     ...tout le plateau jusqu'a 0,82 est identique...
+#     0,82        3/3                3/3               1/1
+#
+# A 0,90, « certificat qui expire » ramenait « Relancer les tests » en plus.
+#
+# Le choix de 0,86 et pas de 0,89 : 0,89 est la premiere valeur qui marche,
+# donc elle est collee a la falaise. Un seuil pose au bord d'un genou casse au
+# premier changement de corpus ou de modele. 0,86 est au milieu du plateau
+# mesure, et tombe dans la zone que le balayage independant d'andrebrait dans
+# #79 signalait deja comme « free precision » : entre 0,84 et 0,90 la part de
+# voisins pertinents ne bougeait pas tandis que les non-pertinents passaient
+# de 2 % a 10 %.
+#
+# Ce que cette mesure NE dit pas : la valeur juste. Cinq observations ecrites
+# pour un test ne fondent pas un seuil de production. Elle etablit seulement
+# que 0,90 est desormais faux, ce qui suffit a justifier de bouger, et que
+# 0,86 est loin des deux bords de ce qu'on sait mesurer. Le vrai reglage
+# demande le corpus de rappel reel, cf. #79.
+_DISTANCE_MAX_FUSION = 0.86   # en appui d'un resultat lexical
+_DISTANCE_MAX_SEULE = 0.86    # seul signal disponible : exiger la confiance
+# Les deux valeurs sont egales aujourd'hui : la mesure ne montre aucune bande
+# ou le vecteur serait fiable en appui mais pas seul. Elles restent distinctes
+# parce que ce sont deux decisions differentes, et qu'un modele d'embedding
+# mieux adapte a la langue justifierait de relacher la premiere.
+
+
+def vec_search_rows(
+    conn: Any,
+    query_vec: list[float],
+    project_root: str,
+    *,
+    limit: int = 40,
+    type_filter: str | None = None,
+    include_quarantine: bool = False,
+    max_distance: float | None = None,
+) -> list[dict[str, Any]]:
+    """k-NN over obs_vectors → list of dicts matching observation_search shape.
+
+    ``max_distance`` ecarte les voisins trop lointains. Sans lui, un k-NN rend
+    toujours k resultats, quelle que soit la distance : une requete sans aucun
+    rapport avec la base ressort avec les observations les moins eloignees,
+    presentees comme des souvenirs pertinents.
+
+    Returns [] on any failure (missing table, unloaded extension, bad vec
+    serialization) so the hybrid path degrades gracefully.
+    """
+    try:
+        import sqlite_vec  # type: ignore[import-not-found]
+    except ImportError:
+        return []
+    try:
+        blob = sqlite_vec.serialize_float32(query_vec)
+    except Exception:
+        return []
+
+    sql = (
+        "SELECT o.id, o.type, o.title, o.importance, o.symbol, o.file_path, "
+        "  substr(COALESCE(o.narrative, o.content), 1, 160) AS excerpt, "
+        "  o.created_at, o.created_at_epoch, o.is_global, o.agent_id, "
+        "  c.quarantine, c.stale_suspected, v.distance "
+        "FROM obs_vectors AS v "
+        "JOIN observations AS o ON o.id = v.obs_id "
+        "LEFT JOIN consistency_scores AS c ON c.obs_id = o.id "
+        "WHERE v.embedding MATCH ? AND k = ? "
+        "  AND o.archived = 0 "
+        "  AND (o.project_root = ? OR o.is_global = 1) "
+    )
+    params: list[Any] = [blob, int(limit), project_root]
+    if not include_quarantine:
+        sql += "AND (c.quarantine IS NULL OR c.quarantine = 0) "
+    if type_filter:
+        sql += "AND o.type = ? "
+        params.append(type_filter)
+    sql += "ORDER BY v.distance"
+
+    try:
+        rows = conn.execute(sql, params).fetchall()
+    except Exception:
+        return []
+    resultats = [dict(r) for r in rows]
+    if max_distance is not None:
+        resultats = [r for r in resultats
+                     if r.get("distance") is None or r["distance"] <= max_distance]
+    return resultats
+
+
+def hybrid_search(
+    conn: Any,
+    fts_rows: list[dict[str, Any]],
+    query: str,
+    project_root: str,
+    *,
+    limit: int = 20,
+    type_filter: str | None = None,
+    include_quarantine: bool = False,
+) -> list[dict[str, Any]]:
+    """Fuse FTS rows with a vector-search pass when available.
+
+    ``fts_rows`` is computed by the caller (``observation_search``) using
+    the existing SQL so quarantine/type/global filtering stays DRY. If the
+    vector stack is unavailable, the FTS list is returned untouched
+    (truncated to ``limit``) — fully backwards compatible.
+
+    La strategie de fusion se choisit par ``TS_FUSION`` (voir ``ENV_FUSION``).
+    Le defaut reste la production d'aujourd'hui : rien ne change tant que la
+    variable n'est pas posee, et les deux autres valeurs existent pour etre
+    MESUREES l'une contre l'autre sur ``scripts/eval_rappel.py --difficulte
+    dure --limite 1``, seul point de fonctionnement ou le banc discrimine.
+    """
+    from token_savior.db_core import VECTOR_SEARCH_AVAILABLE
+    if not VECTOR_SEARCH_AVAILABLE:
+        return fts_rows[:limit]
+    try:
+        from token_savior.memory.embeddings import embed
+    except Exception:
+        return fts_rows[:limit]
+    vec = embed(query, as_query=True)
+    if vec is None:
+        return fts_rows[:limit]
+    # Mesure sur des observations francaises : les distances des voisins
+    # PERTINENTS vont de 0,85 a 0,99, celles des voisins SANS RAPPORT de 0,97
+    # a 1,07. Les bandes se recouvrent presque entierement, et une requete
+    # absurde obtenait un meilleur score que la bonne reponse d'une requete
+    # legitime. Le vecteur n'apporte donc quelque chose que lorsqu'il est
+    # franchement confiant ; ailleurs c'est le lexical qui sait.
+    #
+    # Quand le lexical n'a rien trouve, le seuil est resserre : sans lui,
+    # toute requete rendait un resultat, ce qui transforme une memoire en
+    # generateur de souvenirs plausibles.
+    seuil = _DISTANCE_MAX_SEULE if not fts_rows else _DISTANCE_MAX_FUSION
+    vec_rows = vec_search_rows(
+        conn, vec, project_root,
+        limit=limit * 2,
+        type_filter=type_filter,
+        include_quarantine=include_quarantine,
+        max_distance=seuil,
+    )
+    if not vec_rows:
+        return fts_rows[:limit]
+
+    strategie = (os.environ.get(ENV_FUSION) or "rrf").strip().lower()
+    if strategie == "additif":
+        # Le seuil vectoriel a deja ete applique par `vec_search_rows` via
+        # `max_distance` : le passer une seconde fois ici le compterait deux
+        # fois. On laisse donc 0,0 et c'est `max_distance` qui garde la porte.
+        return additive_merge(fts_rows, vec_rows, query, limit=limit)
+    if strategie == "rrf_nu":
+        return rrf_merge(fts_rows, vec_rows, limit=limit, garantie_position=False)
+    return rrf_merge(fts_rows, vec_rows, limit=limit)

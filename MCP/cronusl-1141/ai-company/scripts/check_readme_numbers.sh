@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+# README / INSTALL 数字机检 — 双语文档的关键数字与代码实测对齐，漂移即红。
+# 背景: 2026-07 审计发现 18 页/631+ 测试/30+ 生态工具三处数字腐烂，全部源于手工维护。
+#
+# 宽松设计防误报——只锚定四类高价值声明，普通措辞变化不误伤：
+#   ① 版本: announcement 行（"> ⚡" 开头）必须包含 v{__version__}（硬等式）
+#   ② MCP 工具数: "N MCP tools" / "N 个 MCP 工具" 声明 = @mcp.tool 实测数（硬等式）；
+#      同一行数字前文含 ecosystem/生态 时按 ecosystem.py 单独实测数校验。
+#      plugin/.claude-plugin/plugin.json 的 description 同一口径（市场页面向用户的同一个数）
+#   ③ 测试数: "N+ tests" / "N+ 测试" 声明 ≤ pytest --collect-only 实收数（单向，防夸大；
+#      pytest 不可用时跳过该项，CI 兜底）
+#   ④ 页面数: "N pages" / "N 个页面" 声明 = App.tsx 路由实测数（硬等式）
+#   ⑤ REST 端点数: "N REST endpoints" / "N 个 REST 端点" 与目录树的 "(N routes)"
+#      = 应用自身 OpenAPI 路由表实测数（硬等式）。真相源必须是路由表而非 grep：
+#      2026-07-27 实测静态 grep 只数出 195，路由表 199（多方法路由与换行装饰器漏网）。
+#   ⑥ 机检不变量条数: "N machine-checked invariants" / "N 项红线机检不变量"
+#      = check_invariants.sh 里的 I 段头实测数（硬等式）。这一处此前完全没被机检覆盖，
+#      于是同一份文件里「架构文档说 11 条」「README 说 14 条」「脚本里其实 14 条」三个
+#      数字各自漂各自的。真相源只有一个：`grep -cE '^# ── I[0-9]+:' scripts/check_invariants.sh`。
+#      **字母后缀的子编号不占号**——I1b / I1c 这类写法天生匹配不上该正则（`[0-9]+` 后
+#      必须紧跟冒号），所以条数只数主编号。这不是巧合而是约定：新增子编号一律沿用字母
+#      后缀写法，新增主编号一律尾部追加且保持连续，否则 README 的数字与"最大编号"就会
+#      对不上，读的人无从判断中间是不是掉了一条。
+#      散文里不带数字地提到 invariants（README:222 / :872 / :900 一类）不会被误伤：
+#      正则要求紧邻的数字捕获组。
+#   ⑦ 规则数: "N rules" / "N 条规则" = GET /api/system/rules 的两张表（自动执行 +
+#      建议类）条数之和（硬等式，带 "+" 的写法同样按等式核）。此前 README 写 "48+"
+#      而实测 38，没有任何机检覆盖。数字必须紧贴 rules / 条规则："5 core rules" 与
+#      "5 条核心规则" 说的是启动简报的 Top5，不是这张表，不参与对数。
+#
+#   ⑧ toolset 明细：实际注册的模块/分组数、default成员与工具数、逐组表格和模块文件枚举。
+#      总数一致不能证明明细一致；新增工具后曾漏改 default/task/analytics 三处。
+#   ⑨ 双语 INSTALL：完整 MCP 工具集数量 = 真实注册总数；每份必须有唯一声明锚点。
+#      分组/只读档是配置子集，不作为完整工具集总数的真相源。
+#
+# 用法: bash scripts/check_readme_numbers.sh   （仓库根目录执行；CI 与本地通用）
+# 退出码: 0=全过, 1=有漂移
+
+set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# ── 实测真相源 ──────────────────────────────────────────────
+VERSION="$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('src/aiteam/__init__.py').read()).group(1))")" || {
+  echo "❌ 无法从 src/aiteam/__init__.py 读取 __version__"; exit 1; }
+MCP_TOTAL="$(grep -h '@mcp.tool' src/aiteam/mcp/tools/*.py | wc -l | tr -d ' ')"
+MCP_ECO="$(grep -c '@mcp.tool' src/aiteam/mcp/tools/ecosystem.py | tr -d ' ')"
+PAGES="$(grep -c '<Route .*element={<ErrorBoundary>' dashboard/src/App.tsx | tr -d ' ')"
+# ⑥ 机检不变量条数。真相源是 I 段头本身，不是任何一份手工维护的清单。
+INVARIANTS="$(grep -cE '^# ── I[0-9]+:' scripts/check_invariants.sh | tr -d ' ')"
+# 测试实收数（兼容 "N tests collected" 与 "collected N items" 两种输出）
+TESTS="$(python3 -m pytest tests --collect-only -q 2>/dev/null | tail -5 \
+  | grep -oE '[0-9]+ tests? collected|collected [0-9]+ items' \
+  | grep -oE '[0-9]+' | head -1)" || TESTS=""
+# REST 端点实测 = 应用自己的 OpenAPI 路由表里的 operation 数（path × method）。
+# 走 app.openapi() 这一公开接口，不碰 FastAPI 的惰性 include 内部结构。
+#
+# 必须显式把**本仓的** src 顶到 sys.path 最前：aiteam 是 editable 安装，裸 import
+# 解析到的是安装时登记的那个 checkout。在 git worktree 里跑（本仓的多会话并行纪律
+# 要求第二个及之后的会话必须用 worktree）就会静默地去数主 checkout 的路由，于是
+# 这一项永远"通过"——它核对的根本不是眼前这份代码。其余各项（工具数/页面数 grep、
+# I12/I13）都已按 ROOT 取数，只有这里漏了。
+REST="$(python3 -c '
+import sys
+
+sys.path.insert(0, "src")
+
+from fastapi import FastAPI
+
+from aiteam.api.routes import api_router
+
+app = FastAPI()
+app.include_router(api_router)
+paths = app.openapi().get("paths", {})
+verbs = ("get", "post", "put", "patch", "delete")
+print(sum(1 for ops in paths.values() for m in ops if m.lower() in verbs))
+' 2>/dev/null)" || REST=""
+
+# ⑦ 规则数实测 = /api/system/rules 返回的两张表。同 ⑤，按本仓 src 导入。
+RULES="$(python3 -c '
+import sys
+
+sys.path.insert(0, "src")
+
+from aiteam.api.routes.system import _ADVISORY_RULES, _AUTOMATED_RULES
+
+print(len(_AUTOMATED_RULES) + len(_ADVISORY_RULES))
+' 2>/dev/null)" || RULES=""
+
+python3 - "$VERSION" "$MCP_TOTAL" "$MCP_ECO" "$PAGES" "${TESTS:-}" "${REST:-}" "$INVARIANTS" "${RULES:-}" <<'PYEOF'
+import re
+import sys
+
+version, mcp_total, mcp_eco, pages = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+tests = int(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None
+rest = int(sys.argv[6]) if len(sys.argv) > 6 and sys.argv[6] else None
+invariants = int(sys.argv[7])
+rules = int(sys.argv[8]) if len(sys.argv) > 8 and sys.argv[8] else None
+
+RE_MCP = re.compile(r'(\d[\d,]*)\**\s*(?:个\s*)?MCP\s*(?:tools|工具)')
+RE_TEST = re.compile(r'(\d[\d,]*)\+?\**\s*(?:automated\s+)?tests\b'
+                     r'|(\d[\d,]*)\+?\**\s*(?:项|个|条)?\s*(?:自动化)?\s*测试')
+RE_PAGE = re.compile(r'(\d[\d,]*)\**\s*(?:个\s*)?(?:[Dd]ashboard\s*)?(?:路由)?\s*(?:pages\b|页面)')
+RE_ECO_CTX = re.compile(r'[Ee]cosystem|生态')
+# ⑤ 两种写法都锚住：headline 的 "N REST endpoints"，与目录树的 "REST endpoints (N routes)"
+RE_REST = re.compile(r'(\d[\d,]*)\**\s*(?:个\s*)?REST\s*(?:endpoints?\b|端点)')
+RE_REST_ROUTES = re.compile(r'REST\s*(?:endpoints?|端点)\s*[（(](\d[\d,]*)\s*(?:routes?\b|条路由)')
+# ⑥ 机检不变量条数（双语各一条，硬等式）。数字捕获组是必需的：不带数字的散文提法
+# （"every machine-checked invariant in ..."、"红线不变量机检"）不该被拉进来对数。
+RE_INVARIANTS = re.compile(r'(\d[\d,]*)\**\s*machine-checked\s*invariants'
+                           r'|(\d[\d,]*)\**\s*项\s*红线机检不变量')
+# ⑦ 规则数（双语，硬等式）。数字须紧贴 rules / 条规则，"5 core rules" 不算。
+RE_RULES = re.compile(r'(\d[\d,]*)\+?\**\s*rules\b|(\d[\d,]*)\+?\**\s*条规则')
+
+fails = []
+for path in ('README.md', 'README.zh-CN.md'):
+    lines = open(path, encoding='utf-8').read().splitlines()
+    # ① 版本声明
+    ann = [l for l in lines if l.lstrip().startswith('> ⚡')]
+    if not ann:
+        fails.append(f'{path}: 找不到 announcement 行（"> ⚡" 开头）——无法核对版本声明')
+    elif not any(f'v{version}' in l for l in ann):
+        fails.append(f'{path}: announcement 行版本声明 ≠ 代码版本 v{version}'
+                     f'（src/aiteam/__init__.py）——发版后请同步 README 顶部引用块')
+    for i, line in enumerate(lines, 1):
+        # ② MCP 工具数（行内前缀含 ecosystem/生态 → 按 ecosystem 单独数校验）
+        for m in RE_MCP.finditer(line):
+            n = int(m.group(1).replace(',', ''))
+            is_eco = bool(RE_ECO_CTX.search(line[:m.start()]))
+            expect = mcp_eco if is_eco else mcp_total
+            label = f'ecosystem 工具实测数 {mcp_eco}' if is_eco else f'MCP 工具实测总数 {mcp_total}'
+            if n != expect:
+                fails.append(f'{path}:{i}: 声明 "{m.group(0).strip()}" ≠ {label}'
+                             f'（grep @mcp.tool src/aiteam/mcp/tools/）')
+        # ③ 测试数（单向: 声明 ≤ 实收，防吹大）
+        if tests is not None:
+            for m in RE_TEST.finditer(line):
+                n = int((m.group(1) or m.group(2)).replace(',', ''))
+                if n > tests:
+                    fails.append(f'{path}:{i}: 测试数声明 "{m.group(0).strip()}" > 实收 {tests}'
+                                 f'（pytest --collect-only）——README 数字超过了实际测试数')
+        # ④ 页面数
+        for m in RE_PAGE.finditer(line):
+            n = int(m.group(1).replace(',', ''))
+            if n != pages:
+                fails.append(f'{path}:{i}: 页面数声明 "{m.group(0).strip()}" ≠ 路由实测数 {pages}'
+                             f'（dashboard/src/App.tsx）')
+        # ⑤ REST 端点数（两种写法同一真相源）
+        if rest is not None:
+            for regex in (RE_REST, RE_REST_ROUTES):
+                for m in regex.finditer(line):
+                    n = int(m.group(1).replace(',', ''))
+                    if n != rest:
+                        fails.append(f'{path}:{i}: REST 端点声明 "{m.group(0).strip()}" ≠ '
+                                     f'路由表实测数 {rest}（app.openapi() 的 path × method）')
+        # ⑥ 机检不变量条数
+        for m in RE_INVARIANTS.finditer(line):
+            n = int((m.group(1) or m.group(2)).replace(',', ''))
+            if n != invariants:
+                fails.append(f'{path}:{i}: 机检不变量条数声明 "{m.group(0).strip()}" ≠ 实测 '
+                             f'{invariants}（grep -cE \'^# ── I[0-9]+:\' '
+                             f'scripts/check_invariants.sh；字母后缀子编号不占号）')
+        # ⑦ 规则数
+        if rules is not None:
+            for m in RE_RULES.finditer(line):
+                n = int((m.group(1) or m.group(2)).replace(',', ''))
+                if n != rules or '+' in m.group(0):
+                    fails.append(f'{path}:{i}: 规则数声明 "{m.group(0).strip()}" ≠ 实测 {rules}'
+                                 f'（GET /api/system/rules 的 automated_rules + advisory_rules）')
+
+# ② 同一口径也管 plugin.json 的 description（它不是 README，只核 MCP 工具数）
+import json
+plugin_desc = json.load(open('plugin/.claude-plugin/plugin.json', encoding='utf-8')).get('description', '')
+for m in RE_MCP.finditer(plugin_desc):
+    n = int(m.group(1).replace(',', ''))
+    is_eco = bool(RE_ECO_CTX.search(plugin_desc[:m.start()]))
+    expect = mcp_eco if is_eco else mcp_total
+    if n != expect:
+        fails.append(f'plugin/.claude-plugin/plugin.json: description 声明 "{m.group(0).strip()}" ≠ '
+                     f'{"ecosystem 工具实测数" if is_eco else "MCP 工具实测总数"} {expect}'
+                     f'（grep @mcp.tool src/aiteam/mcp/tools/）')
+
+# ⑧ 注册只构造工具函数，不执行工具或启动服务。取当前树的注册模块，
+# 避免 grep 总数掩盖合并到同一 toolset 的新模块及 default 成员漂移。
+sys.path.insert(0, 'src')
+from collections import Counter
+
+from aiteam.mcp.tools import _MODULES
+from aiteam.mcp.tools.toolsets import DEFAULT_TOOLSETS, MODULE_TOOLSET
+
+
+class ToolInventory:
+    def __init__(self):
+        self.names = set()
+
+    def tool(self, *args, **kwargs):
+        def register(fn):
+            name = kwargs.get('name') or fn.__name__
+            if name in self.names:
+                raise ValueError(f'duplicate registered tool: {name}')
+            self.names.add(name)
+            return fn
+        return register
+
+
+group_counts = Counter()
+module_names = set()
+all_names = set()
+for module in _MODULES:
+    short_name = module.__name__.rsplit('.', 1)[-1]
+    module_names.add(short_name)
+    inventory = ToolInventory()
+    module.register(inventory)
+    if all_names & inventory.names:
+        fails.append(f'toolset: duplicate tools across modules: {sorted(all_names & inventory.names)}')
+    all_names.update(inventory.names)
+    group_counts[MODULE_TOOLSET[short_name]] += len(inventory.names)
+default_count = sum(group_counts[name] for name in DEFAULT_TOOLSETS)
+if len(all_names) != mcp_total:
+    fails.append(f'toolset: registered total {len(all_names)} differs from decorator total {mcp_total}')
+
+# ⑨ 安装验收里的数字描述完整注册集，不依赖运行机的分组/只读环境变量。
+# 锚点和数量必须同时存在；删掉声明或改写到不再可核对也要报错，不能静默放过。
+from pathlib import Path
+
+for path in ('INSTALL.md', 'INSTALL.zh-CN.md'):
+    if not Path(path).is_file():
+        fails.append(f'{path}: 找不到安装文档——无法核对完整 MCP 工具集数量')
+        continue
+    lines = Path(path).read_text(encoding='utf-8').splitlines()
+    anchors = [(number, line) for number, line in enumerate(lines, 1)
+               if '<!-- install:mcp-tool-count -->' in line]
+    anchor_count = sum(line.count('<!-- install:mcp-tool-count -->') for _, line in anchors)
+    if anchor_count != 1:
+        fails.append(f'{path}: 安装工具数声明锚点必须恰好出现一次，实测 {anchor_count}')
+        continue
+    number, line = anchors[0]
+    claims = list(RE_MCP.finditer(line))
+    if len(claims) != 1:
+        fails.append(f'{path}:{number}: 安装工具数声明锚点须包含唯一 MCP 工具数声明')
+    elif int(claims[0].group(1).replace(',', '')) != len(all_names):
+        fails.append(f'{path}:{number}: 安装工具数声明 "{claims[0].group(0).strip()}" ≠ '
+                     f'完整 MCP 工具集注册总数 {len(all_names)}')
+
+for path in ('README.md', 'README.zh-CN.md'):
+    lines = open(path, encoding='utf-8').read().splitlines()
+    table_counts = {}
+    table_defaults = set()
+    in_table = False
+    table_found = False
+    profile_found = False
+    for number, line in enumerate(lines, 1):
+        for match in re.finditer(r'(\d+)\s*(?:capability-domain toolsets|个能力域\s*toolset|groups\s*\(default|个分组（带)', line):
+            if int(match.group(1)) != len(group_counts):
+                fails.append(f'{path}:{number}: toolset group count differs from registered {len(group_counts)}')
+        for match in re.finditer(r'(\d+)\s*(?:tool modules|个工具模块)', line):
+            if int(match.group(1)) != len(module_names):
+                fails.append(f'{path}:{number}: toolset module count differs from registered {len(module_names)}')
+        if '`default`' in line:
+            for match in re.finditer(r'(\d+)\s*(?:tools\b|工具)', line):
+                if int(match.group(1)) != default_count:
+                    fails.append(f'{path}:{number}: toolset default count differs from registered {default_count}')
+        if re.match(r'^\s*-\s+`default`\s*-', line):
+            profile_found = True
+            members = re.findall(r'`([a-z_]+(?:,[a-z_]+)+)`', line)
+            if len(members) != 1 or set(members[0].split(',')) != DEFAULT_TOOLSETS:
+                fails.append(f'{path}:{number}: toolset default members differ from registry')
+        if re.match(r'^\|\s*(?:Group\s*\|\s*Tools|组名\s*\|\s*工具数)\s*\|', line):
+            table_found = in_table = True
+            continue
+        if in_table and not line.startswith('|'):
+            in_table = False
+        if in_table:
+            for match in re.finditer(r'\|\s*([a-z_]+)(\s*\*)?\s*\|\s*(\d+)\s*(?=\|)', line):
+                name, marked, count = match.groups()
+                if name in table_counts:
+                    fails.append(f'{path}:{number}: duplicate toolset {name}')
+                table_counts[name] = int(count)
+                if marked:
+                    table_defaults.add(name)
+        if 'tool modules' in line or '个工具模块' in line:
+            listed = set()
+            for nested in lines[number:]:
+                if not re.match(r'^│   │       [├└]──', nested):
+                    break
+                listed.update(re.findall(r'\b([a-z_]+)\.py\b', nested))
+            listed.discard('__init__')
+            if (listed or path == 'README.md') and listed != module_names:
+                fails.append(f'{path}:{number}: toolset module file list differs from registry; '
+                             f'missing={sorted(module_names - listed)}, extra={sorted(listed - module_names)}')
+    if not table_found or table_counts != dict(group_counts):
+        fails.append(f'{path}: toolset table differs from registered counts {dict(sorted(group_counts.items()))}')
+    if not profile_found or table_defaults != DEFAULT_TOOLSETS:
+        fails.append(f'{path}: toolset default markers/members are missing or differ from registry')
+
+if fails:
+    for f in fails:
+        print(f'❌ {f}')
+    print(f'\n结论: ❌ README / INSTALL 数字漂移 {len(fails)} 处——请按实测值更新双语文档')
+    sys.exit(1)
+
+skip = '' if tests is not None else '（⚠️ pytest 不可用，测试数校验已跳过，CI 兜底）'
+skip_rest = '' if rest is not None else '（⚠️ 应用导入失败，REST 端点校验已跳过，CI 兜底）'
+skip_rules = '' if rules is not None else '（⚠️ 规则表导入失败，规则数校验已跳过，CI 兜底）'
+print(f'✅ README / INSTALL 数字机检通过（双语）: 版本 v{version} · MCP 工具 {mcp_total}（生态 {mcp_eco}）'
+      f' · 页面 {pages} · REST 端点 {rest if rest is not None else "?"}{skip_rest}'
+      f' · 机检不变量 {invariants} · 规则 {rules if rules is not None else "?"}{skip_rules}'
+      f' · 测试声明 ≤ {tests if tests is not None else "?"}{skip}'
+      f' · toolset {len(group_counts)}/{len(module_names)} modules/default {default_count}')
+PYEOF

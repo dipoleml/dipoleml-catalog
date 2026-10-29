@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.daobataotie.cad-mcp",
+  "type": "mcp",
+  "name": "Cad MCP",
+  "slug": "cad-mcp",
+  "vendor": "daobataotie",
+  "description": "CAD MCP Server",
+  "version": "0.0.0",
+  "homepage": "https://github.com/daobataotie/CAD-MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cad",
+    "cadmcp",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai",
+    "cad",
+    "cadmcp",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "daobataotie",
+    "brandName": "daobataotie",
+    "source": "https://github.com/daobataotie.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "daobataotie/CAD-MCP",
+    "url": "https://github.com/daobataotie/CAD-MCP",
+    "commit": "daf7502951175e01aba9126a702400186ba2d4f9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 650,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "cad-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.jae-jae.fetcher-mcp",
+  "type": "mcp",
+  "name": "Fetcher MCP",
+  "slug": "fetcher-mcp",
+  "vendor": "jae-jae",
+  "description": "MCP server for fetch web page content using Playwright headless browser.",
+  "version": "0.3.9",
+  "homepage": "https://github.com/jae-jae/fetcher-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "playwright"
+  ],
+  "tags": [
+    "ai",
+    "mcp",
+    "playwright"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "playwright",
+    "brandName": "playwright",
+    "source": "https://github.com/jae-jae.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:06Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jae-jae/fetcher-mcp",
+    "url": "https://github.com/jae-jae/fetcher-mcp",
+    "commit": "8754aff66e3d9207502207bf82a493f45f556bb8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1088,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:20Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "fetcher-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "fetcher-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

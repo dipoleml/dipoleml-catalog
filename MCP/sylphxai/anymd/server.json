@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.SylphxAI/anymd",
+  "title": "anymd",
+  "description": "Any file → clean Markdown for AI agents: PDF, Office, EPUB, HTML, images, audio/video. Local MCP.",
+  "repository": {
+    "url": "https://github.com/SylphxAI/anymd",
+    "source": "github"
+  },
+  "version": "8.5.5",
+  "websiteUrl": "https://sylphxai.github.io/anymd/",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@sylphx/anymd",
+      "version": "8.5.5",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

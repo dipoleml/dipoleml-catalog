@@ -1,0 +1,21 @@
+import type { PreviewFeature } from "./schemas.js";
+
+export type TransportType = "stdio" | "http";
+
+export interface IToolConfig {
+    transport: TransportType;
+    httpBodyLimit?: number;
+    httpResponseType: "sse" | "json";
+    readOnly: boolean;
+    disabledTools: string[];
+    confirmationRequiredTools: string[];
+    previewFeatures: PreviewFeature[];
+    disableUntrustedDataWarning?: boolean;
+}
+
+/** Server metadata for the server. */
+export type ServerMetadata = {
+    version: string;
+    mcpServerName: string;
+    engines?: { node: string };
+};

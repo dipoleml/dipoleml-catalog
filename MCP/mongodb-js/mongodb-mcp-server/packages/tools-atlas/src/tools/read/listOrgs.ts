@@ -1,0 +1,95 @@
+import { z } from "zod";
+import type { OperationType, ToolExecutionContext } from "@mongodb-js/mcp-types";
+import { AtlasToolBase } from "../../atlasTool.js";
+import { type ToolArgs, type ToolResult, formatUntrustedData } from "@mongodb-js/mcp-core";
+
+export const ListOrganizationsArgs = {
+    limit: z.number().int().min(1).max(500).default(10).describe("Max number of organizations to return per page."),
+    pageNum: z.number().int().min(1).default(1).describe("Page number of organizations to return."),
+    includeCount: z
+        .boolean()
+        .default(false)
+        .describe(
+            "Whether to include the total number of matching organizations. Note: enabling this makes the API request take much longer."
+        ),
+};
+
+const ListOrganizationsOutputSchema = {
+    organizations: z.array(
+        z.object({
+            name: z.string().optional(),
+            id: z.string().optional(),
+        })
+    ),
+    totalCount: z.number(),
+};
+
+export class ListOrganizationsTool extends AtlasToolBase {
+    static toolName = "atlas-list-orgs";
+    public description = "List MongoDB Atlas organizations";
+    static operationType: OperationType = "read";
+    public argsShape(): typeof ListOrganizationsArgs {
+        return ListOrganizationsArgs;
+    }
+    public override outputSchema(): typeof ListOrganizationsOutputSchema {
+        return ListOrganizationsOutputSchema;
+    }
+
+    protected async execute(
+        { limit, pageNum, includeCount }: ToolArgs<ReturnType<typeof this.argsShape>>,
+        { request }: ToolExecutionContext
+    ): Promise<ToolResult<ReturnType<typeof this.outputSchema>>> {
+        const data = await this.server.apiClient.listOrgs(
+            {
+                params: {
+                    query: {
+                        itemsPerPage: limit,
+                        pageNum,
+                        includeCount,
+                    },
+                },
+            },
+            request
+        );
+
+        const orgs = (data?.results ?? []).map((org) => ({
+            name: org.name,
+            id: org.id,
+        }));
+        // The API omits totalCount when includeCount=false, but some environments return an
+        // explicit 0 even when results are present; only trust a positive count and fall back
+        // to the returned page length otherwise.
+        const apiTotalCount = data?.totalCount ?? 0;
+        const hasAccurateCount = apiTotalCount > 0;
+        const totalCount = hasAccurateCount ? apiTotalCount : orgs.length;
+        // Without includeCount the API omits totalCount, so a full page is the signal
+        // that more results may exist on later pages.
+        const moreResultsAvailable = hasAccurateCount
+            ? (pageNum - 1) * limit + orgs.length < apiTotalCount
+            : orgs.length === limit;
+
+        if (!orgs.length) {
+            return {
+                content: [{ type: "text", text: "No organizations found in your MongoDB Atlas account." }],
+                structuredContent: {
+                    organizations: [],
+                    totalCount: 0,
+                },
+            };
+        }
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                `Found ${orgs.length} organizations in your MongoDB Atlas account.${
+                    moreResultsAvailable ? " Use pagination arguments if more results are expected." : ""
+                }`,
+                JSON.stringify(orgs)
+            ),
+            structuredContent: {
+                organizations: orgs,
+                totalCount,
+            },
+        };
+    }
+}

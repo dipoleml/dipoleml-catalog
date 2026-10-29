@@ -1,0 +1,137 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "retentioneering"
+version = "5.3.0"
+authors = [
+  { name = "Retentioneering User Trajectory Analysis Lab", email = "retentioneering@gmail.com" },
+]
+description = "Open-source Python toolkit, MCP server, and agent skills for reproducible product and quantitative UX analytics on clickstream and event logs: multiscale interactive user-flow graphs, customer journeys and user flow analysis, behavioral segmentation, A/B tests, process mining, and Markov models"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+keywords = [
+    "product analytics",
+    "clickstream analytics",
+    "event log analysis",
+    "behavioral analytics",
+    "customer journey analytics",
+    "user journey analysis",
+    "user flow analysis",
+    "quantitative UX",
+    "multiscale analytics",
+    "session analysis",
+    "funnel analysis",
+    "retention analysis",
+    "conversion analysis",
+    "what if cjm analysis",
+    "behavioral segmentation",
+    "path analysis",
+    "graph analytics",
+    "process mining",
+    "A/B testing",
+    "retentioneering",
+    "Markov chains",
+    "reproducible analytics",
+    "auditable analytics",
+    "MCP server",
+    "agent skills",
+    "AI agents",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Information Technology",
+
+    "Framework :: Jupyter",
+    "Framework :: Jupyter :: JupyterLab",
+    "Framework :: IPython",
+
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Scientific/Engineering :: Mathematics",
+
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+
+    "Operating System :: OS Independent",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "pandas>=2.2",
+    "duckdb>=1.1",
+    "anywidget>=0.9",
+    "posthog>=3.0",
+    "ipywidgets>=7.7",
+    "traitlets>=5.0",
+    "pyarrow>=14.0",
+    "scikit-learn>=1.3",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "matplotlib>=3.5",
+    "mcp[cli]>=2.2,<3",
+    # Not imported anywhere — named here only so the resolver touches it.
+    # mcp 2.x depends on the renamed httpx2/httpcore2 distributions, so an
+    # older `httpcore` already present in the environment (Colab ships
+    # 1.0.5) is left behind unupgraded, pinned to h11<0.15, while h11 is
+    # bumped to >=0.16 for httpcore2 — a dangling conflict `pip check`
+    # reports. Naming httpcore gives pip a reason to upgrade that copy too.
+    "httpcore>=1.0.9",
+    "gensim>=4.3.3",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/retentioneering/retentioneering-tools"
+"Bug Tracker" = "https://github.com/retentioneering/retentioneering-tools/issues"
+"Documentation" = "https://retentioneering.com/docs/"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "ipykernel",
+    "jupyterlab",
+    "notebook",
+    "pre-commit",
+    "ruff>=0.8.6",
+    "jinja2>=3.1",
+]
+
+[tool.hatch.build]
+artifacts = [
+    "src/retentioneering/static/*.js",
+    "src/retentioneering/static/*.css",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/retentioneering"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # sklearn convergence/future warnings on small test datasets are expected
+    "ignore::sklearn.exceptions.ConvergenceWarning",
+    "ignore::FutureWarning:sklearn",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "jupyterlab>=4.5.9",
+    "pytest>=9.1.0",
+    "pre-commit>=4.0.0",
+    "ruff>=0.8.6",
+]

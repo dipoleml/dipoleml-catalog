@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyKeys 凭据管理台</title>
+<link rel="icon" href="/icon.png">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#e3e6ea; --text:#1f2329; --muted:#86909c; --brand:#1652f0; --ok:#00b42a; --bad:#f53f3f; --warn:#ff7d00; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--text); background:var(--bg); }
+  header { display:flex; align-items:center; gap:12px; padding:14px 24px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:17px; margin:0; }
+  header .badge { font-size:12px; color:var(--muted); }
+  main { max-width:1080px; margin:0 auto; padding:20px 24px 60px; display:grid; gap:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .card h2 { font-size:15px; margin:0 0 12px; display:flex; align-items:center; gap:8px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  /* 凭据列表：桌面态优化 */
+  #cred-table thead th { font-size:12px; letter-spacing:.02em; }
+  #cred-table tbody tr { transition:background .12s; }
+  #cred-table tbody tr:hover { background:#f6f8fc; }
+  #cred-table tbody td .name { font-size:14px; }
+  #cred-table td:last-child button:not(:last-child) { margin-right:6px; }
+  /* 行内「更多」下拉菜单 */
+  .row-actions { position:relative; }
+  .row-menu { display:none; position:absolute; right:0; top:calc(100% + 2px); background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(31,35,41,.14); padding:4px; z-index:30; min-width:136px; }
+  .row-menu.open { display:block; }
+  .row-menu button { display:block; width:100%; text-align:left; border:none; background:none; box-shadow:none; padding:7px 10px; border-radius:6px; font-size:13px; white-space:nowrap; }
+  .row-menu button:hover { background:#f2f5fa; border-color:transparent; color:var(--brand); }
+  .row-menu button.danger:hover { background:#fff1f0; color:var(--bad); }
+  /* 桌面态放行下拉菜单（不被 overflow 裁剪）；窄窗口保留横向滚动；手机卡片模式无滚动需求同样放行 */
+  .table-scroll { overflow:auto; }
+  @media (min-width: 900px) { .table-scroll { overflow:visible; } }
+  @media (max-width: 640px) { .table-scroll { overflow:visible; } }
+  /* 大屏：类型/字段/端点列加宽；类型与端点不折行（如 oauth-client-credentials 整体显示） */
+  @media (min-width: 641px) {
+    #cred-table td:nth-child(2), #cred-table thead th:nth-child(2) { min-width:180px; }
+    #cred-table td:nth-child(3), #cred-table thead th:nth-child(3) { min-width:220px; }
+    #cred-table td:nth-child(4), #cred-table thead th:nth-child(4) { min-width:132px; }
+    #cred-table td:nth-child(2), #cred-table td:nth-child(4) { white-space:nowrap; }
+  }
+  th { color:var(--muted); font-weight:500; white-space:nowrap; }
+  td .name { font-weight:600; }
+  td .sub { color:var(--muted); font-size:12px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; background:#eef2ff; color:var(--brand); margin:1px 2px 1px 0; }
+  button { font:inherit; border:1px solid var(--line); background:#fff; border-radius:7px; padding:4px 10px; cursor:pointer; }
+  button:hover { border-color:var(--brand); color:var(--brand); }
+  button.primary { background:var(--brand); border-color:var(--brand); color:#fff; }
+  button.danger:hover { border-color:var(--bad); color:var(--bad); }
+  button.mini { padding:1px 8px; font-size:12px; }
+  form label { display:block; font-size:12px; color:var(--muted); margin:10px 0 3px; }
+  input, select, textarea { width:100%; font:inherit; padding:6px 9px; border:1px solid var(--line); border-radius:7px; background:#fff; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0 16px; }
+  .fields-row { display:grid; grid-template-columns:minmax(120px,1fr) 2fr 32px; gap:8px; margin:6px 0; }
+  .fields-row button { padding:0; }
+  .stats-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:14px; }
+  .stat { background:#f8f9fb; border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .stat b { display:block; font-size:22px; }
+  .stat span { color:var(--muted); font-size:12px; }
+  .bar-wrap { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }
+  .bar-track { flex:1; height:14px; background:#eef1f4; border-radius:4px; overflow:hidden; }
+  .bar { height:100%; background:var(--brand); border-radius:4px; }
+  #toast { position:fixed; right:20px; bottom:20px; max-width:70%; background:#272a30; color:#fff; border-radius:8px; padding:10px 14px; font-size:13px; display:none; white-space:pre-wrap; z-index:20; }
+  .help h3 { font-size:13px; margin:14px 0 6px; }
+  .help ul { padding-left:18px; margin:4px 0; }
+  .help li { margin:5px 0; }
+  .help code { background:#f0f2f5; padding:1px 6px; border-radius:4px; font-size:12px; word-break:break-all; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  .kv { font-size:12px; word-break:break-all; }
+  .modal-mask { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:15; }
+  .modal { background:#fff; border-radius:12px; padding:20px; width:min(640px,92vw); max-height:86vh; overflow:auto; }
+  .hidden { display:none; }
+  /* 统一滚动条样式：页面级与容器级（审计表格、外层滚动区）一致 */
+  * { scrollbar-width:thin; scrollbar-color:#c3c9d4 transparent; }
+  *::-webkit-scrollbar { width:9px; height:9px; }
+  *::-webkit-scrollbar-track { background:transparent; }
+  *::-webkit-scrollbar-corner { background:transparent; }
+  *::-webkit-scrollbar-thumb { background:#c3c9d4; border-radius:8px; border:2px solid transparent; background-clip:padding-box; }
+  *::-webkit-scrollbar-thumb:hover { background:#9aa4b5; background-clip:padding-box; }
+  *::-webkit-scrollbar-thumb:active { background:#7f8ba0; background-clip:padding-box; }
+  /* 允许 grid 子项收缩（配合 code 的 break-all 防止窄屏横向溢出） */
+  main > * { min-width:0; }
+  .card { overflow-wrap:anywhere; }
+  .grid > div, .fields-row > input { min-width:0; }
+  /* 移动端适配（手机/窄窗口） */
+  @media (max-width: 640px) {
+    header { padding:10px 14px; flex-wrap:wrap; row-gap:4px; }
+    main { padding:14px 12px 40px; gap:14px; }
+    footer { padding:0 12px 24px; gap:4px 12px; }
+    .card { padding:12px; border-radius:8px; }
+    .card h2 { flex-wrap:wrap; row-gap:8px; font-size:14px; }
+    .grid { grid-template-columns:1fr; }
+    .fields-row { grid-template-columns:1fr 1fr 28px; gap:6px; }
+    table { font-size:12px; }
+    th, td { padding:7px 8px; }
+    .stats-cards { grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:8px; }
+    .stat b { font-size:18px; }
+    .modal { padding:14px; }
+    /* 凭据列表：卡片式（每条凭据一张卡，无需横向滚动） */
+    #cred-table thead { display:none; }
+    #cred-table tbody tr:last-child td { border-bottom:none; }
+    #cred-table, #cred-table tbody, #cred-table tr, #cred-table td { display:block; width:auto; }
+    #cred-table tbody tr { border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; margin-bottom:10px; background:#fff; box-shadow:0 1px 3px rgba(31,35,41,.05); }
+    #cred-table tbody tr:hover { background:#fff; }
+    #cred-table tbody td { padding:3px 0; border-bottom:none; }
+    #cred-table tbody td[data-label]::before { content:attr(data-label) "："; color:var(--muted); font-size:11px; margin-right:6px; }
+    #cred-table tbody td:first-child::before { content:none; }
+    #cred-table tbody td:first-child .name { font-size:15px; }
+    #cred-table tbody td:first-child .sub { display:block; margin-top:1px; }
+    #cred-table tbody td:last-child { margin-top:9px; padding-top:9px; border-top:1px dashed var(--line); }
+    #cred-table tbody td:last-child > button { flex:1 1 44%; margin:2px 0; }
+    #cred-table tbody td:last-child { display:flex; flex-wrap:wrap; gap:4px; }
+  }
+  footer { max-width:1080px; margin:0 auto; padding:0 24px 30px; display:flex; flex-wrap:wrap; align-items:center; gap:6px 18px; font-size:12px; color:var(--muted); }
+  footer b { color:var(--text); font-weight:600; }
+  footer a { color:var(--muted); text-decoration:none; }
+  footer a:hover { color:var(--brand); }
+  footer .dot::before { content:"·"; margin-right:18px; color:var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔑 MyKeys 凭据管理台</h1>
+  <span class="badge" id="env-badge">加载中…</span>
+</header>
+<main>
+  <section class="card help">
+    <details open id="help-details">
+      <summary style="cursor:pointer;font-weight:600;font-size:14px">📖 使用说明（启动方式 · 给 AI 用 · 测试令牌）</summary>
+      <h3>1️⃣ 怎么启动本管理台</h3>
+      <ul>
+        <li><b>独立启动</b>（不依赖 ZCode，重启电脑后需重新执行）：<br>
+          <code>~/.zcode/cli/plugins/cache/mkeys-local/mkeys/0.1.0/bin/mykeys.js admin</code><br>
+          启动后终端打印<b>带令牌的访问地址</b>，复制到浏览器打开即可；18765 端口被占时自动换端口（以打印为准）。</li>
+        <li><b>ZCode 会话内</b>：输入 <code>/mykeys-admin</code>，或直接对 AI 说「打开 MyKeys 管理页面」。</li>
+        <li>访问令牌<b>持久化</b>在 <code>~/.mkeys/admin.token</code>（0600 权限）：服务重启后地址不变，收藏一次长期有效；仅本机可访问，请勿把带令牌的地址外传。</li>
+      </ul>
+      <h3>2️⃣ 怎么给 AI 使用凭据</h3>
+      <ul>
+        <li><b>新会话里直接说人话</b>，例如：<br>
+          「用 jira-cli 的令牌，查一下我名下未关闭的 issue」<br>
+          「Jira 上 DBMPRO-59 现在什么状态，把评论也拉出来」<br>
+          AI 会自动调用 <code>get_token</code> 取临时令牌去请求，不需要你手动复制令牌。</li>
+        <li>AI 取令牌<b>必须填写用途</b>（不填会被拒绝），每次取令牌/验证/读密钥都自动记入审计日志。</li>
+        <li><b>查账</b>：输入 <code>/mykeys</code> 或问「密钥最近被用了多少次、用来干什么」；本页下方的统计图表就是同一份数据。</li>
+        <li>令牌只在 AI 当次任务的内存里使用，不写入代码和文件，过期自动重新签发。</li>
+      </ul>
+      <h3>3️⃣ 怎么测试令牌是否正确</h3>
+      <ul>
+        <li>点凭据行的<b>「验证」</b>按钮 = 真实登录校验：向验证地址发一次带令牌的请求。<br>
+          ✅ HTTP 200 → 令牌有效；❌ 401/403 → 令牌错误或已在目标系统轮换，需重新生成并编辑凭据更新。</li>
+        <li>点<b>「签发令牌」</b>可完整走一遍 AI 取令牌的流程（需填用途），用于端到端测试。</li>
+        <li>api-key 类型认的字段名是 <code>apiKey</code>（或 <code>token</code> / <code>key</code>）；字段名不对会提示「缺少 apiKey/token/key 字段」。</li>
+        <li>验证地址有讲究：要选「带令牌 200 / 不带 401」的接口（如 Jira 的 <code>/rest/api/2/myself</code>），填系统首页会永远 200 测不出问题。</li>
+      </ul>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>凭据列表 <button id="btn-refresh" class="mini">刷新</button>
+      <span style="flex:1"></span>
+      <button class="primary" id="btn-add">＋ 添加凭据</button></h2>
+    <div class="table-scroll">
+      <table id="cred-table">
+        <thead><tr><th>名称 / 系统</th><th>类型</th><th>字段</th><th>端点</th><th>更新时间</th><th style="width:150px">操作</th></tr></thead>
+        <tbody id="cred-tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card hidden" id="form-card">
+    <h2 id="form-title">添加凭据</h2>
+    <form id="cred-form">
+      <div class="grid">
+        <div><label>名称（唯一）*</label><input name="name" required placeholder="如 jira-ci"></div>
+        <div><label>系统 / 平台</label><input name="system" placeholder="如 Jira、订单服务"></div>
+        <div><label>认证类型 *</label>
+          <select name="authType">
+            <option value="api-key">api-key（静态令牌 / Bearer）</option>
+            <option value="basic">basic（用户名密码）</option>
+            <option value="oauth-client-credentials">oauth-client-credentials</option>
+            <option value="oauth-password">oauth-password</option>
+            <option value="custom">custom（自定义令牌端点）</option>
+          </select></div>
+        <div><label>说明</label><input name="description" placeholder="给人看的用途说明"></div>
+        <div><label>标签（逗号分隔）</label><input name="tags" placeholder="prod,ci"></div>
+        <div><label>令牌有效期（秒，端点未返回时用）</label><input name="ttlSeconds" type="number" min="0" placeholder="3600"></div>
+      </div>
+      <label>凭据字段 —— 值建议填 <b>env:环境变量名</b>（服务进程读取后即刻加密，明文不落盘、不经过对话）</label>
+      <div id="fields-editor"></div>
+      <button type="button" class="mini" id="btn-add-field">＋ 加一个字段</button>
+      <div class="grid" style="margin-top:8px">
+        <div><label>验证地址 verify URL（2xx=有效，401=失效）</label><input name="verifyUrl" placeholder="https://example.com/api/whoami"></div>
+        <div><label>令牌地址 token URL（OAuth/自定义换令牌接口）</label><input name="tokenUrl" placeholder="https://sso.example.com/oauth/token"></div>
+      </div>
+      <p class="muted" style="font-size:12px">地址仅允许公网 http/https；内网目标需在 ZCode 插件设置开启「允许内网验证地址」。</p>
+      <div style="margin-top:12px;display:flex;gap:10px">
+        <button type="submit" class="primary" id="btn-submit">保存</button>
+        <button type="button" id="btn-cancel">取消</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>AI 使用统计（近 30 天）
+      <span style="flex:1"></span>
+      <button class="mini danger" id="btn-clear-stats">清空统计</button></h2>
+    <div id="stats-box" class="muted">加载中…</div>
+    <h2 style="margin-top:18px">审计日志（最近 50 条 · 会话可追溯）</h2>
+    <div style="overflow:auto;max-height:340px">
+      <table>
+        <thead><tr><th>时间</th><th>会话/实例</th><th>凭据</th><th>操作</th><th>结果</th><th>用途</th></tr></thead>
+        <tbody id="audit-tbody"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span><b>MyKeys</b> <span id="fver"></span></span>
+  <span class="dot">© <span id="fyear"></span> 胜利因子</span>
+  <a href="https://www.aiputing.com/" target="_blank" rel="noreferrer">www.aiputing.com</a>
+  <span class="dot">本地运行 · 仅本机访问 · 数据目录 ~/.mkeys</span>
+</footer>
+
+<div class="modal-mask" id="token-mask">
+  <div class="modal">
+    <h2 style="margin:0 0 10px;font-size:15px">🔑 临时令牌已签发</h2>
+    <div id="token-body"></div>
+    <div style="margin-top:14px;text-align:right"><button id="token-close">关闭</button></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+// 令牌优先取地址 ?t=，并缓存到浏览器；之后直接访问本页（无参数）自动复用缓存的令牌
+let TOKEN = new URLSearchParams(location.search).get("t") || "";
+if (TOKEN) {
+  try { localStorage.setItem("mykeys-admin-token", TOKEN); } catch {}
+} else {
+  try { TOKEN = localStorage.getItem("mykeys-admin-token") || ""; } catch {}
+}
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function toast(msg, isErr) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.style.background = isErr ? "var(--bad)" : "#272a30";
+  el.style.display = "block";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => (el.style.display = "none"), isErr ? 8000 : 3500);
+}
+
+async function api(path, body) {
+  const opt = body === undefined
+    ? {}
+    : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const res = await fetch(`/api/${path}?t=${encodeURIComponent(TOKEN)}`, opt);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+let STATE = null;
+
+async function refresh() {
+  if (!TOKEN) {
+    $("#env-badge").textContent = "缺少访问令牌：请通过启动输出或 AI 提供的完整地址（带 ?t=）打开一次";
+    $("#cred-tbody").innerHTML = '<tr><td colspan="6" class="muted">缺少访问令牌——用带 ?t= 的完整地址打开一次后，本浏览器会记住令牌。</td></tr>';
+    return;
+  }
+  try {
+    STATE = await api("state");
+  $("#env-badge").textContent = `${STATE.credentials.length} 个凭据 · 原始密钥读取：${STATE.allowReveal ? "已开启" : "已禁用"}`;
+  $("#fver").textContent = `v${(STATE.about && STATE.about.version) || "0.0.0"}`;
+  $("#fyear").textContent = String(new Date().getFullYear());
+  renderCreds();
+    renderStats();
+  } catch (e) {
+    $("#env-badge").textContent = "加载失败";
+    toast("加载失败：" + e.message, true);
+  }
+}
+
+function renderCreds() {
+  const tb = $("#cred-tbody");
+  if (!STATE.credentials.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted">凭据库为空，点右上「＋ 添加凭据」开始。</td></tr>';
+    return;
+  }
+  tb.innerHTML = STATE.credentials.map((m, i) => {
+    const eps = [m.hasVerifyEndpoint && "verify", m.hasTokenEndpoint && "token"].filter(Boolean).join(" + ") || "无";
+    const n = esc(m.name);
+    return `<tr>
+      <td><div class="name">${n}</div><div class="sub">${esc(m.system || "")}${m.description ? " · " + esc(m.description) : ""}</div>
+        ${(m.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join("")}</td>
+      <td data-label="类型">${esc(m.authType)}</td>
+      <td data-label="字段" class="kv">${m.fieldNames.map((f) => `<span class="pill">${esc(f)}</span>`).join("") || '<span class="muted">无</span>'}</td>
+      <td data-label="端点">${eps}</td>
+      <td data-label="更新时间" class="sub">${esc((m.updatedAt || "").replace("T", " ").slice(0, 16))}</td>
+      <td class="row-actions">
+        <button class="mini" onclick="doVerify('${n}')">验证</button>
+        <button class="mini" onclick="toggleRowMenu(event, 'row-menu-${i}')">更多 ▾</button>
+        <div class="row-menu" id="row-menu-${i}">
+          <button onclick="askToken('${n}')">🔑 签发令牌</button>
+          <button onclick="editCred('${n}')">✏️ 编辑</button>
+          <button class="danger" onclick="doDelete('${n}')">🗑️ 删除</button>
+        </div>
+      </td></tr>`;
+  }).join("");
+}
+
+function renderStats() {
+  const s = STATE.stats;
+  const maxDay = Math.max(1, ...s.daily.map((d) => d.calls));
+  const typeText = { token: "签发令牌", verify: "验证登录", reveal: "读取密钥", add: "添加", update: "更新", delete: "删除", clear: "清空统计" };
+  $("#stats-box").innerHTML = `
+    <div class="stats-cards">
+      <div class="stat"><b>${s.totals.calls}</b><span>总调用</span></div>
+      <div class="stat"><b class="ok">${s.totals.ok}</b><span>成功</span></div>
+      <div class="stat"><b class="${s.totals.failed ? "bad" : ""}">${s.totals.failed}</b><span>失败</span></div>
+      <div class="stat"><b>${s.totals.byType.token || 0}</b><span>令牌签发</span></div>
+      <div class="stat"><b>${(s.sessions || []).length}</b><span>会话/实例数</span></div>
+    </div>
+    <div class="grid">
+      <div><h2 style="font-size:13px;margin:4px 0">按用途</h2>
+        ${s.purposes.length ? s.purposes.slice(0, 10).map((p) =>
+          `<div class="bar-wrap"><span style="width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.purpose)}">${esc(p.purpose)}</span>
+           <div class="bar-track"><div class="bar" style="width:${Math.round((p.calls / s.purposes[0].calls) * 100)}%"></div></div><b>${p.calls}</b></div>`).join("")
+        : '<div class="muted">暂无（签发令牌时填写用途即会记录）</div>'}</div>
+      <div><h2 style="font-size:13px;margin:4px 0">按会话（谁在用）</h2>
+        ${(s.sessions || []).length ? s.sessions.slice(0, 8).map((x) =>
+          `<div class="bar-wrap"><span style="width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.session)}">${esc(x.session)}</span>
+           <div class="bar-track"><div class="bar" style="width:${Math.round((x.calls / s.sessions[0].calls) * 100)}%"></div></div>
+           <b>${x.calls}</b></div>
+           <div class="kv muted" style="margin:-2px 0 4px">令牌 ${x.tokensIssued} · ${esc((x.credentials || []).join("、") || "无凭据")} · 最近 ${esc((x.lastUsed || "").replace("T", " ").slice(5, 16))}</div>`).join("")
+        : '<div class="muted">暂无会话记录</div>'}</div>
+      <div><h2 style="font-size:13px;margin:4px 0">按天</h2>
+        ${s.daily.length ? s.daily.slice(-14).map((d) =>
+          `<div class="bar-wrap"><span style="width:88px">${esc(d.date)}</span>
+           <div class="bar-track"><div class="bar" style="width:${Math.round((d.calls / maxDay) * 100)}%"></div></div><b>${d.calls}</b></div>`).join("")
+        : '<div class="muted">暂无记录</div>'}</div>
+    </div>
+    ${s.recentFailures.length ? `<h2 style="font-size:13px;margin:12px 0 4px">最近失败</h2>` +
+      s.recentFailures.map((f) => `<div class="kv bad">${esc(f.ts.replace("T", " ").slice(0, 19))} ${esc(f.credential)} [${esc(f.type)}] ${esc(f.message)}</div>`).join("") : ""}`;
+
+  const tb = $("#audit-tbody");
+  const recent = STATE.recent || [];
+  if (!recent.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted">暂无记录</td></tr>';
+  } else {
+    tb.innerHTML = recent.map((e) => `<tr>
+      <td class="sub" style="white-space:nowrap">${esc((e.ts || "").replace("T", " ").slice(5, 19))}</td>
+      <td class="kv">${esc(e.session || "-")}</td>
+      <td>${esc(e.credential || "-")}</td>
+      <td>${esc(typeText[e.type] || e.type)}${e.cached ? "（缓存）" : ""}</td>
+      <td class="${e.ok ? "ok" : "bad"}">${e.ok ? "✓" : "✗ " + esc((e.message || "").slice(0, 40))}</td>
+      <td class="kv" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.purpose || "")}">${esc(e.purpose || "-")}</td>
+    </tr>`).join("");
+  }
+}
+
+function toggleRowMenu(ev, id) {
+  ev.stopPropagation();
+  document.querySelectorAll(".row-menu.open").forEach((m) => { if (m.id !== id) m.classList.remove("open"); });
+  const el = document.getElementById(id);
+  el.classList.toggle("open");
+  // 靠近视口底部时向上弹出，保证菜单始终可见
+  const r = el.getBoundingClientRect();
+  if (r.bottom > window.innerHeight - 8) {
+    el.style.top = "auto";
+    el.style.bottom = "calc(100% + 2px)";
+  } else {
+    el.style.top = "calc(100% + 2px)";
+    el.style.bottom = "auto";
+  }
+}
+document.addEventListener("click", () => {
+  document.querySelectorAll(".row-menu.open").forEach((m) => m.classList.remove("open"));
+});
+
+async function doVerify(name) {
+  toast(`正在验证 ${name} …`);
+  try {
+    const r = await api("verify", { name });
+    toast(r.ok ? `✅ ${name} 登录验证通过（${r.via}${r.status ? " · HTTP " + r.status : ""} · ${r.latencyMs}ms）` : `❌ ${name} 验证失败：${r.message}`, !r.ok);
+    refresh();
+  } catch (e) { toast(e.message, true); }
+}
+
+function askToken(name) {
+  const purpose = prompt(`本次使用「${name}」令牌的用途（必填，用于审计统计）：`);
+  if (purpose === null) return;
+  if (!purpose || purpose.trim().length < 2) { toast("用途至少 2 个字符", true); return; }
+  api("token", { name, purpose: purpose.trim() }).then((r) => {
+    const header = r.scheme ? `${r.headerName}: ${r.scheme} <token>` : `${r.headerName}: <token>`;
+    $("#token-body").innerHTML = `
+      <p>凭据 <b>${esc(name)}</b>${r.cached ? "（缓存复用）" : ""}，有效期 ${r.expiresInSeconds}s（至 ${esc(r.expiresAt)}）</p>
+      <p class="muted" style="font-size:12px">携带方式：<span class="kv">${esc(header)}</span></p>
+      <label style="font-size:12px;color:var(--muted)">令牌值（用后即弃，勿写入代码/日志）</label>
+      <textarea id="token-value" readonly rows="3" style="font-family:ui-monospace,monospace">${esc(r.token)}</textarea>
+      <button onclick="navigator.clipboard.writeText(document.getElementById('token-value').value).then(() => toast('已复制'))">复制令牌</button>`;
+    $("#token-mask").style.display = "flex";
+    usage_stat_refresh();
+  }).catch((e) => toast(e.message, true));
+}
+function usage_stat_refresh() { refresh(); }
+$("#token-close").onclick = () => ($("#token-mask").style.display = "none");
+$("#token-mask").onclick = (e) => { if (e.target === $("#token-mask")) $("#token-mask").style.display = "none"; };
+
+async function doDelete(name) {
+  if (!confirm(`确认删除凭据「${name}」？不可恢复（历史使用记录保留）。`)) return;
+  try { await api("credentials/delete", { name }); toast(`已删除 ${name}`); refresh(); }
+  catch (e) { toast(e.message, true); }
+}
+
+$("#btn-clear-stats").onclick = async () => {
+  if (!confirm("确认清空全部使用统计数据？此操作不可恢复（会保留一条清空记录以便审计）。")) return;
+  try { await api("stats/clear", { confirm: true }); toast("已清空统计数据"); refresh(); }
+  catch (e) { toast(e.message, true); }
+};
+
+/* 添加 / 编辑表单 */
+function fieldRow(k, v) {
+  const div = document.createElement("div");
+  div.className = "fields-row";
+  div.innerHTML = `<input placeholder="字段名，如 apiKey" value="${esc(k || "")}"><input placeholder="值，推荐 env:环境变量名" value="${esc(v || "")}"><button type="button" class="mini" title="删除该字段">✕</button>`;
+  div.querySelector("button").onclick = () => div.remove();
+  return div;
+}
+$("#btn-add-field").onclick = () => $("#fields-editor").appendChild(fieldRow());
+$("#btn-add").onclick = () => openForm(null);
+$("#btn-cancel").onclick = () => $("#form-card").classList.add("hidden");
+$("#btn-refresh").onclick = refresh;
+
+function openForm(existing) {
+  $("#form-card").classList.remove("hidden");
+  $("#form-title").textContent = existing ? `编辑凭据：${existing.name}` : "添加凭据";
+  const f = $("#cred-form");
+  f.reset();
+  $("#fields-editor").innerHTML = "";
+  f.dataset.editing = existing ? existing.name : "";
+  if (existing) {
+    f.name.value = existing.name; f.system.value = existing.system || "";
+    f.authType.value = existing.authType; f.description.value = existing.description || "";
+    f.tags.value = (existing.tags || []).join(",");
+    f.ttlSeconds.value = existing.ttlSeconds || "";
+    (existing.fieldNames || []).forEach((fn) => $("#fields-editor").appendChild(fieldRow(fn, "")));
+    f.verifyUrl.value = existing.verifyUrl || "";
+    f.tokenUrl.value = existing.tokenUrl || "";
+    $("#form-card").scrollIntoView({ behavior: "smooth" });
+  } else {
+    $("#fields-editor").appendChild(fieldRow("", ""));
+  }
+}
+
+function editCred(name) {
+  const m = STATE.credentials.find((c) => c.name === name);
+  if (!m) return;
+  openForm(m);
+  toast("编辑模式：留空的字段值保持不变（不会清空已存密钥）", false);
+}
+
+$("#cred-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const fields = {};
+  const kept = new Set();
+  let bad = null;
+  $("#fields-editor").querySelectorAll(".fields-row").forEach((row) => {
+    const [k, v] = row.querySelectorAll("input");
+    if (k.value.trim()) {
+      kept.add(k.value.trim());
+      if (f.dataset.editing && !v.value.trim()) return; // 编辑时空值=保持不变
+      if (!v.value.trim()) { bad = bad || `字段「${k.value.trim()}」的值为空`; return; }
+      fields[k.value.trim()] = v.value.trim();
+    }
+  });
+  if (bad) return toast(bad, true);
+  // 编辑模式：表单里已不存在的旧字段 = 用户删除的字段，需要显式下发 removeFields
+  let removeFields = [];
+  if (f.dataset.editing) {
+    const existing = STATE.credentials.find((c) => c.name === f.dataset.editing);
+    removeFields = existing ? (existing.fieldNames || []).filter((fn) => !kept.has(fn)) : [];
+    if (removeFields.length && !confirm(`将删除字段：${removeFields.join("、")}\n确认保存？`)) return;
+  }
+  const payload = {
+    name: f.name.value.trim(),
+    system: f.system.value.trim(),
+    authType: f.authType.value,
+    description: f.description.value.trim(),
+    tags: f.tags.value.split(",").map((s) => s.trim()).filter(Boolean),
+    ttlSeconds: f.ttlSeconds.value ? Number(f.ttlSeconds.value) : undefined,
+    fields,
+    endpoints: {},
+  };
+  if (f.verifyUrl.value.trim()) payload.endpoints.verify = { url: f.verifyUrl.value.trim() };
+  if (f.tokenUrl.value.trim()) payload.endpoints.token = { url: f.tokenUrl.value.trim() };
+  try {
+    if (f.dataset.editing) {
+      const patch = Object.assign({}, payload, { name: f.dataset.editing, newName: payload.name });
+      if (removeFields.length) patch.removeFields = removeFields;
+      await api("credentials/update", patch);
+      toast(`已更新 ${payload.name}${removeFields.length ? `（删除字段：${removeFields.join("、")}）` : ""}`);
+    } else {
+      await api("credentials", payload);
+      toast(`已添加并加密存储 ${payload.name}`);
+    }
+    $("#form-card").classList.add("hidden");
+    refresh();
+  } catch (err) { toast(err.message, true); }
+};
+
+/* 使用说明折叠状态记忆：跟随浏览器缓存，下次打开恢复上次的展开/折叠 */
+(function restoreHelpState() {
+  const el = document.getElementById("help-details");
+  if (!el) return;
+  try {
+    const saved = localStorage.getItem("mykeys-help-open");
+    if (saved === "0") el.open = false;
+    else if (saved === "1") el.open = true;
+  } catch {}
+  el.addEventListener("toggle", () => {
+    try { localStorage.setItem("mykeys-help-open", el.open ? "1" : "0"); } catch {}
+  });
+})();
+
+refresh();
+</script>
+</body>
+</html>

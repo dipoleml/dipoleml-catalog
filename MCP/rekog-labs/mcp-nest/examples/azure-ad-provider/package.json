@@ -1,0 +1,34 @@
+{
+  "name": "try-docs-azure-ad-provider",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "ts-node-dev --respawn src/main.ts",
+    "mint": "ts-node scripts/mint-jwt.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/microservices": "^11.0.0",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/typeorm": "^11.0.0",
+    "@rekog/mcp-nest": "file:../../packages/mcp-nest",
+    "@rekog/mcp-nest-auth": "file:../../packages/mcp-nest-auth",
+    "cookie-parser": "^1.4.7",
+    "jsonwebtoken": "^9.0.2",
+    "passport-azure-ad-oauth2": "^0.0.4",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "typeorm": "^0.3.25",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/jsonwebtoken": "^9.0.7",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.0"
+  }
+}

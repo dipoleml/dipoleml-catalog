@@ -1,0 +1,80 @@
+import { expect, it } from "vitest";
+import {
+    getResponseContent,
+    validateToolMetadata,
+    validateThrowsForInvalidArguments,
+    databaseParameters,
+    databaseInvalidArgs,
+    expectDefined,
+} from "../../../integrationHelpers.js";
+import { describeWithMongoDB, validateAutoConnectBehavior } from "../../../mongodbHelpers.js";
+import type { DropDatabaseOutput } from "@mongodb-js/mcp-tools-mongodb";
+describeWithMongoDB({
+    name: "dropDatabase tool",
+    fn: (integration) => {
+        validateToolMetadata({
+            integration,
+            name: "drop-database",
+            description: "Removes the specified database, deleting the associated data files",
+            operationType: "delete",
+            parameters: databaseParameters,
+        });
+        validateThrowsForInvalidArguments({ integration, name: "drop-database", args: databaseInvalidArgs });
+        it("can drop non-existing database", async () => {
+            let { databases } = await integration.mongoClient().db("").admin().listDatabases();
+            expect(databases.find((db) => db.name === integration.randomDbName())).toBeUndefined();
+            const connectionId = await integration.connectMcpClient();
+            const response = await integration.mcpClient().callTool({
+                name: "drop-database",
+                arguments: {
+                    connectionId,
+                    database: integration.randomDbName(),
+                },
+            });
+            const content = getResponseContent(response.content);
+            expect(content).toContain(`Successfully dropped the requested database.`);
+            ({ databases } = await integration.mongoClient().db("").admin().listDatabases());
+            expect(databases.find((db) => db.name === integration.randomDbName())).toBeUndefined();
+        });
+        it("removes the database along with its collections", async () => {
+            const connectionId = await integration.connectMcpClient();
+            await integration.mongoClient().db(integration.randomDbName()).createCollection("coll1");
+            await integration.mongoClient().db(integration.randomDbName()).createCollection("coll2");
+            let { databases } = await integration.mongoClient().db("").admin().listDatabases();
+            expectDefined(databases.find((db) => db.name === integration.randomDbName()));
+            const response = await integration.mcpClient().callTool({
+                name: "drop-database",
+                arguments: {
+                    connectionId,
+                    database: integration.randomDbName(),
+                },
+            });
+            const content = getResponseContent(response.content);
+            expect(content).toContain(`Successfully dropped the requested database.`);
+            const structuredContent = response.structuredContent as DropDatabaseOutput;
+            expect(structuredContent.database).toBe(integration.randomDbName());
+            expect(structuredContent.dropped).toBe(true);
+            ({ databases } = await integration.mongoClient().db("").admin().listDatabases());
+            expect(databases.find((db) => db.name === integration.randomDbName())).toBeUndefined();
+            const collections = await integration
+                .mongoClient()
+                .db(integration.randomDbName())
+                .listCollections()
+                .toArray();
+            expect(collections).toHaveLength(0);
+        });
+        validateAutoConnectBehavior({
+            integration,
+            name: "drop-database",
+            validation: () => {
+                return {
+                    args: { database: integration.randomDbName() },
+                    expectedResponse: `Successfully dropped the requested database.`,
+                };
+            },
+            beforeEachImpl: async () => {
+                await integration.mongoClient().db(integration.randomDbName()).createCollection("coll1");
+            },
+        });
+    },
+});

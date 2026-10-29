@@ -1,0 +1,184 @@
+#!/bin/sh
+# pre-commit hook -- anti-leak + doc-hygiene drift gate.
+#
+# Runs at COMMIT time, on the STAGED changes, before anything reaches the
+# public repo. Two independent gates:
+#
+#   0. python scripts/scan_internal_language.py --staged
+#        Anti-leak gate. Scans the staged content of staged files for
+#        internal-language leaks (day-job customer name, session markers,
+#        sales-positioning shorthand, personal paths, etc). Pattern
+#        catalogue + this scanner are stdlib-only and share a single source
+#        of truth with the CI gate tests/test_no_internal_language.py.
+#        ROOT CAUSE this closes: the leak gate used to run ONLY in CI, so
+#        leaks reached the public repo before being caught. Now it blocks
+#        the commit locally.
+#   1. python dev/build_readme_counts.py --check
+#        Marker-protected count blocks in README.md / CLAUDE.md /
+#        llms-install.md and both mcp-server-card.json files.
+#   2. python scripts/sync_surface_counts.py
+#        Free-form prose surfaces (landing-page HTML, llms.txt,
+#        server.json, skills/roam/SKILL.md, etc). Defaults to dry-run.
+#   3. python scripts/build_changelog_html.py
+#   4. python dev/build_internal_index.py
+#   5. ruff format --check + ruff check, on the STAGED python files only
+#        changelog.html (the landing-page mirror of CHANGELOG.md) is a
+#        generated, tracked file. It used to be regenerated only at push
+#        time (scripts/prepush_check.py) / in CI -- so a commit that edited
+#        CHANGELOG.md without re-rendering the page landed with the two
+#        tracked files disagreeing, and the drift wasn't caught until
+#        later (or not at all if the push path was skipped: commit
+#        5e8d6360 "regenerate html after the telemetry changelog entry"
+#        is the fix-forward this produced -- twice in one day). Defaults
+#        to dry-run/check mode (exit 1 on drift); never writes.
+#
+# To install on a fresh clone (same one-liner as the commit-msg hook):
+#   git config core.hooksPath .githooks
+#
+# To bypass for a one-off legitimate commit (rare): commit with
+# --no-verify. For a real leak, prefer fixing it or (if intentional)
+# adding the file to WHITELIST_FILES in
+# scripts/internal_language_patterns.py. The pre-push hook re-runs the
+# anti-leak scan over the whole tree as a backstop for --no-verify.
+
+set -e
+
+# Resolve the repo root so the hook works no matter where git invokes it.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+PY="${PYTHON:-python}"
+if ! command -v "$PY" >/dev/null 2>&1; then
+    if command -v py >/dev/null 2>&1; then
+        PY="py -3"
+    elif command -v python3 >/dev/null 2>&1; then
+        PY=python3
+    else
+        echo "ERROR: pre-commit hook (.githooks/pre-commit)" >&2
+        echo "  No 'python', 'py -3', or 'python3' on PATH." >&2
+        echo "  Install Python or run 'git commit --no-verify' to bypass." >&2
+        exit 1
+    fi
+fi
+
+# --- 0. Anti-leak gate (STAGED changes) -------------------------------------
+if ! $PY "$REPO_ROOT/scripts/scan_internal_language.py" --staged; then
+    echo "" >&2
+    echo "BLOCKED: internal-language leak in staged changes -- see above." >&2
+    echo "  Fix the offending line(s), or (if intentional) add the file to" >&2
+    echo "  WHITELIST_FILES in scripts/internal_language_patterns.py." >&2
+    exit 1
+fi
+
+# --- 1. Marker-protected count blocks (README/CLAUDE/llms-install/cards) ----
+if ! "$PY" "$REPO_ROOT/dev/build_readme_counts.py" --check; then
+    echo "" >&2
+    echo "ERROR: pre-commit hook (.githooks/pre-commit)" >&2
+    echo "" >&2
+    echo "  README / CLAUDE / llms-install count drift detected." >&2
+    echo "" >&2
+    echo "  Fix: run" >&2
+    echo "    python dev/build_readme_counts.py --apply" >&2
+    echo "  then re-stage the updated files and commit again." >&2
+    exit 1
+fi
+
+# --- 2. Free-form prose surface counts (landing page, server.json, ...) -----
+if ! "$PY" "$REPO_ROOT/scripts/sync_surface_counts.py"; then
+    echo "" >&2
+    echo "ERROR: pre-commit hook (.githooks/pre-commit)" >&2
+    echo "" >&2
+    echo "  Free-form surface count drift detected." >&2
+    echo "" >&2
+    echo "  Fix: run" >&2
+    echo "    python scripts/sync_surface_counts.py --write" >&2
+    echo "  then re-stage the updated files and commit again." >&2
+    exit 1
+fi
+
+# --- 3. changelog.html render drift (landing-page mirror of CHANGELOG.md) ---
+if ! "$PY" "$REPO_ROOT/scripts/build_changelog_html.py"; then
+    echo "" >&2
+    echo "ERROR: pre-commit hook (.githooks/pre-commit)" >&2
+    echo "" >&2
+    echo "  changelog.html has drifted from CHANGELOG.md." >&2
+    echo "" >&2
+    echo "  Fix: run" >&2
+    echo "    python scripts/build_changelog_html.py --write" >&2
+    echo "  then re-stage templates/distribution/landing-page/changelog.html and commit again." >&2
+    exit 1
+fi
+
+# --- 4. internal/INDEX.md catalogue drift ---------------------------------
+# internal/ is gitignored, so NO CI check and no review can ever see this
+# index go stale. On 2026-07-28 it was 50 lines, 16 days old, and named none
+# of the five newest documents in a tree of 2053 files -- while AGENTS.md
+# instructs every agent to "read the newest files there at session start".
+# This gate is the only thing that can catch that, precisely because the
+# content is untracked. Exits 0 when internal/ is absent (public CI, fresh
+# clones), so it costs contributors nothing.
+if ! "$PY" "$REPO_ROOT/dev/build_internal_index.py"; then
+    echo "" >&2
+    echo "ERROR: pre-commit hook (.githooks/pre-commit)" >&2
+    echo "" >&2
+    echo "  internal/INDEX.md no longer lists what is actually in internal/." >&2
+    echo "" >&2
+    echo "  Fix: run" >&2
+    echo "    python dev/build_internal_index.py --write" >&2
+    echo "  (internal/ is gitignored, so there is nothing to re-stage.)" >&2
+    exit 1
+fi
+
+# --- 5. ruff format/lint on the STAGED python files -----------------------
+# Until now this hook had no ruff gate at all -- so unformatted code landed in
+# commits routinely and only surfaced at PUSH time, where `ruff --check` runs
+# over the whole working tree and blocks EVERY push, including unrelated ones.
+# On 2026-07-28 that happened three times in one session: three agents each
+# committed an unformatted file, and each one held up a 15+ commit release
+# push for everybody until it was found and fixed by hand.
+#
+# Scoped to the STAGED files deliberately. A commit-time gate should describe
+# the commit -- the same principle the leak and secret gates already follow by
+# scoping to the pushed range rather than the tree.
+STAGED_PY="$(git diff --cached --name-only --diff-filter=ACM -- '*.py' | tr '\n' ' ')"
+# POSIX: `${VAR// /}` is a BASH pattern substitution, and this script is
+# `#!/bin/sh`. Under dash -- /bin/sh on Debian, Ubuntu and every Linux CI
+# runner and build lane we use -- it fails with "Bad substitution" and the
+# hook exits 2, so every commit is refused.
+#
+# MEASURED, because the first version of this comment got the mechanism
+# wrong and the error is easy to mis-read: dash PARSES the construct
+# happily (`dash -n` on the broken hook exits 0). It fails at EXPANSION
+# time, i.e. when control actually reaches this line. So the gates ABOVE
+# it -- leak scan, readme counts, surface counts, changelog, internal
+# index -- all run and print their normal success output first, and only
+# the ruff gate here and anything below it is skipped. That is why this
+# read as a late-stage glitch rather than as "this script is not sh": the
+# hook looks like it is working right up until it dies.
+#
+# It was invisible here because git-bash makes /bin/sh bash on Windows, so
+# the construct works on the machine this was written on and nowhere else.
+# The unquoted expansion word-splits on IFS and `echo` rejoins with single
+# spaces, so a value of only whitespace collapses to empty -- the same test,
+# in a form `sh` actually has.
+# shellcheck disable=SC2086  # deliberate word-splitting: collapses whitespace
+if [ -n "$(echo $STAGED_PY)" ]; then
+    # shellcheck disable=SC2086  # deliberate word-splitting: a file list
+    if ! "$PY" -m ruff format --check $STAGED_PY >/dev/null 2>&1 \
+       || ! "$PY" -m ruff check $STAGED_PY >/dev/null 2>&1; then
+        echo "" >&2
+        echo "ERROR: pre-commit hook (.githooks/pre-commit)" >&2
+        echo "" >&2
+        echo "  Staged Python files are not ruff-clean." >&2
+        echo "" >&2
+        echo "  Fix: run" >&2
+        echo "    python -m ruff format $STAGED_PY" >&2
+        echo "    python -m ruff check --fix $STAGED_PY" >&2
+        echo "  then re-stage them and commit again." >&2
+        echo "" >&2
+        echo "  Why this blocks here: an unformatted file that reaches a commit" >&2
+        echo "  blocks the pre-push gate for every OTHER push too, not just yours." >&2
+        exit 1
+    fi
+fi
+
+exit 0

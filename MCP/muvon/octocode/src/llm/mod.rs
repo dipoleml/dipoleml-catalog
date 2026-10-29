@@ -1,0 +1,484 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! LLM client wrapper for octolib integration
+//!
+//! This module provides a clean wrapper around octolib's LLM functionality
+//! with octocode-specific helpers and configuration integration.
+
+use crate::config::{Config, ReasoningEffortConfig};
+use anyhow::Result;
+use serde::de::DeserializeOwned;
+use std::collections::HashMap;
+use std::time::Duration;
+
+// Re-export octolib types for convenience
+pub use octolib::llm::{
+	AiProvider, ChatCompletionParams, Message, MessageBuilder, ProviderFactory, ProviderResponse, ReasoningEffort,
+	StructuredOutputRequest, TokenUsage,
+};
+
+/// The header carrying [`ModelPurpose`] to the octohub proxy.
+pub const MODEL_PURPOSE_HEADER: &str = "X-Model-Purpose";
+
+/// Where in octocode a model call originates. Sent on every completion as the
+/// `X-Model-Purpose` header so octohub's virtual `auto` model can route each
+/// purpose to a different real model; providers that aren't octohub ignore it.
+///
+/// Values are hierarchical by dash segment: octohub falls back from
+/// `octocode-index-graphrag` to `octocode-index`, then `octocode`, then its default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPurpose {
+	/// Commit message generation.
+	Commit,
+	/// Code review of staged changes.
+	Review,
+	/// Release notes and version calculation.
+	Release,
+	/// Diff summaries.
+	Diff,
+	/// Explanations of search results.
+	Explain,
+	/// Reasoning rerank of search results.
+	Search,
+	/// Per-chunk contextual descriptions at index time.
+	IndexContextual,
+	/// GraphRAG file descriptions and relationships at index time.
+	IndexGraphrag,
+	/// Commit descriptions at index time.
+	IndexCommits,
+}
+
+impl ModelPurpose {
+	pub fn as_str(&self) -> &'static str {
+		match self {
+			Self::Commit => "octocode-commit",
+			Self::Review => "octocode-review",
+			Self::Release => "octocode-release",
+			Self::Diff => "octocode-diff",
+			Self::Explain => "octocode-explain",
+			Self::Search => "octocode-search",
+			Self::IndexContextual => "octocode-index-contextual",
+			Self::IndexGraphrag => "octocode-index-graphrag",
+			Self::IndexCommits => "octocode-index-commits",
+		}
+	}
+}
+
+/// LLM client wrapper that integrates octolib with octocode configuration
+/// LLM client wrapper that integrates octolib with octocode configuration
+pub struct LlmClient {
+	provider: Box<dyn AiProvider>,
+	model: String,
+	temperature: f32,
+	max_tokens: usize,
+	/// Thinking budget for every call this client makes. `None` leaves it to the
+	/// provider default.
+	reasoning_effort: Option<ReasoningEffort>,
+	/// Sent as [`MODEL_PURPOSE_HEADER`] on every call this client makes.
+	purpose: ModelPurpose,
+}
+
+impl LlmClient {
+	/// Create LlmClient from octocode Config
+	pub fn from_config(config: &Config, purpose: ModelPurpose) -> Result<Self> {
+		let (provider, model) = ProviderFactory::get_provider_for_model(&config.llm.model)?;
+
+		Ok(Self {
+			provider,
+			model,
+			temperature: config.llm.temperature,
+			max_tokens: config.llm.max_tokens,
+			reasoning_effort: None,
+			purpose,
+		})
+	}
+
+	/// Create LlmClient with custom model (overrides config)
+	pub fn with_model(config: &Config, model_str: &str, purpose: ModelPurpose) -> Result<Self> {
+		let (provider, model) = ProviderFactory::get_provider_for_model(model_str)?;
+
+		Ok(Self {
+			provider,
+			model,
+			temperature: config.llm.temperature,
+			max_tokens: config.llm.max_tokens,
+			reasoning_effort: None,
+			purpose,
+		})
+	}
+
+	/// Set the thinking budget for every call this client makes.
+	pub fn with_reasoning_effort(mut self, effort: ReasoningEffortConfig) -> Self {
+		self.reasoning_effort = Some(effort.to_octolib());
+		self
+	}
+
+	/// Override the sampling temperature for every call this client makes.
+	pub fn with_temperature(mut self, temperature: f32) -> Self {
+		self.temperature = temperature;
+		self
+	}
+
+	/// Build the request params every call shares: this client's model, token
+	/// limits, thinking budget and purpose header.
+	fn params(&self, messages: &[Message], temperature: f32) -> ChatCompletionParams {
+		let params = ChatCompletionParams::new(
+			messages,
+			&self.model,
+			temperature,
+			1.0,                    // top_p
+			50,                     // min_tokens
+			self.max_tokens as u32, // max_tokens (convert usize to u32)
+		)
+		.with_extra_headers(HashMap::from([(
+			MODEL_PURPOSE_HEADER.to_string(),
+			self.purpose.as_str().to_string(),
+		)]));
+		match self.reasoning_effort {
+			Some(effort) => params.with_reasoning_effort(effort),
+			None => params,
+		}
+	}
+
+	/// Maximum number of retries for LLM calls with exponential backoff
+	const MAX_RETRIES: u32 = 3;
+
+	/// Simple chat completion returning text response (with retry)
+	pub async fn chat_completion(&self, messages: Vec<Message>) -> Result<String> {
+		let mut last_error = None;
+
+		for attempt in 0..=Self::MAX_RETRIES {
+			if attempt > 0 {
+				let delay = Duration::from_secs(5 * (1 << (attempt - 1))); // 5s, 10s, 20s
+				tracing::warn!(
+					"LLM call failed (attempt {}/{}), retrying in {:?}...",
+					attempt,
+					Self::MAX_RETRIES + 1,
+					delay
+				);
+				tokio::time::sleep(delay).await;
+			}
+
+			let params = self.params(&messages, self.temperature);
+
+			match self.provider.chat_completion(params).await {
+				Ok(response) => {
+					// Log token usage if available from exchange
+					if let Some(usage) = &response.exchange.usage {
+						tracing::debug!(
+							"LLM tokens: input={}, output={}, total={}",
+							usage.input_tokens,
+							usage.output_tokens,
+							usage.total_tokens
+						);
+
+						if let Some(cost) = usage.cost {
+							tracing::debug!("LLM cost: ${:.6}", cost);
+						}
+					}
+
+					return Ok(response.content);
+				}
+				Err(e) => {
+					last_error = Some(e);
+				}
+			}
+		}
+
+		Err(last_error.unwrap_or_else(|| anyhow::anyhow!("LLM call failed after retries")))
+	}
+
+	/// Chat completion with structured JSON output
+	pub async fn chat_completion_structured<T: DeserializeOwned>(&self, messages: Vec<Message>) -> Result<T> {
+		// Check if provider supports structured output
+		if !self.provider.supports_structured_output(&self.model) {
+			return Err(anyhow::anyhow!(
+				"Provider does not support structured output for model: {}",
+				self.model
+			));
+		}
+
+		let structured_request = StructuredOutputRequest::json();
+		let params = self
+			.params(&messages, self.temperature)
+			.with_structured_output(structured_request);
+
+		let response = self.provider.chat_completion(params).await?;
+
+		// Log token usage
+		if let Some(usage) = &response.exchange.usage {
+			tracing::debug!(
+				"LLM tokens (structured): input={}, output={}, total={}",
+				usage.input_tokens,
+				usage.output_tokens,
+				usage.total_tokens
+			);
+
+			if let Some(cost) = usage.cost {
+				tracing::debug!("LLM cost: ${:.6}", cost);
+			}
+		}
+
+		// Parse structured output
+		if let Some(structured) = response.structured_output {
+			let result: T = serde_json::from_value(structured)?;
+			Ok(result)
+		} else {
+			// Fallback: try to parse content as JSON
+			let result: T = serde_json::from_str(&response.content)?;
+			Ok(result)
+		}
+	}
+
+	/// Chat completion with custom temperature
+	pub async fn chat_completion_with_temperature(&self, messages: Vec<Message>, temperature: f32) -> Result<String> {
+		let params = self.params(&messages, temperature);
+
+		let response = self.provider.chat_completion(params).await?;
+
+		// Log token usage
+		if let Some(usage) = &response.exchange.usage {
+			tracing::debug!(
+				"LLM tokens: input={}, output={}, total={}",
+				usage.input_tokens,
+				usage.output_tokens,
+				usage.total_tokens
+			);
+
+			if let Some(cost) = usage.cost {
+				tracing::debug!("LLM cost: ${:.6}", cost);
+			}
+		}
+
+		Ok(response.content)
+	}
+
+	/// Get the model name
+	pub fn model(&self) -> &str {
+		&self.model
+	}
+
+	/// Check if provider supports structured output
+	pub fn supports_structured_output(&self) -> bool {
+		self.provider.supports_structured_output(&self.model)
+	}
+
+	/// Ask the model which claims in `text` the `source` does not support.
+	/// `rules` states what counts as unsupported for this kind of source. An
+	/// empty list means every claim is backed; the caller decides what to do.
+	pub async fn unsupported_claims(&self, rules: &str, source: &str, text: &str) -> Result<Vec<String>> {
+		let system = format!(
+			"You audit a text against the source material it describes. Respond with a single JSON object and nothing else: {{\"unsupported\": [string]}}\n\n\
+			List every claim in the text that the source does not support. For each, quote the claim, then state what the source actually shows. Judge only factual support: wording, style, format and completeness are not your concern. An empty array means every claim is supported.\n\n{}",
+			rules
+		);
+		let user = format!("SOURCE:\n{}\n\nTEXT TO AUDIT:\n{}", source, text);
+		let messages = vec![Message::system(&system), Message::user(&user)];
+		let schema = serde_json::json!({
+			"type": "object",
+			"properties": {"unsupported": {"type": "array", "items": {"type": "string"}}},
+			"required": ["unsupported"]
+		});
+		let value = self.chat_completion_json(messages, Some(schema)).await?;
+		let claims = value
+			.get("unsupported")
+			.and_then(|v| v.as_array())
+			.ok_or_else(|| anyhow::anyhow!("LLM returned no unsupported field: {}", value))?;
+		Ok(claims
+			.iter()
+			.filter_map(|c| c.as_str())
+			.map(str::trim)
+			.filter(|c| !c.is_empty())
+			.map(String::from)
+			.collect())
+	}
+
+	/// Chat completion with JSON output. Pass a schema to enforce structure via provider.
+	/// Schema must use only basic JSON Schema keywords: type, properties, required, items.
+	/// Includes retry with exponential backoff.
+	pub async fn chat_completion_json(
+		&self,
+		messages: Vec<Message>,
+		schema: Option<serde_json::Value>,
+	) -> Result<serde_json::Value> {
+		let supports_structured = self.provider.supports_structured_output(&self.model);
+
+		if supports_structured {
+			let mut last_error = None;
+
+			for attempt in 0..=Self::MAX_RETRIES {
+				if attempt > 0 {
+					let delay = Duration::from_secs(5 * (1 << (attempt - 1))); // 5s, 10s, 20s
+					tracing::warn!(
+						"LLM JSON call failed (attempt {}/{}), retrying in {:?}...",
+						attempt,
+						Self::MAX_RETRIES + 1,
+						delay
+					);
+					tokio::time::sleep(delay).await;
+				}
+
+				let structured_request = match &schema {
+					Some(s) => StructuredOutputRequest::json_schema(s.clone()).with_strict_mode(),
+					None => StructuredOutputRequest::json(),
+				};
+				let params = self
+					.params(&messages, self.temperature)
+					.with_structured_output(structured_request);
+
+				match self.provider.chat_completion(params).await {
+					Ok(response) => {
+						if let Some(usage) = &response.exchange.usage {
+							tracing::debug!(
+								"LLM tokens (structured): input={}, output={}, total={}",
+								usage.input_tokens,
+								usage.output_tokens,
+								usage.total_tokens
+							);
+						}
+
+						if let Some(structured) = response.structured_output {
+							return Ok(structured);
+						}
+
+						// No structured output field — try parsing content as JSON
+						let json = Self::strip_json_from_markdown(&response.content);
+						if json.get("error").is_none() {
+							return Ok(json);
+						}
+						last_error = Some(anyhow::anyhow!(
+							"LLM returned unparseable JSON: {}",
+							response.content.chars().take(200).collect::<String>()
+						));
+					}
+					Err(e) => {
+						last_error = Some(e);
+					}
+				}
+			}
+
+			return Err(last_error.unwrap_or_else(|| anyhow::anyhow!("LLM JSON call failed after retries")));
+		}
+
+		// Provider doesn't support structured output — use regular completion with markdown stripping
+		let content = self.chat_completion(messages).await?;
+		let json = Self::strip_json_from_markdown(&content);
+
+		Ok(json)
+	}
+
+	/// Strip markdown code blocks from JSON content and parse it
+	///
+	/// LLMs often return JSON wrapped in markdown code blocks like:
+	/// ```json
+	/// { "key": "value" }
+	/// ```
+	///
+	/// This method extracts the raw JSON and parses it.
+	fn strip_json_from_markdown(content: &str) -> serde_json::Value {
+		// Try to parse as-is first (in case it's already raw JSON)
+		if let Ok(parsed) = serde_json::from_str(content.trim()) {
+			return parsed;
+		}
+
+		// Look for JSON code block
+		let marker = "```json";
+		let end_marker = "```";
+
+		if let Some(start) = content.find(marker) {
+			let after_marker = &content[start + marker.len()..];
+			if let Some(end) = after_marker.find(end_marker) {
+				let json_content = &after_marker[..end];
+				if let Ok(parsed) = serde_json::from_str(json_content.trim()) {
+					return parsed;
+				}
+			}
+		}
+
+		// Look for any code block and try to parse its content.
+		// Byte offsets come directly from `find` on the real content, so this is
+		// safe for CRLF line endings and multi-byte UTF-8 (unlike reconstructing
+		// offsets from `str::lines()`, which strips `\r` and drifts on CRLF input).
+		if let Some(fence_start) = content.find("```") {
+			if let Some(line_end) = content[fence_start..].find('\n') {
+				let code_start = fence_start + line_end + 1;
+				if let Some(closing_offset) = content[code_start..].find("```") {
+					let code_content = &content[code_start..code_start + closing_offset];
+					if let Ok(parsed) = serde_json::from_str(code_content.trim()) {
+						return parsed;
+					}
+				}
+			}
+		}
+
+		// Last resort: try to extract JSON by looking for { or [
+		if let Some(start) = content.find('{') {
+			if let Ok(parsed) = serde_json::from_str(&content[start..]) {
+				return parsed;
+			}
+		}
+		if let Some(start) = content.find('[') {
+			if let Ok(parsed) = serde_json::from_str(&content[start..]) {
+				return parsed;
+			}
+		}
+
+		// Return error as JSON
+		serde_json::json!({
+			"error": "Failed to parse JSON from response",
+			"raw_content": content
+		})
+	}
+}
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod llm_mod_tests;
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_strip_json_from_markdown_json_fence() {
+		let content = "Sure, here you go:\n```json\n{\"a\": 1}\n```\nThanks";
+		let result = LlmClient::strip_json_from_markdown(content);
+		assert_eq!(result, serde_json::json!({"a": 1}));
+	}
+
+	#[test]
+	fn test_strip_json_from_markdown_generic_fence() {
+		let content = "text\n```\n{\"a\": 1}\n```\ntail";
+		let result = LlmClient::strip_json_from_markdown(content);
+		assert_eq!(result, serde_json::json!({"a": 1}));
+	}
+
+	#[test]
+	fn test_strip_json_from_markdown_generic_fence_crlf() {
+		// Regression test: CRLF line endings previously drifted the manually
+		// reconstructed byte offsets, truncating the JSON or panicking on a
+		// non-char-boundary slice.
+		let content = "intro\r\n```\r\n{\"a\": 1, \"b\": 2}\r\n```\r\ntail";
+		let result = LlmClient::strip_json_from_markdown(content);
+		assert_eq!(result, serde_json::json!({"a": 1, "b": 2}));
+	}
+
+	#[test]
+	fn test_strip_json_from_markdown_raw_json() {
+		let content = "{\"a\": 1}";
+		let result = LlmClient::strip_json_from_markdown(content);
+		assert_eq!(result, serde_json::json!({"a": 1}));
+	}
+}

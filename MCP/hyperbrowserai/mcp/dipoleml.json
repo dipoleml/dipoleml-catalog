@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.hyperbrowserai.mcp",
+  "type": "mcp",
+  "name": "MCP",
+  "slug": "mcp",
+  "vendor": "hyperbrowserai",
+  "description": "A MCP server implementation for hyperbrowser",
+  "version": "1.1.0",
+  "homepage": "https://github.com/hyperbrowserai/mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "hyperbrowserai",
+    "brandName": "hyperbrowserai",
+    "source": "https://github.com/hyperbrowserai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:04Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "hyperbrowserai/mcp",
+    "url": "https://github.com/hyperbrowserai/mcp",
+    "commit": "7492e83cf1825b3cf9725bfa25c5086df702599a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 792,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "hyperbrowser-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "hyperbrowser-mcp"
+    ],
+    "env": [
+      "HYPERBROWSER_API_KEY"
+    ],
+    "credentials": [
+      "HYPERBROWSER_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

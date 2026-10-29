@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-mcp-server",
+  "displayName": "Obsidian MCP Server",
+  "version": "3.7.2",
+  "description": "Read, write, search, and surgically edit Obsidian vault notes, tags, and frontmatter via MCP. STDIO or Streamable HTTP.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cyanheads"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/cyanheads/obsidian-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/obsidian-mcp-server",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

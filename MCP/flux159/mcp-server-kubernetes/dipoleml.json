@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.flux159.mcp-server-kubernetes",
+  "type": "mcp",
+  "name": "MCP Server Kubernetes",
+  "slug": "mcp-server-kubernetes",
+  "vendor": "flux159",
+  "description": "MCP Server for kubernetes management commands",
+  "version": "4.2.1",
+  "homepage": "https://github.com/Flux159/mcp-server-kubernetes",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "infrastructure",
+    "kubernetes",
+    "server"
+  ],
+  "tags": [
+    "infrastructure",
+    "kubernetes",
+    "mcp",
+    "server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "kubernetes",
+    "brandName": "kubernetes",
+    "source": "https://cdn.simpleicons.org/kubernetes",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:59Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "Flux159/mcp-server-kubernetes",
+    "url": "https://github.com/Flux159/mcp-server-kubernetes",
+    "commit": "5536776f7338dc7c5239e6dc1ef07581434a7bf5",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1610,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-server-kubernetes"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "mcp-server-kubernetes"
+    ],
+    "env": [
+      "OTEL_EXPORTER_OTLP_ENDPOINT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

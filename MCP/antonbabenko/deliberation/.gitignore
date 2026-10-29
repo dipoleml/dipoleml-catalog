@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Test coverage
+coverage/
+
+# Node (handled in subdirs but good to have at root)
+node_modules/
+
+docs/superpowers/
+docs/plans/
+
+# Antigravity CLI project-local data (created by agy when run in a repo)
+.antigravitycli/
+
+# Added by code-review-graph and me :)
+.code-review-graph/
+# code-review-graph drops a cwd-relative path->uuid registry here when run with --repo
+cache/
+.claude/skills/debug-issue
+.claude/skills/explore-codebase
+.claude/skills/refactor-safely
+.claude/skills/review-changes

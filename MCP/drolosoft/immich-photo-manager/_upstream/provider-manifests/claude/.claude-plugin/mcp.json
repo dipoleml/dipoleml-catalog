@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "immich": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/src/plugin_entry.py"
+      ],
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "IMMICH_BASE_URL": "${user_config.immich_base_url}",
+        "IMMICH_API_KEY": "${user_config.immich_api_key}",
+        "IMMICH_CACHE_DIR": "${CLAUDE_PLUGIN_ROOT}/.mcpb-cache"
+      }
+    }
+  }
+}

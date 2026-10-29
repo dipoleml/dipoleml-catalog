@@ -1,0 +1,106 @@
+- `0.1.4.0` initial public release
+- `0.1.4.1` `inspect` command, reworked output
+- `0.1.4.2` added SSE support
+- `0.1.4.3` added VSCode MCP support, better support for non-MacOS, improved error handling, better output formatting
+- `0.1.4.4-5` fixes
+- `0.1.4.6` whitelisting of tools
+- `0.1.4.7` automatically rebalance command args
+- `0.1.4.8-10` fixes
+- `0.1.4.11` support for prompts and resources
+- `0.1.5` semver compatible naming, npm release
+- `0.1.6` updated help text
+- `0.1.7` stability improvements (CI, pre-commit hooks, testing), --json, logging & error printing, bug fixes, server improvements
+- `0.1.8-9` fixes
+- `0.1.10-12` automatic releases, updated to newer mcp client
+- `0.1.13-14` Bug fix for printing. Now consider full signature when analyzing a tool.
+- `0.1.15` Added local-only mode for scanning.
+- `0.1.16` Fix when handling tools or args that contain dots.
+- `0.1.17` Fix single server would throw an error.
+- `0.2.1` `mcp-scan proxy` for live MCP call scanning, [MCP guardrails](https://explorer.invariantlabs.ai/docs/mcp-scan/guardrails/); removed NPM support
+- `0.2.2` Fix bug with non-serializable exceptions. Move cross reference analysis to server-side. Now supports fuzzy similarity. Support `streamable-http` as transport.
+- `0.2.3` Bug fix. A broken MCP server would compromise the output for all the other servers within the same client.
+- `0.3.0` Add Toxic Flow analysis.
+- `0.3.1` Add cosmetics. Now defaults to `scan` also with `--` parameters.
+- `0.3.2` Add user IDs, --control-server for managed use and --opt-out to disable tracking.
+- `0.3.3` Fix `inspect` mode, bug fixes.
+- `0.3.4` Various fixes. Scanning of built-in IDE tools.
+- `0.3.5` Improving description of some built-in IDE tools.
+- `0.3.6` Bug fix: tools without description were not working.
+- `0.3.7` Added (experimental) feature to run mcp-scan as a mcp-server.
+- `0.3.8` Argument Handling fix
+- `0.3.9` Fixed bug in `entity_to_tool`, function exposed only when `mcp-scan` is used as a library
+- `0.3.10` Remove Trio dependency.
+- `0.3.11` Binary builds.
+- `0.3.12` Improved SSL handling; ability to pass headers for API interaction.
+- `0.3.13` Get TFA labels from api. Bug fixes
+- `0.3.14` Added new VS Code paths
+- `0.3.15-19` Signed macos releases
+- `0.3.20` Direct scanning, improved URL handling for other endpoints
+- `0.3.21` Fix: handle paths with spaces; updated mcp library dependency
+- `0.3.22` Fix: support more than 100 tools; allow specifying a version when scanning a package
+- `0.3.23` Maintainace to ensure continued server compatability
+- `0.3.24` Handle custom SSL certificates (via System/Truststore)
+- `0.3.25` Improved error handling for control servers
+- `0.3.26` Now pushing agent configurations once for the full machine, not once per agent
+- `0.3.27` Comability updated for new server version and new python version
+- `0.3.28` Support unknown MCP configurations
+- `0.3.29` Add `evo` command to push scan results to Snyk Evo
+- `0.3.30` Add `--skip-ssl-verify` flag to skip SSL cert verification
+- `0.3.31` Add metadata on push and more detailed error logging
+- `0.3.32` Adaptivly support sse urls.
+- `0.3.33` Support server-level issues. Retry on analysis api timing out.
+- `0.3.34` Error categories & server args. Enhanced redaction and traffic capturing.
+- `0.3.35` Fixes. Send push-key to analysis server. This guarantees authentication for enterprise users. Empty config causing erros. Redacting secrets before pushing to analysis server.
+- `0.3.36` Add fallback to check command in well known directories to reduce path not found errors.
+- `0.3.37` Add possibility to use authentication tokens to scan authenticated mcp servers.
+- `0.3.38` Fix `--json` functionality. Default to HTTP for servers with unknown types.
+- `0.3.39` Add support to scan skills and clients without MCP servers.
+- `0.4` Fix dependency issue, 0.4 version bump, include uv.lock
+- `0.4.1` Add more agent support and rebalance command args earlier.
+- `0.4.2` Add support for HTTP_PROXY and HTTPS_PROXY configuration.
+- `0.4.3` Rename to agent-scan.
+- `0.4.4` Use Snyk API Key for analysis.
+- `0.4.5` Add possibility to scan agent on multiple users.
+- `0.4.6` Add Snyk CLI support.
+- `0.4.7` Bug fixes.
+- `0.4.8` Bug fixes.
+- `0.4.9` Bug fixes and improvements.
+- `0.4.10` Add --ci flag and better support multi-user machines.
+- `0.4.11` Bug fixes, Amazon Q support.
+- `0.4.12` Add Amazon Q path.
+- `0.4.13` Minor fixes.
+- `0.4.14` 'guard' hook installation flow for Claude Code and Cursor.
+- `0.4.15` Support Windows and x86 builds
+- `0.4.16` Bug fixes and improvements.
+- `0.4.17` WSL support for well known client paths.
+- `0.4.18` Add support for --ignore-issues-codes with --ci.
+- `0.5.0` Add user consent flow for interactive commands and deprecate mcp-server and install-mcp-server options.
+- `0.5.1` Dependency upgrades.
+- `0.5.2` Dependency upgrades and enable skill scanning by default.
+- `0.5.3` Improve redaction of args and env vars.
+- `0.5.4` Fix bug in parsing of skills. Cosmetic improvements to the CLI. Security fixes. Added agent-guard support for codex.
+- `0.5.5` Introduce bootstrap API and recursive check for mcp_config_globs and skills_dir_globs.
+- `0.5.6` Per-agent discovery refactor with Claude Code support. Bundle all detect_secrets plugins in PyInstaller binary. Starlette security update.
+- `0.5.8` Reverting changes.
+- `0.5.9` Don't handshake (launch) stdio MCP servers by default. Add VSCode family discoverers (VSCode, Cursor, Windsurf, Kiro, Antigravity); only scan installed extensions and plugins. Upgrade aiohttp to fix CVEs.
+- `0.5.10` Add Codex discoverer for MCP servers and skills. Add Claude Desktop support. Attach config-file path to each MCP server on upload. Fix remote URL handling. Stop probing host tool versions and enumerating home directories during bootstrap.
+- `0.5.11` Discover Cursor's built-in/managed skills. Redact secrets from skill file contents. Extend guard hook change detection. Remove commands discovery from the Claude Code discoverer.
+- `0.5.12` Start CLI binary uploads to S3.
+- `0.5.13` Add Cursor Plugins and Opencode support. Bug fix in skill serialization. Agent guard installer detects unauthorized modifications of the hooks script. Agent guard installer installs hooks only if requested agents are already installed on the machine.
+- `0.5.14` Fix --insecure usage with the Snyk CLI. Remove unused API calls.
+- `0.5.15` Fix false error triggering on skipping guard installations on missing agents.
+- `0.5.16` Security fixes. Increase analysis request timeout. Add CLI reference docs and refresh JSON output docs.
+- `0.5.17` Introduce support for async analysis. Security fixes related to dependencies.
+- `0.6.0` Introduce risk-based MCP server and skill analysis with scored findings, updated scan output, and dedicated risk and operational-failure controls. Continue documenting and supporting the v0.5.x experience during the transition. Add `--push-key` and `--machine-id` flags (replacing the deprecated `--control-server-H x-client-id` and `--control-identifier`), `--config-file` to load CLI arguments from a YAML file (precedence: code defaults < config file < explicit CLI flags), and `--show-analysis-results` to force synchronous analysis so push-key scans display results. Retry transient async-analysis config and submission failures with exponential backoff.
+- `0.6.1` Add Agent Guard MCP server discovery during hook installation and at Claude Code, Cursor, and Codex session starts, including project-scoped configurations. Introduce explicit machine identities for hook events, with temporary installation fallbacks for machine identity and the Agent Scan executable. Fix OpenCode MCP configuration discovery for explicit paths and project `.opencode` directories. Reduce skill secret-redaction CPU usage through cached detection and faster filtering. Clarify Agent Scan installation instructions.
+- `0.6.2` Fix bugs with secrets redaction and increase timeouts for API calls.
+- `0.6.3` Add Codex `SubagentStart` hook support. Include the Agent Scan CLI version in the `X-User` header for Agent Guard hook and discovery requests. Validate and scope install-time variable substitution in hook scripts.
+- `0.6.4` Add GitHub Copilot support: discover its MCP servers, skills, and plugins, and install/uninstall/report Agent Guard hooks (user-level and managed). Fix `guard install --managed` being refused when the invoking account had no local agent config, even though managed installs don't depend on it. Accept Copilot CLI's `type: "local"` for stdio MCP servers. Remove the Dangerous Words risk from Agent Scan. Discover Claude Code plugins from the install registry, including plugin-declared MCP servers and skills.
+- `0.6.5` Ask for confirmation before contacting each configured remote MCP server in interactive scans; use `--dangerously-run-mcp-servers` to skip prompts and contact every configured MCP server, including remote URLs. Unattended scans keep their existing consent behavior. Stop following HTTP redirects for remote MCP connections and refuse link-local and known cloud-metadata addresses, while still allowing loopback and private network addresses. Resolve and verify macOS signed binaries configured by command name so they receive stable identities across machines.
+- `0.6.5.1` Verify and start Codex MCP servers configured with a relative command and working directory, such as the built-in Computer Use server, so they receive stable signed-binary identities and complete scan results.
+- `0.6.5.2` Discover Claude Desktop plugins on macOS, including their skills and MCP servers, from the installed-plugin list.
+- `0.6.6` Include Claude Desktop cloud connectors (name, URL, tools, and instructions, with URL query values redacted) in Claude Code's Agent Guard install and session-start discovery events, so connectors that Claude Code only sees by connection UUID can be identified.
+- `0.6.7` Discover Claude Desktop on Linux (the official beta) from `~/.config/Claude`, including its MCP config and the skills and MCP servers of installed Desktop plugins.
+- `0.6.8` Republish release binaries and package after a release-pipeline mismatch on 0.6.7; no functional changes in this bump.
+- `0.6.9` Discover MCP servers that VS Code extensions register in code through `registerMcpServerDefinitionProvider` (enabled for VS Code only, not for forks such as Cursor). Discover GitHub Copilot CLI session projects. Bound the Agent Guard hook request to 60 seconds and fail open with a warning on timeouts and transport errors. Require a `success: true` response when sending the `hooksConfigured` test event during `guard install`, and include the hook's diagnostic when it fails. Security fixes: upgrade `mcp`, `pyjwt`, `urllib3`, and `multidict`.
+- `0.6.10` Add `guard install --check-installed` to skip agents that are not installed for any user on the machine when installing managed hooks; managed installs still do not check by default. Carry the tenant ID in the Windows PowerShell hook command so `guard uninstall` can revoke the push key on Windows; hooks installed before this change need `TENANT_ID` set in the environment to be revoked on uninstall. Security fix: bump `certifi` to 2026.10.19.

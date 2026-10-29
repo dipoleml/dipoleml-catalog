@@ -1,0 +1,1421 @@
+from proxmox_mcp.tools.storage_selection import select_storage
+from typing import List, Dict, Optional, Tuple, Any, Union, Callable
+from proxmox_mcp.tools.guest_config import container_network
+import re
+import json
+import math
+from decimal import Decimal
+from proxmoxer.core import ResourceException
+from concurrent.futures import ThreadPoolExecutor
+from mcp.types import TextContent as Content
+from proxmox_mcp.models import ToolResult
+from .base import ProxmoxTool, _log_safe, InventoryList, completeness_content
+from .console.container_manager import ContainerConsoleManager
+
+
+def _b2h(n: Union[int, float, str]) -> str:
+    """bytes -> human (binary units)."""
+    try:
+        n = float(n)
+    except Exception:
+        return "0.00 B"
+    units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
+    i = 0
+    while n >= 1024.0 and i < len(units) - 1:
+        n /= 1024.0
+        i += 1
+    return f"{n:.2f} {units[i]}"
+
+    # The rest of the helpers were preserved from your original file; no changes needed
+
+
+def _get(d: Any, key: str, default: Any = None) -> Any:
+    """dict.get with None guard."""
+    if isinstance(d, dict):
+        return d.get(key, default)
+    return default
+
+
+def _as_dict(maybe: Any) -> Dict:
+    """Return dict; unwrap {'data': dict}; else {}."""
+    if isinstance(maybe, dict):
+        data = maybe.get("data")
+        if isinstance(data, dict):
+            return data
+        return maybe
+    return {}
+
+
+def _as_list(maybe: Any) -> List:
+    """Return list; unwrap {'data': list}; else []."""
+    if isinstance(maybe, list):
+        return maybe
+    if isinstance(maybe, dict):
+        data = maybe.get("data")
+        if isinstance(data, list):
+            return data
+    return []
+
+
+def _migration_content_types(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {part.strip() for part in value.split(",") if part.strip()}
+    if isinstance(value, list) and all(isinstance(part, str) for part in value):
+        return set(value)
+    raise ValueError("Unexpected storage content capabilities")
+
+
+class ContainerTools(ProxmoxTool):
+    """
+    LXC container tools for Proxmox MCP.
+
+    - Lists containers cluster-wide (or by node)
+    - Live stats via /status/current
+    - Limit fallback via /config (memory MiB, cores/cpulimit)
+    - RRD fallback when live returns zeros
+    - Pretty output rendered here; JSON path is raw & sanitized
+    """
+
+    def __init__(
+        self,
+        proxmox_api: Any,
+        ssh_config: Any = None,
+        command_policy: Any = None,
+        metrics: Any = None,
+        job_store: Any = None,
+        target_name: str = "default",
+    ) -> None:
+        super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
+        self.console_manager: Optional[ContainerConsoleManager] = (
+            ContainerConsoleManager(proxmox_api, ssh_config) if ssh_config is not None else None
+        )
+        self.command_policy = command_policy
+        self.target_name = target_name
+
+    # ---------- error / output ----------
+    def _json_fmt(self, data: Any) -> List[Content]:
+        """Return raw JSON string (never touch project formatters)."""
+        return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
+
+    def _err(self, action: str, e: Exception) -> List[Content]:
+        self._handle_error(action, e)
+
+    # ---------- helpers ----------
+    def _cluster_ct_pairs(self, node: Optional[str]) -> Optional[List[Tuple[str, Dict]]]:
+        try:
+            resources = self.proxmox.cluster.resources.get(type="vm")
+        except Exception as error:
+            self.logger.debug("Cluster container inventory unavailable, falling back to node scan: %s", _log_safe(error))
+            return None
+        if not isinstance(resources, list):
+            return None
+
+        out: List[Tuple[str, Dict]] = []
+        for item in resources:
+            if not isinstance(item, dict) or item.get("type") != "lxc":
+                continue
+            node_name = _get(item, "node")
+            if not node_name:
+                continue
+            if node and node_name != node:
+                continue
+            vmid = _get(item, "vmid")
+            if vmid is None:
+                resource_id = str(_get(item, "id", ""))
+                if "/" in resource_id:
+                    vmid = resource_id.rsplit("/", 1)[-1]
+            if vmid is None:
+                continue
+            out.append((node_name, dict(item, vmid=vmid)))
+        return out
+
+    def _list_ct_pairs(self, node: Optional[str]) -> List[Tuple[str, Dict]]:
+        """Yield (node_name, ct_dict). Coerce odd shapes into dicts with vmid."""
+        cluster_pairs = self._cluster_ct_pairs(node)
+        if cluster_pairs is not None:
+            return cluster_pairs
+
+        out = InventoryList()
+        if node:
+            try:
+                raw = self.proxmox.nodes(node).lxc.get()
+            except Exception as e:
+                self.logger.warning(
+                    "Skipping node %s while listing containers: %s", node, _log_safe(e)
+                )
+                self._handle_error("list containers", e)
+
+            for it in _as_list(raw):
+                if isinstance(it, dict):
+                    out.append((node, it))
+                else:
+                    try:
+                        vmid = int(it)
+                        out.append((node, {"vmid": vmid}))
+                    except Exception:
+                        continue
+        else:
+            try:
+                nodes = _as_list(self.proxmox.nodes.get())
+            except Exception as e:
+                self._handle_error("list containers", e)
+
+            for n in nodes:
+                nname = _get(n, "node")
+                if not nname:
+                    continue
+                try:
+                    raw = self.proxmox.nodes(nname).lxc.get()
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Skipping node %s while listing containers: %s", nname, _log_safe(node_error)
+                    )
+                    out.warnings.append(_log_safe(nname) + ": " + _log_safe(node_error))
+                    continue
+
+                for it in _as_list(raw):
+                    if isinstance(it, dict):
+                        out.append((nname, it))
+                    else:
+                        try:
+                            vmid = int(it)
+                            out.append((nname, {"vmid": vmid}))
+                        except Exception:
+                            continue
+        if not out and out.warnings:
+            raise RuntimeError("Container inventory is unavailable: " + "; ".join(out.warnings))
+        return out
+
+    def _rrd_last(self, node: str, vmid: int) -> Tuple[Optional[float], Optional[int], Optional[int]]:
+        """Return (cpu_pct, mem_bytes, maxmem_bytes) from the most recent RRD sample."""
+        try:
+            rrd = _as_list(self.proxmox.nodes(node).lxc(vmid).rrddata.get(timeframe="hour"))
+            if not rrd or not isinstance(rrd[-1], dict):
+                return None, None, None
+            last = rrd[-1]
+            # Proxmox RRD cpu is fraction already (0..1). Convert to percent.
+            cpu_pct = float(_get(last, "cpu", 0.0) or 0.0) * 100.0
+            mem_bytes = int(_get(last, "mem", 0) or 0)
+            maxmem_bytes = int(_get(last, "maxmem", 0) or 0)
+            return cpu_pct, mem_bytes, maxmem_bytes
+        except Exception:
+            return None, None, None
+
+    def _status_and_config(self, node: str, vmid: int) -> Tuple[Dict, Dict]:
+        return self._cached_read(f"ct:stats:{node}:{vmid}", lambda: self._read_status_and_config(node, vmid))
+
+    def _read_status_and_config(self, node: str, vmid: int) -> Tuple[Dict, Dict]:
+        """Return (status_current_dict, config_dict)."""
+        raw_status: Dict = {}
+        raw_config: Dict = {}
+        try:
+            raw_status = _as_dict(self.proxmox.nodes(node).lxc(vmid).status.current.get())
+        except Exception:
+            raw_status = {}
+        try:
+            raw_config = _as_dict(self.proxmox.nodes(node).lxc(vmid).config.get())
+        except Exception:
+            raw_config = {}
+        return raw_status, raw_config
+
+    def _render_pretty(self, rows: List[Dict]) -> List[Content]:
+        lines: List[str] = ["Containers", ""]
+        for r in rows:
+            name = r.get("name") or f"ct-{r.get('vmid')}"
+            vmid = r.get("vmid")
+            status = (r.get("status") or "").upper()
+            node = r.get("node") or "?"
+            cores = r.get("cores")
+            cpu_pct = r.get("cpu_pct", 0.0)
+            mem_bytes = int(r.get("mem_bytes") or 0)
+            maxmem_bytes = int(r.get("maxmem_bytes") or 0)
+            mem_pct = r.get("mem_pct")
+            unlimited = bool(r.get("unlimited_memory", False))
+
+            lines.append(f"{name} (ID: {vmid})")
+            lines.append(f"  - Status: {status}")
+            lines.append(f"  - Node: {node}")
+            lines.append(f"  - CPU: {cpu_pct:.1f}%")
+            lines.append(f"  - CPU Cores: {cores if cores is not None else 'N/A'}")
+
+            if unlimited:
+                lines.append(f"  - Memory: {_b2h(mem_bytes)} (unlimited)")
+            else:
+                if maxmem_bytes > 0:
+                    pct_str = f" ({mem_pct:.1f}%)" if isinstance(mem_pct, (int, float)) else ""
+                    lines.append(f"  - Memory: {_b2h(mem_bytes)} / {_b2h(maxmem_bytes)}{pct_str}")
+                else:
+                    lines.append(f"  - Memory: {_b2h(mem_bytes)} / 0.00 B")
+            lines.append("")
+        return [Content(type="text", text="\n".join(lines).rstrip())]
+
+    # ---------- tool ----------
+    def get_containers(
+        self,
+        node: Optional[str] = None,
+        include_stats: bool = False,
+        include_raw: bool = False,
+        format_style: str = "pretty",
+    ) -> List[Content]:
+        """
+        List containers cluster-wide or by node.
+
+        - `include_stats=True` fetches per-container CPU/mem from /status/current
+        - RRD fallback is used if live returns zeros
+        - `format_style='json'` returns raw JSON list (sanitized)
+        - `format_style='pretty'` renders a human-friendly table
+        """
+        try:
+            pairs = self._list_ct_pairs(node)
+            rows: List[Dict] = []
+
+            if include_stats:
+                keys = {(name, int(ct["vmid"])) for name, ct in pairs if str(ct.get("vmid", "")).isdigit()}
+                with ThreadPoolExecutor(max_workers=4, thread_name_prefix="ct-stats") as workers:
+                    list(workers.map(lambda key: self._status_and_config(*key), keys))
+
+            for nname, ct in pairs:
+                vmid_val = _get(ct, "vmid")
+                vmid_int: Optional[int] = None
+                try:
+                    if vmid_val is not None:
+                        vmid_int = int(vmid_val)
+                except Exception:
+                    vmid_int = None
+
+                rec: Dict = {
+                    "vmid": str(vmid_val) if vmid_val is not None else None,
+                    "name": _get(ct, "name") or _get(ct, "hostname") or (f"ct-{vmid_val}" if vmid_val is not None else "ct-?"),
+                    "node": nname,
+                    "status": _get(ct, "status"),
+                }
+                base_cpu = _get(ct, "cpu")
+                base_mem = _get(ct, "mem")
+                base_maxmem = _get(ct, "maxmem")
+                base_maxcpu = _get(ct, "maxcpu")
+                if base_cpu is not None:
+                    try:
+                        rec["cpu_pct"] = round(float(base_cpu) * 100.0, 2)
+                    except Exception:
+                        pass
+                if base_mem is not None:
+                    try:
+                        rec["mem_bytes"] = int(base_mem)
+                    except Exception:
+                        pass
+                if base_maxmem is not None:
+                    try:
+                        maxmem_int = int(base_maxmem)
+                        rec["maxmem_bytes"] = maxmem_int
+                        mem_int = int(rec.get("mem_bytes") or 0)
+                        rec["mem_pct"] = round((mem_int / maxmem_int * 100.0), 2) if maxmem_int > 0 else None
+                    except Exception:
+                        pass
+                if base_maxcpu is not None:
+                    rec["cores"] = base_maxcpu
+
+                if include_stats and vmid_int is not None:
+                    raw_status, raw_config = self._status_and_config(nname, vmid_int)
+
+                    cpu_frac = float(_get(raw_status, "cpu", 0.0) or 0.0)
+                    cpu_pct = round(cpu_frac * 100.0, 2)
+                    mem_bytes = int(_get(raw_status, "mem", 0) or 0)
+                    maxmem_bytes = int(_get(raw_status, "maxmem", 0) or 0)
+
+                    memory_mib = 0
+                    cores: Optional[Union[int, float]] = None
+                    unlimited_memory = False
+
+                    try:
+                        cfg_mem = _get(raw_config, "memory")
+                        if cfg_mem is None:
+                            cfg_mem = _get(raw_config, "ram")
+                        if cfg_mem is None:
+                            cfg_mem = _get(raw_config, "maxmem")
+                        if cfg_mem is None:
+                            cfg_mem = _get(raw_config, "memoryMiB")
+                        if cfg_mem is not None:
+                            try:
+                                memory_mib = int(cfg_mem)
+                            except Exception:
+                                memory_mib = 0
+                        else:
+                            memory_mib = 0
+
+                        unlimited_memory = bool(_get(raw_config, "swap", 0) == 0 and memory_mib == 0)
+
+                        cfg_cores = _get(raw_config, "cores")
+                        cfg_cpulimit = _get(raw_config, "cpulimit")
+                        if cfg_cores is not None:
+                            cores = int(cfg_cores)
+                        elif cfg_cpulimit is not None and float(cfg_cpulimit) > 0:
+                            cores = float(cfg_cpulimit)
+                    except Exception:
+                        cores = None
+
+                    # --- NEW: fallbacks for stopped / missing maxmem ---
+                    status_str = str(_get(raw_status, "status") or _get(ct, "status") or "").lower()
+                    
+                    if status_str == "stopped":
+                        mem_bytes = 0
+
+                    if (not maxmem_bytes or int(maxmem_bytes) == 0) and memory_mib and int(memory_mib) > 0:
+                        maxmem_bytes = memory_mib * 1024 * 1024
+
+                    # RRD fallback if zeros
+                    if (mem_bytes == 0) or (maxmem_bytes == 0) or (cpu_pct == 0.0):
+                        rrd_cpu, rrd_mem, rrd_maxmem = self._rrd_last(nname, vmid_int)
+                        if cpu_pct == 0.0 and rrd_cpu is not None:
+                            cpu_pct = rrd_cpu
+                        if mem_bytes == 0 and rrd_mem is not None:
+                            mem_bytes = rrd_mem
+                        if maxmem_bytes == 0 and rrd_maxmem:
+                            maxmem_bytes = rrd_maxmem
+                            if memory_mib == 0:
+                                memory_mib = (int(maxmem_bytes) + 512 * 1024) // (1024 * 1024)
+
+                    rec.update({
+                        "cores": cores,
+                        "memory": memory_mib,
+                        "cpu_pct": cpu_pct,
+                        "mem_bytes": mem_bytes,
+                        "maxmem_bytes": maxmem_bytes,
+                        "mem_pct": (
+                            round((mem_bytes / maxmem_bytes * 100.0), 2)
+                            if (maxmem_bytes and maxmem_bytes > 0)
+                            else None
+                        ),
+                        "unlimited_memory": unlimited_memory,
+                    })
+
+                    if include_raw:
+                        rec["raw_status"] = raw_status
+                        rec["raw_config"] = raw_config
+
+                rows.append(rec)
+
+            if format_style == "json":
+                # JSON path must be immune to any formatter assumptions; no raw payloads.
+                return self._json_fmt(rows) + completeness_content(getattr(pairs, "warnings", []))
+            return self._render_pretty(rows) + completeness_content(getattr(pairs, "warnings", []))
+
+        except Exception as e:
+            return self._err("Failed to list containers", e)
+
+    # ---------- target resolution for control ops ----------
+    def _resolve_targets(self, selector: str) -> List[Tuple[str, int, str]]:
+        """
+        Turn a selector string into a list of (node, vmid, label).
+        Supports:
+          - '123' (vmid across cluster)
+          - 'pve1:123' (node:vmid)
+          - 'pve1/name' (node/name)
+          - 'name' (by name/hostname across the cluster)
+          - comma-separated list of any of the above
+        """
+        if not selector:
+            return []
+        tokens = [t.strip() for t in selector.split(",") if t.strip()]
+        inventory: List[Tuple[str, Dict[str, Any]]] = self._list_ct_pairs(node=None)
+        if getattr(inventory, "warnings", []):
+            raise RuntimeError("Cannot resolve a mutation selector from an incomplete inventory")
+
+        resolved: List[Tuple[str, int, str]] = []
+        for tok in tokens:
+            if ":" in tok and "/" not in tok:
+                node, vmid_s = tok.split(":", 1)
+                try:
+                    vmid = int(vmid_s)
+                except Exception:
+                    continue
+                for n, ct in inventory:
+                    if n == node and int(_get(ct, "vmid", -1)) == vmid:
+                        label = _get(ct, "name") or _get(ct, "hostname") or f"ct-{vmid}"
+                        resolved.append((node, vmid, label))
+                        break
+                continue
+
+            if "/" in tok and ":" not in tok:
+                node, name = tok.split("/", 1)
+                name = name.strip()
+                for n, ct in inventory:
+                    if n == node and (_get(ct, "name") == name or _get(ct, "hostname") == name):
+                        vmid = int(_get(ct, "vmid", -1))
+                        if vmid >= 0:
+                            resolved.append((node, vmid, name))
+                continue
+
+            if tok.isdigit():
+                vmid = int(tok)
+                for n, ct in inventory:
+                    if int(_get(ct, "vmid", -1)) == vmid:
+                        label = _get(ct, "name") or _get(ct, "hostname") or f"ct-{vmid}"
+                        resolved.append((n, vmid, label))
+                continue
+
+            name = tok
+            for n, ct in inventory:
+                if _get(ct, "name") == name or _get(ct, "hostname") == name:
+                    vmid = int(_get(ct, "vmid", -1))
+                    if vmid >= 0:
+                        resolved.append((n, vmid, name))
+
+        uniq = {}
+        for n, v, lbl in resolved:
+            uniq[(n, v)] = lbl
+        return [(n, v, uniq[(n, v)]) for (n, v) in uniq.keys()]
+
+    def _render_action_result(self, title: str, results: List[Dict[str, Any]]) -> List[Content]:
+        """Pretty-print an action result; JSON stays raw."""
+        lines = [title, ""]
+        for r in results:
+            status = "OK" if r.get("ok") else "FAIL"
+            node = r.get("node")
+            vmid = r.get("vmid")
+            name = r.get("name") or f"ct-{vmid}"
+            msg = r.get("message") or r.get("error") or ""
+            lines.append(f"{status} {name} (ID: {vmid}, node: {node}) {('- ' + str(msg)) if msg else ''}")
+        return [Content(type="text", text="\n".join(lines).rstrip()), Content(type="text", text=json.dumps(results))]
+
+    # ---------- container control tools ----------
+    def start_container(self, selector: str, format_style: str = "pretty") -> List[Content]:
+        """
+        Start LXC containers matching `selector`.
+        selector examples: '123', 'pve1:123', 'pve1/name', 'name', 'pve1:101,pve2/web'
+        """
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                try:
+                    resp = self.proxmox.nodes(node).lxc(vmid).status.start.post()
+
+                    def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).status.start.post()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
+
+                    job = self._register_background_job(
+                        tool_name="start_container",
+                        summary=f"Start container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid},
+                        retry_spec={"kind": "ct.start", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
+                except Exception as e:
+                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": _log_safe(e)})
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Start Containers", results)
+
+        except Exception as e:
+            return self._err("Failed to start container(s)", e)
+
+    def stop_container(self, selector: str, graceful: bool = True, timeout_seconds: int = 10,
+                       format_style: str = "pretty") -> List[Content]:
+        """
+        Stop LXC containers.
+        graceful=True -> POST .../status/shutdown (graceful stop)
+        graceful=False -> POST .../status/stop (force stop)
+        """
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                try:
+                    if graceful:
+                        resp = self.proxmox.nodes(node).lxc(vmid).status.shutdown.post(timeout=timeout_seconds)
+                    else:
+                        resp = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
+
+                    retry_factory: Callable[[], Any]
+                    if graceful:
+                        def retry_factory(node_name: str = node, vmid_value: int = vmid, timeout_value: int = timeout_seconds) -> Any:
+                            return self.proxmox.nodes(node_name).lxc(vmid_value).status.shutdown.post(timeout=timeout_value)
+                    else:
+                        def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                            return self.proxmox.nodes(node_name).lxc(vmid_value).status.stop.post()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
+
+                    job = self._register_background_job(
+                        tool_name="stop_container",
+                        summary=f"Stop container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid, "graceful": graceful},
+                        retry_spec={"kind": "ct.stop", "params": {"node": node, "vmid": vmid, "graceful": graceful, "timeout_seconds": timeout_seconds}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
+                except Exception as e:
+                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": _log_safe(e)})
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Stop Containers", results)
+
+        except Exception as e:
+            return self._err("Failed to stop container(s)", e)
+
+    def restart_container(self, selector: str, timeout_seconds: int = 10,
+                          format_style: str = "pretty") -> List[Content]:
+        """
+        Restart LXC containers via POST .../status/reboot.
+        """
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                try:
+                    resp = self.proxmox.nodes(node).lxc(vmid).status.reboot.post()
+
+                    def retry_factory(node_name: str = node, vmid_value: int = vmid) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).status.reboot.post()
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
+
+                    job = self._register_background_job(
+                        tool_name="restart_container",
+                        summary=f"Restart container {vmid} on {node}",
+                        node=node,
+                        upid=resp,
+                        metadata={"vmid": vmid},
+                        retry_spec={"kind": "ct.restart", "params": {"node": node, "vmid": vmid}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    results.append({
+                        "ok": True,
+                        "node": node,
+                        "vmid": vmid,
+                        "name": label,
+                        "message": resp,
+                        "task_id": str(resp),
+                        "job_id": job["job_id"] if job else None,
+                    })
+                except Exception as e:
+                    results.append({"ok": False, "node": node, "vmid": vmid, "name": label, "error": _log_safe(e)})
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Restart Containers", results)
+
+        except Exception as e:
+            return self._err("Failed to restart container(s)", e)
+
+    def create_container(
+        self,
+        node: str,
+        vmid: str,
+        ostemplate: str,
+        hostname: Optional[str] = None,
+        cores: int = 1,
+        memory: int = 512,
+        swap: int = 512,
+        disk_size: int = 8,
+        storage: Optional[str] = None,
+        password: Optional[str] = None,
+        ssh_public_keys: Optional[str] = None,
+        network_bridge: str = "vmbr0",
+        start_after_create: bool = False,
+        onboot: bool = False,
+        nesting: bool = False,
+        unprivileged: bool = True,
+        pool: Optional[str] = None,
+        ip: Optional[str] = None,
+        gw: Optional[str] = None,
+        ip6: Optional[str] = None,
+        gw6: Optional[str] = None,
+    ) -> List[Content]:
+        """Create a new LXC container.
+
+        Parameters:
+            node: Host node name (e.g., 'pve')
+            vmid: Container ID number (e.g., '200')
+            ostemplate: OS template path (e.g., 'local:vztmpl/alpine-3.19-default_20240207_amd64.tar.xz')
+            hostname: Container hostname (defaults to 'ct-{vmid}')
+            cores: Number of CPU cores (default: 1)
+            memory: Memory size in MiB (default: 512)
+            swap: Swap size in MiB (default: 512)
+            disk_size: Root disk size in GB (default: 8)
+            storage: Storage pool for rootfs (auto-detect if not specified)
+            password: Root password (optional)
+            ssh_public_keys: SSH public keys for root (optional)
+            network_bridge: Network bridge (default: 'vmbr0')
+            start_after_create: Start container after creation (default: False)
+            onboot: Start container automatically when node boots (default: False)
+            nesting: Enable LXC nesting feature (default: False)
+            unprivileged: Create unprivileged container (default: True)
+            pool: Proxmox resource pool to create the container in (optional)
+
+        Returns:
+            List[Content] with creation result
+        """
+        net0 = container_network(network_bridge=network_bridge, ip=ip, gw=gw, ip6=ip6, gw6=gw6)
+        try:
+            # Validate vmid doesn't already exist
+            existing = self._list_ct_pairs(node=None)
+            for n, ct in existing:
+                if str(_get(ct, "vmid")) == str(vmid):
+                    return self._err(
+                        f"Container with ID {vmid} already exists on node {n}",
+                        ValueError(f"VMID {vmid} already in use")
+                    )
+
+            # Validate node exists
+            nodes = _as_list(self.proxmox.nodes.get())
+            node_names = [_get(n, "node") for n in nodes]
+            if node not in node_names:
+                return self._err(
+                    f"Node '{node}' not found",
+                    ValueError(f"Available nodes: {', '.join(node_names)}")
+                )
+
+            selected = select_storage(self.proxmox, node, "rootdir", storage, disk_size)
+            storage = selected["storage"]
+
+            # Set default hostname
+            if not hostname:
+                hostname = f"ct-{vmid}"
+
+            # Build container configuration
+            ct_config = {
+                "vmid": int(vmid),
+                "ostemplate": ostemplate,
+                "hostname": hostname,
+                "cores": cores,
+                "memory": memory,
+                "swap": swap,
+                "rootfs": f"{storage}:{disk_size}",
+                "net0": net0,
+                "unprivileged": 1 if unprivileged else 0,
+                "start": 1 if start_after_create else 0,
+                "onboot": 1 if onboot else 0,
+            }
+
+            # Add optional parameters
+            if password:
+                ct_config["password"] = password
+            if ssh_public_keys:
+                ct_config["ssh-public-keys"] = ssh_public_keys
+            if nesting:
+                ct_config["features"] = "nesting=1"
+            if pool:
+                ct_config["pool"] = pool
+
+            # Create the container
+            result = self.proxmox.nodes(node).lxc.create(**ct_config)
+            secret_fields = {"password", "ssh-public-keys"}
+            retry_spec = None
+            if not secret_fields.intersection(ct_config):
+                retry_spec = {"kind": "ct.create", "params": {"node": node, "ct_config": dict(ct_config)}}
+
+            def retry_factory() -> Any:
+                return self.proxmox.nodes(node).lxc.create(**ct_config)
+
+            def cancel_factory(upid: str) -> Any:
+                return self.proxmox.nodes(node).tasks(upid).delete()
+
+            job = self._register_background_job(
+                tool_name="create_container",
+                summary=f"Create container {vmid} ({hostname}) on {node}",
+                node=node,
+                upid=result,
+                metadata={"vmid": vmid, "hostname": hostname},
+                retry_spec=retry_spec,
+                retry_factory=retry_factory,
+                cancel_factory=cancel_factory,
+            )
+
+            # Format success response
+            lines = [
+                " Container Created Successfully",
+                "",
+                f"  - VMID: {vmid}",
+                f"  - Hostname: {hostname}",
+                f"  - Node: {node}",
+                f"  - Template: {ostemplate}",
+                f"  - CPU Cores: {cores}",
+                f"  - Memory: {memory} MiB",
+                f"  - Swap: {swap} MiB",
+                f"  - Disk: {disk_size} GB on {storage}",
+                f"  - Network: {net0}",
+                f"  - Unprivileged: {'Yes' if unprivileged else 'No'}",
+                f"  - Auto-start: {'Yes' if start_after_create else 'No'}",
+                f"  - Start on boot: {'Yes' if onboot else 'No'}",
+                f"  - Nesting enabled: {'Yes' if nesting else 'No'}",
+                "",
+                f"Task ID: {result}",
+                f"Job ID: {job['job_id'] if job else 'n/a'}",
+                "",
+                "Next steps:",
+                f"  - Start container: start_container selector='{vmid}'",
+                "  - Check status: get_containers",
+            ]
+            return [Content(type="text", text="\n".join(lines))] + self._submission_content(job, result)
+
+        except Exception as e:
+            return self._err(f"Failed to create container {vmid}", e)
+
+    def delete_container(
+        self,
+        selector: str,
+        force: bool = False,
+        format_style: str = "pretty",
+        approval_token: Optional[str] = None,
+        *,
+        purge: bool = False,
+    ) -> List[Content]:
+        """Delete one or more LXC containers.
+
+        Parameters:
+            selector: Container selector (same grammar as start_container)
+            force: Force deletion even if container is running (default: False)
+            format_style: Output format ('pretty' or 'json')
+            purge: Also remove the CTID from HA resources, backup and replication
+                jobs (default: False)
+
+        Returns:
+            List[Content] with deletion results
+        """
+        _ = approval_token
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                rec: Dict[str, Any] = {"ok": True, "node": node, "vmid": vmid, "name": label}
+
+                try:
+                    # Check container status
+                    status_dict = _as_dict(
+                        self.proxmox.nodes(node).lxc(vmid).status.current.get()
+                    )
+                    current_status = _get(status_dict, "status", "").lower()
+
+                    # Handle running container
+                    if current_status == "running":
+                        if not force:
+                            rec["ok"] = False
+                            rec["error"] = "Container is running. Use force=True to stop and delete."
+                            results.append(rec)
+                            continue
+                        # Force stop the container first
+                        stop_upid = self.proxmox.nodes(node).lxc(vmid).status.stop.post()
+                        self._register_background_job(tool_name="stop_container", summary=f"Stop container {vmid} before deletion", node=node, upid=stop_upid)
+                        self._wait_for_task(node, stop_upid)
+                        self._wait_for_guest_stopped(self.proxmox.nodes(node).lxc(vmid))
+                        rec["message"] = "Stopped and deleted"
+                    else:
+                        rec["message"] = "Deleted"
+
+                    # Delete the container
+                    delete_params = {"purge": 1} if purge else {}
+                    task_result = self.proxmox.nodes(node).lxc(vmid).delete(**delete_params)
+                    rec["task_id"] = str(task_result)
+
+                    def retry_factory(
+                        node_name: str = node, vmid_value: int = vmid, params: Dict[str, Any] = delete_params
+                    ) -> Any:
+                        return self.proxmox.nodes(node_name).lxc(vmid_value).delete(**params)
+
+                    def cancel_factory(upid: str, node_name: str = node) -> Any:
+                        return self.proxmox.nodes(node_name).tasks(upid).delete()
+
+                    job = self._register_background_job(
+                        tool_name="delete_container",
+                        summary=f"Delete container {vmid} on {node}",
+                        node=node,
+                        upid=task_result,
+                        metadata={"vmid": vmid, "force": force, "purge": purge},
+                        retry_spec={"kind": "ct.delete", "params": {"node": node, "vmid": vmid, "purge": purge}},
+                        retry_factory=retry_factory,
+                        cancel_factory=cancel_factory,
+                    )
+                    rec["job_id"] = job["job_id"] if job else None
+
+                except Exception as e:
+                    rec["ok"] = False
+                    rec["error"] = _log_safe(e)
+
+                results.append(rec)
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Delete Containers", results)
+
+        except Exception as e:
+            return self._err("Failed to delete container(s)", e)
+
+    def execute_command(
+        self,
+        selector: str,
+        command: str,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Execute a shell command inside a running LXC container via SSH + pct exec.
+
+        Parameters:
+            selector: Container selector (single target only - e.g. '101', 'pve1:101', 'name')
+            command:  Shell command to run inside the container
+
+        Returns:
+            List[Content] with {"success", "output", "error", "exit_code"}
+        """
+        if self.console_manager is None:
+            return self._err(
+                "execute_command",
+                RuntimeError(
+                    f"SSH is not configured for target '{self.target_name}'. Add an [ssh] section to your MCP config "
+                    "with user/key_file credentials for the Proxmox nodes."
+                ),
+            )
+        try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                if not decision.allowed:
+                    policy_result = ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Command execution blocked by policy",
+                        data={"reason": decision.message},
+                    )
+                    return self._json_fmt(policy_result.model_dump())
+
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("execute_command", ValueError(f"No container matched selector: {selector}"))
+            if len(targets) > 1:
+                return self._err(
+                    "execute_command",
+                    ValueError(
+                        f"Selector '{selector}' matched {len(targets)} containers; "
+                        "execute_command requires a single-target selector."
+                    ),
+                )
+            node, vmid, _label = targets[0]
+            exec_result = self.console_manager.execute_command(node, str(vmid), command)
+            import json as _json
+            return [Content(type="text", text=_json.dumps(exec_result, indent=2))]
+        except Exception as e:
+            return self._err("execute_command", e)
+
+    def execute_node_command(
+        self, node: str, command: str, approval_token: Optional[str] = None
+    ) -> List[Content]:
+        """Run a command on an allowed Proxmox host through the SSH console."""
+        if self.console_manager is None:
+            return self._err("execute_node_command", RuntimeError("SSH is not configured for this target"))
+        try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(
+                    command,
+                    approval_token=approval_token,
+                    full_match_allow_patterns=True,
+                )
+                if not decision.allowed:
+                    return self._json_fmt(ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Host command execution blocked by policy",
+                        data={"reason": decision.message},
+                    ).model_dump())
+            result = self.console_manager.execute_node_command(node, command)
+            return self._json_fmt(result)
+        except Exception as error:
+            return self._err("execute_node_command", error)
+
+    def get_container_config(self, node: str, vmid: str) -> List[Content]:
+        """Return the full configuration of an LXC container.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+        """
+        try:
+            config = _as_dict(self.proxmox.nodes(node).lxc(vmid).config.get())
+            config.setdefault("vmid", vmid)
+            return self._json_fmt(config)
+        except Exception as e:
+            return self._err("get_container_config", e)
+
+    def set_container_description(
+        self, node: str, vmid: str, description: str
+    ) -> List[Content]:
+        """Set/replace the description (Notes field in the UI) of an LXC container.
+
+        Uses PUT /nodes/{node}/lxc/{vmid}/config. Pass an empty string to clear
+        the notes.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+            description: New notes text (replaces any existing notes).
+        """
+        try:
+            self.proxmox.nodes(node).lxc(vmid).config.put(description=description)
+            return self._json_fmt({"vmid": vmid, "node": node, "description": description})
+        except Exception as e:
+            return self._err("set_container_description", e)
+
+    def get_container_ip(self, node: str, vmid: str) -> List[Content]:
+        """Return the current IP address(es) of a running LXC container.
+
+        Uses GET /nodes/{node}/lxc/{vmid}/interfaces.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: Container ID as a string.
+        """
+        try:
+            interfaces_raw = _as_list(
+                self.proxmox.nodes(node).lxc(vmid).interfaces.get()
+            )
+            config = _as_dict(self.proxmox.nodes(node).lxc(vmid).config.get())
+            name = config.get("hostname") or f"ct-{vmid}"
+
+            interfaces: List[Dict] = []
+            primary_ip: Optional[str] = None
+            for iface in interfaces_raw:
+                iface_name = iface.get("name") or iface.get("iface")
+                if iface_name == "lo":
+                    continue
+                entry: Dict[str, Any] = {"name": iface_name}
+                inet = iface.get("inet")
+                inet6 = iface.get("inet6")
+                if inet:
+                    entry["inet"] = inet
+                    if primary_ip is None:
+                        primary_ip = inet.split("/")[0]
+                if inet6:
+                    entry["inet6"] = inet6
+                interfaces.append(entry)
+
+            result = {
+                "vmid": vmid,
+                "name": name,
+                "interfaces": interfaces,
+                "primary_ip": primary_ip,
+            }
+            return self._json_fmt(result)
+        except Exception as e:
+            return self._err("get_container_ip", e)
+
+    def update_container_ssh_keys(
+        self,
+        node: str,
+        vmid: str,
+        public_keys: str,
+        mode: str = "append",
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Inject or replace SSH authorized_keys for root in an LXC container.
+
+        Uses pct exec via SSH to the Proxmox host - requires SSH to be configured.
+
+        Parameters:
+            node:        Proxmox node name.
+            vmid:        Container ID as a string.
+            public_keys: Newline-separated public key(s) to authorize.
+            mode:        'append' (default) or 'replace'.
+        """
+        _ = approval_token
+        if self.console_manager is None:
+            return self._err(
+                "update_container_ssh_keys",
+                RuntimeError(
+                    f"SSH is not configured for target '{self.target_name}'. Add an [ssh] section to your MCP config "
+                    "with user/key_file credentials for the Proxmox nodes."
+                ),
+            )
+        try:
+            keys = [k.strip() for k in public_keys.strip().splitlines() if k.strip()]
+            if not keys:
+                return self._err(
+                    "update_container_ssh_keys",
+                    ValueError("public_keys must contain at least one key"),
+                )
+
+            # Ensure .ssh directory exists with correct permissions
+            mkdir_data = self.console_manager.execute_command(
+                node, vmid, "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
+            )
+            if not mkdir_data.get("success"):
+                return self._err(
+                    "update_container_ssh_keys",
+                    RuntimeError(f"mkdir /root/.ssh failed: {mkdir_data.get('output')}"),
+                )
+
+            # Write keys - use a Python-safe delimiter to avoid shell quoting issues
+            joined = "\n".join(keys)
+            # Build a here-doc-style printf command; escape single quotes in keys
+            escaped = joined.replace("'", "'\\''")
+            redirect = ">" if mode == "replace" else ">>"
+            cmd = (
+                f"printf '%s\\n' '{escaped}' {redirect} /root/.ssh/authorized_keys"
+                " && chmod 600 /root/.ssh/authorized_keys"
+            )
+
+            write_data = self.console_manager.execute_command(node, vmid, cmd)
+            if not write_data.get("success"):
+                return self._err(
+                    "update_container_ssh_keys",
+                    RuntimeError(f"Key write failed: {write_data.get('output')}"),
+                )
+
+            result = {"success": True, "keys_added": len(keys)}
+            return [Content(type="text", text=json.dumps(result, indent=2))]
+
+        except Exception as e:
+            return self._err("update_container_ssh_keys", e)
+
+    def update_container_resources(
+        self,
+        selector: str,
+        cores: Optional[int] = None,
+        memory: Optional[int] = None,
+        swap: Optional[int] = None,
+        disk_gb: Optional[int] = None,
+        disk: str = "rootfs",
+        format_style: str = "pretty",
+    ) -> List[Content]:
+        """Update container CPU/memory/swap limits and/or extend disk size.
+
+        Parameters:
+            selector: Container selector (same grammar as start_container)
+            cores: New CPU core count
+            memory: New memory limit in MiB
+            swap: New swap limit in MiB
+            disk_gb: Additional disk size to add in GiB
+            disk: Disk identifier to resize (default 'rootfs')
+            format_style: Output format ('pretty' or 'json')
+        """
+
+        try:
+            targets = self._resolve_targets(selector)
+            if not targets:
+                return self._err("No containers matched the selector", ValueError(selector))
+
+            results: List[Dict[str, Any]] = []
+            for node, vmid, label in targets:
+                rec: Dict[str, Any] = {"ok": True, "node": node, "vmid": vmid, "name": label}
+                changes: List[str] = []
+
+                try:
+                    update_params: Dict[str, Any] = {}
+                    if cores is not None:
+                        update_params["cores"] = cores
+                        changes.append(f"cores={cores}")
+                    if memory is not None:
+                        update_params["memory"] = memory
+                        changes.append(f"memory={memory}MiB")
+                    if swap is not None:
+                        update_params["swap"] = swap
+                        changes.append(f"swap={swap}MiB")
+
+                    if update_params:
+                        self.proxmox.nodes(node).lxc(vmid).config.put(**update_params)
+
+                    if disk_gb is not None:
+                        size_str = f"+{disk_gb}G"
+                        # Use PUT for disk resize - some Proxmox versions reject POST
+                        resize_upid = self.proxmox.nodes(node).lxc(vmid).resize.put(disk=disk, size=size_str)
+                        job = self._register_background_job(tool_name="update_container_resources", summary=f"Resize container {vmid} {disk}", node=node, upid=resize_upid, metadata={"disk": disk, "increment": size_str})
+                        rec["status"] = "submitted"
+                        rec["task_id"] = resize_upid
+                        rec["job_id"] = job["job_id"] if job else None
+                        changes.append(f"{disk}+={disk_gb}G")
+
+                    rec["message"] = ", ".join(changes) if changes else "no changes"
+                except Exception as e:
+                    rec["ok"] = False
+                    rec["error"] = _log_safe(e)
+
+                results.append(rec)
+
+            if format_style == "json":
+                return self._json_fmt(results)
+            return self._render_action_result("Update Container Resources", results)
+
+        except Exception as e:
+            return self._err("Failed to update container(s)", e)
+
+
+    def update_container_network(
+        self, node: str, vmid: str, network_bridge: Optional[str] = None,
+        ip: Optional[str] = None, gw: Optional[str] = None,
+        ip6: Optional[str] = None, gw6: Optional[str] = None,
+        interface: str = "net0", approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Merge selected network fields while preserving other NIC options."""
+        if not re.fullmatch(r"net(?:[0-9]|[12][0-9]|3[01])", interface):
+            raise ValueError("interface must be net0 through net31")
+        if all(v is None for v in (network_bridge, ip, gw, ip6, gw6)):
+            raise ValueError("update_container_network needs at least one setting")
+        current = self.proxmox.nodes(node).lxc(vmid).config.get()
+        if not current.get(interface):
+            raise ValueError(f"Container has no {interface} interface to update")
+        network = container_network(current[interface], network_bridge=network_bridge, ip=ip, gw=gw, ip6=ip6, gw6=gw6)
+        payload = {interface: network}
+        if current.get("digest"):
+            payload["digest"] = current["digest"]
+        self.proxmox.nodes(node).lxc(vmid).config.put(**payload)
+        return self._json_fmt({"node": node, "vmid": vmid, "applied": {interface: network}})
+
+    def migrate_container(
+        self, node: str, vmid: str, destination: str,
+        restart: bool = False,
+        confirm_migration: bool = False, confirm_downtime: bool = False,
+        approval_token: Optional[str] = None,
+    ) -> List[Content]:
+        """Submit a validated LXC migration task, never silently retry submission.
+
+        This API call may interrupt running workloads. Only one POST is issued;
+        the returned UPID must be polled for completion by the caller.
+        """
+        _ = approval_token  # Existing high-risk operation policy is enforced by the registry.
+        if confirm_migration is not True:
+            raise ValueError("Explicit confirm_migration=True is required")
+        if not isinstance(restart, bool) or not isinstance(confirm_downtime, bool):
+            raise ValueError("restart and confirm_downtime must be booleans")
+        if restart and not confirm_downtime:
+            raise ValueError("restart=True requires confirm_downtime=True even when the container is currently stopped")
+        try:
+            assessment = self._assess_container_migration(
+                node, vmid, destination, allow_downtime=restart and confirm_downtime
+            )
+            if not assessment["ready"]:
+                raise ValueError("Migration blocked: " + "; ".join(assessment["blockers"] + assessment["unknowns"]))
+            guest = self.proxmox.nodes(node).lxc(vmid)
+            # LXC migrates local volumes itself. with-local-disks belongs to the
+            # QEMU API and is rejected by the LXC endpoint's closed schema.
+            request = {"target": destination, "restart": int(restart)}
+            # Do not retry this POST on ambiguous transport failures: a migration
+            # might have been submitted even if its UPID response was lost.
+            try:
+                upid = guest.migrate.post(**request)
+            except ResourceException as error:
+                if 400 <= error.status_code < 500:
+                    raise
+                return self._uncertain_migration(node, vmid, destination)
+            except Exception:
+                return self._uncertain_migration(node, vmid, destination)
+            if not isinstance(upid, str) or not upid.startswith("UPID:"):
+                return self._uncertain_migration(node, vmid, destination)
+            try:
+                job = self._register_background_job(
+                    tool_name="migrate_container",
+                    summary=f"Migrate CT {vmid} from {node} to {destination}",
+                    node=node, upid=upid,
+                    metadata={"vmid": str(vmid), "source": node, "destination": destination},
+                    # No retry_spec or retry_factory: retrying migration can duplicate a job.
+                )
+            except Exception:
+                # Migration has already been submitted. Reporting failure here
+                # could induce a duplicate submission. Preserve the remote UPID.
+                self.logger.warning("LXC migration submitted but local job registration failed")
+                job = None
+            payload = {"success": True, "status": "submitted",
+                       "task_id": str(upid), "job_id": job["job_id"] if job else None,
+                       "source_node": node, "destination_node": destination, "vmid": str(vmid)}
+            return self._json_fmt(payload) + self._submission_content(job, upid)
+        except Exception as error:
+            self._handle_error(f"migrate container {vmid} from {node} to {destination}", error)
+
+    def _uncertain_migration(self, node: str, vmid: str, destination: str) -> List[Content]:
+        return self._json_fmt({
+            "success": False, "code": "SUBMISSION_UNCERTAIN", "status": "unknown",
+            "message": "Migration may have been submitted. Inspect Proxmox tasks and guest location before retrying.",
+            "source_node": node, "destination_node": destination, "vmid": str(vmid),
+            "retryable": False,
+        })
+
+    def preflight_container_migration(
+        self, node: str, vmid: str, destination: str, allow_downtime: bool = False
+    ) -> List[Content]:
+        """Read-only LXC migration assessment. Missing evidence fails closed.
+
+        This does NOT reserve space, guarantee success, or initiate migration.
+        """
+        try:
+            return self._json_fmt(self._assess_container_migration(node, vmid, destination, allow_downtime))
+        except Exception as error:
+            self._handle_error("preflight container migration", error)
+
+    def _assess_container_migration(
+        self, node: str, vmid: str, destination: str, allow_downtime: bool = False
+    ) -> Dict[str, Any]:
+        """Shared advisory checks; malformed or inaccessible evidence fails closed."""
+        if not all(isinstance(n, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,252}", n)
+                   for n in (node, destination)) or node == destination:
+            raise ValueError("Source and destination must be distinct non-empty nodes")
+        if not re.fullmatch(r"[1-9][0-9]{2,8}", str(vmid)):
+            raise ValueError("vmid must be numeric, canonical, and between 100 and 999999999")
+        if not isinstance(allow_downtime, bool):
+            raise ValueError("allow_downtime must be a boolean")
+        checks: Dict[str, Any] = {}
+        blockers: List[str] = []
+        unknowns: List[str] = []
+        warnings: List[str] = []
+        try:
+            nodes = self.proxmox.nodes.get()
+            if not isinstance(nodes, list) or not all(isinstance(n, dict) for n in nodes):
+                raise ValueError("Unexpected node inventory response")
+            states = {n.get("node"): n.get("status") for n in nodes}
+            for name in (node, destination):
+                if states.get(name) != "online":
+                    blockers.append(f"Node {name} is not online")
+            if blockers:
+                return {"ready": False, "blockers": blockers, "unknowns": unknowns,
+                        "warnings": warnings, "checks": checks}
+
+            config = self.proxmox.nodes(node).lxc(vmid).config.get()
+            if not isinstance(config, dict):
+                raise ValueError("Unexpected container configuration response")
+            rootfs = str(config.get("rootfs") or "")
+            storage = rootfs.partition(":")[0]
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", storage) or ":" not in rootfs:
+                blockers.append("Container has no parseable rootfs volume")
+                storage = ""
+            if any(re.fullmatch(r"mp[0-9]+", str(key)) for key in config):
+                blockers.append("Additional mounts need manual inspection")
+            if any(re.fullmatch(r"unused[0-9]+", str(key)) for key in config):
+                blockers.append("Unused volumes need manual inspection")
+            if any(str(key).startswith(("dev", "lxc.")) for key in config):
+                blockers.append("Custom devices or raw LXC options need manual inspection")
+            if config.get("lock"):
+                blockers.append("Container is locked")
+
+            # LXC local volume migration may stop/restart the guest.
+            try:
+                current = self.proxmox.nodes(node).lxc(vmid).status.current.get()
+                if not isinstance(current, dict) or current.get("status") not in ("running", "stopped"):
+                    raise ValueError("Unknown container runtime status")
+                checks["current_status"] = current.get("status")
+                if current.get("status") == "running" and not allow_downtime:
+                    blockers.append("Running container: allow_downtime (restart and confirm_downtime) must be explicitly set")
+                elif current.get("status") == "running":
+                    warnings.append("Running container will experience downtime")
+            except Exception:
+                unknowns.append("Container runtime status / running state unavailable")
+
+            size_match = re.search(r"(?:^|,)size=([0-9]+(?:\.[0-9]+)?)([KMGT])(?:,|$)", rootfs, re.I)
+            units = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+            required = int(Decimal(size_match.group(1)) * units[size_match.group(2).upper()]) if size_match else None
+            checks["rootfs"] = rootfs
+            checks["provisioned_rootfs_bytes"] = required
+            if required is None or required <= 0:
+                unknowns.append("Rootfs provisioned size unavailable")
+            if storage:
+                try:
+                    dest_status = self.proxmox.nodes(destination).storage(storage).status.get()
+                    if not isinstance(dest_status, dict):
+                        raise ValueError("Unexpected destination storage response")
+                    supported = "rootdir" in _migration_content_types(dest_status.get("content") or "")
+                    active = dest_status.get("active") in (1, True)
+                    enabled = dest_status.get("enabled", 1) in (1, True)
+                    checks["target_storage"] = {"storage": storage, "active": active,
+                                                "available_bytes": dest_status.get("avail"),
+                                                "rootdir": supported}
+                    if not active or not enabled or not supported:
+                        blockers.append("Destination storage is inactive or incompatible (lacks rootdir capability)")
+                    available = dest_status.get("avail")
+                    if not isinstance(available, (int, float)) or isinstance(available, bool) or not math.isfinite(available) or available < 0:
+                        unknowns.append("Destination available bytes unavailable")
+                    elif required is not None and available < (required * 11 + 9) // 10:
+                        blockers.append("Insufficient destination capacity including 10% safety margin")
+                except Exception:
+                    unknowns.append("Destination storage status not accessible")
+
+            try:
+                resources = self.proxmox.cluster.ha.resources.get()
+                if not isinstance(resources, list) or not all(
+                    isinstance(r, dict) and isinstance(r.get("sid") or r.get("id"), str)
+                    and re.fullmatch(r"(?:ct|vm):[1-9][0-9]*", str(r.get("sid") or r.get("id")))
+                    for r in resources
+                ):
+                    raise ValueError("Unexpected HA resource inventory")
+                if any((r.get("sid") or r.get("id")) == f"ct:{vmid}" for r in resources):
+                    blockers.append("HA-managed container: coordinate HA migration")
+                checks["ha_checked"] = True
+            except Exception:
+                unknowns.append("HA resource membership not verified")
+
+            # Backups must be verified, rather than inferred from scheduled backup jobs.
+            try:
+                stores = self.proxmox.nodes(node).storage.get()
+                if not isinstance(stores, list):
+                    raise ValueError("Unexpected backup storage inventory")
+                found = False
+                verified = False
+                for item in stores:
+                    if not isinstance(item, dict):
+                        raise ValueError("Malformed backup storage record")
+                    content = _migration_content_types(item.get("content") or "")
+                    if "backup" not in content:
+                        continue
+                    if not isinstance(item.get("storage"), str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", item["storage"]):
+                        raise ValueError("Unexpected backup storage ID")
+                    records = self.proxmox.nodes(node).storage(item["storage"]).content.get(
+                        content="backup", vmid=int(vmid)
+                    )
+                    if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+                        raise ValueError("Unexpected backup inventory response")
+                    verified = True
+                    if any(str(r.get("vmid")) == str(vmid) and isinstance(r.get("volid"), str)
+                           and r["volid"] for r in records):
+                        found = True
+                checks["backup_found"] = found
+                if not verified:
+                    unknowns.append("No backup inventory could be verified")
+                elif not found:
+                    blockers.append("No matching backup found on inspected storage")
+            except Exception:
+                unknowns.append("Backup inventory incomplete or unavailable")
+
+            checks["source"] = node
+            checks["destination"] = destination
+            checks["vmid"] = str(vmid)
+            checks["downtime_confirmed"] = allow_downtime
+            return {"ready": not (blockers or unknowns), "checks": checks,
+                                   "blockers": blockers, "unknowns": unknowns, "warnings": warnings,
+                                   "note": "Read-only advisory; no space reservation or migration submitted. Backup presence does not verify freshness or restorability."}
+        except Exception as error:
+            self._handle_error("preflight container migration", error)

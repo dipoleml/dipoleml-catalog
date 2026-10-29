@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# sync-skills.sh — compile shared/ source-of-truth into per-client surfaces.
+#
+# Inputs:
+#   shared/commands/<name>.md          User-invocable workflows (slash commands)
+#   shared/skills/<name>/SKILL.md      Model-auto-invocable reference skills
+#   shared/agents/<name>.md            Sub-agent personas
+#
+# Outputs:
+#   commands/<name>.md                 (Claude Code  — slash commands)
+#   skills/<name>/SKILL.md             (Claude Code  — model-invocable skills)
+#   agents/<name>.md                   (Claude Code  — sub-agents)
+#   gemini/commands/markifact/*.toml   (Gemini CLI   — slash commands as TOML)
+#   rules/markifact.mdc                             (Cursor plugin — lean always-on rule)
+#   plugins/cursor/markifact/markifact-bundled.mdc  (Cursor script install — everything inlined)
+#   plugins/codex/markifact/AGENTS.md  (Codex CLI    — single concatenated prompt)
+#   plugins/hermes/markifact/skills/   (Hermes Agent — portable Agent Plugins v1 skills)
+#
+# Run from repo root:  ./scripts/sync-skills.sh
+# Check mode (CI):     ./scripts/sync-skills.sh --check
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+CHECK_MODE=0
+if [[ "${1:-}" == "--check" ]]; then
+  CHECK_MODE=1
+fi
+
+OUT_PATHS=(commands skills agents gemini/commands/markifact rules plugins/cursor/markifact/markifact-bundled.mdc plugins/codex/markifact/AGENTS.md plugins/hermes/markifact/skills)
+
+# Capture pre-state for --check
+if [[ $CHECK_MODE -eq 1 ]]; then
+  PRE_HASH=$(find "${OUT_PATHS[@]}" -type f 2>/dev/null | sort | xargs -I {} sha256sum {} 2>/dev/null | sha256sum)
+fi
+
+# --- Clean output dirs (don't touch the input shared/ tree) -----------------
+rm -rf commands skills agents gemini/commands/markifact \
+       rules \
+       plugins/cursor/markifact/markifact-bundled.mdc \
+       plugins/codex/markifact/AGENTS.md \
+       plugins/hermes/markifact/skills
+mkdir -p commands skills agents gemini/commands/markifact \
+         rules plugins/hermes/markifact/skills
+
+# --- 1. Claude Code slash commands (identity copy) -------------------------
+for src in shared/commands/*.md; do
+  cp "$src" "commands/$(basename "$src")"
+done
+echo "✓ Claude Code commands → commands/"
+
+# --- 2. Claude Code skills (identity copy) ---------------------------------
+for src in shared/skills/*/SKILL.md; do
+  name=$(basename "$(dirname "$src")")
+  mkdir -p "skills/$name"
+  cp "$src" "skills/$name/SKILL.md"
+done
+echo "✓ Claude Code skills   → skills/"
+
+# --- 3. Claude Code agent (identity copy) ----------------------------------
+for src in shared/agents/*.md; do
+  cp "$src" "agents/$(basename "$src")"
+done
+echo "✓ Claude Code agent    → agents/"
+
+# --- 4. Gemini CLI commands (TOML, from shared/commands/) ------------------
+for src in shared/commands/*.md; do
+  name=$(basename "$src" .md)
+  desc=$(awk '/^description:/{sub(/^description:[[:space:]]*/,""); print; exit}' "$src")
+  body=$(awk 'BEGIN{f=0} /^---$/{f++; next} f>=2{print}' "$src")
+  out="gemini/commands/markifact/${name}.toml"
+  {
+    printf 'description = %s\n\n' "$(printf '%s' "$desc" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')"
+    printf 'prompt = """\n%s\n"""\n' "$body"
+  } > "$out"
+done
+echo "✓ Gemini commands      → gemini/commands/markifact/"
+
+# --- 5. Cursor rules (.mdc) ------------------------------------------------
+# Two renderings of the same shared/ source:
+#   rules/markifact.mdc                            lean; the plugin declares
+#     skills/, commands/ and agents/ itself, so inlining them here would load
+#     every workflow into every conversation twice.
+#   plugins/cursor/markifact/markifact-bundled.mdc everything inlined, for
+#     install.sh users who get the rule file on its own with no plugin.
+strip_frontmatter() { awk 'BEGIN{f=0} /^---$/{f++; next} f>=2{print}' "$1"; }
+
+{
+  cat <<'EOF'
+---
+description: Markifact performance-marketing agent. Auto-loaded whenever you ask about ads, GA4, Shopify, HubSpot or other marketing platforms.
+alwaysApply: true
+---
+
+EOF
+  strip_frontmatter shared/agents/performance-marketer.md
+} > rules/markifact.mdc
+echo "✓ Cursor rule (lean)   → rules/markifact.mdc"
+
+{
+  cat <<'EOF'
+---
+description: Markifact performance-marketing agent + skills + commands. Auto-loaded by Cursor whenever you ask about ads, GA4, Shopify, HubSpot or other marketing platforms.
+alwaysApply: true
+---
+
+EOF
+  strip_frontmatter shared/agents/performance-marketer.md
+  echo
+  echo "---"
+  echo "## Reference skills (always loaded)"
+  echo
+  for src in shared/skills/*/SKILL.md; do
+    name=$(basename "$(dirname "$src")")
+    echo "### $name"
+    echo
+    strip_frontmatter "$src"
+    echo
+  done
+  echo "---"
+  echo "## Workflows (user-invokable)"
+  echo
+  for src in shared/commands/*.md; do
+    name=$(basename "$src" .md)
+    echo "### $name"
+    echo
+    strip_frontmatter "$src"
+    echo
+  done
+} > plugins/cursor/markifact/markifact-bundled.mdc
+echo "✓ Cursor rule (bundled)→ plugins/cursor/markifact/markifact-bundled.mdc"
+
+# --- 6. Codex AGENTS.md (concatenated prompt) ------------------------------
+{
+  echo "# Markifact"
+  echo
+  echo "_Auto-generated. Edit \`shared/\` then run \`./scripts/sync-skills.sh\`._"
+  echo
+  awk 'BEGIN{f=0} /^---$/{f++; next} f>=2{print}' shared/agents/performance-marketer.md
+  echo
+  echo "---"
+  echo "## Reference skills"
+  echo
+  for src in shared/skills/*/SKILL.md; do
+    name=$(basename "$(dirname "$src")")
+    echo "### $name"
+    echo
+    awk 'BEGIN{f=0} /^---$/{f++; next} f>=2{print}' "$src"
+    echo
+  done
+  echo "---"
+  echo "## Workflows"
+  echo
+  for src in shared/commands/*.md; do
+    name=$(basename "$src" .md)
+    echo "### $name"
+    echo
+    awk 'BEGIN{f=0} /^---$/{f++; next} f>=2{print}' "$src"
+    echo
+  done
+} > plugins/codex/markifact/AGENTS.md
+echo "✓ Codex AGENTS.md      → plugins/codex/markifact/AGENTS.md"
+
+# --- 7. Hermes Agent skills (portable Agent Plugins v1) --------------------
+# Hermes reads plugins/hermes/markifact/{plugin.json,mcp.json,skills/}. The
+# portable format has skills only (no agents or commands), so the agent persona
+# and every workflow become skills. Agent Skills frontmatter is name +
+# description only; Claude-specific keys (user-invocable, disable-model-invocation,
+# argument-hint) are dropped.
+hermes_skill() {  # <dir-name> <source-file>
+  local name="$1" src="$2" dir="plugins/hermes/markifact/skills/$1"
+  local desc
+  desc=$(awk '/^description:/{sub(/^description:[[:space:]]*/,""); print; exit}' "$src")
+  mkdir -p "$dir"
+  {
+    printf -- '---\nname: %s\ndescription: %s\n---\n' "$name" "$desc"
+    strip_frontmatter "$src" | sed '1{/^$/d;}'
+  } > "$dir/SKILL.md"
+}
+hermes_skill markifact-agent shared/agents/performance-marketer.md
+for src in shared/skills/*/SKILL.md; do
+  hermes_skill "$(basename "$(dirname "$src")")" "$src"
+done
+for src in shared/commands/*.md; do
+  hermes_skill "$(basename "$src" .md)" "$src"
+done
+echo "✓ Hermes skills        → plugins/hermes/markifact/skills/"
+
+# --- Check mode: fail if any output changed --------------------------------
+if [[ $CHECK_MODE -eq 1 ]]; then
+  POST_HASH=$(find "${OUT_PATHS[@]}" -type f 2>/dev/null | sort | xargs -I {} sha256sum {} 2>/dev/null | sha256sum)
+  if [[ "$PRE_HASH" != "$POST_HASH" ]]; then
+    echo
+    echo "✗ Generated files are out of date. Run ./scripts/sync-skills.sh and commit." >&2
+    exit 1
+  fi
+  echo
+  echo "✓ Generated files are up to date."
+fi

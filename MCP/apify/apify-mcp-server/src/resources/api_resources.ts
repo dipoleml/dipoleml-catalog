@@ -1,0 +1,306 @@
+import type {
+    BlobResourceContents,
+    ReadResourceResult,
+    TextResourceContents,
+} from '@modelcontextprotocol/sdk/types.js';
+
+import type { ApifyClient } from '../apify_client.js';
+import {
+    getApifyAPIBaseUrl,
+    getApifyAPIPublicBaseUrl,
+    readBodyUnderCap,
+    sendApifyApiRequest,
+} from '../apify_client.js';
+import { MAX_INLINE_BYTES } from '../const.js';
+import { InternalError, InvalidParamsError } from '../mcp/errors.js';
+import { validateApiBlocklist } from '../tools/api/apify_api_blocklist.js';
+import { normalizeApiPath } from '../tools/api/apify_api_path.js';
+import { parseBaseMimeType } from '../tools/storage/storage_helpers.js';
+import { getHttpStatusCode, logHttpError } from '../utils/logging.js';
+import { getHttpErrorHint } from '../utils/mcp.js';
+
+const TEXT_MIME_TYPE = 'text/plain';
+
+export const REDACTED = '[REDACTED]';
+
+/** Textual base MIME types (returned as `text`); everything else becomes a base64 `blob`. */
+export function isTextualMimeType(baseMimeType: string | undefined): boolean {
+    if (!baseMimeType) return false;
+    return (
+        baseMimeType.startsWith('text/') ||
+        baseMimeType === 'application/json' ||
+        baseMimeType.endsWith('+json') ||
+        baseMimeType === 'application/xml' ||
+        baseMimeType.endsWith('+xml') ||
+        baseMimeType === 'application/javascript'
+    );
+}
+
+/** Domain error class the protocol adapters map to the matching JSON-RPC error code. */
+type DomainErrorClass = new (message: string, data?: unknown) => Error;
+
+/**
+ * Maps a failed read's HTTP status to the domain error class:
+ * - 3xx/4xx except 429 → `InvalidParamsError` (the request/resource is the problem — bad URI, missing/invalid
+ *   token, private resource, or a resource that does not exist; SEP-2164 remaps "nonexistent" here too).
+ * - 429, 5xx, or no status (network failure) → `InternalError` (transient or upstream).
+ */
+function getErrorClassForStatus(status: number | undefined): DomainErrorClass {
+    if (status !== undefined && status < 500 && status !== 429) return InvalidParamsError;
+    return InternalError;
+}
+
+/** Throw the standard resources/read failure. Callers log the error first — the log source differs by site. */
+function throwReadFailure(uri: string, status: number | undefined, message: string): never {
+    const hint = getHttpErrorHint(status);
+    const ErrorClass = getErrorClassForStatus(status);
+    throw new ErrorClass(
+        `Failed to read ${uri}: ${status ? `HTTP ${status}: ` : ''}${message}${hint ? `. ${hint}` : ''}`,
+        { uri },
+    );
+}
+
+/**
+ * True when the URI is an Apify API URL: on the origin clients are told to use (`getApifyAPIPublicBaseUrl()`)
+ * or on the egress origin (`getApifyAPIBaseUrl()`), which differ on the hosted server.
+ *
+ * This is the security gate for the generic read proxy: the apify-client attaches the
+ * session token as an `Authorization` header to every outbound request, so we must only
+ * hand it Apify API URLs — never an arbitrary host. Userinfo-bearing URLs
+ * (`user@api.apify.com`) are rejected even when the host is genuinely ours: axios drops
+ * the default `Authorization` header for credentials-bearing URLs, so the read would
+ * silently run unauthenticated. The API tools' `callApi` asserts its request URL with it too.
+ */
+export function isApifyApiUri(uri: string): boolean {
+    try {
+        const url = new URL(uri);
+        if (url.username || url.password) return false;
+        return [getApifyAPIPublicBaseUrl(), getApifyAPIBaseUrl()].some((base) => url.origin === new URL(base).origin);
+    } catch {
+        return false;
+    }
+}
+
+/** `uri` with the scheme, host and port of `base`; the path, query and fragment stay. */
+export function buildUrlOnOrigin(uri: string, base: string): string {
+    const url = new URL(uri);
+    const { protocol, hostname, port } = new URL(base);
+    url.protocol = protocol;
+    url.hostname = hostname;
+    url.port = port;
+    return url.href;
+}
+
+/**
+ * Matches an Apify key-value-store record path, capturing the store id and the record key.
+ * Both groups exclude `/?#` so a trailing query or fragment can't leak into the captured key.
+ */
+const KV_RECORD_PATH_RE = /^\/v2\/key-value-stores\/([^/?#]+)\/records\/([^/?#]+)$/;
+
+/** `decodeURIComponent` that returns the input unchanged on malformed percent-encoding instead of throwing. */
+function safeDecodeURIComponent(segment: string): string {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
+}
+
+/**
+ * Download URL for a body too large to inline. For a key-value-store record URI, returns the
+ * store's signed `recordPublicUrl` — fetchable without an API token when the client can read the
+ * store's URL signing key. Falls back to the API URL on the client-facing origin for any other
+ * endpoint, or if minting the signed URL fails (fetching that link then needs a token).
+ */
+async function fetchRecordDownloadUrl(uri: string, apifyClient: ApifyClient): Promise<string> {
+    const apiUrl = buildUrlOnOrigin(uri, getApifyAPIPublicBaseUrl());
+    const match = KV_RECORD_PATH_RE.exec(new URL(uri).pathname);
+    if (!match) return apiUrl;
+    try {
+        const store = apifyClient.keyValueStore(safeDecodeURIComponent(match[1]));
+        return await store.getRecordPublicUrl(safeDecodeURIComponent(match[2]));
+    } catch (err) {
+        logHttpError(err, `Failed to mint signed download URL for ${uri}; falling back to API URL`);
+        return apiUrl;
+    }
+}
+
+/** Single text-contents result; pass `mimeType` to preserve a body's declared Content-Type. */
+function buildTextResult(uri: string, text: string, mimeType: string = TEXT_MIME_TYPE): ReadResourceResult {
+    return { contents: [{ uri, mimeType, text } satisfies TextResourceContents] };
+}
+
+/** True when the URI is a key-value-store record path (a single record, not a pageable list). */
+function isKvRecordUri(uri: string): boolean {
+    try {
+        return KV_RECORD_PATH_RE.test(new URL(uri).pathname);
+    } catch {
+        return false;
+    }
+}
+
+/** Body too large to inline: a download-pointer text result. NOT a failure — the resource is readable, just not inline. */
+async function buildLinkOutResult(uri: string, apifyClient: ApifyClient): Promise<ReadResourceResult> {
+    const downloadUrl = await fetchRecordDownloadUrl(uri, apifyClient);
+    // A KVS record is a single object with no paging; only a dataset/list can shrink via limit/offset.
+    const pagingHint = isKvRecordUri(uri) ? '' : ' For a dataset/list, re-read with a smaller limit/offset range.';
+    return buildTextResult(
+        uri,
+        `Response body exceeds the ${MAX_INLINE_BYTES}-byte inline limit. Download it from ${downloadUrl} ` +
+            `(may require your Apify API token).${pagingHint}`,
+    );
+}
+
+/** `charset` parameter of a Content-Type header, lowercased; `undefined` when absent. */
+export function parseCharset(contentType: string | undefined): string | undefined {
+    const match = /;\s*charset\s*=\s*"?([^";]+)"?/i.exec(contentType ?? '');
+    return match?.[1].trim().toLowerCase();
+}
+
+/** `error.message` from an Apify API error body, or `undefined` when the body isn't that shape. */
+function parseApiErrorMessage(body: Buffer | undefined): string | undefined {
+    if (!body || body.length === 0) return undefined;
+    try {
+        const parsed = JSON.parse(body.toString('utf-8')) as { error?: { message?: unknown } };
+        return typeof parsed?.error?.message === 'string' ? parsed.error.message : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** A response can echo the session token, as `GET /v2/browser-info` echoes the request headers. */
+export function maskSessionToken(body: Buffer, token: string | undefined): Buffer {
+    if (!token) return body;
+    // The token is ASCII, so a latin1 round trip keeps every other byte as it is.
+    const bytes = body.toString('latin1');
+    return bytes.includes(token) ? Buffer.from(bytes.replaceAll(token, REDACTED), 'latin1') : body;
+}
+
+/**
+ * The unescaped closing quote and colon distinguish keys from string contents.
+ * Disjoint value branches keep the scan linear.
+ */
+const SECRET_VALUE_RE = /("(?:urlSigningSecretKey|password)"\s*:\s*)"(?:[^"\\]|\\[\s\S])*"/g;
+
+/**
+ * Hide storage signing keys and passwords, such as the proxy password in `/v2/users/me`, without parsing JSON,
+ * preserving formatting and large integers (apify/ai-team#330, apify/ai-team#334).
+ * Parsing and re-indenting deeply nested bodies can exhaust memory. Null values and escaped key names stay as is.
+ */
+export function redactJsonSecrets(json: string): string {
+    return json.replace(SECRET_VALUE_RE, `$1"${REDACTED}"`);
+}
+
+/**
+ * Read any Apify API GET endpoint as an MCP resource.
+ *
+ * A thin streaming proxy: the apify-client injects the session token (and the MCP-origin header),
+ * the body streams in and is returned by its declared Content-Type — textual types
+ * (text/*, JSON, XML) as `text`, anything else as a base64 `blob`. The body is never parsed, so
+ * JSON primitives, formatting, and bytes round-trip exactly, except that the session token and
+ * `urlSigningSecretKey` and `password` values in JSON become `[REDACTED]`.
+ *
+ * Genuine failures (no token, bad origin, a request the API tools refuse, a missing resource, a bad token,
+ * a 5xx, a network error) throw a domain error (`InvalidParamsError`/`InternalError`) that the protocol adapters
+ * (`legacy_server.ts`, `stateless_server.ts`) map to a JSON-RPC error, so the SDK returns an error
+ * rather than success-shaped content for an unreadable resource (see SEP-2164). A body over
+ * `MAX_INLINE_BYTES` is NOT a failure — it is a successful read returning a download pointer.
+ *
+ * It makes one attempt through `sendApifyApiRequest` (`../apify_client.ts`), which says why it skips
+ * `httpClient.call()`.
+ */
+export async function readApiResource(uri: string, apifyClient?: ApifyClient): Promise<ReadResourceResult> {
+    if (!isApifyApiUri(uri)) {
+        throw new InvalidParamsError(
+            `Failed to read ${uri}: only Apify API URLs (${getApifyAPIPublicBaseUrl()}) are readable as resources.`,
+            { uri },
+        );
+    }
+    if (!apifyClient) {
+        throw new InvalidParamsError(`Failed to read ${uri}: no Apify token in this session.`, {
+            uri,
+        });
+    }
+    // A GET with the method query parameter can delete, and one to a synchronous run endpoint starts a paid run;
+    // see apify/apify-mcp-server#1524.
+    const { pathname, search } = new URL(uri);
+    const refusal = validateApiBlocklist({
+        method: 'GET',
+        normalizedPath: normalizeApiPath(`${pathname}${search}`),
+        loadedToolNames: [],
+    });
+    if (refusal) throw new InvalidParamsError(`Failed to read ${uri}: ${refusal}`, { uri });
+
+    let response: { data: unknown; headers: Record<string, unknown>; status: number; statusText: string };
+    try {
+        // Sent on the egress origin; the result and the errors keep the URI as given.
+        response = await sendApifyApiRequest(apifyClient, {
+            url: buildUrlOnOrigin(uri, getApifyAPIBaseUrl()),
+            method: 'GET',
+            responseType: 'stream',
+        });
+    } catch (err) {
+        logHttpError(err, `resources/read request failed`, { uri });
+        throwReadFailure(uri, getHttpStatusCode(err), err instanceof Error ? err.message : String(err));
+    }
+
+    // `undefined` when the body passed `MAX_INLINE_BYTES`.
+    let body: Buffer | undefined;
+    try {
+        body = await readBodyUnderCap(response);
+    } catch (err) {
+        // A drop mid-body (reset, truncation, bad gzip). Never return partial content.
+        logHttpError(err, `resources/read response interrupted`, { uri });
+        const message = err instanceof Error ? err.message : String(err);
+        throw new InternalError(`Failed to read ${uri}: response interrupted: ${message}`, {
+            uri,
+        });
+    }
+    if (body) body = maskSessionToken(body, apifyClient.token);
+
+    // `validateStatus: null` on this axios instance resolves non-2xx responses instead of throwing,
+    // so a failed request is checked here. The error body was just collected above (Apify API error
+    // bodies are small JSON; if one somehow crossed the limit, fall back to the status text).
+    if (response.status >= 300) {
+        const message = parseApiErrorMessage(body) ?? response.statusText;
+        logHttpError(Object.assign(new Error(message), { statusCode: response.status }), `resources/read failed`, {
+            uri,
+        });
+        throwReadFailure(uri, response.status, message);
+    }
+
+    if (body === undefined) {
+        return buildLinkOutResult(uri, apifyClient);
+    }
+
+    const contentTypeHeader = response.headers['content-type'];
+    const contentType = typeof contentTypeHeader === 'string' ? contentTypeHeader : undefined;
+
+    // Empty body → empty text preserving the declared Content-Type, matching get-key-value-store-record
+    // (even for a binary type: an empty blob carries no bytes).
+    if (body.length === 0) {
+        return buildTextResult(uri, '', contentType);
+    }
+
+    const baseMimeType = parseBaseMimeType(contentType);
+    const charset = parseCharset(contentType) ?? 'utf-8';
+    // Decode with the DECLARED charset, not hardcoded UTF-8 — latin1 bytes decoded as UTF-8 mangle
+    // irreversibly to U+FFFD. A charset Node cannot decode falls through to the blob branch (lossless
+    // base64 beats text in a wrong encoding), the same rule as apify-client's body_parser. The full
+    // Content-Type — charset included — rides along on the text result.
+    if (isTextualMimeType(baseMimeType) && Buffer.isEncoding(charset)) {
+        const text = body.toString(charset);
+        // apify-client parses only `application/json`, so both proxies redact the same bodies.
+        return buildTextResult(uri, baseMimeType === 'application/json' ? redactJsonSecrets(text) : text, contentType);
+    }
+    // Binary or undecodable text: base MIME type only (parameters are meaningless for a blob).
+    return {
+        contents: [
+            {
+                uri,
+                ...(baseMimeType && { mimeType: baseMimeType }),
+                blob: body.toString('base64'),
+            } satisfies BlobResourceContents,
+        ],
+    };
+}

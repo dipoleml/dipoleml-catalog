@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.tavily-ai.tavily-mcp",
+  "type": "mcp",
+  "name": "Tavily MCP",
+  "slug": "tavily-mcp",
+  "vendor": "tavily-ai",
+  "description": "Production ready MCP server with real-time search, extract, map & crawl.",
+  "version": "0.2.23",
+  "homepage": "https://github.com/tavily-ai/tavily-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tavily-ai",
+    "brandName": "tavily-ai",
+    "source": "https://github.com/tavily-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "tavily-ai/tavily-mcp",
+    "url": "https://github.com/tavily-ai/tavily-mcp",
+    "commit": "3be0c424ed2e9132e3830aa6a8a41ba96becd6d6",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2461,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "tavily-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "tavily-mcp"
+    ],
+    "env": [
+      "TAVILY_API_KEY"
+    ],
+    "credentials": [
+      "TAVILY_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENCE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated",
+      "license-file-restored"
+    ]
+  }
+}

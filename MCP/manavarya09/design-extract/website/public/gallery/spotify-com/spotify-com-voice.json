@@ -1,0 +1,102 @@
+{
+  "tone": "friendly",
+  "pronoun": "you-only",
+  "headingStyle": "Sentence case",
+  "headingLengthClass": "tight",
+  "ctaVerbs": [
+    {
+      "value": "sign",
+      "count": 3
+    },
+    {
+      "value": "log",
+      "count": 2
+    },
+    {
+      "value": "create",
+      "count": 2
+    },
+    {
+      "value": "browse",
+      "count": 2
+    },
+    {
+      "value": "premium",
+      "count": 1
+    },
+    {
+      "value": "support",
+      "count": 1
+    },
+    {
+      "value": "download",
+      "count": 1
+    },
+    {
+      "value": "install",
+      "count": 1
+    },
+    {
+      "value": "english",
+      "count": 1
+    }
+  ],
+  "buttonPatterns": [
+    {
+      "value": "log in",
+      "count": 2
+    },
+    {
+      "value": "create playlist",
+      "count": 2
+    },
+    {
+      "value": "browse podcasts",
+      "count": 2
+    },
+    {
+      "value": "sign up free",
+      "count": 2
+    },
+    {
+      "value": "premium",
+      "count": 1
+    },
+    {
+      "value": "support",
+      "count": 1
+    },
+    {
+      "value": "download",
+      "count": 1
+    },
+    {
+      "value": "install app",
+      "count": 1
+    },
+    {
+      "value": "sign up",
+      "count": 1
+    },
+    {
+      "value": "english",
+      "count": 1
+    }
+  ],
+  "sampleHeadings": [
+    "Your Library",
+    "Your Library",
+    "Home",
+    "Trending songs",
+    "Popular artists",
+    "Popular albums and singles",
+    "Home",
+    "Trending songs",
+    "Popular artists",
+    "Popular albums and singles"
+  ],
+  "stats": {
+    "buttons": 14,
+    "headings": 16
+  }
+}

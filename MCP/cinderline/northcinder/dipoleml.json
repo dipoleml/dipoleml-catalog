@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cinderline.northcinder",
+  "type": "mcp",
+  "name": "Northcinder",
+  "slug": "northcinder",
+  "vendor": "cinderline",
+  "description": "Open-source MCP server for comparing products and asking the buyer before purchase.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/cinderline/northcinder",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-commerce",
+    "human-in-the-loop",
+    "local-first",
+    "model-context-protocol",
+    "privacy",
+    "self-hosted",
+    "shopping-agent"
+  ],
+  "tags": [
+    "agentic-commerce",
+    "human-in-the-loop",
+    "local-first",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "privacy",
+    "self-hosted",
+    "shopping-agent",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cinderline",
+    "brandName": "cinderline",
+    "source": "https://github.com/cinderline.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cinderline/northcinder",
+    "url": "https://github.com/cinderline/northcinder",
+    "commit": "d1343096a7afff58e0aee4fbf608daf2fa28dc03",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1205,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:23Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "northcinder-monorepo"
+    ],
+    "env": [
+      "NORTHCINDER_API_KEYS",
+      "NORTHCINDER_SERVICE_URL",
+      "NORTHCINDER_CLIENT_KEY"
+    ],
+    "credentials": [
+      "NORTHCINDER_API_KEYS",
+      "NORTHCINDER_CLIENT_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

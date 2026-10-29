@@ -1,0 +1,17 @@
+{
+  "_comment": "OpenAI Codex CLI hook config for the tool_capture sandbox. Merge into ~/.codex/hooks.json (or <project>/.codex/hooks.json). Codex emits Claude-compatible hook events: PostToolUse with tool_name 'Bash' for shell commands; entries nest under 'hooks' and timeout is in seconds (probed against codex-cli 0.144.5).",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|mcp__token-savior[\\w-]*__.*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{TS_PYTHON}} {{TS_HOOK:tool_capture_hook}}",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

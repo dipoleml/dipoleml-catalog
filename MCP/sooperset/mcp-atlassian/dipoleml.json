@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.sooperset.mcp-atlassian",
+  "type": "mcp",
+  "name": "MCP Atlassian",
+  "slug": "mcp-atlassian",
+  "vendor": "sooperset",
+  "description": "MCP server for Atlassian tools (Confluence, Jira)",
+  "version": "0.0.0",
+  "homepage": "https://github.com/sooperset/mcp-atlassian",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "atlassian",
+    "confluence",
+    "jira"
+  ],
+  "tags": [
+    "atlassian",
+    "confluence",
+    "jira",
+    "mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "jira",
+    "brandName": "jira",
+    "source": "https://cdn.simpleicons.org/jira",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:39Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "sooperset/mcp-atlassian",
+    "url": "https://github.com/sooperset/mcp-atlassian",
+    "commit": "0a5d2427144d72f5aade07d4fabd385421cec401",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6061,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-atlassian"
+    ],
+    "env": [
+      "JIRA_URL",
+      "JIRA_API_TOKEN",
+      "CONFLUENCE_URL",
+      "CONFLUENCE_API_TOKEN",
+      "JIRA_PERSONAL_TOKEN"
+    ],
+    "credentials": [
+      "JIRA_API_TOKEN",
+      "CONFLUENCE_API_TOKEN",
+      "JIRA_PERSONAL_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "document" ALTER COLUMN "totalPages" SET DEFAULT 0.0,
+ALTER COLUMN "totalPages" SET DATA TYPE DOUBLE PRECISION;

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.utensils.mcp-nixos",
+  "type": "mcp",
+  "name": "MCP Nixos",
+  "slug": "mcp-nixos",
+  "vendor": "utensils",
+  "description": "MCP-NixOS - Model Context Protocol Server for NixOS resources",
+  "version": "0.0.0",
+  "homepage": "https://github.com/utensils/mcp-nixos",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-assistant",
+    "ai-integration",
+    "anthropic",
+    "developer-tools",
+    "devops-tools",
+    "fastmcp",
+    "llm-tools",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai-assistant",
+    "ai-integration",
+    "ai-tools",
+    "anthropic",
+    "claude",
+    "developer-tools",
+    "devops-tools",
+    "fastmcp",
+    "llm-tools",
+    "mcp",
+    "model-context-protocol",
+    "nix",
+    "nix-options",
+    "nix-packages",
+    "nix-search",
+    "nixos",
+    "package-search",
+    "python",
+    "sre-tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "utensils",
+    "brandName": "utensils",
+    "source": "https://github.com/utensils.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "utensils/mcp-nixos",
+    "url": "https://github.com/utensils/mcp-nixos",
+    "commit": "2e88096695bef9c41c5fa9157211d52a45d9a913",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 867,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:50Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "nix",
+      "args": [
+        "run",
+        ".#mcp-nixos"
+      ]
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-nixos"
+    ],
+    "env": [
+      "MCP_NIXOS_TRANSPORT",
+      "MCP_NIXOS_HOST",
+      "MCP_NIXOS_PORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

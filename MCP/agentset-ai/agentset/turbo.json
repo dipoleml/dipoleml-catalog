@@ -1,0 +1,143 @@
+{
+  "$schema": "https://turborepo.org/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "topo": {
+      "dependsOn": [
+        "^topo"
+      ]
+    },
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        ".cache/tsbuildinfo.json",
+        "dist/**"
+      ]
+    },
+    "dev": {
+      "dependsOn": [
+        "^dev"
+      ],
+      "cache": false,
+      "persistent": false
+    },
+    "format": {
+      "outputs": [
+        ".cache/.prettiercache"
+      ],
+      "outputLogs": "new-only"
+    },
+    "lint": {
+      "dependsOn": [
+        "^topo",
+        "^build"
+      ],
+      "outputs": [
+        ".cache/.eslintcache"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": [
+        "^topo",
+        "^build"
+      ],
+      "outputs": [
+        ".cache/tsbuildinfo.json"
+      ]
+    },
+    "clean": {
+      "cache": false
+    },
+    "//#clean": {
+      "cache": false
+    },
+    "push": {
+      "cache": false,
+      "interactive": true
+    },
+    "jobs": {
+      "persistent": true,
+      "cache": false
+    },
+    "studio": {
+      "cache": false,
+      "persistent": true
+    },
+    "ui-add": {
+      "cache": false,
+      "interactive": true
+    }
+  },
+  "globalEnv": [
+    "NEXT_PUBLIC_APP_NAME",
+    "NEXT_PUBLIC_APP_SHORT_DOMAIN",
+    "NEXT_PUBLIC_DEPLOYMENT_REGION",
+    "NEXT_PUBLIC_APP_HOSTNAME",
+    "NEXT_PUBLIC_API_HOSTNAME",
+    "NEXT_PUBLIC_HOSTING_CNAME",
+    "APP_DOMAIN",
+    "VERCEL_PROJECT_ID",
+    "VERCEL_TEAM_ID",
+    "VERCEL_API_TOKEN",
+    "DATABASE_URL",
+    "DIRECT_URL",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "RESEND_API_KEY",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "REDIS_URL",
+    "REDIS_TOKEN",
+    "PORT",
+    "STRIPE_API_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "NEXT_PUBLIC_STRIPE_PUBLIC_KEY",
+    "DISCORD_HOOK_ALERTS",
+    "DISCORD_HOOK_CRON",
+    "DISCORD_HOOK_SUBSCRIBERS",
+    "DISCORD_HOOK_ERRORS",
+    "DEFAULT_PINECONE_API_KEY",
+    "DEFAULT_PINECONE_HOST",
+    "SECONDARY_PINECONE_API_KEY",
+    "SECONDARY_PINECONE_HOST",
+    "DEFAULT_TURBOPUFFER_API_KEY",
+    "DEFAULT_AZURE_RESOURCE_NAME",
+    "DEFAULT_AZURE_API_KEY",
+    "DEFAULT_COHERE_API_KEY",
+    "DEFAULT_COHERE_BASE_URL",
+    "DEFAULT_ZEROENTROPY_API_KEY",
+    "TURBOPUFFER_BASE_URL",
+    "TURBOPUFFER_REGION",
+    "ZEROENTROPY_BASE_URL",
+    "CO_API_KEY",
+    "AZURE_RESOURCE_NAME",
+    "AZURE_API_KEY",
+    "PARTITION_API_URL",
+    "PARTITION_API_KEY",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+    "S3_ENDPOINT",
+    "S3_BUCKET",
+    "ASSETS_S3_BUCKET",
+    "ASSETS_S3_URL",
+    "NEXT_PUBLIC_ASSETS_HOSTNAME",
+    "IMAGES_S3_BUCKET",
+    "TRIGGER_SECRET_KEY",
+    "NEXT_PUBLIC_POSTHOG_KEY",
+    "TINYBIRD_API_KEY",
+    "TINYBIRD_API_URL"
+  ],
+  "globalPassThroughEnv": [
+    "NODE_ENV",
+    "CI",
+    "VERCEL",
+    "VERCEL_ENV",
+    "VERCEL_URL",
+    "VERCEL_REGION",
+    "npm_lifecycle_event"
+  ]
+}

@@ -1,0 +1,79 @@
+#!/usr/bin/env pwsh
+#Requires -Version 7.4
+<#
+.SYNOPSIS
+    Builds staged inputs and runs selected quick unit tests. Slow checks run before PR delivery.
+#>
+$ErrorActionPreference = 'Stop'
+$rootDir = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Get-ValidationPlan.ps1')
+. (Join-Path $PSScriptRoot 'ValidationExecution.ps1')
+
+function Invoke-Check {
+    param([string]$Name, [scriptblock]$Action)
+    Write-Host $Name -ForegroundColor Cyan
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        $global:LASTEXITCODE = 0
+        & $Action
+        if ($LASTEXITCODE -ne 0) { throw "$Name failed with exit code $LASTEXITCODE." }
+    }
+    finally {
+        $timer.Stop()
+        Write-Host ("  Elapsed: {0:g}" -f $timer.Elapsed) -ForegroundColor DarkGray
+    }
+}
+
+function Read-Git {
+    param([string[]]$Arguments)
+    $output = & git @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "Cannot inspect Git state: git $($Arguments -join ' ')." }
+    return $output
+}
+
+Push-Location $rootDir
+try {
+    $branch = Read-Git @('branch', '--show-current')
+    if ($branch -eq 'main') { throw "Cannot commit directly to main. Use a feature branch and a pull request." }
+    $mergeHead = & git rev-parse --verify --quiet MERGE_HEAD 2>$null
+    $base = if ($LASTEXITCODE -eq 0 -and $mergeHead) { $mergeHead } else { 'HEAD' }
+    $paths = @(Read-Git @('-c', 'core.quotepath=false', 'diff', '--cached', '--name-only', '--no-renames', $base))
+    $plan = Invoke-Check 'Selecting checks for staged changes' {
+        Get-ValidationPlan -Paths $paths -Staged
+    }
+    $plan.Reasons | ForEach-Object { Write-Host "  $_" }
+
+    if ($plan.Build) {
+        $workingPaths = @(
+            Read-Git @('-c', 'core.quotepath=false', 'diff', '--name-only', '--no-renames')
+            Read-Git @('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard')
+        )
+        $inputs = @($workingPaths | Where-Object {
+            $_ -match '^(src[\\/]|tests[\\/]|skills[\\/]|scripts[\\/]|tools[\\/]ExcelMcp\.Build[\\/]|build\.ps1$|docs[\\/]reference[\\/]report-formatting\.md$|Directory\.|BannedSymbols[^\\/]*\.txt$|\.editorconfig$|global\.json$|NuGet\.Config$|Sbroenne\.ExcelMcp\.sln$)'
+        })
+        if ($inputs.Count -gt 0) {
+            throw "Validation inputs differ from the index. Stage or set aside these changes explicitly: $($inputs -join ', '). No files were staged or stashed."
+        }
+    }
+    if ($plan.Build) {
+        $buildPlan = Join-Path ([IO.Path]::GetTempPath()) "ExcelMcp.CommitBuild.$([Guid]::NewGuid().ToString('N')).json"
+        try {
+            $plan | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $buildPlan -Encoding utf8
+            Invoke-Check 'Building selected Release inputs' {
+                Invoke-SelectedBuild $plan
+            }
+            if ($plan.FastProjects.Count -gt 0) {
+                Invoke-Check 'Running selected quick unit tests' {
+                    & (Join-Path $PSScriptRoot 'Invoke-ExcelFreeTests.ps1') -Group Commit -PlanFile $buildPlan
+                }
+            }
+        } finally { Remove-Item -LiteralPath $buildPlan -ErrorAction Stop }
+    }
+    Write-Host 'All selected pre-commit checks passed. Run selected slow checks before PR delivery; package checks run in PR CI.' -ForegroundColor Green
+}
+catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 1
+}
+finally { Pop-Location }
+exit 0

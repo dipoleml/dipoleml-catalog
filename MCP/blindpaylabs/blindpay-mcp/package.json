@@ -1,0 +1,80 @@
+{
+  "name": "@blindpay/mcp",
+  "mcpName": "com.blindpay/mcp",
+  "version": "1.9.3",
+  "description": "Official MCP Server for BlindPay API - Stablecoin API for global payments",
+  "type": "module",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "bin": {
+    "blindpay-mcp": "./build/index.js"
+  },
+  "files": [
+    "build/**"
+  ],
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "import": "./build/index.js"
+    }
+  },
+  "scripts": {
+    "start": "node build/index.js",
+    "build": "tsc && chmod 755 build/index.js",
+    "typecheck": "tsc --noEmit",
+    "generate": "node --import tsx scripts/generate.ts",
+    "sync": "node --import tsx scripts/sync.mts",
+    "sync:check": "node --import tsx scripts/sync.mts --check",
+    "check-tool-names": "node --import tsx scripts/check-tool-names.mts",
+    "check-plugin": "node --import tsx scripts/check-plugin.mts",
+    "check-openai-plugin": "node --import tsx scripts/check-openai-plugin.mts",
+    "check-connector": "node --import tsx scripts/check-connector.mts",
+    "test": "node --import tsx --test scripts/lib/*.test.mts",
+    "pack:openai": "rm -rf build-plugins && mkdir -p build-plugins/openai && cp -R plugins/openai/. build-plugins/openai/ && cp -R plugins/blindpay/skills build-plugins/openai/ && cd build-plugins/openai && zip -qrX ../blindpay-openai.zip . -x '.*' '*/.*'",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "blindpay",
+    "mcp",
+    "model-context-protocol",
+    "global-payments",
+    "stablecoin",
+    "api",
+    "ai",
+    "cursor",
+    "claude"
+  ],
+  "author": "BlindPay <eric@blindpay.com> (https://blindpay.com/)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blindpaylabs/blindpay-mcp.git"
+  },
+  "homepage": "https://blindpay.com",
+  "bugs": {
+    "url": "https://github.com/blindpaylabs/blindpay-mcp/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "axios": "^1.20.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "openapi-mcp-generator": "^3.1.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "@types/node": ">=20.x.x"
+  },
+  "peerDependenciesMeta": {
+    "@types/node": {
+      "optional": true
+    }
+  }
+}

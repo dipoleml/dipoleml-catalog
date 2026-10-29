@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.haris-musa.excel-mcp-server",
+  "type": "mcp",
+  "name": "Excel MCP Server",
+  "slug": "excel-mcp-server",
+  "vendor": "haris-musa",
+  "description": "Excel MCP server: let AI (DipoleML, Cursor, Codex) create and edit Excel files with charts, PivotTables, slicers and formulas. No Excel required.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/haris-musa/excel-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "automation",
+    "charts",
+    "cursor",
+    "excel",
+    "formulas",
+    "model-context-protocol",
+    "openpyxl",
+    "pivot-table"
+  ],
+  "tags": [
+    "ai",
+    "automation",
+    "charts",
+    "claude",
+    "cursor",
+    "excel",
+    "formulas",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "openpyxl",
+    "pivot-table",
+    "python",
+    "spreadsheet",
+    "stdio",
+    "streamable-http",
+    "toolcalling",
+    "vba",
+    "xlsx"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "haris-musa",
+    "brandName": "haris-musa",
+    "source": "https://github.com/haris-musa.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:02Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "haris-musa/excel-mcp-server",
+    "url": "https://github.com/haris-musa/excel-mcp-server",
+    "commit": "ebb86fb96bcf042777cb370f56d341e6da6b4421",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4269,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Excel MCP Server | Excel MCP server: let AI (Claude, Cursor, Codex) create and edit Excel files with charts, PivotTables, slicers and formulas. No Excel required.",
+        "after": "Excel MCP Server | Excel MCP server: let AI (DipoleML, Cursor, Codex) create and edit Excel files with charts, PivotTables, slicers and formulas. No Excel required.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "excel-mcp-server"
+    ],
+    "env": [
+      "EXCEL_MCP_AUTH_TOKEN",
+      "EXCEL_MCP_HOST",
+      "EXCEL_MCP_PORT",
+      "IMPORTXML"
+    ],
+    "credentials": [
+      "EXCEL_MCP_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

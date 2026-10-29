@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.rekog-labs.mcp-nest",
+  "type": "mcp",
+  "name": "MCP Nest",
+  "slug": "mcp-nest",
+  "vendor": "rekog-labs",
+  "description": "A NestJS module to effortlessly create Model Context Protocol (MCP) servers for exposing AI tools, resources, and prompts.",
+  "version": "2.0.0-alpha.0",
+  "homepage": "https://github.com/rekog-labs/MCP-Nest",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "llms",
+    "mcp-nest",
+    "model-context-protocol",
+    "modelcontextprotocol",
+    "nestjs"
+  ],
+  "tags": [
+    "llm",
+    "llms",
+    "mcp",
+    "mcp-nest",
+    "model-context-protocol",
+    "modelcontextprotocol",
+    "nestjs"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "rekog-labs",
+    "brandName": "rekog-labs",
+    "source": "https://github.com/rekog-labs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:32Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "rekog-labs/MCP-Nest",
+    "url": "https://github.com/rekog-labs/MCP-Nest",
+    "commit": "d2e8b160d707de98647fe7cb784debbcd1b371a9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 725,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:16Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mcp-nest-workspace"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

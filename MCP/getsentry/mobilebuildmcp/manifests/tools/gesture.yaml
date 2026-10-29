@@ -1,0 +1,21 @@
+id: gesture
+module: mcp/tools/ui-automation/gesture
+names:
+  mcp: gesture
+  cli: gesture
+description: Simulator gesture preset.
+outputSchema:
+  schema: mobilebuildmcp.output.ui-action-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Gesture
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Refresh after UI action
+    toolId: snapshot_ui
+    when: success
+    condition: ui_action_needs_refresh

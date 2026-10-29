@@ -1,0 +1,69 @@
+# anymd-pdf-extract: the pdf-extract 0.12.1 fork the anymd crates build on.
+# Upstream: https://github.com/jrmuizel/pdf-extract (Jeff Muizelaar, MIT).
+# The changes are listed in README.md; the library keeps the name `pdf_extract`.
+
+[package]
+edition = "2018"
+name = "anymd-pdf-extract"
+version = "0.12.3"
+authors = ["Jeff Muizelaar <jmuizelaar@mozilla.com>", "Sylphx <contact@sylphx.com>"]
+build = false
+include = ["src/**/*", "README.md", "LICENSE"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Fork of pdf-extract 0.12.1 for anymd: figure text stays where it is drawn, table rules reach the output"
+readme = "README.md"
+keywords = ["pdf", "text", "pdf2text", "anymd", "fork"]
+categories = ["parser-implementations", "text-processing"]
+license = "MIT"
+repository = "https://github.com/SylphxAI/anymd"
+homepage = "https://github.com/SylphxAI/anymd"
+
+[lib]
+name = "pdf_extract"
+path = "src/lib.rs"
+
+[dependencies.adobe-cmap-parser]
+workspace = true
+
+[dependencies.cff-parser]
+version = "0.2.0"
+
+[dependencies.encoding_rs]
+version = "0.8.34"
+
+[dependencies.euclid]
+version = "0.20.5"
+
+[dependencies.log]
+version = "0.4.22"
+
+[dependencies.lopdf]
+version = "0.42"
+features = ["wasm_js"]
+default-features = false
+
+[dependencies.postscript]
+version = "0.19"
+
+[dependencies.type1-encoding-parser]
+version = "0.1.1"
+
+[dependencies.unicode-normalization]
+version = "0.1.19"
+
+[dev-dependencies.simple_logger]
+version = "5"
+features = ["colors"]
+default-features = false
+
+[dev-dependencies.test-log]
+version = "0.2.17"
+
+# No `ureq` dev-dependency: only upstream's test suite used it, and this
+# vendored copy ships src/ alone. Keeping it would hold ureq 2 (and its TLS
+# stack) in the lockfile after the workspace moved to ureq 3.
+

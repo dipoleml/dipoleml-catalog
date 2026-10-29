@@ -1,0 +1,68 @@
+import type { McpContext } from '../transport/mcp-context';
+import {
+  AccessMatchMode,
+  ToolAnnotations,
+  ToolInputSchema,
+} from '../decorators/tool.decorator';
+
+/**
+ * Handler function signature for dynamically registered tools.
+ * Receives the same arguments as decorator-based tools.
+ */
+export type DynamicToolHandler = (
+  args: Record<string, unknown>,
+  context: McpContext,
+  request: any,
+) => any;
+
+/**
+ * Definition for a dynamically registered tool.
+ * Use this with `McpStrategy.registerTool()` to register tools at runtime.
+ *
+ * @example
+ * ```typescript
+ * registry.registerTool({
+ *   name: 'search-knowledge',
+ *   description: 'Search the knowledge base',
+ *   parameters: z.object({ query: z.string() }),
+ *   handler: async (args, context) => {
+ *     const results = await searchService.search(args.query);
+ *     return { content: [{ type: 'text', text: JSON.stringify(results) }] };
+ *   },
+ * });
+ * ```
+ */
+export interface DynamicToolDefinition {
+  /** Unique name for the tool */
+  name: string;
+  /** Human-readable display name */
+  title?: string;
+  /** Description shown to the LLM */
+  description: string;
+  /** Input schema (Zod, any Standard Schema validator, or raw JSON Schema) */
+  parameters?: ToolInputSchema;
+  /** Output schema (Zod, any Standard Schema validator, or raw JSON Schema) */
+  outputSchema?: ToolInputSchema;
+  /**
+   * Skip the server's own check of the result against `outputSchema` (still
+   * advertised). The raw result must already conform; see
+   * `ToolOptions.disableResponseValidation`. Overrides the global option.
+   */
+  disableResponseValidation?: boolean;
+  /** MCP tool annotations */
+  annotations?: ToolAnnotations;
+  /** Additional metadata */
+  _meta?: Record<string, any>;
+  /** Handler function that executes the tool */
+  handler: DynamicToolHandler;
+  /** Mark as public (accessible without authentication) */
+  isPublic?: boolean;
+  /** Required OAuth scopes */
+  requiredScopes?: string[];
+  /** How `requiredScopes` is matched: `'all'` (default, AND) or `'any'` (OR) */
+  requiredScopesMatch?: AccessMatchMode;
+  /** Required user roles */
+  requiredRoles?: string[];
+  /** How `requiredRoles` is matched: `'all'` (default, AND) or `'any'` (OR) */
+  requiredRolesMatch?: AccessMatchMode;
+}

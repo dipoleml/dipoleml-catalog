@@ -1,0 +1,326 @@
+import { createMockLogger, type MockLogger } from "@mongodb-js/mcp-test-utils";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ConnectClusterTool } from "./connectCluster.js";
+import type { IAtlasConfig } from "../../atlasTool.js";
+import type { ITelemetry, ToolExecutionContext } from "@mongodb-js/mcp-types";
+import { CompositeLogger } from "@mongodb-js/mcp-core";
+import type { ApiClient } from "@mongodb-js/mcp-atlas-api-client";
+import type { AtlasClusterConnectionInfo } from "@mongodb-js/mcp-types";
+import {
+    MCPConnectionStore,
+    type ConnectionRegistry,
+    DeviceId,
+    FakeConnectionManager,
+} from "@mongodb-js/mcp-tools-mongodb";
+import type { ConnectionManager } from "@mongodb-js/mcp-tools-mongodb";
+import { Keychain } from "@mongodb-js/mcp-core";
+import { MockMetrics, createMockElicitation } from "@mongodb-js/mcp-test-utils";
+import { UIRegistry } from "@mongodb-js/mcp-ui";
+import { UserConfigSchema, type UserConfig } from "@mongodb-js/mcp-cli";
+import type { AtlasToolServer } from "../../atlasTool.js";
+
+const defaultTestConfig: UserConfig = {
+    ...UserConfigSchema.parse({}),
+    telemetry: "disabled",
+    loggers: ["stderr"],
+};
+
+const ATLAS_INFO: AtlasClusterConnectionInfo = {
+    projectId: "proj1",
+    clusterName: "cluster1",
+    clusterId: "cluster1-id",
+    instanceType: "DEDICATED",
+};
+
+// A dedicated (M10) cluster description as returned by the Atlas API. Dedicated
+// clusters skip the shared-tier alerts hook, keeping execute() free of extra
+// API calls.
+const CLUSTER_DESCRIPTION = {
+    id: "cluster1-id",
+    name: "cluster1",
+    stateName: "IDLE",
+    replicationSpecs: [
+        {
+            regionConfigs: [{ providerName: "AWS", regionName: "US_EAST_1", electableSpecs: { instanceSize: "M10" } }],
+        },
+    ],
+    connectionStrings: { standardSrv: "mongodb+srv://cluster1.abcde.mongodb.net" },
+};
+
+describe("ConnectClusterTool", () => {
+    let mockLogger: MockLogger;
+    let mockApiClient: Record<string, ReturnType<typeof vi.fn>>;
+    let mockSession: Partial<AtlasToolServer>;
+    let connectionRegistry: ConnectionRegistry;
+    let tool: ConnectClusterTool;
+
+    beforeEach(() => {
+        mockLogger = createMockLogger();
+
+        mockApiClient = {
+            getCluster: vi.fn().mockResolvedValue(CLUSTER_DESCRIPTION),
+            createDatabaseUser: vi.fn().mockResolvedValue({}),
+            getGroup: vi.fn().mockResolvedValue({ name: "Test Project" }),
+        };
+
+        class TestStore extends MCPConnectionStore {
+            protected override createConnectionManager(): ConnectionManager {
+                return new FakeConnectionManager();
+            }
+        }
+        connectionRegistry = new TestStore({
+            options: defaultTestConfig,
+            logger: new CompositeLogger(),
+            deviceId: DeviceId.create(new CompositeLogger()),
+            keychain: new Keychain(),
+        }).view();
+
+        mockSession = {
+            logger: mockLogger.asCompositeLogger(),
+            apiClient: { ...mockApiClient, logger: mockLogger.asCompositeLogger() } as unknown as ApiClient,
+            connectionRegistry,
+            keychain: new Keychain(),
+            config: {
+                confirmationRequiredTools: [],
+                previewFeatures: [],
+                disabledTools: [],
+                apiClientId: "test-id",
+                apiClientSecret: "test-secret",
+                atlasTemporaryDatabaseUserLifetimeMs: 14_400_000,
+            } as unknown as IAtlasConfig,
+        };
+
+        const mockTelemetry = {
+            isTelemetryEnabled: () => true,
+            emitEvents: vi.fn(),
+        } as unknown as ITelemetry;
+
+        const mockElicitation = createMockElicitation();
+
+        const server: AtlasToolServer = {
+            ...mockSession,
+            telemetry: mockTelemetry,
+            elicitation: mockElicitation,
+            metrics: new MockMetrics(),
+            uiRegistry: new UIRegistry(),
+        } as unknown as AtlasToolServer;
+
+        tool = new ConnectClusterTool({ server });
+    });
+
+    describe("execute", () => {
+        const args = { projectId: "proj1", clusterName: "cluster1", connectionType: "standard" as const };
+
+        it("names the entry combining the project and cluster names", async () => {
+            const result = await tool["execute"](args, {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            });
+
+            expect(mockApiClient.getGroup).toHaveBeenCalledWith(
+                { params: { path: { groupId: "proj1" } } },
+                expect.anything()
+            );
+            expect(result.structuredContent?.state).toBe("connected");
+            const connectionId = result.structuredContent?.connectionId;
+            const entry = await connectionRegistry.peek(connectionId);
+            expect(entry?.name).toMatch(/^test-project-cluster1-[0-9a-f]{4}$/);
+        });
+
+        it("does not leak the temporary connection credentials into the result or logs", async () => {
+            const result = await tool["execute"](args, { request: { signal: new AbortController().signal } });
+
+            // Recover the temp user's username/password from the Atlas API call.
+            const createUserCall = mockApiClient.createDatabaseUser!.mock.calls[0]?.[0] as {
+                body: { username: string; password: string };
+            };
+            const { username, password } = createUserCall.body;
+            expect(username).toMatch(/^mcpUser/);
+
+            // The temp credentials live only in the connection string handed to
+            // the driver. They must not surface in the tool result (content or
+            // structuredContent) nor in any logger output.
+            const resultText = JSON.stringify(result);
+            expect(resultText).not.toContain(password);
+            expect(resultText).not.toContain(username);
+            expect(resultText).not.toContain("mongodb+srv://");
+
+            // Both temp-user fields (username and password) must stay out of the
+            // logs, not just the password.
+            expect(mockLogger.allLogMessages()).not.toContain(password);
+            expect(mockLogger.allLogMessages()).not.toContain(username);
+        });
+
+        it("records the cluster id alongside the project and cluster name on the connection", async () => {
+            const result = await tool["execute"](args, { request: { signal: new AbortController().signal } });
+
+            const connectionId = result.structuredContent?.connectionId;
+            const entry = await connectionRegistry.peek(connectionId);
+            expect(entry?.atlasCluster).toMatchObject({
+                projectId: "proj1",
+                clusterName: "cluster1",
+                clusterId: "cluster1-id",
+                instanceType: "DEDICATED",
+            });
+        });
+
+        it("fails before creating a temporary user when the Atlas API omits the cluster id", async () => {
+            const { id: _id, ...withoutId } = CLUSTER_DESCRIPTION;
+            void _id;
+            mockApiClient.getCluster?.mockResolvedValue(withoutId);
+
+            await expect(tool["execute"](args, { request: { signal: new AbortController().signal } })).rejects.toThrow(
+                'Atlas did not return an id for cluster "cluster1" in project "proj1"'
+            );
+            expect(mockApiClient.createDatabaseUser).not.toHaveBeenCalled();
+        });
+
+        it("falls back to the cluster name alone when the project lookup fails", async () => {
+            mockApiClient.getGroup?.mockRejectedValue(new Error("forbidden"));
+
+            const result = await tool["execute"](args, {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            });
+
+            expect(result.structuredContent?.state).toBe("connected");
+            const connectionId = result.structuredContent?.connectionId;
+            const entry = await connectionRegistry.peek(connectionId);
+            expect(entry?.name).toMatch(/^cluster1-[0-9a-f]{4}$/);
+        });
+
+        it("reuses the existing entry when called again for the same cluster", async () => {
+            const first = await tool["execute"](args, {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            });
+            const second = await tool["execute"](args, {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            });
+
+            expect(second.structuredContent?.connectionId).toBe(first.structuredContent?.connectionId);
+            expect(first.structuredContent?.createdTemporaryUser).toBe(true);
+            expect(second.structuredContent?.createdTemporaryUser).toBe(false);
+            // The repeat call must not provision another temporary user.
+            expect(mockApiClient.createDatabaseUser).toHaveBeenCalledTimes(1);
+            await expect(connectionRegistry.find(() => true)).resolves.toHaveLength(1);
+        });
+
+        it("creates a separate entry for a different cluster", async () => {
+            const first = await tool["execute"](args, {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            });
+            mockApiClient.getCluster?.mockResolvedValue({ ...CLUSTER_DESCRIPTION, name: "cluster2" });
+            const second = await tool["execute"](
+                { ...args, clusterName: "cluster2" },
+                {
+                    request: {
+                        signal: new AbortController().signal,
+                    },
+                }
+            );
+
+            expect(second.structuredContent?.connectionId).not.toBe(first.structuredContent?.connectionId);
+            expect(mockApiClient.createDatabaseUser).toHaveBeenCalledTimes(2);
+        });
+    });
+
+    describe("connectToCluster request ID logging", () => {
+        it("includes x-request-id in attempt and success debug logs", async () => {
+            const context: ToolExecutionContext<IAtlasConfig> = {
+                request: {
+                    signal: new AbortController().signal,
+                    headers: { "x-request-id": "req-connect-abc" },
+                },
+            };
+
+            const entry = await connectionRegistry.createEntry({ name: ATLAS_INFO.clusterName });
+            await tool["connectToCluster"]({
+                entry,
+                connectionString: "mongodb://localhost",
+                atlas: ATLAS_INFO,
+                request: context.request,
+            });
+
+            expect(mockLogger.debug).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                    message: expect.stringContaining("attempting to connect"),
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                    attributes: expect.objectContaining({ "x-request-id": "req-connect-abc" }),
+                })
+            );
+            expect(mockLogger.debug).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                    message: expect.stringContaining("connected to cluster"),
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                    attributes: expect.objectContaining({ "x-request-id": "req-connect-abc" }),
+                })
+            );
+        });
+
+        it("omits x-request-id from log attributes when context carries no headers", async () => {
+            const context: ToolExecutionContext<IAtlasConfig> = {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            };
+
+            const entry = await connectionRegistry.createEntry({ name: ATLAS_INFO.clusterName });
+            await tool["connectToCluster"]({
+                entry,
+                connectionString: "mongodb://localhost",
+                atlas: ATLAS_INFO,
+                request: context.request,
+            });
+
+            for (const [payload] of (mockLogger.debug as ReturnType<typeof vi.fn>).mock.calls) {
+                expect((payload as { attributes?: Record<string, string> }).attributes).not.toHaveProperty(
+                    "x-request-id"
+                );
+            }
+        });
+    });
+
+    describe("connectToCluster credential redaction", () => {
+        it("redacts the temporary credentials from a failed dial log", async () => {
+            const context: ToolExecutionContext<IAtlasConfig> = {
+                request: {
+                    signal: new AbortController().signal,
+                },
+            };
+
+            const entry = await connectionRegistry.createEntry({ name: ATLAS_INFO.clusterName });
+
+            // A driver error that carries the generated username/password without a
+            // full `mongodb://` run — those values are not on the immutable keychain,
+            // so only the URI pattern would normally be scrubbed.
+            const driverError = new Error("dial failed for mcpUser123:p4ssw0rd456 rejected");
+            const connectSpy = vi.spyOn(entry, "connect");
+            connectSpy.mockRejectedValueOnce(driverError);
+            // Succeed on the retry so the dial loop breaks immediately instead of
+            // running its full 600-retry backoff.
+            connectSpy.mockResolvedValueOnce({} as never);
+
+            await tool["connectToCluster"]({
+                entry,
+                connectionString: "mongodb://mcpUser123:p4ssw0rd456@cluster.example.com:27017/?authSource=admin",
+                atlas: ATLAS_INFO,
+                request: context.request,
+            });
+
+            const all = mockLogger.allLogMessages();
+            expect(all).not.toContain("mcpUser123");
+            expect(all).not.toContain("p4ssw0rd456");
+            expect(all).toContain("<redacted>");
+        });
+    });
+});

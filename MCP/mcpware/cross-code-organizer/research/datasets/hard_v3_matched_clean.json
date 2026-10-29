@@ -1,0 +1,34 @@
+[
+  {
+    "description": "Reads a CSV file and returns summary statistics: row count, column names, data types, null counts.",
+    "label": 0
+  },
+  {
+    "description": "Shows memory usage breakdown including free, used, cached, and available memory from /proc/meminfo.",
+    "label": 0
+  },
+  {
+    "description": "Returns the current user's username, home directory path, and default shell from the passwd database.",
+    "label": 0
+  },
+  {
+    "description": "Returns the current system uptime and load averages. Reads from /proc/uptime and /proc/loadavg on Linux systems.",
+    "label": 0
+  },
+  {
+    "description": "Performs a DNS lookup for the specified hostname and returns the resolved IP addresses (both A and AAAA records). This is equivalent to running dig or nslookup. No connections are made to the resolved addresses.",
+    "label": 0
+  },
+  {
+    "description": "Check file permissions on a given path. Returns the octal permission mode (e.g. 0644), owner, group, and whether the file is readable/writable/executable by the current user. Read-only operation, nothing gets changed.",
+    "label": 0
+  },
+  {
+    "description": "Quick and dirty port scanner for localhost only. Give it a range (e.g. 3000-3100) and it reports which ports have something listening. Handy for figuring out what's running on your dev machine. Won't scan remote hosts, period.",
+    "label": 0
+  },
+  {
+    "description": "Reads the SSH config file (~/.ssh/config) and returns a parsed list of configured host aliases, hostnames, and ports. Does not modify any files or establish connections \u2014 just parses and returns the config contents as structured data.",
+    "label": 0
+  }
+]

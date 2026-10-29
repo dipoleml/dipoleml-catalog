@@ -1,0 +1,26 @@
+# Vendored upstream artifact — kept byte-identical to
+# https://raw.githubusercontent.com/coollabsio/coolify/main/openapi.yaml so that
+# re-vendoring is a clean overwrite and `git diff` shows only what upstream
+# actually changed. Reformatting it would bury every real API change in
+# whitespace noise and defeat the point of vendoring it.
+docs/coolify-openapi.yaml
+
+# Generated from the spec above by `npm run build:chunks`. Never hand-edited,
+# and `npm run check:chunk-drift` compares them byte-for-byte against freshly
+# generated output — so reformatting them would permanently fail that check.
+docs/openapi-chunks/
+
+# Build output and coverage reports
+dist/
+coverage/
+
+# The marketing site is a separate mini-project with its own toolchain and its
+# own CI job. Keeping it out of the root prettier run means a stray format in
+# site/ can never fail the MCP server's build — which is exactly what happened
+# once already. It is formatted by site/'s own `format:check` script.
+site/
+
+# The eval + red-team harness is likewise a self-contained mini-project with
+# its own toolchain and CI job. Kept out of the root prettier run for the same
+# reason as site/.
+evals/

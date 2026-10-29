@@ -1,0 +1,120 @@
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Models;
+using Excel = Microsoft.Office.Interop.Excel;
+
+namespace Sbroenne.ExcelMcp.Core.Commands.Range;
+
+/// <summary>
+/// Merge, conditional formatting, and protection operations for Excel ranges (partial class)
+/// </summary>
+public partial class RangeCommands
+{
+    /// <inheritdoc />
+    public OperationResult MergeCells(
+        IExcelBatch batch,
+        string sheetName,
+        string rangeAddress)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.Worksheet? sheet = null;
+            Excel.Range? range = null;
+
+            try
+            {
+                // Get sheet
+                sheet = Utilities.WorksheetLookup.Get(ctx.Book, sheetName);
+
+                // Get range
+                range = sheet.Range[rangeAddress];
+
+                // Merge cells
+                range.Merge();
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref range!);
+                ComUtilities.Release(ref sheet!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult UnmergeCells(
+        IExcelBatch batch,
+        string sheetName,
+        string rangeAddress)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.Worksheet? sheet = null;
+            Excel.Range? range = null;
+
+            try
+            {
+                // Get sheet
+                sheet = Utilities.WorksheetLookup.Get(ctx.Book, sheetName);
+
+                // Get range
+                range = sheet.Range[rangeAddress];
+
+                // Unmerge cells
+                range.UnMerge();
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref range!);
+                ComUtilities.Release(ref sheet!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public RangeMergeInfoResult GetMergeInfo(
+        IExcelBatch batch,
+        string sheetName,
+        string rangeAddress)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.Worksheet? sheet = null;
+            Excel.Range? range = null;
+
+            try
+            {
+                // Get sheet
+                sheet = Utilities.WorksheetLookup.Get(ctx.Book, sheetName);
+
+                // Get range
+                range = sheet.Range[rangeAddress];
+
+                object? mergeCells = range.MergeCells;
+                bool? isMergedState = RangeMergeDiscovery.GetMergeCellsState(mergeCells);
+                List<string> mergedRanges = isMergedState == false
+                    ? []
+                    : RangeMergeDiscovery.CollectMergedRanges(range, isMergedState, ct);
+
+                return new RangeMergeInfoResult
+                {
+                    Success = true,
+                    FilePath = batch.WorkbookPath,
+                    SheetName = sheetName,
+                    RangeAddress = rangeAddress,
+                    IsMerged = isMergedState ?? mergedRanges.Count > 0,
+                    MergedRanges = mergedRanges
+                };
+            }
+            finally
+            {
+                ComUtilities.Release(ref range!);
+                ComUtilities.Release(ref sheet!);
+            }
+        });
+    }
+
+}

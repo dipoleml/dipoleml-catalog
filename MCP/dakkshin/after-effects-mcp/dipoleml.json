@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.dakkshin.after-effects-mcp",
+  "type": "mcp",
+  "name": "After Effects MCP",
+  "slug": "after-effects-mcp",
+  "vendor": "dakkshin",
+  "description": "MCP Server for Adobe After Effects. Enables remote control (compositions, text, shapes, solids, properties) via the Model Context Protocol using ExtendScript.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/Dakkshin/after-effects-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "after-effects",
+    "automation",
+    "model-context-protocol",
+    "motion-graphics",
+    "remote-control",
+    "video-editing"
+  ],
+  "tags": [
+    "after-effects",
+    "ai",
+    "automation",
+    "javascript",
+    "mcp",
+    "model-context-protocol",
+    "motion-graphics",
+    "nodejs",
+    "remote-control",
+    "typescript",
+    "video-editing"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "dakkshin",
+    "brandName": "dakkshin",
+    "source": "https://github.com/Dakkshin.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:51Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Dakkshin/after-effects-mcp",
+    "url": "https://github.com/Dakkshin/after-effects-mcp",
+    "commit": "88d5fbf08b7ae9f015ee98e5f8c4904095cf8202",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 811,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "C:\\Users\\Daniel\\Downloads\\after-effects-mcp\\build\\index.js"
+      ]
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "after-effects-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.zereight.gitlab-mcp",
+  "type": "mcp",
+  "name": "Gitlab MCP",
+  "slug": "gitlab-mcp",
+  "vendor": "zereight",
+  "description": "MCP server for GitLab: 277 tools for projects, MRs, issues, pipelines, wikis and more via the GitLab REST/GraphQL API",
+  "version": "2.3.14",
+  "homepage": "https://github.com/zereight/gitlab-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cursor",
+    "devtools",
+    "gitlab",
+    "gitlab-api",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "cursor",
+    "devtools",
+    "gitlab",
+    "gitlab-api",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zereight",
+    "brandName": "zereight",
+    "source": "https://github.com/zereight.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zereight/gitlab-mcp",
+    "url": "https://github.com/zereight/gitlab-mcp",
+    "commit": "f917d2272878b99989949a0b0517eaafb93f3f1b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2073,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@zereight/mcp-gitlab"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@zereight/mcp-gitlab"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "@zereight/mcp-gitlab"
+    ],
+    "env": [
+      "GITLAB_PERSONAL_ACCESS_TOKEN",
+      "GITLAB_API_URL",
+      "GITLAB_PERSONAL_ACCESS_TOKEN_FILE",
+      "YOUR_GITLAB_TOKEN",
+      "SSE_AUTH_TOKEN",
+      "MCP_SERVER_URL",
+      "OAUTH_DISABLE_REFRESH_TOKEN",
+      "GITLAB_JOB_TOKEN",
+      "STREAMABLE_HTTP_AUTH_TOKEN",
+      "GITLAB_ALLOWED_HOSTS",
+      "MCP_ALLOWED_HOSTS",
+      "OAUTH_STATELESS_SECRET"
+    ],
+    "credentials": [
+      "GITLAB_PERSONAL_ACCESS_TOKEN",
+      "GITLAB_PERSONAL_ACCESS_TOKEN_FILE",
+      "YOUR_GITLAB_TOKEN",
+      "SSE_AUTH_TOKEN",
+      "OAUTH_DISABLE_REFRESH_TOKEN",
+      "GITLAB_JOB_TOKEN",
+      "STREAMABLE_HTTP_AUTH_TOKEN",
+      "OAUTH_STATELESS_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+mcp.mnemox.ai {
+    reverse_proxy tradememory-api:8080
+    encode gzip
+    log {
+        output stdout
+    }
+}

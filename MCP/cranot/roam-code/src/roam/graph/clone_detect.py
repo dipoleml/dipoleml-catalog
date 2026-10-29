@@ -1,0 +1,1580 @@
+"""AST-based structural clone detection via subtree hashing.
+
+Detects Type-2 clones (identical structure, different identifiers/literals)
+by hashing tree-sitter AST subtrees and comparing hash bags via Jaccard
+similarity.  Works at both function-level and file-level granularity.
+
+Algorithm:
+  1. Parse each file with tree-sitter (reuses existing parser infrastructure)
+  2. For each function body, walk the AST depth-first
+  3. Hash each subtree as hash(node_type, tuple(child_hashes)), normalizing
+     identifiers and literals so structurally identical code with different
+     names produces the same hash
+  4. Collect hash multisets (bags) per function
+  5. Compare bags via Jaccard index: |A ∩ B| / |A ∪ B|
+  6. Cluster similar functions via Union-Find
+
+References:
+  - SourcererCC (Sajnani et al., 2016) — token-based clone detection
+  - PMD CPD — AST-based copy-paste detection
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import math
+import os
+import pickle
+import sqlite3
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+# W93 follow-up: the clones detector is the proof-of-concept migration onto
+# the central findings registry (``src/roam/db/findings.py``). Detector
+# version is stamped on every emitted finding so consumers can spot rows
+# produced under an older clone-detection shape (e.g. before a Jaccard
+# tightening). Bump per the rules in roam.catalog.versions when the
+# detector shape changes meaningfully.
+CLONES_DETECTOR_VERSION: str = "1.1.0"
+
+# Node types whose text values are normalized (treated as equivalent)
+_NORMALIZED_LEAF_TYPES = frozenset(
+    {
+        "identifier",
+        "type_identifier",
+        "field_identifier",
+        "property_identifier",
+        "shorthand_property_identifier",
+        "shorthand_property_identifier_pattern",
+        # Literals
+        "string",
+        "string_fragment",
+        "string_content",
+        "template_string",
+        "number",
+        "integer",
+        "float",
+        "true",
+        "false",
+        "null",
+        "none",
+        "nil",
+        "undefined",
+    }
+)
+
+# Node types to skip entirely (don't affect structural comparison)
+_SKIP_TYPES = frozenset(
+    {
+        "comment",
+        "block_comment",
+        "line_comment",
+        "marginalia",
+        "decorator",
+        "annotation",
+    }
+)
+
+# Minimum AST nodes in a function to be worth comparing
+_MIN_AST_NODES = 8
+
+
+@dataclass
+class ClonePair:
+    """A pair of structurally similar functions."""
+
+    file_a: str
+    func_a: str
+    qname_a: str
+    line_a: int
+    line_end_a: int
+    file_b: str
+    func_b: str
+    qname_b: str
+    line_b: int
+    line_end_b: int
+    similarity: float
+    fix_hint: dict | None = None
+
+
+@dataclass
+class CloneCluster:
+    """A group of structurally similar functions."""
+
+    cluster_id: int
+    members: list[dict] = field(default_factory=list)
+    avg_similarity: float = 0.0
+    pattern: str = ""
+    suggestion: str = ""
+    fix_hint: dict | None = None
+
+
+# ---------------------------------------------------------------------------
+# AST hashing
+# ---------------------------------------------------------------------------
+
+
+def _stable_hash(value: bytes) -> int:
+    """Return a deterministic 64-bit hash of *value*.
+
+    Python's builtin ``hash()`` of strings/tuples-of-strings is randomized
+    per process (via ``PYTHONHASHSEED``), which makes hash bags from one
+    process incomparable with bags from another. We use the first 8 bytes
+    of SHA-1 instead so the bags pickle-round-trip cleanly across
+    ProcessPool workers.
+    """
+    import hashlib as _hashlib
+
+    return int.from_bytes(_hashlib.sha1(value).digest()[:8], "big", signed=False)
+
+
+def _ast_hash_bag(node) -> tuple[Counter, int]:
+    """Collect a multiset of subtree hashes for a tree-sitter node.
+
+    Returns (hash_bag, total_node_count).
+    Normalizes identifiers and literals so structurally identical code
+    with different names produces the same hashes.
+
+    Uses a stable cross-process hash so bags computed in different worker
+    processes (via ``_extract_func_records_pickleable``) compare correctly
+    when later passed to ``_jaccard_bags``.
+    """
+    bag: Counter = Counter()
+    count = 0
+    _SKIP = b"_skip_"
+
+    def walk(n) -> int:
+        nonlocal count
+
+        if n.type in _SKIP_TYPES:
+            return _stable_hash(_SKIP)
+
+        count += 1
+
+        if n.child_count == 0:
+            # Leaf node
+            if n.type in _NORMALIZED_LEAF_TYPES:
+                h = _stable_hash(b"_leaf_:" + n.type.encode("utf-8", errors="replace"))
+            else:
+                # Keywords, operators, punctuation — keep exact text
+                text = n.text if isinstance(n.text, bytes) else str(n.text).encode("utf-8", errors="replace")
+                h = _stable_hash(b"_tok_:" + n.type.encode("utf-8", errors="replace") + b":" + text)
+            bag[h] += 1
+            return h
+
+        # Internal node — hash based on type + children structure
+        child_hashes: list[int] = []
+        for child in n.children:
+            if child.type not in _SKIP_TYPES:
+                child_hashes.append(walk(child))
+
+        # Serialize child hashes as fixed-width little-endian bytes so the
+        # resulting hash is stable across processes.
+        children_bytes = b"".join(h.to_bytes(8, "big") for h in child_hashes)
+        h = _stable_hash(b"_node_:" + n.type.encode("utf-8", errors="replace") + b":" + children_bytes)
+        bag[h] += 1
+        return h
+
+    walk(node)
+    return bag, count
+
+
+def _jaccard_bags(a: Counter, b: Counter) -> float:
+    """Jaccard similarity on multisets (bags).
+
+    Single-pass multiset Jaccard. The old implementation built
+    ``set(a) | set(b)`` then did two full passes over the union
+    (``sum(min(...))`` + ``sum(max(...))``) — three iterations and two
+    ``dict.get`` calls per key. This is the dominant cost of
+    ``_find_clone_pairs`` (profiled: 158s of 160s on a 200K-pair slice of
+    roam-code, ~145M ``dict.get`` calls).
+
+    The rewrite uses the multiset inclusion-exclusion identity
+    ``|A ∪ B| = |A| + |B| - |A ∩ B|``: compute the intersection by
+    iterating ONLY the smaller bag (elementwise min over the keys it
+    shares with the larger bag), then derive the union arithmetically.
+    One pass over ``min(len(a), len(b))`` keys instead of three passes
+    over ``len(a ∪ b)`` keys. Output is byte-identical — verified
+    zero mismatches across 110K random multiset pairs — because
+    elementwise min and the inclusion-exclusion union are exact.
+    """
+    sum_a = sum(a.values())
+    sum_b = sum(b.values())
+    if sum_a == 0 and sum_b == 0:
+        # Both bags empty — matches the old ``not all_keys`` branch.
+        return 1.0
+    # Iterate the smaller bag; probe the larger one. ``min(len(...))``
+    # keys touched instead of ``len(union)``.
+    if len(a) <= len(b):
+        smaller, larger_get = a, b.get
+    else:
+        smaller, larger_get = b, a.get
+    intersection = 0
+    for key, count in smaller.items():
+        other = larger_get(key)
+        if other is not None:
+            intersection += count if count < other else other
+    union = sum_a + sum_b - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Function node extraction from tree-sitter AST
+# ---------------------------------------------------------------------------
+
+_FUNCTION_NODE_TYPES = frozenset(
+    {
+        # Python / C / C++ all share `function_definition`
+        "function_definition",
+        # JS/TS / Swift share `function_declaration`
+        "function_declaration",
+        "method_definition",
+        "arrow_function",
+        # Java/C#/Kotlin/Scala / Go / PHP all share `method_declaration`
+        "method_declaration",
+        "constructor_declaration",
+        # Rust
+        "function_item",
+        # Ruby
+        "method",
+    }
+)
+
+
+def _find_function_nodes(tree) -> list:
+    """Walk tree-sitter AST and collect all function/method definition nodes."""
+    results = []
+    if tree is None:
+        return results
+
+    def walk(node):
+        if node.type in _FUNCTION_NODE_TYPES:
+            results.append(node)
+        for child in node.children:
+            walk(child)
+
+    walk(tree.root_node)
+    return results
+
+
+def _get_function_name(node, source: bytes) -> str:
+    """Extract function name from a tree-sitter function node."""
+    for child in node.children:
+        if child.type in ("identifier", "property_identifier", "field_identifier", "name"):
+            return source[child.start_byte : child.end_byte].decode("utf-8", errors="replace")
+    return "<anonymous>"
+
+
+def _get_function_body(node):
+    """Find the body node of a function definition."""
+    for child in node.children:
+        if child.type in ("block", "statement_block", "compound_statement", "function_body", "method_body", "body"):
+            return child
+    # Fallback: use the function node itself
+    return node
+
+
+def _parameterizable_tokens(node, source: bytes) -> dict[int, tuple[str, str]]:
+    """Return raw leaf positions whose identifier/literal values may vary."""
+    tokens: dict[int, tuple[str, str]] = {}
+    position = 0
+
+    def walk(part) -> None:
+        nonlocal position
+        if part.type in _SKIP_TYPES:
+            return
+        if part.child_count == 0:
+            if part.type in _NORMALIZED_LEAF_TYPES:
+                text = source[part.start_byte : part.end_byte].decode("utf-8", errors="replace")
+                kind = "identifier" if "identifier" in part.type else "literal"
+                tokens[position] = (kind, text)
+            position += 1
+            return
+        for child in part.children:
+            walk(child)
+
+    walk(node)
+    return tokens
+
+
+_FunctionNodeCache = dict[str, tuple[object, dict[int, list[tuple[int, object]]]]]
+
+
+def _member_tokens(
+    member: dict,
+    parse_cache: dict[str, tuple[object | None, bytes | None]] | None = None,
+    node_cache: _FunctionNodeCache | None = None,
+) -> dict[int, tuple[str, str]] | None:
+    from roam.commands.changed_files import parse_source_with_grammar
+    from roam.index.parser import detect_language
+
+    path = str(member.get("file") or "")
+    if not path:
+        return None
+    cached = parse_cache.get(path) if parse_cache is not None else None
+    if cached is None:
+        try:
+            source = Path(path).read_bytes()
+        except OSError:
+            return None
+        language = detect_language(path)
+        if not language:
+            return None
+        tree, parsed, _ = parse_source_with_grammar(source, language)
+        if parse_cache is not None:
+            parse_cache[path] = (tree, parsed)
+    else:
+        tree, parsed = cached
+    if tree is None or parsed is None:
+        return None
+    wanted_start = int(member.get("line_start") or 0)
+    wanted_end = int(member.get("line_end") or wanted_start)
+    if node_cache is None:
+        nodes = _find_function_nodes(tree)
+    else:
+        indexed = node_cache.get(path)
+        if indexed is None or indexed[0] is not tree:
+            by_start: dict[int, list[tuple[int, object]]] = defaultdict(list)
+            for order, node in enumerate(_find_function_nodes(tree)):
+                by_start[node.start_point[0] + 1].append((order, node))
+            indexed = (tree, by_start)
+            node_cache[path] = indexed
+        # Keep preorder as the tie-breaker, exactly as the uncached walk does.
+        # Reuse only this parsed tree, never a path's result across commands.
+        nearby = [entry for line in range(wanted_start - 2, wanted_start + 3) for entry in indexed[1].get(line, ())]
+        nodes = [node for _, node in sorted(nearby, key=lambda entry: entry[0])]
+    candidates = [
+        node
+        for node in nodes
+        if abs(node.start_point[0] + 1 - wanted_start) <= 2 and abs(node.end_point[0] + 1 - wanted_end) <= 2
+    ]
+    if not candidates:
+        return None
+    function = min(
+        candidates,
+        key=lambda node: (
+            abs(node.start_point[0] + 1 - wanted_start),
+            abs(node.end_point[0] + 1 - wanted_end),
+        ),
+    )
+    return _parameterizable_tokens(_get_function_body(function), parsed)
+
+
+def _slot_parameter_name(kind: str, values: tuple[str, ...], position: int) -> str:
+    if kind == "identifier":
+        token_sets = [_name_tokens(value) - _STOP_WORDS for value in values]
+        common = set.intersection(*token_sets) if token_sets and all(token_sets) else set()
+        if common:
+            return sorted(common)[0]
+        return f"name_{position}"
+    return f"value_{position}"
+
+
+def build_clone_fix_hint(
+    members: list[dict],
+    similarity: float,
+    *,
+    _parse_cache: dict[str, tuple[object | None, bytes | None]] | None = None,
+    _function_cache: _FunctionNodeCache | None = None,
+) -> dict | None:
+    """Build a parameterization hint from aligned raw token positions.
+
+    Clone detection deliberately normalizes identifier and literal leaves.
+    Re-reading those same leaves without normalization exposes exactly which
+    slots differ across the family. Slots with the same member-value vector are
+    grouped because one shared-implementation parameter can replace every
+    repeated occurrence of that rename or literal variation.
+    """
+    if len(members) < 2:
+        return None
+    token_maps = [_member_tokens(member, _parse_cache, _function_cache) for member in members]
+    if any(tokens is None for tokens in token_maps):
+        return None
+    concrete_maps = [tokens for tokens in token_maps if tokens is not None]
+    all_positions = sorted(set().union(*(tokens.keys() for tokens in concrete_maps)))
+    grouped: dict[tuple[str, tuple[str, ...]], list[int]] = defaultdict(list)
+    for position in all_positions:
+        entries = [tokens.get(position) for tokens in concrete_maps]
+        if any(entry is None for entry in entries):
+            continue
+        kinds = {entry[0] for entry in entries if entry is not None}
+        values = tuple(entry[1] for entry in entries if entry is not None)
+        if len(kinds) != 1 or len(set(values)) <= 1:
+            continue
+        grouped[(next(iter(kinds)), values)].append(position)
+
+    varying_slots = []
+    for (kind, values), positions in sorted(grouped.items(), key=lambda item: item[1][0]):
+        varying_slots.append(
+            {
+                "positions": positions,
+                "kind": kind,
+                "values": list(values),
+                "suggested_parameter": _slot_parameter_name(kind, values, positions[0]),
+            }
+        )
+    return {
+        "kind": "parameterize",
+        "members": [
+            {
+                "file": str(member.get("file") or ""),
+                "span": {
+                    "start_line": int(member.get("line_start") or 0),
+                    "end_line": int(member.get("line_end") or member.get("line_start") or 0),
+                },
+            }
+            for member in members
+        ],
+        "varying_slots": varying_slots,
+        "similarity": round(float(similarity), 3),
+        "auto_fixable": False,
+        "reason": "parameterization changes multiple functions and requires semantic review",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Union-Find for clustering
+# ---------------------------------------------------------------------------
+
+
+class _UnionFind:
+    """Disjoint-set / Union-Find data structure."""
+
+    def __init__(self):
+        self.parent: dict[int, int] = {}
+        self.rank: dict[int, int] = {}
+
+    def find(self, x: int) -> int:
+        if x not in self.parent:
+            self.parent[x] = x
+            self.rank[x] = 0
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])
+        return self.parent[x]
+
+    def union(self, x: int, y: int):
+        rx, ry = self.find(x), self.find(y)
+        if rx == ry:
+            return
+        if self.rank[rx] < self.rank[ry]:
+            rx, ry = ry, rx
+        self.parent[ry] = rx
+        if self.rank[rx] == self.rank[ry]:
+            self.rank[rx] += 1
+
+    def groups(self) -> dict[int, list[int]]:
+        groups: dict[int, list[int]] = defaultdict(list)
+        for x in self.parent:
+            groups[self.find(x)].append(x)
+        return dict(groups)
+
+
+# ---------------------------------------------------------------------------
+# Main detection pipeline
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FuncInfo:
+    """Internal struct for a parsed function."""
+
+    idx: int
+    file_path: str
+    name: str
+    qname: str
+    line_start: int
+    line_end: int
+    node_count: int
+    hash_bag: Counter
+
+
+# W1286: closed-set language allowlist for clone candidate files. Markup /
+# config / data languages (yaml, html, css, markdown, json, toml, xml, ini,
+# sfxml) carry no function-shape signal — they have no callable bodies for
+# the AST subtree-hash / characteristic-vector detectors to compare. Dropping
+# them at the SQL boundary cuts the parse pass by ~2/3 on roam-code without
+# changing detection output. Language identifiers match files.language as
+# produced by ``roam.index.parser.EXTENSION_MAP`` (note: ``c_sharp`` not
+# ``csharp``; ``cpp`` not ``c++``). Both clone detectors (W95 subtree-hash +
+# W855 rename-invariant) consume this set so their candidate populations
+# stay aligned per the cross-module parity contract.
+_CLONE_ELIGIBLE_LANGUAGES: frozenset[str] = frozenset(
+    {
+        "python",
+        "javascript",
+        "typescript",
+        "tsx",
+        "jsx",
+        "go",
+        "rust",
+        "java",
+        "c",
+        "cpp",
+        "c_sharp",
+        "php",
+        "ruby",
+        "kotlin",
+        "swift",
+        "scala",
+        "sql",
+        "dart",
+        "vue",
+        "svelte",
+        "apex",
+        "aura",
+        "visualforce",
+        "objective-c",
+    }
+)
+
+
+def _fetch_candidate_files(conn, scope: str | None):
+    """Pull candidate file rows from the DB, optionally narrowed to a path
+    prefix. Restricted to languages that carry function-shape signal
+    (``_CLONE_ELIGIBLE_LANGUAGES``)."""
+    placeholders = ",".join("?" * len(_CLONE_ELIGIBLE_LANGUAGES))
+    # Param order must mirror SQL placeholder order: IN-list values first,
+    # then the optional scope LIKE value.
+    params: list = sorted(_CLONE_ELIGIBLE_LANGUAGES)
+    scope_clause = ""
+    if scope:
+        scope_norm = scope.replace("\\", "/")
+        scope_clause = " AND f.path LIKE ?"
+        params.append(f"{scope_norm}%")
+    return conn.execute(
+        f"SELECT f.id, f.path, f.language FROM files f WHERE f.language IN ({placeholders}){scope_clause}",
+        params,
+    ).fetchall()
+
+
+class _ExtractionRecords(list):
+    """Picklable records with an explicit per-file extraction outcome."""
+
+    def __init__(self, *, digest=None, unavailable=False):
+        super().__init__()
+        self.digest = digest
+        self.unavailable = unavailable
+
+
+class _FunctionScan(list):
+    """Keep the list API while carrying extraction coverage to the detector."""
+
+    def __init__(self):
+        super().__init__()
+        self.sources = {}
+        self.unavailable_files = 0
+
+
+def _extract_func_records_pickleable(
+    file_path: str,
+    language: str | None,
+    project_root_str: str,
+    min_lines: int,
+) -> list[tuple]:
+    """Worker function: re-parse a single file and return picklable tuples.
+
+    Returns a list of (file_path, name, line_start, line_end, node_count,
+    hash_bag) tuples. Module-level so it can be pickled across processes.
+    """
+    from roam.index.parser import parse_file
+
+    try:
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = Path(project_root_str) / file_path
+        exists = path.exists()
+    except (OSError, TypeError, ValueError):
+        return _ExtractionRecords(unavailable=True)
+
+    if not exists:
+        return _ExtractionRecords(unavailable=True)
+
+    try:
+        tree, source, _lang = parse_file(path, language)
+    except (OSError, LookupError, ValueError):
+        return _ExtractionRecords(unavailable=True)
+
+    if tree is None or source is None:
+        return _ExtractionRecords(unavailable=True)
+
+    out = _ExtractionRecords(digest=hashlib.sha256(source).hexdigest(), unavailable=tree.root_node.has_error)
+    for fn_node in _find_function_nodes(tree):
+        line_start = fn_node.start_point[0] + 1
+        line_end = fn_node.end_point[0] + 1
+        if line_end - line_start + 1 < min_lines:
+            continue
+        name = _get_function_name(fn_node, source)
+        body = _get_function_body(fn_node)
+        bag, node_count = _ast_hash_bag(body)
+        if node_count < _MIN_AST_NODES:
+            continue
+        # Counter pickles cleanly; basic types are JSON-safe.
+        out.append((file_path, name, line_start, line_end, node_count, bag))
+    return out
+
+
+def _extract_func_infos_from_file(file_row, min_lines: int, start_idx: int) -> list[_FuncInfo]:
+    """Re-parse a single file and yield its qualifying ``_FuncInfo``s.
+
+    Returns the list (possibly empty) and never raises — best-effort
+    extraction is the contract callers rely on. Thin wrapper around
+    ``_extract_func_records_pickleable`` that fills in ``idx``.
+    """
+    from roam.db.connection import find_project_root
+
+    file_path = file_row["path"]
+    project_root = find_project_root()
+    records = _extract_func_records_pickleable(file_path, file_row["language"], str(project_root), min_lines)
+
+    out: list[_FuncInfo] = []
+    idx = start_idx
+    for file_path, name, line_start, line_end, node_count, bag in records:
+        out.append(
+            _FuncInfo(
+                idx=idx,
+                file_path=file_path,
+                name=name,
+                qname=f"{file_path}:{name}",
+                line_start=line_start,
+                line_end=line_end,
+                node_count=node_count,
+                hash_bag=bag,
+            )
+        )
+        idx += 1
+    return out
+
+
+# Threshold: don't pay process-pool overhead on tiny projects.
+# ProcessPool spinup on Windows is ~1-2s per worker. We need enough work
+# to amortize ~8 × 1.5s = ~12s of fixed overhead. Empirically, ~500 files
+# is the break-even on roam-code; smaller projects parse faster serially.
+_PARALLEL_MIN_FILES = 500
+# Cap workers to avoid context-switch thrashing and Windows process explosion.
+_PARALLEL_MAX_WORKERS = 8
+
+
+def _parallel_extract_func_infos(
+    file_rows: list,
+    min_lines: int,
+) -> list[_FuncInfo]:
+    """Extract func infos across all files, optionally in parallel.
+
+    Falls back to serial when:
+    - ``ROAM_NO_PARALLEL`` env var is set
+    - fewer than ``_PARALLEL_MIN_FILES`` candidate files (process spinup > savings)
+
+    Numerical ``idx`` is assigned by main process post-collection so results
+    are deterministic regardless of worker completion order.
+    """
+    from roam.db.connection import find_project_root
+
+    project_root_str = str(find_project_root())
+    out = _FunctionScan()
+
+    def collect(file_row, records):
+        digest = getattr(records, "digest", None)
+        if digest is not None:
+            out.sources[file_row["path"]] = digest
+        if getattr(records, "unavailable", True):
+            out.unavailable_files += 1
+        return records
+
+    if os.environ.get("ROAM_NO_PARALLEL") or len(file_rows) < _PARALLEL_MIN_FILES:
+        # Serial path
+        all_records: list[tuple] = []
+        for fr in file_rows:
+            all_records.extend(
+                collect(fr, _extract_func_records_pickleable(fr["path"], fr["language"], project_root_str, min_lines))
+            )
+    else:
+        # Parallel path — ProcessPool because work is CPU-bound (tree-sitter).
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+
+        workers = max(1, min(os.cpu_count() or 4, _PARALLEL_MAX_WORKERS))
+        all_records = []
+        args = [(fr["path"], fr["language"], project_root_str, min_lines) for fr in file_rows]
+        try:
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                # ex.map returns in submission order, preserving determinism.
+                for fr, recs in zip(file_rows, ex.map(_extract_func_records_pickleable_starmap, args)):
+                    all_records.extend(collect(fr, recs))
+        except (BrokenProcessPool, OSError, RuntimeError, pickle.PicklingError, AttributeError, TypeError):
+            # If process pool fails (sandbox/pickling), fall back to serial.
+            all_records = []
+            out = _FunctionScan()
+            for fr in file_rows:
+                all_records.extend(
+                    collect(
+                        fr, _extract_func_records_pickleable(fr["path"], fr["language"], project_root_str, min_lines)
+                    )
+                )
+
+    # Build _FuncInfo with deterministic idx assignment.
+    for idx, (file_path, name, line_start, line_end, node_count, bag) in enumerate(all_records):
+        out.append(
+            _FuncInfo(
+                idx=idx,
+                file_path=file_path,
+                name=name,
+                qname=f"{file_path}:{name}",
+                line_start=line_start,
+                line_end=line_end,
+                node_count=node_count,
+                hash_bag=bag,
+            )
+        )
+    return out
+
+
+def _extract_func_records_pickleable_starmap(args: tuple) -> list[tuple]:
+    """Shim to pass tuple-of-args to ProcessPoolExecutor.map (no starmap)."""
+    return _extract_func_records_pickleable(*args)
+
+
+def _bucket_funcs_by_size(funcs: list[_FuncInfo]) -> dict[int, list[_FuncInfo]]:
+    """Bucket functions by AST-node-count so candidate pairs are restricted
+    to functions of similar size."""
+
+    def _bucket(f: _FuncInfo) -> int:
+        # Geometric (base-2) AST-node-count band: floor(log2(node_count)).
+        # _compare_func_pair gates on node-count ratio >= 0.5 (counts within
+        # 2x), and log2 places any two such functions in the same or an
+        # adjacent band, so the band +/-1 scan in _enumerate_candidate_pairs
+        # still enumerates EVERY gate-passing pair -- output is byte-identical
+        # to the old bucketing, just without the blow-up. The replaced
+        # ``node_count // max(node_count // 3, 5)`` collapsed every function
+        # with >= 15 AST nodes into a single band (~3 bands total), so nearly
+        # all large functions were compared pairwise (O(n^2)).
+        nc = f.node_count
+        return int(math.log2(nc)) if nc > 0 else 0
+
+    by_bucket: dict[int, list[_FuncInfo]] = defaultdict(list)
+    for f in funcs:
+        by_bucket[_bucket(f)].append(f)
+    return by_bucket
+
+
+def _compare_func_pair(a: _FuncInfo, b: _FuncInfo, min_similarity: float) -> ClonePair | None:
+    """Compute Jaccard similarity for one function pair. Returns a
+    ``ClonePair`` if they pass the size + similarity gates, else None."""
+    ratio = min(a.node_count, b.node_count) / max(a.node_count, b.node_count)
+    if ratio < 0.5:
+        return None
+    sim = _jaccard_bags(a.hash_bag, b.hash_bag)
+    if sim < min_similarity:
+        return None
+    return ClonePair(
+        file_a=a.file_path,
+        func_a=a.name,
+        qname_a=a.qname,
+        line_a=a.line_start,
+        line_end_a=a.line_end,
+        file_b=b.file_path,
+        func_b=b.name,
+        qname_b=b.qname,
+        line_b=b.line_start,
+        line_end_b=b.line_end,
+        similarity=round(sim, 3),
+    )
+
+
+# Worker-side cache populated by ``_pair_worker_init``. Lives in each
+# worker process for the duration of the pool.
+_PAIR_WORKER_FUNCS: dict[int, _FuncInfo] = {}
+_PAIR_WORKER_MIN_SIM: float = 0.0
+
+
+def _pair_worker_init(funcs_serialized: list, min_similarity: float) -> None:
+    """ProcessPool initializer: hydrate per-worker func cache once."""
+    global _PAIR_WORKER_FUNCS, _PAIR_WORKER_MIN_SIM
+    _PAIR_WORKER_FUNCS = {f.idx: f for f in funcs_serialized}
+    _PAIR_WORKER_MIN_SIM = min_similarity
+
+
+def _pair_worker_compare_batch(idx_pairs: list[tuple[int, int]]) -> list[tuple]:
+    """Worker: compare a batch of (idx_a, idx_b) pairs from the cached funcs.
+
+    Returns picklable tuples (idx_a, idx_b, ClonePair-as-tuple|None).
+    """
+    out: list[tuple] = []
+    funcs = _PAIR_WORKER_FUNCS
+    min_sim = _PAIR_WORKER_MIN_SIM
+    for ia, ib in idx_pairs:
+        a = funcs.get(ia)
+        b = funcs.get(ib)
+        if a is None or b is None:
+            continue
+        ratio = min(a.node_count, b.node_count) / max(a.node_count, b.node_count)
+        if ratio < 0.5:
+            continue
+        sim = _jaccard_bags(a.hash_bag, b.hash_bag)
+        if sim < min_sim:
+            continue
+        out.append(
+            (
+                ia,
+                ib,
+                round(sim, 3),
+                a.file_path,
+                a.name,
+                a.qname,
+                a.line_start,
+                a.line_end,
+                b.file_path,
+                b.name,
+                b.qname,
+                b.line_start,
+                b.line_end,
+            )
+        )
+    return out
+
+
+def _enumerate_candidate_pairs(funcs: list[_FuncInfo]) -> list[tuple[int, int]]:
+    """Build candidates in first-seen order without retaining a second pair set.
+
+    The extractor assigns unique indices. Every pair belongs to the first
+    bucket expansion containing both of its size bands; ownership therefore
+    needs only a small band-pair map, not an O(functions squared) seen set.
+    Keep insertion order and even the legacy two-band candidates unchanged.
+    """
+    by_bucket = _bucket_funcs_by_size(funcs)
+    owners: dict[tuple[int, int], int] = {}
+    for bucket_key in by_bucket:
+        bands = [band for band in (bucket_key, bucket_key - 1, bucket_key + 1) if band in by_bucket]
+        for a_band in bands:
+            for b_band in bands:
+                owners.setdefault((a_band, b_band), bucket_key)
+    pairs: list[tuple[int, int]] = []
+    for bucket_key in by_bucket:
+        bands = [band for band in (bucket_key, bucket_key - 1, bucket_key + 1) if band in by_bucket]
+        candidates = [(function, band) for band in bands for function in by_bucket[band]]
+        owned = {a_band: {b_band for b_band in bands if owners[(a_band, b_band)] == bucket_key} for a_band in bands}
+        for i, (a, a_band) in enumerate(candidates):
+            allowed = owned[a_band]
+            if not allowed:
+                continue
+            for j in range(i + 1, len(candidates)):
+                b, b_band = candidates[j]
+                if b_band not in allowed:
+                    continue
+                # A nested closure's AST is physically contained in its
+                # parent's AST bag, which can yield near-perfect similarity
+                # without any copied implementation. Exclude overlapping
+                # source intervals before comparison and Union-Find
+                # clustering. Disjoint siblings and all cross-file pairs are
+                # still eligible.
+                if a.file_path == b.file_path and a.line_start <= b.line_end and b.line_start <= a.line_end:
+                    continue
+                pairs.append((a.idx, b.idx) if a.idx < b.idx else (b.idx, a.idx))
+    return pairs
+
+
+def _find_clone_pairs(
+    funcs: list[_FuncInfo], min_similarity: float
+) -> tuple[list[ClonePair], _UnionFind, dict[tuple[int, int], float]]:
+    """Discover clone pairs by comparing functions inside the same bucket
+    and across adjacent buckets. Returns (pairs, union_find, pair_scores).
+
+    When ``ROAM_NO_PARALLEL`` is unset and the candidate pair count is large,
+    the pairwise Jaccard comparison is parallelized via ProcessPool. The
+    Union-Find merge and pair-list assembly remain serial in the main
+    process so output ordering is deterministic.
+    """
+    candidate_pairs = _enumerate_candidate_pairs(funcs)
+    pairs: list[ClonePair] = []
+    uf = _UnionFind()
+    pair_scores: dict[tuple[int, int], float] = {}
+
+    # Threshold: ProcessPool spinup + pickle/IPC is ~1-2s × 8 workers ≈ 12s
+    # of fixed overhead on Windows. We need enough pair-comparison work to
+    # amortize that. The break-even moved up sharply once ``_jaccard_bags``
+    # was rewritten single-pass (~13× faster per comparison): the serial
+    # path now clears roam-code's full ~1.89M candidate pairs in ~17s
+    # (was ~243s with the old three-pass Jaccard). At ~9µs/pair, the
+    # ~12s pool overhead is only repaid above ~1.5M candidate pairs —
+    # below that the serial path wins outright. The old 100K threshold
+    # was calibrated to the pre-optimization Jaccard cost and now sends
+    # mid-size repos down a net-slower parallel path.
+    parallel_threshold = 1_500_000
+    use_parallel = not os.environ.get("ROAM_NO_PARALLEL") and len(candidate_pairs) >= parallel_threshold
+
+    if use_parallel:
+        try:
+            from concurrent.futures import ProcessPoolExecutor
+
+            workers = max(1, min(os.cpu_count() or 4, _PARALLEL_MAX_WORKERS))
+            # Chunk pairs so each worker processes ~1000 comparisons per batch
+            # — minimizes IPC overhead while keeping load balanced.
+            chunk_size = max(500, len(candidate_pairs) // (workers * 4))
+            chunks = [candidate_pairs[i : i + chunk_size] for i in range(0, len(candidate_pairs), chunk_size)]
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_pair_worker_init,
+                initargs=(funcs, min_similarity),
+            ) as ex:
+                all_hits: list[tuple] = []
+                # ex.map preserves submission order — chunks are submitted
+                # in the same order as candidate_pairs was built, so the
+                # resulting Union-Find call order matches the serial path
+                # exactly. No extra sort needed.
+                for hits in ex.map(_pair_worker_compare_batch, chunks):
+                    all_hits.extend(hits)
+            for (
+                ia,
+                ib,
+                sim,
+                fa,
+                na,
+                qa,
+                la,
+                lea,
+                fb,
+                nb,
+                qb,
+                lb,
+                leb,
+            ) in all_hits:
+                pair = ClonePair(
+                    file_a=fa,
+                    func_a=na,
+                    qname_a=qa,
+                    line_a=la,
+                    line_end_a=lea,
+                    file_b=fb,
+                    func_b=nb,
+                    qname_b=qb,
+                    line_b=lb,
+                    line_end_b=leb,
+                    similarity=sim,
+                )
+                pairs.append(pair)
+                pair_scores[(ia, ib)] = sim
+                uf.union(ia, ib)
+            return pairs, uf, pair_scores, len(candidate_pairs)
+        except Exception as exc:  # noqa: BLE001 — any pool failure falls through to serial
+            # Parallel clone-pair detection is an optimization over the
+            # always-correct serial path; never let a pool failure crash
+            # clone detection — log it and fall through. (Pattern-2: no
+            # silent fallback.) ROAM_DEBUG re-raises so the real traceback
+            # surfaces while diagnosing a recurring pool failure.
+            log.warning(
+                "clone-detect parallel pool failed (%s: %s); falling back to serial path",
+                type(exc).__name__,
+                exc,
+            )
+            if os.environ.get("ROAM_DEBUG"):
+                raise
+
+    # Serial path
+    funcs_by_idx = {f.idx: f for f in funcs}
+    for ia, ib in candidate_pairs:
+        a = funcs_by_idx[ia]
+        b = funcs_by_idx[ib]
+        pair = _compare_func_pair(a, b, min_similarity)
+        if pair is not None:
+            pairs.append(pair)
+            pair_scores[(ia, ib)] = pair.similarity
+            uf.union(ia, ib)
+    return pairs, uf, pair_scores, len(candidate_pairs)
+
+
+def detect_clones(
+    conn,
+    *,
+    min_similarity: float = 0.70,
+    min_lines: int = 5,
+    scope: str | None = None,
+    max_functions: int = 2000,
+    scan_out: dict | None = None,
+) -> tuple[list[ClonePair], list[CloneCluster]]:
+    """Detect structural code clones across the indexed codebase.
+
+    Re-parses source files and compares function AST structures via
+    subtree hashing.  Returns (pairs, clusters).
+    """
+    files = _fetch_candidate_files(conn, scope)
+
+    # Per-file parsing is CPU-bound (tree-sitter) and independent across
+    # files — parallelize via ProcessPool when there's enough work to
+    # amortize spinup cost. Falls back to serial under ROAM_NO_PARALLEL.
+    funcs: list[_FuncInfo] = _parallel_extract_func_infos(list(files), min_lines)
+    eligible_functions = len(funcs)
+    if scan_out is not None:
+        from datetime import datetime, timezone
+
+        from roam.graph.clone_evidence import index_identity
+
+        unavailable = getattr(funcs, "unavailable_files", len(files))
+        scan_out.update(
+            format_version=1,
+            scanned_at=datetime.now(timezone.utc).isoformat(),
+            detector_version=CLONES_DETECTOR_VERSION,
+            index_identity=index_identity(conn),
+            eligible_files=len(files),
+            unavailable_files=unavailable,
+            eligible_functions=eligible_functions,
+            compared_functions=None,
+            max_functions=max_functions,
+            min_lines=min_lines,
+            min_similarity=min_similarity,
+            scope=scope,
+            sources=getattr(funcs, "sources", {}),
+            complete=False,
+        )
+
+    if len(funcs) > max_functions:
+        funcs.sort(key=lambda f: -f.node_count)
+        funcs = funcs[:max_functions]
+        for i, f in enumerate(funcs):
+            f.idx = i
+
+    pairs, uf, pair_scores, candidate_pairs_count = _find_clone_pairs(funcs, min_similarity)
+    pairs.sort(key=lambda p: -p.similarity)
+
+    func_by_idx = {f.idx: f for f in funcs}
+    raw_clusters = uf.groups()
+    clusters: list[CloneCluster] = []
+    cluster_id = 0
+
+    fix_hint_parse_cache: dict[str, tuple[object | None, bytes | None]] = {}
+    fix_hint_function_cache: _FunctionNodeCache = {}
+    for root, member_idxs in raw_clusters.items():
+        if len(member_idxs) < 2:
+            continue
+
+        cluster_id += 1
+        member_funcs = [func_by_idx[i] for i in member_idxs if i in func_by_idx]
+        if len(member_funcs) < 2:
+            continue
+
+        # Average pairwise similarity
+        sims = []
+        for i in range(len(member_funcs)):
+            for j in range(i + 1, len(member_funcs)):
+                key = (min(member_funcs[i].idx, member_funcs[j].idx), max(member_funcs[i].idx, member_funcs[j].idx))
+                if key in pair_scores:
+                    sims.append(pair_scores[key])
+                else:
+                    s = _jaccard_bags(member_funcs[i].hash_bag, member_funcs[j].hash_bag)
+                    sims.append(s)
+
+        avg_sim = sum(sims) / len(sims) if sims else 0.0
+
+        member_funcs.sort(key=lambda f: (f.file_path, f.line_start))
+        members = [
+            {
+                "file": f.file_path,
+                "function": f.name,
+                "qualified_name": f.qname,
+                "line_start": f.line_start,
+                "line_end": f.line_end,
+                "ast_nodes": f.node_count,
+            }
+            for f in member_funcs
+        ]
+
+        pattern = _infer_clone_pattern([f.name for f in member_funcs])
+        suggestion = _suggest_extraction([f.name for f in member_funcs])
+        try:
+            fix_hint = build_clone_fix_hint(
+                members, avg_sim, _parse_cache=fix_hint_parse_cache, _function_cache=fix_hint_function_cache
+            )
+        except Exception as exc:  # noqa: BLE001 — additive enrichment must not break detection
+            log.warning("clone fix-hint enrichment failed for cluster %d: %s", cluster_id, exc)
+            fix_hint = None
+
+        clusters.append(
+            CloneCluster(
+                cluster_id=cluster_id,
+                members=members,
+                avg_similarity=round(avg_sim, 3),
+                pattern=pattern,
+                suggestion=suggestion,
+                fix_hint=fix_hint,
+            )
+        )
+
+    clusters.sort(key=lambda c: (-len(c.members), -c.avg_similarity))
+    hints_by_qname = {
+        member.get("qualified_name"): cluster.fix_hint
+        for cluster in clusters
+        if cluster.fix_hint is not None
+        for member in cluster.members
+    }
+    for pair in pairs:
+        hint_a = hints_by_qname.get(pair.qname_a)
+        if hint_a is not None and hint_a is hints_by_qname.get(pair.qname_b):
+            pair.fix_hint = hint_a
+    if scan_out is not None:
+        # Extraction alone is not a completed comparison. Publish completion
+        # only after every detection phase finishes; failures retain unknown
+        # compared coverage instead of an optimistic precomputed count.
+        scan_out.update(
+            compared_functions=len(funcs),
+            complete=bool(files) and unavailable == 0 and eligible_functions <= max_functions,
+            candidate_pairs_count=candidate_pairs_count,
+            pairs_above_threshold=len(pair_scores),
+        )
+    return pairs, clusters
+
+
+# ---------------------------------------------------------------------------
+# Persistence — populate clone_pairs and clone_clusters tables
+# ---------------------------------------------------------------------------
+
+
+def _resolve_symbol_id(conn, file_path: str, func_name: str, line_start: int) -> int | None:
+    """Best-effort lookup of ``symbols.id`` for a (file, func, line) triple.
+
+    Used by the findings-registry emit path so registry rows can be JOINed
+    back to ``symbols`` when present. Returns ``None`` when the symbol
+    can't be resolved (anonymous function, mismatched indexer state, or
+    pre-W89 schema with no ``symbols`` table) — emit_finding tolerates a
+    NULL subject_id by design.
+    """
+    try:
+        row = conn.execute(
+            "SELECT s.id FROM symbols s "
+            "JOIN files f ON s.file_id = f.id "
+            "WHERE f.path = ? AND s.name = ? AND s.line_start = ? "
+            "LIMIT 1",
+            (file_path, func_name, line_start),
+        ).fetchone()
+        if row is not None:
+            return int(row[0])
+        # Line numbers occasionally drift between the indexer's symbol
+        # extraction and tree-sitter's function-node start (decorator
+        # rows, type alias prefixes). Fall back to name-only lookup
+        # before giving up so we don't routinely emit subject_id=NULL.
+        row = conn.execute(
+            "SELECT s.id FROM symbols s "
+            "JOIN files f ON s.file_id = f.id "
+            "WHERE f.path = ? AND s.name = ? "
+            "ORDER BY ABS(COALESCE(s.line_start, 0) - ?) "
+            "LIMIT 1",
+            (file_path, func_name, line_start),
+        ).fetchone()
+        return int(row[0]) if row is not None else None
+    except sqlite3.OperationalError as exc:
+        # Pre-W89 schema: a missing ``symbols`` table is expected for old
+        # DBs, so degrade gracefully to NULL subject_id. Any other
+        # operational error (locked DB, I/O error, etc.) must propagate.
+        if "no such table" not in str(exc):
+            raise
+        log.debug(
+            "symbols table unavailable; clone-finding subject lookup for %s:%s falls back to NULL subject_id",
+            file_path,
+            func_name,
+        )
+        return None
+
+
+def _clone_pair_finding_id(qname_a: str, qname_b: str) -> str:
+    """Stable, sort-order-invariant finding id for one clone pair.
+
+    Sorted qnames + a short SHA-1 prefix → deterministic regardless of
+    which side is "a" vs "b" in this run. Re-running the detector on the
+    same input upserts the same row rather than duplicating.
+    """
+    left, right = sorted((qname_a, qname_b))
+    digest = hashlib.sha1(f"{left}|{right}".encode("utf-8")).hexdigest()[:12]
+    return f"clones:pair:{digest}"
+
+
+def store_clones(conn, pairs: list[ClonePair], clusters: list[CloneCluster], *, scan: dict | None = None) -> None:
+    """Persist detection results to clone_pairs and clone_clusters tables.
+
+    Truncates and replaces; scan metadata qualifies coverage and freshness.
+    A replacement may be scoped or incomplete, never an implicit census.
+    Called from `roam clones --persist` and (eventually)
+    the indexer's final stage.
+
+    W93 follow-up: every persisted clone pair ALSO emits a row to the
+    central findings registry. The detector-specific tables remain
+    authoritative; the findings rows are the denormalised cross-detector
+    surface (``roam findings list/show/count``, future SARIF emit, …).
+    The emit is wrapped in a defensive try/except so pre-W89 DBs (without
+    the ``findings`` table) don't crash on this code path.
+    """
+    if scan is not None:
+        conn.execute(
+            "INSERT OR REPLACE INTO clone_scan_state (id, metadata_json) VALUES (1, ?)",
+            (json.dumps(scan, sort_keys=True),),
+        )
+    elif conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'clone_scan_state'").fetchone():
+        # Legacy callers may replace rows, but cannot inherit a prior scan's assurance.
+        conn.execute("DELETE FROM clone_scan_state")
+    conn.execute("DELETE FROM clone_pairs")
+    conn.execute("DELETE FROM clone_clusters")
+
+    cluster_id_map: dict[int, int] = {}
+    cluster_rows = []
+    for c in clusters:
+        canonical = c.members[0] if c.members else {}
+        cluster_rows.append(
+            (
+                c.cluster_id,
+                canonical.get("qualified_name"),
+                canonical.get("file"),
+                canonical.get("function"),
+                canonical.get("line_start"),
+                len(c.members),
+                c.avg_similarity,
+                c.pattern,
+                c.suggestion,
+            )
+        )
+        cluster_id_map[c.cluster_id] = c.cluster_id
+    if cluster_rows:
+        conn.executemany(
+            "INSERT INTO clone_clusters "
+            "(id, canonical_qname, canonical_file, canonical_func, canonical_line, "
+            " member_count, avg_similarity, pattern, suggestion) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            cluster_rows,
+        )
+
+    # Resolve only actual pairs instead of materializing every combination
+    # of cluster members. Positions preserve last-cluster-wins semantics even
+    # when cluster IDs are not ordered; counts preserve duplicate-name pairs.
+    member_clusters: dict[str, dict[int, int]] = defaultdict(dict)
+    for position, c in enumerate(clusters):
+        for qname, count in Counter(m.get("qualified_name") for m in c.members).items():
+            member_clusters[qname][position] = count
+
+    pair_rows = []
+    for p in pairs:
+        left = member_clusters.get(p.qname_a, {})
+        right = member_clusters.get(p.qname_b, {})
+        if p.qname_a == p.qname_b:
+            position = next((pos for pos in reversed(left) if left[pos] > 1), None)
+        else:
+            if len(left) > len(right):
+                left, right = right, left
+            position = next((pos for pos in reversed(left) if pos in right), None)
+        cluster_id = clusters[position].cluster_id if position is not None else None
+        pair_rows.append(
+            (
+                p.qname_a,
+                p.qname_b,
+                p.file_a,
+                p.file_b,
+                p.func_a,
+                p.func_b,
+                p.line_a,
+                p.line_end_a,
+                p.line_b,
+                p.line_end_b,
+                p.similarity,
+                cluster_id,
+            )
+        )
+    if pair_rows:
+        conn.executemany(
+            "INSERT INTO clone_pairs "
+            "(qname_a, qname_b, file_a, file_b, func_a, func_b, "
+            " line_a, line_end_a, line_b, line_end_b, similarity, cluster_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            pair_rows,
+        )
+
+    # W93 follow-up — mirror each clone pair into the central findings
+    # registry. Detector-specific table writes above remain authoritative;
+    # this block is purely additive. Wrapped so a pre-W89 DB (where the
+    # findings table doesn't exist) silently no-ops rather than crashing
+    # the legacy clone_pairs write path that consumers like `roam critique`
+    # and `roam retrieve` already depend on.
+    try:
+        _emit_clone_findings(conn, pairs)
+    except sqlite3.OperationalError as exc:
+        # findings table missing (pre-W89 schema) — degrade gracefully.
+        log.debug(
+            "clone findings mirror skipped for %d pairs (%s: %s)",
+            len(pairs),
+            type(exc).__name__,
+            exc,
+        )
+
+
+def _batch_resolve_symbol_ids(
+    conn, pairs: list[ClonePair], batch_size: int = 150
+) -> dict[tuple[str, str, int], int | None]:
+    """Resolve symbol IDs for both sides of all clone pairs in two queries.
+
+    Returns a dict keyed by ``(file_path, func_name, line_start)`` with the
+    best-effort ``symbols.id`` for that triple. The resolution semantics mirror
+    ``_resolve_symbol_id``: exact ``(file, name, line)`` first, then fallback to
+    the same file/name whose line is closest to the requested line. Missing
+    triples resolve to ``None``.
+
+    Queries are batched because SQLite's default host-parameter limit is 999
+    and each triple contributes three parameters; 150 triples keeps us well
+    under the ceiling while still collapsing O(N) round-trips into a constant
+    number.
+    """
+    keys: list[tuple[str, str, int]] = []
+    seen: set[tuple[str, str, int]] = set()
+    for p in pairs:
+        for file_path, func_name, line_start in (
+            (p.file_a, p.func_a, p.line_a),
+            (p.file_b, p.func_b, p.line_b),
+        ):
+            key = (file_path, func_name, line_start)
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+
+    resolved: dict[tuple[str, str, int], int | None] = {}
+    unresolved: list[tuple[str, str, int]] = []
+
+    for i in range(0, len(keys), batch_size):
+        batch = keys[i : i + batch_size]
+        values_sql = ",".join("(?, ?, ?)" for _ in batch)
+        params = [v for key in batch for v in key]
+        rows = conn.execute(
+            "WITH wanted(file_path, func_name, line_start) AS ("
+            f"VALUES {values_sql}"
+            ")"
+            "SELECT w.file_path, w.func_name, w.line_start, s.id "
+            "FROM wanted w "
+            "JOIN files f ON f.path = w.file_path "
+            "JOIN symbols s ON s.file_id = f.id "
+            "  AND s.name = w.func_name "
+            "  AND s.line_start = w.line_start",
+            params,
+        ).fetchall()
+        for file_path, func_name, line_start, symbol_id in rows:
+            resolved[(file_path, func_name, line_start)] = int(symbol_id)
+
+    for key in keys:
+        if key not in resolved:
+            unresolved.append(key)
+
+    for i in range(0, len(unresolved), batch_size):
+        batch = unresolved[i : i + batch_size]
+        values_sql = ",".join("(?, ?, ?)" for _ in batch)
+        params = [v for key in batch for v in key]
+        rows = conn.execute(
+            "WITH wanted(file_path, func_name, line_start) AS ("
+            f"VALUES {values_sql}"
+            ")"
+            ", ranked AS ("
+            "  SELECT w.file_path, w.func_name, w.line_start AS wanted_line, s.id, "
+            "    ROW_NUMBER() OVER ("
+            "      PARTITION BY w.file_path, w.func_name, w.line_start "
+            "      ORDER BY ABS(COALESCE(s.line_start, 0) - w.line_start)"
+            "    ) AS rn "
+            "  FROM wanted w "
+            "  JOIN files f ON f.path = w.file_path "
+            "  JOIN symbols s ON s.file_id = f.id AND s.name = w.func_name "
+            ")"
+            "SELECT file_path, func_name, wanted_line, id FROM ranked WHERE rn = 1",
+            params,
+        ).fetchall()
+        for file_path, func_name, wanted_line, symbol_id in rows:
+            resolved[(file_path, func_name, wanted_line)] = int(symbol_id)
+
+    for key in keys:
+        resolved.setdefault(key, None)
+
+    return resolved
+
+
+def _emit_clone_findings(conn, pairs: list[ClonePair]) -> None:
+    """Emit one ``FindingRecord`` per clone pair into the registry.
+
+    Subject is the "a" side of the pair (the lower-sorted qname when we
+    constructed the finding id; here we use whichever side ``ClonePair``
+    carries — agents wanting both sides JOIN on ``evidence_json``). When
+    the symbols-table lookup resolves the function, ``subject_id`` is
+    populated; otherwise it stays NULL (registry permits NULL subjects
+    for file/edge/commit findings).
+    """
+    # Import here so the legacy clone_pairs path doesn't pay the import
+    # cost on every persist when callers haven't migrated to consume
+    # findings yet (W93 itself just made the table maturity-experimental).
+    from roam.db.findings import (
+        CONFIDENCE_STRUCTURAL,
+        FindingRecord,
+        emit_finding,
+    )
+
+    try:
+        symbol_map = _batch_resolve_symbol_ids(conn, pairs)
+    except sqlite3.OperationalError:
+        # Pre-W89 schema or symbols table absent — degrade gracefully by
+        # emitting findings with NULL subject_id/partner_symbol_id.
+        symbol_map = {}
+
+    for p in pairs:
+        subject_id = symbol_map.get((p.file_a, p.func_a, p.line_a))
+        partner_id = symbol_map.get((p.file_b, p.func_b, p.line_b))
+        finding_id_str = _clone_pair_finding_id(p.qname_a, p.qname_b)
+        evidence = {
+            "qname_a": p.qname_a,
+            "qname_b": p.qname_b,
+            "file_a": p.file_a,
+            "file_b": p.file_b,
+            "func_a": p.func_a,
+            "func_b": p.func_b,
+            "line_a": p.line_a,
+            "line_end_a": p.line_end_a,
+            "line_b": p.line_b,
+            "line_end_b": p.line_end_b,
+            "similarity": p.similarity,
+            "partner_symbol_id": partner_id,
+            **({"fix_hint": p.fix_hint} if p.fix_hint is not None else {}),
+        }
+        # Confidence threshold mirrors the cmd_clones _classify_similarity
+        # contract: only structural-level confidence when Jaccard >= 0.70.
+        # Below that, the pair shouldn't even reach store_clones (the
+        # detector default threshold is 0.70) — but keep the gate explicit
+        # for future callers that pass --threshold below the floor.
+        confidence = CONFIDENCE_STRUCTURAL if p.similarity >= 0.70 else "heuristic"
+        claim = (
+            f"{p.func_a} ({p.file_a}:{p.line_a}) is a structural clone of "
+            f"{p.func_b} ({p.file_b}:{p.line_b}) — Jaccard {p.similarity:.2f}"
+        )
+        emit_finding(
+            conn,
+            FindingRecord(
+                finding_id_str=finding_id_str,
+                subject_kind="symbol",
+                subject_id=subject_id,
+                claim=claim,
+                evidence_json=json.dumps(evidence, sort_keys=True),
+                confidence=confidence,
+                source_detector="clones",
+                source_version=CLONES_DETECTOR_VERSION,
+            ),
+        )
+
+
+def get_clone_siblings(conn, file_path: str, func_name: str) -> list[dict]:
+    """Return persisted clone siblings of a function.
+
+    Used by `roam critique` (the clone-not-edited check) and by the retrieve
+    reranker (clone-canonical-boost). Returns rows from clone_pairs where
+    the queried function appears as either side of the pair.
+
+    Each row: {sibling_qname, sibling_file, sibling_func, sibling_line,
+              sibling_line_end, similarity, cluster_id}.
+    Returns empty list if no clones persisted yet (run `roam clones --persist`).
+    """
+    qname = f"{file_path}:{func_name}"
+    rows = conn.execute(
+        "SELECT qname_b AS sibling_qname, file_b AS sibling_file, "
+        "       func_b AS sibling_func, line_b AS sibling_line, "
+        "       line_end_b AS sibling_line_end, similarity, cluster_id "
+        "FROM clone_pairs WHERE qname_a = ? "
+        "UNION "
+        "SELECT qname_a AS sibling_qname, file_a AS sibling_file, "
+        "       func_a AS sibling_func, line_a AS sibling_line, "
+        "       line_end_a AS sibling_line_end, similarity, cluster_id "
+        "FROM clone_pairs WHERE qname_b = ?",
+        (qname, qname),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_cluster_members(conn, cluster_id: int) -> list[dict]:
+    """Return all members of a clone cluster, derived from clone_pairs.
+
+    Used by the retrieve reranker to surface the canonical sibling and
+    deduplicate redundant matches.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT qname_a AS qname, file_a AS file, func_a AS func, "
+        "       line_a AS line_start, line_end_a AS line_end "
+        "FROM clone_pairs WHERE cluster_id = ? "
+        "UNION "
+        "SELECT DISTINCT qname_b AS qname, file_b AS file, func_b AS func, "
+        "       line_b AS line_start, line_end_b AS line_end "
+        "FROM clone_pairs WHERE cluster_id = ?",
+        (cluster_id, cluster_id),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Pattern inference helpers
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+_SPLIT_RE = _re.compile(r"[A-Z][a-z]+|[a-z]+|[A-Z]+(?=[A-Z][a-z]|\b)")
+_STOP_WORDS = {
+    "get",
+    "set",
+    "use",
+    "handle",
+    "on",
+    "is",
+    "has",
+    "do",
+    "the",
+    "for",
+    "with",
+    "from",
+    "init",
+    "new",
+    "run",
+    "to",
+    "a",
+}
+
+
+def _name_tokens(name: str) -> set[str]:
+    parts = _SPLIT_RE.findall(name)
+    tokens = {p.lower() for p in parts if len(p) >= 2}
+    for part in name.split("_"):
+        for s in _SPLIT_RE.findall(part):
+            if len(s) >= 2:
+                tokens.add(s.lower())
+    return tokens
+
+
+def _ranked_common_tokens(names: list[str], limit: int) -> list[str]:
+    """Return up to *limit* tokens shared by >= 2 of *names*, ranked
+    deterministically.
+
+    ``_name_tokens`` returns a ``set``, whose iteration order varies with
+    ``PYTHONHASHSEED``. ``Counter.most_common`` breaks frequency ties by
+    insertion order, so feeding it from that set produced a different
+    winner run-to-run whenever several tokens tied on frequency. We pin
+    the tie-break by sorting the full frequency table on ``(-count,
+    token)`` — descending count, then ascending token text — before
+    slicing. With a clear frequency winner the result is unchanged; only
+    ties are now resolved by alphabetical token order instead of by
+    randomized set-iteration order.
+    """
+    token_freq: Counter = Counter()
+    for name in names:
+        for t in _name_tokens(name) - _STOP_WORDS:
+            token_freq[t] += 1
+
+    ranked = sorted(token_freq.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [t for t, c in ranked[:limit] if c >= 2]
+
+
+def _infer_clone_pattern(names: list[str]) -> str:
+    common = _ranked_common_tokens(names, 3)
+    if common:
+        return f"shared {common[0]} logic across {len(names)} functions"
+    return f"identical control flow structure ({len(names)} functions)"
+
+
+def _suggest_extraction(names: list[str]) -> str:
+    common = _ranked_common_tokens(names, 2)
+    if common:
+        base = "_".join(common[:2])
+        return f"Extract common logic into a generic {base}() helper"
+    return "Extract shared logic into a parameterized helper function"

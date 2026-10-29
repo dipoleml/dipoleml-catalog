@@ -1,0 +1,187 @@
+import { limiter } from "@/lib/bottleneck";
+import { APP_DOMAIN } from "@/lib/constants";
+import { log } from "@/lib/log";
+
+import type { Stripe } from "@agentset/stripe";
+import { Prisma } from "@agentset/db";
+import { db } from "@agentset/db/client";
+import { sendEmail, UpgradeEmail } from "@agentset/emails";
+import { triggerMeterOrgDocuments } from "@agentset/jobs";
+import {
+  parseEnterprisePlanMetadata,
+  planToOrganizationFields,
+  stripe,
+} from "@agentset/stripe";
+import { getPlanFromPriceId } from "@agentset/stripe/plans";
+import { capitalize, isEuRegion } from "@agentset/utils";
+
+import { getStripeEventRegion } from "./region";
+import { revalidateOrganizationCache } from "./utils";
+
+export async function checkoutSessionCompleted(event: Stripe.Event) {
+  const checkoutSession = event.data.object as Stripe.Checkout.Session;
+
+  if (checkoutSession.mode === "setup") {
+    return;
+  }
+
+  if (
+    checkoutSession.client_reference_id === null ||
+    checkoutSession.customer === null
+  ) {
+    // both regions receive untagged events; the US deployment reports them
+    if (!isEuRegion || getStripeEventRegion(event) === "eu") {
+      await log({
+        message: "Missing items in Stripe webhook callback",
+        type: "errors",
+      });
+    }
+    return;
+  }
+
+  const stripeId =
+    typeof checkoutSession.customer === "string"
+      ? checkoutSession.customer
+      : checkoutSession.customer.id;
+  const organizationId = checkoutSession.client_reference_id;
+
+  // the organization may belong to the other region's database
+  const existingOrganization = await db.organization.findUnique({
+    where: {
+      id: organizationId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existingOrganization) {
+    console.log(
+      "Organization *`" +
+        organizationId +
+        "`* not found in Stripe webhook `checkout.session.completed` callback",
+    );
+    return;
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(
+    checkoutSession.subscription as string,
+  );
+
+  // ignore metered plan
+  const items = subscription.items.data;
+  const price = items.filter(
+    (item) =>
+      item.price.recurring?.usage_type !== "metered" &&
+      !item.price.recurring?.meter,
+  )[0]?.price;
+  const priceId = price?.id;
+  const period = price?.recurring?.interval === "month" ? "monthly" : "yearly";
+  const plan = getPlanFromPriceId(priceId);
+  const enterpriseFields = plan
+    ? null
+    : await parseEnterprisePlanMetadata(items);
+
+  let planName: string;
+  let planData: Prisma.OrganizationUpdateInput;
+
+  if (plan) {
+    planName = capitalize(plan.name) as string;
+    planData = planToOrganizationFields(plan);
+  } else if (enterpriseFields) {
+    planName = capitalize(enterpriseFields.plan) as string;
+    planData = enterpriseFields;
+  } else {
+    await log({
+      message: `Invalid price ID in checkout.session.completed event: ${priceId}`,
+      type: "errors",
+    });
+    return;
+  }
+
+  // when the organization subscribes to a plan, set their stripe customer ID
+  // in the database for easy identification in future webhook events
+  // also update the billingCycleStart to today's date
+  const organization = await db.organization.update({
+    where: {
+      id: organizationId,
+    },
+    data: {
+      stripeId,
+      billingCycleStart: new Date().getDate(),
+      paymentFailedAt: null,
+      ...planData,
+    },
+    select: {
+      slug: true,
+      deletedPages: true,
+      members: {
+        select: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+            },
+          },
+        },
+        where: {
+          OR: [{ role: "owner" }, { role: "admin" }],
+        },
+      },
+    },
+  });
+
+  // subscribing starts a new billing cycle (billingCycleStart above), so
+  // pages deleted during the previous cycle stop counting towards the quota
+  if (organization.deletedPages > 0) {
+    await db.organization.updateMany({
+      where: {
+        id: organizationId,
+        deletedPages: { gte: organization.deletedPages },
+      },
+      data: {
+        totalPages: { decrement: organization.deletedPages },
+        deletedPages: { decrement: organization.deletedPages },
+      },
+    });
+  }
+
+  revalidateOrganizationCache(organizationId);
+
+  await Promise.allSettled([
+    ...organization.members.map(({ user }) =>
+      limiter.schedule(() =>
+        sendEmail({
+          email: user.email,
+          replyTo: "contact@agentset.ai",
+          subject: `Thank you for upgrading to Agentset ${planName}!`,
+          react: UpgradeEmail({
+            name: user.name || null,
+            email: user.email,
+            plan: {
+              name: planName,
+              features: plan?.features ?? [],
+            },
+            domain: APP_DOMAIN,
+          }),
+          variant: "marketing",
+        }),
+      ),
+    ),
+    triggerMeterOrgDocuments({
+      organizationId,
+    }),
+    log({
+      message: isEuRegion
+        ? `🎉 New ${planName} subscriber:
+Period: \`${period}\`
+Organization: \`${organization.slug}\` (\`${organizationId}\`)
+Members: \`${organization.members.length}\``
+        : `🎉 New ${planName} subscriber: 
+Period: \`${period}\`
+Organization: \`${organization.slug}\`
+Members: \`${organization.members.map(({ user }) => user.email).join(", ")}\``,
+      type: "subscribers",
+    }),
+  ]);
+}

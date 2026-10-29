@@ -1,0 +1,168 @@
+# DebuggingHandler
+
+## Output retrieval
+
+`handleGetDebugOutput` delegates filtered, session-scoped reads to the host's
+bounded output buffer without changing debugger state. The router and control
+server preserve session IDs, filters, and cursors when forwarding to the selected
+VS Code window. Capture-disabled and invalid-cursor errors remain explicit.
+
+## Purpose
+
+Host-neutral orchestration layer that coordinates debugging operations between
+the MCP server and an injected executor. The executor may use VS Code's debug
+API or host a DAP adapter directly in the standalone CLI.
+
+## Motivation
+
+Debugging is inherently asynchronous - when you step over a line, the debugger takes time to execute and update its state. AI agents need reliable feedback about when operations complete. `DebuggingHandler` bridges this gap by polling for state changes and returning meaningful responses.
+
+## Responsibility
+
+- Orchestrate debugging operations (start, stop, step, breakpoints)
+- Detect when debugger state has meaningfully changed after commands
+- Format debug state into human/AI-readable responses
+- Recursively format explicitly requested structs and arrays
+- Show descendant names and types when expanding complex values
+- Provide root cause analysis guidance to AI agents
+- Manage operation timeouts
+
+## Architecture Position
+
+```
+┌───────────────────┐
+│  DebugMCPServer   │
+└───────────────────┘
+        │
+        ▼ Delegates to
+┌───────────────────┐
+│ DebuggingHandler  │  ◄── You are here
+└───────────────────┘
+        │
+        ▼ Uses
+┌───────────────────┐
+│ DebuggingExecutor │
+└───────────────────┘
+```
+
+## Key Concepts
+
+### State Change Detection
+
+After executing a debug command (step over, continue, etc.), the handler:
+1. Captures "before" state
+2. Executes the command via executor
+3. Polls for state changes at short bounded intervals
+4. Returns the "after" state when a meaningful change is detected
+
+### Bounded Polling
+
+State-change polling uses short bounded intervals so either executor can expose
+new stopped/running state without the handler depending on host-specific event
+APIs. Session activation remains delegated to the executor, which can use its
+native VS Code or DAP events.
+
+### Meaningful State Changes
+
+A fresh observed stopped-event sequence completes a step, even at the same source
+line with reused frame IDs, or with no source/stack at all. Resuming or refreshing
+the UI alone does not complete a step. Session termination also completes the
+wait. The VS Code and CLI executors supply the same internal snapshot marker.
+
+When neither snapshot has an observed stopped-event sequence, the compatibility
+fallback considers changes to:
+- Session active status
+- Current file path
+- Current line number
+- Frame name (function/method)
+- Frame ID
+- Thread ID
+
+### Paused State and Pause Requests
+
+Paused status uses the executor's observed stopped/running state, independently
+of source and stack availability. If execution state has not been observed (for
+example, a session that predates tracking), an active frame/thread context is the
+fallback. A bare selected thread alone is not proof of a stop.
+Native/disassembly frames, unavailable local files, and empty stacks can all
+occur while stopped. Status waits and navigation use this same distinction;
+losing source information alone is not a resume.
+
+`handlePause()` is idempotent for an already-paused session: it returns the current
+state without issuing another pause or waiting for a location change. For a
+running session, it dispatches pause and waits for a stopped state or session
+termination, bounded by the operation timeout.
+
+### Restart Completion
+
+`handleRestart()` races the executor's acknowledgement against observation of a
+fresh stopped-event sequence in the same session, bounded by the operation
+timeout. An acknowledgement returns success without an arbitrary settling delay.
+A fresh stop returns an explicit **completion unconfirmed** result, not success:
+execution was observed after the request, but this does not prove that all
+restart commands succeeded. Existing paused state, source/UI changes, continued
+events alone, and stops in another session do not qualify.
+
+If neither signal arrives, the handler reports a timeout explaining that
+the target may already have restarted and the underlying request was not
+cancelled. It does not automatically retry or stop the session. This protects
+both hosts from an unresponsive restart; notably, Cortex-Debug v1.12.1 omits its
+successful DAP restart response. Actual command failures received before the
+result still propagate. A later rejection after an unconfirmed result is logged;
+the underlying request is not cancelled. Polling stops when the call returns.
+
+### Root Cause Analysis
+
+When debugging stops, the handler prompts AI agents to consider whether they found the root cause or just a symptom, encouraging deeper investigation.
+
+### Secret Redaction
+
+Variable inspection is the point where live process memory crosses the trust boundary into
+an AI agent (and usually a remote model provider). Two controls apply there:
+
+**Data minimization.** `handleGetVariables` requires an explicit `variableNames` list
+(validated by `normalizeRequestedNames()`: non-empty, no wildcards, capped at
+`maxRequestedVariables`) and returns only those variables. Unknown names are reported back
+so the caller gets feedback instead of silence. `handleListVariableNames` exists for
+discovery and returns names and types **only** — it never emits a value, so it needs no
+redaction.
+
+**Redaction.** Values that are returned still pass through `src/utils/secretRedaction.ts`,
+which withholds credential-looking values by name (`api_key`, `password`, `token`, …) and by
+content (JWT, PEM private key, `AKIA…`, `ghp_…`, `Bearer …`, `Password=…`, …).
+`handleEvaluateExpression` is covered too, since evaluating `os.environ` is the trivial
+bypass for per-variable controls. Null-ish values are deliberately left intact so
+missing-credential bugs stay debuggable.
+`handleGetVariables` and `handleEvaluateExpression` return the explicitly requested variable or expression's own result, but any expandable descendants are rendered as names and types only. A descendant value requires evaluating that exact path separately.
+Recursive expansion is bounded to 100 child fields total per response, shared across all nested branches and requested roots.
+
+## Key Code Locations
+
+- Class definition: `src/debuggingHandler.ts`
+- Interface: `IDebuggingHandler`
+- State change detection: `waitForStateChange()`, `hasStateChanged()`
+- Session waiting: `waitForActiveDebugSession()`
+- State formatting: `formatDebugState()`
+- Variable selection: `handleGetVariables()`, `handleListVariableNames()`, `normalizeRequestedNames()`
+- Secret redaction: `src/utils/secretRedaction.ts`
+
+## Design Patterns
+
+- **Before/After Comparison**: All step operations capture state before and after
+- **Timeout Configuration**: Controlled by `timeoutInSeconds` parameter
+- **Dependency Injection**: Executor and config manager are injected via constructor
+
+## Error Handling
+
+All operations wrap errors with context about what operation failed, enabling AI agents to understand and potentially recover from failures.
+Startup preserves task/configuration errors from the executor instead of
+replacing them with an extension-installation hint. Readiness listeners are
+started only after configuration resolution and cancelled when the startup
+operation finishes or fails. Test-dispatch failures propagate as errors rather
+than being interpreted as successful test completion.
+Expression evaluation also distinguishes an adapter error from a successful
+command whose result/output was not captured.
+
+## Variable inspection
+
+For `ruby_lsp` sessions, Ruby scalar values keep their result even when rdbg attaches metadata children. Synthetic `#class` and `%ancestors` children are omitted only for Ruby. Existing secret redaction and names/types-only descendant rendering remain in force.

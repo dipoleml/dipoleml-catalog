@@ -1,0 +1,210 @@
+// Copyright IBM Corp. 2025
+// SPDX-License-Identifier: MPL-2.0
+
+package tools
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/hashicorp/go-tfe"
+	"github.com/hashicorp/terraform-mcp-server/pkg/client"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+)
+
+// GetPrivateProviderDetails creates a tool to get detailed information about a private provider.
+func GetPrivateProviderDetails(logger *log.Logger) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("get_private_provider_details",
+			mcp.WithDescription(`This tool retrieves information about a specific private provider in your Terraform Cloud/Enterprise organization.
+It provides details on how to use the provider, permissions, available versions, and more. This tool requires a valid Terraform token to be configured.
+`),
+			mcp.WithTitleAnnotation("Get detailed information about a private provider"),
+			mcp.WithOpenWorldHintAnnotation(true),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+			mcp.WithString("terraform_org_name",
+				mcp.Required(),
+				mcp.Description(terraformOrgNameDescription),
+			),
+			mcp.WithString("private_provider_namespace",
+				mcp.Required(),
+				mcp.Description("The namespace of the private provider in your Terraform Cloud/Enterprise organization. For public registry, use the namespace from the public Terraform registry."),
+			),
+			mcp.WithString("private_provider_name",
+				mcp.Required(),
+				mcp.Description("The name of the private provider"),
+			),
+			mcp.WithString("registry_name",
+				mcp.Description("The type of Terraform registry to search within Terraform Cloud/Enterprise (e.g., 'private', 'public')"),
+				mcp.Enum("private", "public"),
+				mcp.DefaultString("private"),
+			),
+			mcp.WithBoolean("include_versions",
+				mcp.Description("Whether to include detailed version information"),
+				mcp.DefaultBool(true),
+			),
+		),
+		Handler: func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return getPrivateProviderDetailsHandler(ctx, request, logger)
+		},
+	}
+}
+
+func getPrivateProviderDetailsHandler(ctx context.Context, request mcp.CallToolRequest, logger *log.Logger) (*mcp.CallToolResult, error) {
+	terraformOrgName, err := request.RequireString("terraform_org_name")
+	if err != nil {
+		return ToolError(logger, "missing required input: terraform_org_name", err)
+	}
+	terraformOrgName = strings.TrimSpace(terraformOrgName)
+
+	privateProviderNamespace, err := request.RequireString("private_provider_namespace")
+	if err != nil {
+		return ToolError(logger, "missing required input: private_provider_namespace", err)
+	}
+	privateProviderNamespace = strings.TrimSpace(privateProviderNamespace)
+
+	privateProviderName, err := request.RequireString("private_provider_name")
+	if err != nil {
+		return ToolError(logger, "missing required input: private_provider_name", err)
+	}
+	privateProviderName = strings.TrimSpace(privateProviderName)
+
+	registryName := strings.TrimSpace(request.GetString("registry_name", "private"))
+	includeVersions := request.GetBool("include_versions", true)
+
+	tfeClient, err := client.GetTfeClientFromContext(ctx, logger)
+	if err != nil {
+		return ToolError(logger, "failed to get Terraform client - ensure TFE_TOKEN and TFE_ADDRESS are configured", err)
+	}
+
+	providerID := tfe.RegistryProviderID{
+		OrganizationName: terraformOrgName,
+		Namespace:        privateProviderNamespace,
+		Name:             privateProviderName,
+		RegistryName:     tfe.RegistryName(registryName),
+	}
+
+	readOptions := &tfe.RegistryProviderReadOptions{}
+	if includeVersions {
+		includeOpts := []tfe.RegistryProviderIncludeOps{tfe.RegistryProviderVersionsInclude}
+		readOptions.Include = includeOpts
+	}
+
+	logger.WithFields(log.Fields{
+		"terraform_org_name":         terraformOrgName,
+		"private_provider_namespace": privateProviderNamespace,
+		"private_provider_name":      privateProviderName,
+		"registry_name":              registryName,
+		"include_versions":           includeVersions,
+	}).Info("Getting private provider details")
+
+	provider, err := tfeClient.RegistryProviders.Read(ctx, providerID, readOptions)
+	if err != nil {
+		return ToolErrorf(logger, "provider not found: %s/%s - use search_private_providers to find valid providers", privateProviderNamespace, privateProviderName)
+	}
+
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("Private Provider Details: %s/%s\n", provider.Namespace, provider.Name))
+	builder.WriteString(strings.Repeat("=", 50) + "\n\n")
+
+	builder.WriteString("Usage:\n")
+	builder.WriteString("To use this private provider in your Terraform configuration:\n\n")
+	builder.WriteString("```hcl\n")
+	builder.WriteString("terraform {\n")
+	builder.WriteString("  required_providers {\n")
+	builder.WriteString(fmt.Sprintf("    %s = {\n", provider.Name))
+	builder.WriteString(fmt.Sprintf("      source = \"%s/%s\"\n", provider.Namespace, provider.Name))
+	if len(provider.RegistryProviderVersions) > 0 {
+		builder.WriteString(fmt.Sprintf("      version = \"%s\"\n", provider.RegistryProviderVersions[0].Version))
+	}
+	builder.WriteString("    }\n")
+	builder.WriteString("  }\n")
+	builder.WriteString("}\n")
+	builder.WriteString("```\n")
+
+	builder.WriteString("Basic Information:\n")
+	builder.WriteString(fmt.Sprintf("- ID: %s\n", provider.ID))
+	builder.WriteString(fmt.Sprintf("- Name: %s\n", provider.Name))
+	builder.WriteString(fmt.Sprintf("- Namespace: %s\n", provider.Namespace))
+	builder.WriteString(fmt.Sprintf("- Registry: %s\n", provider.RegistryName))
+	builder.WriteString(fmt.Sprintf("- Created: %s\n", provider.CreatedAt))
+	builder.WriteString(fmt.Sprintf("- Updated: %s\n", provider.UpdatedAt))
+	builder.WriteString("\n")
+
+	if provider.Organization != nil {
+		builder.WriteString("Organization:\n")
+		builder.WriteString(fmt.Sprintf("- Name: %s\n", provider.Organization.Name))
+		if provider.Organization.Email != "" {
+			builder.WriteString(fmt.Sprintf("- Email: %s\n", provider.Organization.Email))
+		}
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("Permissions:\n")
+	builder.WriteString(fmt.Sprintf("- Can Delete: %t\n", provider.Permissions.CanDelete))
+	builder.WriteString("\n")
+
+	if includeVersions && len(provider.RegistryProviderVersions) > 0 {
+		builder.WriteString(fmt.Sprintf("Available Versions (%d):\n", len(provider.RegistryProviderVersions)))
+
+		for i, version := range provider.RegistryProviderVersions {
+			builder.WriteString(fmt.Sprintf("%d. Version: %s\n", i+1, version.Version))
+			builder.WriteString(fmt.Sprintf("   ID: %s\n", version.ID))
+			builder.WriteString(fmt.Sprintf("   Created: %s\n", version.CreatedAt))
+			builder.WriteString(fmt.Sprintf("   Updated: %s\n", version.UpdatedAt))
+
+			if version.KeyID != "" {
+				builder.WriteString(fmt.Sprintf("   Key ID: %s\n", version.KeyID))
+			}
+
+			builder.WriteString("   Permissions: ")
+			var perms []string
+			if version.Permissions.CanUploadAsset {
+				perms = append(perms, "upload-asset")
+			}
+			if version.Permissions.CanDelete {
+				perms = append(perms, "delete")
+			}
+			builder.WriteString(strings.Join(perms, ", "))
+			builder.WriteString("\n")
+
+			if len(version.RegistryProviderPlatforms) > 0 {
+				builder.WriteString("   Platforms: ")
+				var platforms []string
+				for _, platform := range version.RegistryProviderPlatforms {
+					platforms = append(platforms, fmt.Sprintf("%s/%s", platform.OS, platform.Arch))
+				}
+				builder.WriteString(strings.Join(platforms, ", "))
+				builder.WriteString("\n")
+			}
+
+			builder.WriteString("\n")
+		}
+	} else if includeVersions {
+		builder.WriteString("No version information is available for this provider.\n\n")
+	}
+
+	if len(provider.Links) > 0 {
+		builder.WriteString("Links:\n")
+		for key, value := range provider.Links {
+			if strValue, ok := value.(string); ok {
+				builder.WriteString(fmt.Sprintf("- %s: %s\n", key, strValue))
+			}
+		}
+		builder.WriteString("\n")
+	}
+
+	logger.WithFields(log.Fields{
+		"terraform_org_name":         terraformOrgName,
+		"private_provider_namespace": privateProviderNamespace,
+		"private_provider_name":      privateProviderName,
+		"versions_count":             len(provider.RegistryProviderVersions),
+	}).Info("Successfully retrieved private provider details")
+
+	return mcp.NewToolResultText(builder.String()), nil
+}

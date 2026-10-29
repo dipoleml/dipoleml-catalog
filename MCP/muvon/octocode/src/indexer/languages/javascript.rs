@@ -1,0 +1,613 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! JavaScript language implementation for the indexer
+
+use crate::indexer::languages::Language;
+use tree_sitter::Node;
+
+pub struct JavaScript {}
+
+impl Language for JavaScript {
+	fn name(&self) -> &'static str {
+		"javascript"
+	}
+
+	fn get_ts_language(&self) -> tree_sitter::Language {
+		tree_sitter_javascript::LANGUAGE.into()
+	}
+
+	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
+		vec![
+			"function_declaration",
+			"method_definition",
+			"arrow_function",
+			// Removed: "class_declaration" - too large, not semantic
+			// Individual methods inside classes will be captured via method_definition
+			"import_statement",
+			"export_statement",
+		]
+	}
+
+	fn get_symbol_kinds(&self) -> Vec<&'static str> {
+		// Symbol tier adds the class container chunking excludes; drops
+		// anonymous arrow functions and import/export statements, which
+		// declare no symbol.
+		vec![
+			"function_declaration",
+			"method_definition",
+			"arrow_function",
+			"class_declaration",
+		]
+	}
+
+	fn is_meaningful_node(&self, node: Node, _contents: &str) -> bool {
+		if node.kind() == "export_statement" {
+			// Mirror class_declaration's own exclusion (see the "Removed:
+			// class_declaration - too large" comment in get_meaningful_kinds):
+			// an exported class must not collapse into one oversized block
+			// either. Falling through to "not meaningful" here makes the
+			// walker descend into the wrapped class_declaration (itself
+			// already excluded from meaningful_kinds), reaching its
+			// method_definition children — exactly like a non-exported class
+			// already works.
+			let wraps_class = node
+				.child_by_field_name("declaration")
+				.is_some_and(|d| d.kind() == "class_declaration");
+			return !wraps_class;
+		}
+		true
+	}
+
+	fn extract_declaration_name(&self, node: Node, contents: &str) -> Option<String> {
+		if node.kind() == "arrow_function" {
+			let parent = node.parent()?;
+			if parent.kind() != "variable_declarator" {
+				return None;
+			}
+			return parent
+				.child_by_field_name("name")
+				.and_then(|name| name.utf8_text(contents.as_bytes()).ok())
+				.map(str::to_string);
+		}
+		super::extract_symbol_by_kinds(node, contents, &["identifier", "name"])
+	}
+
+	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
+		let mut symbols = Vec::new();
+
+		match node.kind() {
+			"function_declaration" | "method_definition" => {
+				// Extract name of the function or method
+				if let Some(name) = super::extract_symbol_by_kinds(node, contents, &["identifier", "name"]) {
+					symbols.push(name);
+				}
+
+				// For method_definition inside a class, also include the class name so
+				// "Foo.bar" queries hit via BM25/dense without depending on the LLM
+				// description mentioning the owning class.
+				if node.kind() == "method_definition" {
+					if let Some(owner) = super::find_enclosing_container_name(
+						node,
+						contents,
+						&["class_declaration", "class"],
+						&["identifier", "type_identifier"],
+					) {
+						symbols.push(owner);
+					}
+				}
+
+				// Look for variable declarations within the function/method body
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "statement_block" {
+						self.extract_js_variable_declarations(child, contents, &mut symbols);
+						break;
+					}
+				}
+			}
+			"arrow_function" => {
+				// Extract parent variable name for arrow functions
+				if let Some(parent) = node.parent() {
+					if parent.kind() == "variable_declarator" {
+						if let Some(name) = super::extract_symbol_by_kind(parent, contents, "identifier") {
+							symbols.push(name);
+						}
+					}
+				}
+			}
+			_ => self.extract_identifiers(node, contents, &mut symbols),
+		}
+
+		super::deduplicate_symbols(&mut symbols);
+		symbols
+	}
+
+	fn extract_identifiers(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+		// For JavaScript, avoid excessive recursion into member expressions
+		// that tend to duplicate identifiers
+		if node.kind() == "member_expression" || node.kind() == "property_access_expression" {
+			// For member expressions, only take the object part (leftmost identifier)
+			let mut cursor = node.walk();
+			if cursor.goto_first_child() {
+				// Process just the first child (object)
+				self.extract_identifiers(cursor.node(), contents, symbols);
+				return;
+			}
+		}
+
+		super::extract_identifiers_default(node, contents, symbols, |kind, _text| {
+			// Include identifiers and names, but exclude property identifiers.
+			// `named_imports` also contains "name" and would otherwise leak the
+			// whole `{ a, b }` brace list in as one symbol.
+			(kind.contains("identifier") || kind.contains("name"))
+				&& kind != "property_identifier"
+				&& kind != "named_imports"
+		});
+	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// JavaScript-specific semantic groups
+		let semantic_groups = [
+			// Functions and methods
+			&["function_declaration", "method_definition", "arrow_function"] as &[&str],
+			// Classes and constructors
+			&["class_declaration", "method_definition"],
+			// Import/export statements
+			&["import_statement", "export_statement"],
+			// Variable declarations
+			&["variable_declaration", "lexical_declaration"],
+		];
+
+		super::check_semantic_groups(type1, type2, &semantic_groups)
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"function_declaration" | "method_definition" | "arrow_function" => "function declarations",
+			"class_declaration" => "class declarations",
+			"import_statement" | "export_statement" => "import/export statements",
+			"variable_declaration" | "lexical_declaration" => "variable declarations",
+			_ => "declarations",
+		}
+	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		match node.kind() {
+			"import_statement" => {
+				// Handle: import { foo, bar } from 'module'
+				// Handle: import foo from 'module'
+				// Handle: import * as foo from 'module'
+				if let Ok(import_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(imported_paths) = parse_js_import_statement_full_path(import_text) {
+						imports.extend(imported_paths);
+					}
+				}
+			}
+			"export_statement" => {
+				// Handle: export { foo, bar }
+				// Handle: export function foo() {}
+				// Handle: export default foo
+				if let Ok(export_text) = node.utf8_text(contents.as_bytes()) {
+					if let Some(exported_items) = parse_js_export_statement(export_text) {
+						exports.extend(exported_items);
+					}
+				}
+			}
+			_ => {}
+		}
+
+		(imports, exports)
+	}
+
+	fn extract_function_calls(&self, node: Node, contents: &str) -> Vec<super::CallTarget> {
+		match node.kind() {
+			"call_expression" => {
+				// First child is the function being called
+				if let Some(func_node) = node.child(0) {
+					if let Ok(text) = func_node.utf8_text(contents.as_bytes()) {
+						return super::extract_call_target(text).into_iter().collect();
+					}
+				}
+				Vec::new()
+			}
+			"new_expression" => {
+				// child(0) = "new" keyword, child(1) = constructor
+				if let Some(ctor) = node.child(1) {
+					if let Ok(text) = ctor.utf8_text(contents.as_bytes()) {
+						return super::extract_call_target(text).into_iter().collect();
+					}
+				}
+				Vec::new()
+			}
+			_ => Vec::new(),
+		}
+	}
+
+	fn extract_type_relations(&self, node: Node, contents: &str) -> Vec<(super::TypeRelationKind, String)> {
+		// Vanilla JS only has class inheritance: `class Foo extends Bar { }`.
+		// Tree-sitter-javascript's `class_heritage` is a single-target wrapper
+		// around an `extends` keyword + identifier.
+		let mut out = Vec::new();
+		if matches!(node.kind(), "class_declaration" | "class") {
+			let mut cursor = node.walk();
+			for child in node.children(&mut cursor) {
+				if child.kind() == "class_heritage" {
+					let mut hcursor = child.walk();
+					for h in child.children(&mut hcursor) {
+						if matches!(h.kind(), "identifier" | "member_expression" | "call_expression") {
+							if let Ok(text) = h.utf8_text(contents.as_bytes()) {
+								if let Some(name) = super::simple_type_name(text) {
+									out.push((super::TypeRelationKind::Extends, name));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		out
+	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let registry = all_files;
+
+		if import_path.starts_with("./") || import_path.starts_with("../") {
+			// Relative import
+			self.resolve_relative_import(import_path, source_file, registry)
+		} else if import_path.starts_with('/') {
+			// Absolute import from project root
+			self.resolve_absolute_import(import_path, registry)
+		} else {
+			// Module import - look in node_modules or as relative
+			self.resolve_module_import(import_path, source_file, registry)
+		}
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["js", "jsx", "mjs"]
+	}
+}
+
+impl JavaScript {
+	/// Find matching JavaScript file with robust path comparison (same pattern as Rust/PHP)
+	fn find_matching_js_file(
+		&self,
+		target_path: &std::path::Path,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let target_str = target_path.to_string_lossy().to_string();
+
+		// Try exact string match first (fastest)
+		if let Some(exact_match) = registry.find_verbatim(&target_str) {
+			return Some(exact_match.to_string());
+		}
+
+		// Try cross-platform string comparison using PathNormalizer
+		if let Some(found) = registry.find_normalized(&target_str) {
+			return Some(found.to_string());
+		}
+
+		// Try with common JS extensions if not present
+		let extensions = ["js", "jsx", "mjs", "ts", "tsx"];
+		for ext in &extensions {
+			let with_ext = if target_str.ends_with(&format!(".{}", ext)) {
+				target_str.clone()
+			} else {
+				format!("{}.{}", target_str, ext)
+			};
+
+			// Try exact match with extension
+			if let Some(exact_match) = registry.find_verbatim(&with_ext) {
+				return Some(exact_match.to_string());
+			}
+
+			// Try cross-platform match with extension
+			if let Some(found) = registry.find_normalized(&with_ext) {
+				return Some(found.to_string());
+			}
+		}
+
+		// Try index files in directory
+		let index_candidates = ["index.js", "index.jsx", "index.mjs", "index.ts", "index.tsx"];
+		for index_file in &index_candidates {
+			// `join` uses the platform separator, so on Windows the candidate is
+			// `src\components\index.js` while the registry holds the `/` form every
+			// import specifier and every stored path uses. Compare them normalized.
+			let index_path = target_path.join(index_file);
+			let index_str = index_path.to_string_lossy().to_string();
+			if let Some(found) = registry.find_normalized(&index_str) {
+				return Some(found.to_string());
+			}
+		}
+
+		// Try normalized path comparison for cross-platform compatibility
+		if let Ok(canonical_target) = target_path.canonicalize() {
+			let canonical_str = canonical_target.to_string_lossy().to_string();
+			for js_file in registry.get_all_files() {
+				if let Ok(canonical_js) = std::path::Path::new(js_file).canonicalize() {
+					let canonical_js_str = canonical_js.to_string_lossy().to_string();
+					if canonical_str == canonical_js_str {
+						return Some(js_file.clone());
+					}
+				}
+			}
+		}
+
+		// Try relative path matching for different path prefixes
+		if let Some(target_file_name) = target_path.file_name() {
+			if let Some(target_parent) = target_path.parent() {
+				for js_file in registry.get_all_files() {
+					let js_path = std::path::Path::new(js_file);
+					if let Some(js_file_name) = js_path.file_name() {
+						if let Some(js_parent) = js_path.parent() {
+							// Match if filename and relative parent path match
+							if target_file_name == js_file_name {
+								if let (Some(target_parent_str), Some(js_parent_str)) =
+									(target_parent.to_str(), js_parent.to_str())
+								{
+									// Check if the parent paths end with the same structure
+									if target_parent_str.ends_with(js_parent_str)
+										|| js_parent_str.ends_with(target_parent_str)
+									{
+										return Some(js_file.clone());
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		None
+	}
+
+	/// Extract JavaScript variable declarations within a block
+	#[allow(clippy::only_used_in_recursion)]
+	pub fn extract_js_variable_declarations(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+		let mut cursor = node.walk();
+		// Look through all children
+		if cursor.goto_first_child() {
+			loop {
+				let child = cursor.node();
+				// Look for variable or lexical declarations
+				if child.kind() == "variable_declaration" || child.kind() == "lexical_declaration" {
+					// For each declarator in the declaration
+					for var_decl in child.children(&mut child.walk()) {
+						if var_decl.kind() == "variable_declarator" {
+							// Get the identifier from the declarator
+							for decl_child in var_decl.children(&mut var_decl.walk()) {
+								if decl_child.kind() == "identifier" {
+									if let Ok(name) = decl_child.utf8_text(contents.as_bytes()) {
+										let t = name.trim();
+										if !t.is_empty() && !symbols.iter().any(|s| s.as_str() == t) {
+											symbols.push(t.to_string());
+										}
+									}
+									break; // Only take the first identifier (the variable name)
+								}
+							}
+						}
+					}
+				}
+				// Recursive search in nested blocks (if, for, while loops, etc.)
+				else if child.kind() == "statement_block" || child.kind().contains("statement") {
+					self.extract_js_variable_declarations(child, contents, symbols);
+				}
+
+				if !cursor.goto_next_sibling() {
+					break;
+				}
+			}
+		}
+	}
+}
+
+// Helper functions for JavaScript import/export parsing
+
+// Extract full import paths for GraphRAG (not just imported item names)
+pub fn parse_js_import_statement_full_path(import_text: &str) -> Option<Vec<String>> {
+	let mut imports = Vec::new();
+	let cleaned = import_text.trim();
+
+	// Extract the module path: after the `from` clause, or — for a side-effect
+	// import (`import './styles.css';`) — straight after `import`, which has no
+	// `from` at all and would otherwise leave the dependency unrecorded.
+	let module_part = match cleaned.find(" from ") {
+		Some(from_pos) => Some(&cleaned[from_pos + 6..]),
+		None => cleaned.strip_prefix("import "),
+	};
+	if let Some(module_part) = module_part {
+		// Remove all quotes and semicolon around module path
+		let module_path = module_part
+			.trim()
+			.trim_start_matches('\'')
+			.trim_start_matches('"')
+			.trim_end_matches(';')
+			.trim_end_matches('\'')
+			.trim_end_matches('"');
+		if !module_path.is_empty() {
+			imports.push(module_path.to_string());
+		}
+	}
+
+	if !imports.is_empty() {
+		Some(imports)
+	} else {
+		None
+	}
+}
+
+pub fn parse_js_export_statement(export_text: &str) -> Option<Vec<String>> {
+	let mut exports = Vec::new();
+	let cleaned = export_text.trim();
+
+	// Get the first line for parsing (export statements are usually on the first line)
+	let first_line = cleaned.lines().next().unwrap_or(cleaned);
+
+	// Handle: export function foo() {} or export const foo = ...
+	// Checked BEFORE the brace form: a one-line `export function foo() { ... }`
+	// also contains braces, and the brace branch would read its body as a
+	// named-export list.
+	if let Some(rest) = first_line.strip_prefix("export ") {
+		// Skip "export "
+		if rest.starts_with("function ")
+			|| rest.starts_with("const ")
+			|| rest.starts_with("let ")
+			|| rest.starts_with("var ")
+		{
+			// Extract identifier after keyword. The token still carries whatever
+			// follows the name on the same line (`foo()`, `foo=`), so cut at the
+			// first character that cannot appear in a JS identifier.
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 2 {
+				let name = parts[1]
+					.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+					.next()
+					.unwrap_or(parts[1]);
+				if !name.is_empty() {
+					exports.push(name.to_string());
+					return Some(exports);
+				}
+			}
+		}
+
+		// Handle: export { foo, bar }
+		if let Some(start) = first_line.find('{') {
+			if let Some(end) = first_line.find('}') {
+				let items = &first_line[start + 1..end];
+				for item in items.split(',') {
+					let item = item.trim();
+					// Handle: foo as bar -> extract 'foo'
+					let name = if let Some(as_pos) = item.find(" as ") {
+						&item[..as_pos]
+					} else {
+						item
+					};
+					if !name.is_empty() {
+						exports.push(name.to_string());
+					}
+				}
+				return Some(exports);
+			}
+		}
+
+		// Handle: export default class ClassName
+		if rest.starts_with("default class ") {
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 3 {
+				let name = parts[2].trim_end_matches('{');
+				exports.push(name.to_string());
+				return Some(exports);
+			}
+		}
+
+		// Handle: export class ClassName
+		if rest.starts_with("class ") {
+			let parts: Vec<&str> = rest.split_whitespace().collect();
+			if parts.len() >= 2 {
+				let name = parts[1].trim_end_matches('{');
+				exports.push(name.to_string());
+				return Some(exports);
+			}
+		}
+	}
+
+	None
+}
+
+impl JavaScript {
+	/// Resolve relative imports like ./utils or ../components/Button with enhanced path matching
+	fn resolve_relative_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		use super::resolution_utils::resolve_relative_path;
+
+		let relative_path = resolve_relative_path(source_file, import_path)?;
+
+		// Use enhanced file matching
+		self.find_matching_js_file(&relative_path, registry)
+	}
+
+	/// Resolve absolute imports from project root with enhanced path matching
+	fn resolve_absolute_import(
+		&self,
+		import_path: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		let path = std::path::Path::new(import_path);
+
+		// Use enhanced file matching
+		self.find_matching_js_file(path, registry)
+	}
+
+	/// Enhanced module import resolution with better patterns
+	fn resolve_module_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		registry: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		// Try multiple resolution strategies for module imports
+
+		// 1. Try as relative import from current directory
+		let relative_import = format!("./{}", import_path);
+		if let Some(found) = self.resolve_relative_import(&relative_import, source_file, registry) {
+			return Some(found);
+		}
+
+		// 2. Try in common source directories
+		let source_dirs = ["src", "lib", "components", "utils", "modules"];
+		for src_dir in &source_dirs {
+			let src_path = std::path::Path::new(src_dir).join(import_path);
+			if let Some(found) = self.find_matching_js_file(&src_path, registry) {
+				return Some(found);
+			}
+		}
+
+		// 3. Try node_modules resolution (simplified)
+		let node_modules_path = std::path::Path::new("node_modules").join(import_path);
+		if let Some(found) = self.find_matching_js_file(&node_modules_path, registry) {
+			return Some(found);
+		}
+
+		// 4. Try package.json main field simulation (common patterns)
+		let package_patterns = [
+			format!("node_modules/{}/index.js", import_path),
+			format!("node_modules/{}/lib/index.js", import_path),
+			format!("node_modules/{}/src/index.js", import_path),
+			format!("node_modules/{}/dist/index.js", import_path),
+		];
+
+		for pattern in &package_patterns {
+			let package_path = std::path::Path::new(pattern);
+			if let Some(found) = self.find_matching_js_file(package_path, registry) {
+				return Some(found);
+			}
+		}
+
+		None
+	}
+}

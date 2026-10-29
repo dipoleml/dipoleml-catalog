@@ -1,0 +1,163 @@
+#!/bin/sh
+# pre-push hook -- pushed-history leak/secret gates + structural-gate bundle.
+#
+# Runs before `git push`. Two stages:
+#   A. Pushed-history gates, scoped to the exact ref updates Git hands this
+#      hook on stdin (local/remote OID pairs) -- NOT the working tree:
+#        * scripts/secret_scan.py --pre-push-updates
+#        * scripts/scan_internal_language.py --pre-push-updates
+#      Both are sub-second because they read only the blobs and commit
+#      messages this push publishes. They run FIRST so a leak in what you
+#      are about to publish blocks the push in ~1s instead of ~70s.
+#   B. python scripts/prepush_check.py --fast
+#        Repo-wide structural drift-guards AND the whole-tree anti-leak
+#        scan. Delegates so the gate list lives in ONE place
+#        (_run_leak_gate + FAST_/FULL_PYTEST_GUARDS there).
+#
+# Design authority: (internal memo)
+#   FAST tier (default): whole-tree anti-leak scan + ruff format/check +
+#   count-drift scripts + the structural-lint pytest bundle (W547/W564
+#   severity-rank, LAW-4, fragile-path, bare-except, detector-count,
+#   card-hash, compound-recipe, and the closed-set registry inventories).
+#   FULL tier (--full): adds heavy doc-hygiene (test_no_internal_language,
+#   shape-axis, smells-severity-parity).
+#
+# WHAT A GREEN RUN HERE DOES *NOT* PROVE: that CI will be green. This hook
+# runs the FAST structural drift-guards, not the test suite. On 2026-07-28
+# four commits passed this hook and then took all four CI lanes red. Before
+# a tag, run `python scripts/prepush_check.py --release` -- that tier runs
+# what CI runs.
+#
+# COMPOSITION -- this hook does NOT duplicate the existing surfaces:
+#   * .githooks/pre-commit -- anti-leak STAGED scan + count scripts + ruff
+#     on staged Python at COMMIT time. The whole-tree anti-leak scan (the
+#     `--no-verify` backstop) runs exactly ONCE per push, inside stage B.
+#     It used to run here in stage A as well, byte-identical to the
+#     prepush_check.py gate and over the same unchanged tree, costing a
+#     measured 36.6s of the ~113s hook for zero additional coverage.
+#   * .githooks/commit-msg + .pre-commit-config.yaml no-coauthor (Wave59) --
+#     reject Co-Authored-By trailers (Cranot-only). NOT touched here.
+#
+# INSTALL (same one-liner as the other hooks; no extra step if already run):
+#   git config core.hooksPath .githooks
+#
+# BYPASS for a deliberate one-off push (rare):
+#   git push --no-verify
+#
+# NOT auto-installed. Documented here; opt in via the core.hooksPath one-liner.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+# Git exports repository-local control variables to hooks. They are valid
+# while this hook operates on REPO_ROOT, but the FAST gate runs pytest suites
+# that create and mutate their own temporary repositories. In a linked
+# worktree, inheriting GIT_INDEX_FILE makes a fixture's `git add` replace the
+# real worktree index. Resolve the root first, then clear every variable Git
+# itself classifies as repository-local and anchor subsequent Git commands by
+# cwd. Author/committer identity and other non-local Git settings survive.
+GIT_LOCAL_ENV_VARS="$(git rev-parse --local-env-vars 2>/dev/null || true)"
+for var in $GIT_LOCAL_ENV_VARS; do
+    unset "$var"
+done
+unset GIT_LOCAL_ENV_VARS
+cd "$REPO_ROOT"
+
+# Capture Git's authoritative ref-update stream once so both history gates
+# inspect the exact refs/OIDs being pushed (including first pushes, tags,
+# explicit refspecs, non-HEAD refs, deletions, and multi-ref pushes).
+UPDATES_FILE="$(mktemp)"
+cleanup_updates() { rm -f "$UPDATES_FILE"; }
+trap cleanup_updates EXIT HUP INT TERM
+chmod 600 "$UPDATES_FILE"
+cat >"$UPDATES_FILE"
+
+# Prefer the repo's own virtualenv over whatever `python` PATH happens to
+# resolve to. A pre-push gate exists to predict CI, and it can only do that
+# if it runs the interpreter the project is installed into. Measured
+# 2026-08-06 on a dev box where PATH-`python` was a global 3.14: the gate
+# reported 7 test errors that do not exist under the project's 3.12, i.e. it
+# failed the push over an environment nothing ships. requires-python is
+# currently unbounded (">=3.10") while CI runs 3.10-3.13, so "some Python on
+# PATH" is not a defensible stand-in for "the Python this project uses".
+# An explicit PYTHON= still wins, and a repo with no venv falls through to
+# the previous PATH search unchanged.
+if [ -z "${PYTHON:-}" ]; then
+    for _venv_py in \
+        "$REPO_ROOT/.venv/Scripts/python.exe" \
+        "$REPO_ROOT/.venv/bin/python"; do
+        if [ -x "$_venv_py" ]; then
+            PYTHON="$_venv_py"
+            break
+        fi
+    done
+fi
+
+PY_BIN="${PYTHON:-python}"
+PY_ARG=""
+if ! command -v "$PY_BIN" >/dev/null 2>&1 && [ ! -x "$PY_BIN" ]; then
+    if command -v py >/dev/null 2>&1; then
+        PY_BIN=py
+        PY_ARG=-3
+    elif command -v python3 >/dev/null 2>&1; then
+        PY_BIN=python3
+    else
+        echo "ERROR: pre-push hook (.githooks/pre-push)" >&2
+        echo "  No 'python', 'py -3', or 'python3' on PATH." >&2
+        echo "  Install Python or run 'git push --no-verify' to bypass." >&2
+        exit 1
+    fi
+fi
+
+run_python() {
+    if [ -n "$PY_ARG" ]; then
+        "$PY_BIN" "$PY_ARG" "$@"
+    else
+        "$PY_BIN" "$@"
+    fi
+}
+
+# A command merely being executable does not make it Python. Fail closed on
+# accidental or hostile overrides such as PYTHON=echo before any gate runs.
+PY_SENTINEL="$(run_python -c 'import sys; sys.stdout.write("roam-prepush-python-ok")' 2>/dev/null || true)"
+if [ "$PY_SENTINEL" != "roam-prepush-python-ok" ]; then
+    echo "ERROR: pre-push hook (.githooks/pre-push)" >&2
+    echo "  PYTHON does not resolve to a working Python interpreter." >&2
+    exit 1
+fi
+unset PY_SENTINEL
+
+# --- A1. Secret scan over the commits being pushed --------------------------
+if ! run_python "$REPO_ROOT/scripts/secret_scan.py" --pre-push-updates "$UPDATES_FILE" --remote-url "$2"; then
+    echo "" >&2
+    echo "BLOCKED: secret scan failed or detected secret(s) -- see above." >&2
+    echo "  Remove or rotate credentials and resolve every scanner error before pushing." >&2
+    exit 1
+fi
+
+# --- A2. Internal-language gate over pushed blobs + commit messages ----------
+# Scan exact pushed history, not the mutable working tree alone. A leak in a
+# blob or message publishes with the ref; rewriting later cannot unpublish it.
+if ! run_python "$REPO_ROOT/scripts/scan_internal_language.py" --pre-push-updates "$UPDATES_FILE" --remote-url "$2"; then
+    echo "" >&2
+    echo "BLOCKED: pushed-history leak scan failed or found a leak -- see above." >&2
+    echo "  Clean or reword the commit and resolve every scanner error before pushing." >&2
+    exit 1
+fi
+
+# --- B. Structural-gate bundle (FAST tier) ----------------------------------
+# For a release-prep / doc-heavy push, run the FULL tier manually:
+#   python scripts/prepush_check.py --full
+# BEFORE TAGGING A RELEASE, run the RELEASE tier — it runs CI's test, ruff
+# and doc-hygiene surface (FULL + doc-consistency + linkcheck + commit-msg
+# leak scan), the surface the 13.8.0 tag took 8 CI rounds for skipping. It
+# does NOT run every CI lane — it prints the uncovered ones on success, so
+# read that note rather than treating green as "CI will be green":
+#   python scripts/prepush_check.py --release
+cleanup_updates
+trap - EXIT HUP INT TERM
+if [ -n "$PY_ARG" ]; then
+    exec "$PY_BIN" "$PY_ARG" "$REPO_ROOT/scripts/prepush_check.py" --fast
+fi
+exec "$PY_BIN" "$REPO_ROOT/scripts/prepush_check.py" --fast

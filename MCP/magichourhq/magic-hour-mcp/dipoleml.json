@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.magichourhq.magic-hour-mcp",
+  "type": "mcp",
+  "name": "Magic Hour MCP",
+  "slug": "magic-hour-mcp",
+  "vendor": "magichourhq",
+  "description": "Hosted MCP server for generating and editing video, images, and audio with the Magic Hour API.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/magichourhq/magic-hour-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-audio",
+    "ai-image",
+    "ai-video",
+    "claude-plugin",
+    "face-swap",
+    "generative-ai",
+    "image-to-video",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai-audio",
+    "ai-image",
+    "ai-video",
+    "claude-plugin",
+    "face-swap",
+    "generative-ai",
+    "image-to-video",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "openai-plugin",
+    "text-to-video"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "magichourhq",
+    "brandName": "magichourhq",
+    "source": "https://github.com/magichourhq.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "magichourhq/magic-hour-mcp",
+    "url": "https://github.com/magichourhq/magic-hour-mcp",
+    "commit": "4be40f168b24d7489eea3fb3733873a44d178ec0",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 10,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:29:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-magichour"
+    ],
+    "env": [
+      "MAGIC_HOUR_API_BASE_URL",
+      "MAGIC_HOUR_OPENAPI_PATH",
+      "MCP_OAUTH_ISSUER_URL",
+      "MCP_OAUTH_RESOURCE_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

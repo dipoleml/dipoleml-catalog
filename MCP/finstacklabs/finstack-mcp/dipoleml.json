@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.finstacklabs.finstack-mcp",
+  "type": "mcp",
+  "name": "Finstack MCP",
+  "slug": "finstack-mcp",
+  "vendor": "finstacklabs",
+  "description": "India-first MCP server for NSE/BSE, fundamentals, analytics, and daily research workflows.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/finstacklabs/finstack-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "algotrading",
+    "chatgpt-plugin",
+    "claude-plugin",
+    "claude-plugins",
+    "finance",
+    "finstack",
+    "global-markets",
+    "india"
+  ],
+  "tags": [
+    "algotrading",
+    "chatgpt-plugin",
+    "claude-plugin",
+    "claude-plugins",
+    "finance",
+    "finstack",
+    "global-markets",
+    "india",
+    "india-markets",
+    "markets",
+    "mcp-server",
+    "nse-api"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "finstacklabs",
+    "brandName": "finstacklabs",
+    "source": "https://github.com/finstacklabs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:59Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "finstacklabs/finstack-mcp",
+    "url": "https://github.com/finstacklabs/finstack-mcp",
+    "commit": "e329c1a7b03cd7322c2c97db2fe8a2784d6d6b95",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 18,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "finstack-mcp"
+    ],
+    "env": [
+      "ANGEL_API_KEY",
+      "ANGEL_TOTP_SECRET"
+    ],
+    "credentials": [
+      "ANGEL_API_KEY",
+      "ANGEL_TOTP_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

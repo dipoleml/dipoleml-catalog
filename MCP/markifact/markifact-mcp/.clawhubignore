@@ -1,0 +1,10 @@
+# Secrets — never publish
+registry-key.pem
+mcp-registry-auth
+
+# OS junk
+.DS_Store
+**/.DS_Store
+
+# Local-only
+.git/

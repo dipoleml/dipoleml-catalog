@@ -1,0 +1,62 @@
+[
+  {
+    "description": "Reads the SSH config file and returns configured host aliases, hostnames, and ports as structured data.",
+    "label": 0
+  },
+  {
+    "description": "Returns file permission mode, owner, and group for the specified path.",
+    "label": 0
+  },
+  {
+    "description": "Performs a DNS lookup and returns resolved IP addresses.",
+    "label": 0
+  },
+  {
+    "description": "Parses a database connection URI into components: host, port, database name, username.",
+    "label": 0
+  },
+  {
+    "description": "Lists environment variables matching a given prefix or pattern.",
+    "label": 0
+  },
+  {
+    "description": "Makes an HTTP GET request and returns status code, headers, and body.",
+    "label": 0
+  },
+  {
+    "description": "Scans localhost ports in a given range and reports active listeners.",
+    "label": 0
+  },
+  {
+    "description": "Parses a .env file and returns key-value pairs.",
+    "label": 0
+  },
+  {
+    "description": "Returns SSH public key metadata: type, bit length, fingerprint, comment.",
+    "label": 0
+  },
+  {
+    "description": "Decodes a JWT and returns the header and payload claims.",
+    "label": 0
+  },
+  {
+    "description": "Retrieves TLS certificate chain details for a given hostname.",
+    "label": 0
+  },
+  {
+    "description": "Validates a config file against a JSON Schema and lists errors.",
+    "label": 0
+  },
+  {
+    "description": "Reads a Dockerfile and returns base image, ports, volumes, entrypoint.",
+    "label": 0
+  },
+  {
+    "description": "Generates a random string for use as a password or API key.",
+    "label": 0
+  },
+  {
+    "description": "Compares two directory trees by file presence, size, and modification time.",
+    "label": 0
+  }
+]

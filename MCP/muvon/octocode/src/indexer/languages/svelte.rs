@@ -1,0 +1,733 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Svelte language implementation for the indexer
+
+use crate::indexer::code_region_extractor::{extract_meaningful_regions, CodeRegion};
+use crate::indexer::languages::Language;
+use tree_sitter::Node;
+
+pub struct Svelte {}
+
+/// Byte offset of the first `=` outside `{}`/`[]`/`()` nesting — the
+/// assignment operator — so defaults inside a destructuring pattern
+/// (`{ count = 0, name }`) are not mistaken for it.
+fn find_assignment_eq(s: &str) -> Option<usize> {
+	let mut depth = 0u32;
+	for (i, &b) in s.as_bytes().iter().enumerate() {
+		match b {
+			b'{' | b'[' | b'(' => depth += 1,
+			b'}' | b']' | b')' => depth = depth.saturating_sub(1),
+			b'=' if depth == 0 => return Some(i),
+			_ => {}
+		}
+	}
+	None
+}
+
+/// Extract bound identifier names from a destructuring pattern's source text,
+/// e.g. `{ a, b: renamed, c = 1 }` -> ["a", "renamed", "c"], `[a, b]` -> ["a", "b"].
+fn extract_destructured_names(pattern: &str) -> Vec<String> {
+	let inner = pattern
+		.trim()
+		.trim_start_matches(['{', '['])
+		.trim_end_matches(['}', ']']);
+	inner
+		.split(',')
+		.filter_map(|item| {
+			let item = item.trim().trim_start_matches("...").trim();
+			// `key: renamed` -> the local binding is the name after ':'
+			let after_colon = item.split(':').next_back().unwrap_or(item).trim();
+			// `name = default` -> strip the default value
+			let name = after_colon.split('=').next().unwrap_or(after_colon).trim();
+			if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+				Some(name.to_string())
+			} else {
+				None
+			}
+		})
+		.collect()
+}
+
+impl Language for Svelte {
+	fn name(&self) -> &'static str {
+		"svelte"
+	}
+
+	fn get_ts_language(&self) -> tree_sitter::Language {
+		tree_sitter_svelte_ng::LANGUAGE.into()
+	}
+
+	fn get_meaningful_kinds(&self) -> Vec<&'static str> {
+		vec![
+			// Focus on script and style blocks which contain the meaningful code
+			"script_element",
+			"style_element",
+			// Elements with meaningful attributes (components, events)
+			"element", // But we'll filter this in extract_symbols
+			           // Skip individual HTML tags as they create too much noise
+		]
+	}
+
+	fn get_symbol_kinds(&self) -> Vec<&'static str> {
+		// Script declarations are parsed with the JavaScript/TypeScript grammar by
+		// `extract_embedded_sources`; Svelte HTML/style container nodes are not
+		// callable code symbols.
+		Vec::new()
+	}
+
+	fn is_meaningful_node(&self, node: Node, contents: &str) -> bool {
+		match node.kind() {
+			// Plain wrapper elements (no event/binding directive, not a
+			// component) carry no code of their own; `descend_first_kinds`
+			// still gives them a fallback region if nothing meaningful is
+			// found beneath them, so returning false here just skips
+			// treating an uninteresting wrapper as the region on its own.
+			"element" => self.element_is_meaningful(node, contents),
+			_ => true,
+		}
+	}
+
+	fn descend_first_kinds(&self) -> Vec<&'static str> {
+		// Look inside an element's children for smaller, independently
+		// meaningful regions (nested components/directives) before falling
+		// back to treating the whole element as one region.
+		vec!["element"]
+	}
+
+	fn expand_meaningful_node(&self, node: Node, contents: &str) -> Option<Vec<CodeRegion>> {
+		let lang_name = match node.kind() {
+			"script_element" => {
+				let script_text = node.utf8_text(contents.as_bytes()).unwrap_or_default();
+				if script_text.contains("lang=\"ts\"")
+					|| script_text.contains("lang='ts'")
+					|| script_text.contains("lang=\"typescript\"")
+				{
+					"typescript"
+				} else {
+					"javascript"
+				}
+			}
+			"style_element" => "css",
+			_ => return None,
+		};
+
+		let Some(raw_text) = node.children(&mut node.walk()).find(|child| child.kind() == "raw_text") else {
+			return Some(Vec::new());
+		};
+		let embedded_text = raw_text.utf8_text(contents.as_bytes()).unwrap_or_default();
+		if embedded_text.trim().is_empty() {
+			return Some(Vec::new());
+		}
+
+		let Some(embedded_lang) = super::get_language(lang_name) else {
+			return Some(Vec::new());
+		};
+
+		let mut parser = tree_sitter::Parser::new();
+		if parser.set_language(&embedded_lang.get_ts_language()).is_err() {
+			return Some(Vec::new());
+		}
+		let Some(tree) = parser.parse(embedded_text, None) else {
+			return Some(Vec::new());
+		};
+
+		let mut sub_regions = Vec::new();
+		extract_meaningful_regions(
+			tree.root_node(),
+			embedded_text,
+			embedded_lang.as_ref(),
+			&mut sub_regions,
+		);
+
+		let line_offset = raw_text.start_position().row;
+		for region in &mut sub_regions {
+			region.start_line += line_offset;
+			region.end_line += line_offset;
+		}
+
+		Some(sub_regions)
+	}
+
+	fn extract_symbols(&self, node: Node, contents: &str) -> Vec<String> {
+		let mut symbols = Vec::new();
+
+		match node.kind() {
+			"script_element" => {
+				// Extract JavaScript symbols from script content
+				self.extract_script_content_symbols(node, contents, &mut symbols);
+			}
+			"style_element" => {
+				// Extract CSS symbols from style content
+				self.extract_style_content_symbols(node, contents, &mut symbols);
+			}
+			"element" => {
+				// Only extract from elements that have meaningful Svelte-specific attributes
+				self.extract_meaningful_element_symbols(node, contents, &mut symbols);
+			}
+			_ => self.extract_identifiers(node, contents, &mut symbols),
+		}
+
+		// Deduplicate and sort symbols
+		symbols.sort();
+		symbols.dedup();
+		symbols
+	}
+
+	fn extract_identifiers(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+		let kind = node.kind();
+
+		// Extract meaningful identifiers, avoiding noise
+		if (kind.contains("identifier") || kind.contains("name")) && !kind.contains("property") && kind != "tag_name" {
+			if let Ok(text) = node.utf8_text(contents.as_bytes()) {
+				let text = text.trim();
+				if !text.is_empty() && !symbols.iter().any(|s| s.as_str() == text) {
+					// Filter out common Svelte keywords and HTML tags
+					if !self.is_svelte_keyword(text) && !self.is_html_tag(text) {
+						symbols.push(text.to_string());
+					}
+				}
+			}
+		}
+
+		// Recursively process children
+		let mut cursor = node.walk();
+		if cursor.goto_first_child() {
+			loop {
+				self.extract_identifiers(cursor.node(), contents, symbols);
+				if !cursor.goto_next_sibling() {
+					break;
+				}
+			}
+		}
+	}
+
+	fn are_node_types_equivalent(&self, type1: &str, type2: &str) -> bool {
+		// Direct match
+		if type1 == type2 {
+			return true;
+		}
+
+		// Svelte-specific semantic groups
+		let semantic_groups = [
+			// Functions and methods
+			&["function_declaration", "method_definition", "arrow_function"] as &[&str],
+			// Variable declarations
+			&["variable_declaration", "lexical_declaration", "reactive_declaration"],
+			// Reactive statements
+			&["reactive_statement", "reactive_declaration"],
+			// Components and elements
+			&["component", "element"],
+			// Script and style blocks
+			&["script_element", "style_element"],
+		];
+
+		// Check if both types belong to the same semantic group
+		for group in &semantic_groups {
+			let contains_type1 = group.contains(&type1);
+			let contains_type2 = group.contains(&type2);
+
+			if contains_type1 && contains_type2 {
+				return true;
+			}
+		}
+
+		false
+	}
+
+	fn get_node_type_description(&self, node_type: &str) -> &'static str {
+		match node_type {
+			"function_declaration" | "method_definition" | "arrow_function" => "function declarations",
+			"variable_declaration" | "lexical_declaration" => "variable declarations",
+			"reactive_statement" | "reactive_declaration" => "reactive declarations",
+			"class_declaration" => "class declarations",
+			"component" | "element" => "component declarations",
+			"script_element" => "script blocks",
+			"style_element" => "style blocks",
+			_ => "declarations",
+		}
+	}
+
+	fn extract_imports_exports(&self, node: Node, contents: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		if node.kind() == "script_element" {
+			// Extract JavaScript imports/exports from script content
+			let script_content = self.get_script_text_content(node, contents);
+			let (script_imports, script_exports) = Self::parse_js_imports_exports(&script_content);
+			imports.extend(script_imports);
+			exports.extend(script_exports);
+		}
+
+		(imports, exports)
+	}
+
+	fn extract_embedded_sources(&self, root: Node, contents: &str) -> Vec<super::EmbeddedSource> {
+		let mut sources = Vec::new();
+		let mut stack = vec![root];
+		while let Some(node) = stack.pop() {
+			if node.kind() == "script_element" {
+				let script_text = node.utf8_text(contents.as_bytes()).unwrap_or_default();
+				let language = if script_text.contains("lang=\"ts\"")
+					|| script_text.contains("lang='ts'")
+					|| script_text.contains("lang=\"typescript\"")
+				{
+					"typescript"
+				} else {
+					"javascript"
+				};
+				for child in node.children(&mut node.walk()) {
+					if child.kind() == "raw_text" {
+						if let Ok(source) = child.utf8_text(contents.as_bytes()) {
+							sources.push(super::EmbeddedSource {
+								language,
+								contents: source.to_string(),
+								start_line: child.start_position().row as u32,
+							});
+						}
+					}
+				}
+				continue;
+			}
+			let mut children: Vec<_> = node.children(&mut node.walk()).collect();
+			children.reverse();
+			stack.extend(children);
+		}
+		sources
+	}
+
+	fn resolve_import(
+		&self,
+		import_path: &str,
+		source_file: &str,
+		all_files: &super::resolution_utils::FileRegistry,
+	) -> Option<String> {
+		// Svelte uses JavaScript import resolution
+		let js = super::javascript::JavaScript {};
+		js.resolve_import(import_path, source_file, all_files)
+	}
+
+	fn get_file_extensions(&self) -> Vec<&'static str> {
+		vec!["svelte"]
+	}
+}
+
+impl Svelte {
+	/// Extract JavaScript symbols from script element content
+	fn extract_script_content_symbols(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+		// Look for the raw_text content inside script element
+		for child in node.children(&mut node.walk()) {
+			if child.kind() == "raw_text" {
+				// Get the script content
+				if let Ok(script_content) = child.utf8_text(contents.as_bytes()) {
+					// Parse common JavaScript patterns manually since we can't re-parse with JS parser
+					self.extract_js_patterns_from_text(script_content, symbols);
+				}
+			}
+		}
+	}
+
+	/// Extract CSS symbols from style element content
+	fn extract_style_content_symbols(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+		// Look for the raw_text content inside style element
+		for child in node.children(&mut node.walk()) {
+			if child.kind() == "raw_text" {
+				// Get the style content
+				if let Ok(style_content) = child.utf8_text(contents.as_bytes()) {
+					// Extract CSS selectors and meaningful patterns
+					self.extract_css_patterns_from_text(style_content, symbols);
+				}
+			}
+		}
+	}
+
+	/// Whether an element's own start tag has a directive attribute
+	/// (`on:`/`bind:`/`use:`/`transition:`) or is a component (capitalized
+	/// tag name). Does not look at nested elements.
+	fn element_is_meaningful(&self, node: Node, contents: &str) -> bool {
+		let mut symbols = Vec::new();
+		self.extract_meaningful_element_symbols(node, contents, &mut symbols);
+		!symbols.is_empty()
+	}
+
+	/// Extract symbols from meaningful Svelte elements (components, event handlers)
+	fn extract_meaningful_element_symbols(&self, node: Node, contents: &str, symbols: &mut Vec<String>) {
+		// Check for Svelte-specific attributes. A self-closing component
+		// (`<Modal on:close={h} />`) is a `self_closing_tag`, so without it the
+		// component name and all its directives are lost.
+		for child in node.children(&mut node.walk()) {
+			if matches!(child.kind(), "start_tag" | "self_closing_tag") {
+				for tag_child in child.children(&mut child.walk()) {
+					if tag_child.kind() == "attribute" {
+						for attr_child in tag_child.children(&mut tag_child.walk()) {
+							if attr_child.kind() == "attribute_name" {
+								if let Ok(attr_name) = attr_child.utf8_text(contents.as_bytes()) {
+									// Check for Svelte directives
+									if attr_name.starts_with("on:")
+										|| attr_name.starts_with("bind:")
+										|| attr_name.starts_with("use:")
+										|| attr_name.starts_with("transition:")
+									{
+										// Extract the directive name
+										symbols.push(attr_name.to_string());
+									}
+								}
+							}
+						}
+					}
+					// Extract component names (capitalized elements)
+					else if tag_child.kind() == "tag_name" {
+						if let Ok(tag_name) = tag_child.utf8_text(contents.as_bytes()) {
+							// Svelte components are typically capitalized
+							if tag_name.chars().next().is_some_and(|c| c.is_uppercase()) && !self.is_html_tag(tag_name)
+							{
+								symbols.push(tag_name.to_string());
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/// Extract JavaScript patterns from text content
+	fn extract_js_patterns_from_text(&self, text: &str, symbols: &mut Vec<String>) {
+		// Simple regex-like pattern matching for common JS constructs
+		let lines: Vec<&str> = text.lines().collect();
+
+		for line in lines {
+			let line = line.trim();
+
+			// Extract function declarations: function name() or const name =
+			if line.starts_with("function ") {
+				if let Some(name) = self.extract_function_name(line) {
+					symbols.push(name);
+				}
+			}
+			// Extract variable declarations: let/const/var name = (or destructured)
+			else if line.starts_with("let ") || line.starts_with("const ") || line.starts_with("var ") {
+				symbols.extend(self.extract_variable_name(line));
+			}
+			// Extract export declarations: export let name = (or destructured)
+			else if line.starts_with("export let ") || line.starts_with("export const ") {
+				symbols.extend(self.extract_export_name(line));
+			}
+			// Extract reactive statements: $: name =
+			else if line.trim_start().starts_with("$:") {
+				if let Some(name) = self.extract_reactive_name(line) {
+					symbols.push(name);
+				}
+			}
+		}
+	}
+
+	/// Extract CSS patterns from text content
+	fn extract_css_patterns_from_text(&self, text: &str, symbols: &mut Vec<String>) {
+		let lines: Vec<&str> = text.lines().collect();
+
+		for line in lines {
+			let line = line.trim();
+
+			// Extract CSS selectors (simple approach)
+			if line.contains('{') && !line.trim_start().starts_with("/*") {
+				let selector_part = line.split('{').next().unwrap_or("").trim();
+				if !selector_part.is_empty() && !selector_part.contains(':') {
+					// Simple selector extraction
+					for selector in selector_part.split(',') {
+						let selector = selector.trim();
+						if !selector.is_empty() {
+							symbols.push(selector.to_string());
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/// Extract function name from function declaration line
+	fn extract_function_name(&self, line: &str) -> Option<String> {
+		// function name() or function name(
+		if let Some(start) = line.find("function ") {
+			let after_function = &line[start + 9..];
+			if let Some(end) = after_function.find('(') {
+				let name = after_function[..end].trim();
+				if !name.is_empty() && !self.is_svelte_keyword(name) {
+					return Some(name.to_string());
+				}
+			}
+		}
+		None
+	}
+
+	/// Extract variable name(s) from a variable declaration line
+	fn extract_variable_name(&self, line: &str) -> Vec<String> {
+		// let name = ... / const name = ... / var name = ...
+		// let { a, b } = ... / const [a, b] = ... (destructuring, e.g. Svelte 5 `$props()`)
+		let mut tokens = line.splitn(2, char::is_whitespace);
+		let keyword = tokens.next().unwrap_or("");
+		if !matches!(keyword, "let" | "const" | "var") {
+			return Vec::new();
+		}
+		let rest = tokens.next().unwrap_or("").trim();
+
+		if rest.starts_with('{') || rest.starts_with('[') {
+			let pattern = find_assignment_eq(rest).map_or(rest, |i| &rest[..i]);
+			return extract_destructured_names(pattern);
+		}
+
+		// Cut at the first character that cannot appear in a JS identifier, so a
+		// declaration written without spaces (`let tight=1;`) yields `tight`
+		// rather than `tight=1;`.
+		let name = rest
+			.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+			.next()
+			.unwrap_or("");
+		// An initialiser is what separates a usable declaration from a bare
+		// `let x;` — spacing around `=` is not, so the presence of the `=` is
+		// what gets checked rather than a whitespace token count.
+		if find_assignment_eq(rest).is_some() && !name.is_empty() && !self.is_svelte_keyword(name) {
+			vec![name.to_string()]
+		} else {
+			Vec::new()
+		}
+	}
+
+	/// Extract export name(s) from an export declaration line
+	fn extract_export_name(&self, line: &str) -> Vec<String> {
+		// export let name = ... / export const name = ...
+		// export let { a, b } = ... / export const [a, b] = ... (destructuring)
+		let Some(after_export) = line.strip_prefix("export ") else {
+			return Vec::new();
+		};
+		let mut tokens = after_export.splitn(2, char::is_whitespace);
+		let keyword = tokens.next().unwrap_or("");
+		if !matches!(keyword, "let" | "const") {
+			return Vec::new();
+		}
+		let rest = tokens.next().unwrap_or("").trim();
+
+		if rest.starts_with('{') || rest.starts_with('[') {
+			let pattern = find_assignment_eq(rest).map_or(rest, |i| &rest[..i]);
+			return extract_destructured_names(pattern);
+		}
+
+		let name = rest
+			.split_whitespace()
+			.next()
+			.unwrap_or("")
+			.trim_end_matches('=')
+			.trim_end_matches(',')
+			.trim();
+		if rest.split_whitespace().count() >= 3 && !name.is_empty() && !self.is_svelte_keyword(name) {
+			vec![name.to_string()]
+		} else {
+			Vec::new()
+		}
+	}
+
+	/// Extract reactive variable name from reactive statement
+	fn extract_reactive_name(&self, line: &str) -> Option<String> {
+		// $: name = something or $: if (condition)
+		if let Some(colon_pos) = line.find(':') {
+			let after_colon = &line[colon_pos + 1..].trim();
+
+			// Handle $: name = value
+			if let Some(eq_pos) = after_colon.find('=') {
+				let name = after_colon[..eq_pos].trim();
+				if !name.is_empty() && !self.is_svelte_keyword(name) {
+					return Some(name.to_string());
+				}
+			}
+			// Handle $: if (condition) - extract the reactive dependency
+			else if after_colon.starts_with("if ") {
+				// This is a reactive statement, could extract condition variables
+				// For now, just mark it as a reactive statement
+				return Some("reactive_if".to_string());
+			}
+		}
+		None
+	}
+
+	/// Check if a string is a Svelte keyword
+	fn is_svelte_keyword(&self, text: &str) -> bool {
+		matches!(
+			text,
+			"export" | "import" | "let" | "const" | "var" | "function" | "class" | "if" | "else"
+			| "for" | "while" | "do" | "switch" | "case" | "default" | "break" | "continue"
+			| "return" | "try" | "catch" | "finally" | "throw" | "new" | "this" | "super"
+			| "true" | "false" | "null" | "undefined" | "typeof" | "instanceof" | "in" | "of"
+			// Svelte-specific keywords
+			| "bind" | "on" | "use" | "transition" | "out" | "animate"
+		)
+	}
+
+	/// Check if a string is a common HTML tag
+	fn is_html_tag(&self, text: &str) -> bool {
+		matches!(
+			text.to_lowercase().as_str(),
+			"div"
+				| "span" | "p"
+				| "a" | "img"
+				| "h1" | "h2"
+				| "h3" | "h4"
+				| "h5" | "h6"
+				| "ul" | "ol"
+				| "li" | "table"
+				| "tr" | "td"
+				| "th" | "thead"
+				| "tbody" | "tfoot"
+				| "form" | "input"
+				| "button" | "select"
+				| "option" | "textarea"
+				| "label" | "header"
+				| "footer" | "nav"
+				| "main" | "section"
+				| "article" | "aside"
+				| "html" | "head"
+				| "body" | "title"
+				| "meta" | "link"
+				| "script" | "style"
+		)
+	}
+
+	// Svelte components can have imports in script blocks and exports
+
+	// Helper to extract text content from script element
+	fn get_script_text_content(&self, node: Node, contents: &str) -> String {
+		if let Ok(text) = node.utf8_text(contents.as_bytes()) {
+			// Remove <script> and </script> tags, return inner content
+			let text = text.trim();
+			if text.starts_with("<script") && text.ends_with("</script>") {
+				// Find the end of the opening tag, skipping '>' characters that
+				// appear inside a quoted attribute value (e.g. `<script data-cond="a>b">`).
+				let mut tag_end = None;
+				let mut quote: Option<char> = None;
+				for (i, c) in text.char_indices() {
+					match quote {
+						Some(q) => {
+							if c == q {
+								quote = None;
+							}
+						}
+						None => match c {
+							'"' | '\'' => quote = Some(c),
+							'>' => {
+								tag_end = Some(i);
+								break;
+							}
+							_ => {}
+						},
+					}
+				}
+				if let Some(tag_end) = tag_end {
+					let inner = &text[tag_end + 1..];
+					if let Some(closing_start) = inner.rfind("</script>") {
+						return inner[..closing_start].trim().to_string();
+					}
+				}
+			}
+			text.to_string()
+		} else {
+			String::new()
+		}
+	}
+
+	// Helper function to parse JavaScript imports/exports from script content
+	fn parse_js_imports_exports(content: &str) -> (Vec<String>, Vec<String>) {
+		let mut imports = Vec::new();
+		let mut exports = Vec::new();
+
+		// Simple regex-based parsing for import/export statements
+		for line in content.lines() {
+			let trimmed = line.trim();
+
+			// Handle import statements
+			if trimmed.starts_with("import ") {
+				if let Some(from_pos) = trimmed.find(" from ") {
+					let import_path = &trimmed[from_pos + 6..].trim();
+					if let Some(path) = Self::extract_quoted_string(import_path) {
+						imports.push(path);
+					}
+				}
+			}
+
+			// Handle export statements
+			if let Some(export_content) = trimmed.strip_prefix("export ") {
+				if trimmed.contains("export default") {
+					exports.push("default".to_string());
+				} else {
+					// Handle export let/const/var statements
+					let export_part = export_content.trim();
+
+					// Check if it's a variable declaration export
+					if let Some(var_part) = export_part
+						.strip_prefix("let ")
+						.or_else(|| export_part.strip_prefix("const "))
+						.or_else(|| export_part.strip_prefix("var "))
+					{
+						// Extract the variable name (everything before = or ; or whitespace after trimming)
+						let var_name = var_part
+							.trim()
+							.split(|c: char| c == '=' || c == ';' || c == ':' || c.is_whitespace())
+							.next()
+							.unwrap_or("")
+							.trim();
+
+						if !var_name.is_empty() {
+							exports.push(var_name.to_string());
+						}
+					} else if let Some(func_part) = export_part.strip_prefix("function ") {
+						// Handle export function name()
+						if let Some(name_end) = func_part.find('(') {
+							let func_name = func_part[..name_end].trim();
+							if !func_name.is_empty() {
+								exports.push(func_name.to_string());
+							}
+						}
+					} else if let Some(class_part) = export_part.strip_prefix("class ") {
+						// Handle export class Name
+						if let Some(name) = class_part.split_whitespace().next() {
+							let class_name = name.trim_end_matches('{');
+							if !class_name.is_empty() {
+								exports.push(class_name.to_string());
+							}
+						}
+					} else {
+						// Handle other export patterns (e.g., export { name })
+						if let Some(name) = export_part.split_whitespace().next() {
+							if !name.starts_with('{') {
+								exports.push(name.to_string());
+							}
+						}
+					}
+				}
+			}
+		}
+
+		(imports, exports)
+	}
+
+	// Helper to extract quoted strings
+	fn extract_quoted_string(text: &str) -> Option<String> {
+		// A semicolon-terminated import (`from 'svelte';`) still carries its `;`
+		// here, which would fail the closing-quote check and drop the path.
+		let text = text.trim().trim_end_matches(';').trim();
+		if (text.starts_with('"') && text.ends_with('"')) || (text.starts_with('\'') && text.ends_with('\'')) {
+			Some(text[1..text.len() - 1].to_string())
+		} else {
+			None
+		}
+	}
+}

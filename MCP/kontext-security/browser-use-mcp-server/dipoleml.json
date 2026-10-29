@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.kontext-security.browser-use-mcp-server",
+  "type": "mcp",
+  "name": "Browser Use MCP Server",
+  "slug": "browser-use-mcp-server",
+  "vendor": "kontext-security",
+  "description": "Browse the web, directly from Cursor etc.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/kontext-security/browser-use-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "browser",
+    "browser-use",
+    "cursor",
+    "playwright"
+  ],
+  "tags": [
+    "browser",
+    "browser-use",
+    "cursor",
+    "mcp",
+    "mcp-server",
+    "playwright"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kontext-security",
+    "brandName": "kontext-security",
+    "source": "https://github.com/kontext-security.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kontext-security/browser-use-mcp-server",
+    "url": "https://github.com/kontext-security/browser-use-mcp-server",
+    "commit": "a9864a400979e6e80fac9bff3e38adf3fa4e64cb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 849,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "browser-use-mcp-server"
+    ],
+    "env": [
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

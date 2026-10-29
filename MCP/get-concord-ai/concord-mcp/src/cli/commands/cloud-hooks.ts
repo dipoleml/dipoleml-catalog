@@ -1,0 +1,256 @@
+import { isAbsolute } from 'node:path';
+
+import { z } from 'zod';
+
+import { repoRelative } from '../../cloud/proxy.js';
+import {
+  listClaims,
+  listCloudAgents,
+  type CloudClaim,
+  type CloudRuntime,
+} from '../../cloud/runtime.js';
+import {
+  agentIdForSession,
+  hookSessionId,
+  UNRESOLVED_IDENTITY_MESSAGE,
+} from '../../domain/identity.js';
+import {
+  antigravityInjectSteps,
+  antigravityMonitorNudge,
+} from '../../domain/antigravity-monitor.js';
+import { deriveLiveness } from '../../domain/presence.js';
+import { renderInboxBody } from '../../domain/pull-inbox.js';
+import { sessionStartIdentity } from '../agent-identity.js';
+import { drainFromCloud, registerInCloud, watching } from './cloud-inbox.js';
+import type { HookDecision, SessionStartResult } from './hook.js';
+import {
+  antigravitySessionStartMessage,
+  sessionStartMessage,
+  type RosterLine,
+} from './session-start-message.js';
+
+/**
+ * The Claude Code hooks in a repository linked to Concord Cloud: the edit
+ * guard asks the cloud who holds a file, and session start registers there and
+ * names everyone in the organization, on any machine.
+ *
+ * Neither records telemetry: these are not local operations.
+ */
+
+const preToolUsePayloadSchema = z
+  .object({
+    tool_input: z.object({ file_path: z.string().optional() }).loose().optional(),
+  })
+  .loose();
+
+/**
+ * The guard runs before every edit, and Cloud Run may be starting from zero:
+ * past this, the edit goes ahead with a warning rather than stalling.
+ */
+const GUARD_TIMEOUT_MS = 3_000;
+
+const NOT_APPLICABLE: HookDecision = {
+  block: false,
+  message: '',
+  result: 'not_applicable',
+  conflictingTaskCount: 0,
+};
+
+/**
+ * The local guard's rule, over the cloud's claims: another task holding the
+ * file blocks the edit when `CONCORD_TASK` names the caller's own task, and
+ * warns otherwise. Claims held by this session's own agent are never a
+ * conflict — the cloud says who holds each one, which the local check cannot.
+ */
+export async function decideCloudPreToolUse(
+  runtime: CloudRuntime,
+  rawJson: string,
+  selfTaskId: string | undefined,
+  selfAgentKey: string | undefined,
+): Promise<HookDecision> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return NOT_APPLICABLE;
+  }
+  const filePath = preToolUsePayloadSchema.parse(parsed).tool_input?.file_path;
+  if (filePath === undefined || filePath === '') return NOT_APPLICABLE;
+  const file = repoRelative(runtime, filePath);
+  // Outside this repository: nothing the project's claims could cover.
+  if (isAbsolute(file)) return NOT_APPLICABLE;
+
+  let claims: readonly CloudClaim[];
+  try {
+    claims = await listClaims(runtime, [file], AbortSignal.timeout(GUARD_TIMEOUT_MS));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      block: false,
+      message: `Concord: could not check ${file} against Concord Cloud (${detail}); editing anyway.`,
+      result: 'not_applicable',
+      conflictingTaskCount: 0,
+    };
+  }
+
+  const others = claims.filter(
+    (claim) =>
+      claim.taskKey !== selfTaskId &&
+      (selfAgentKey === undefined || claim.agentKey !== selfAgentKey),
+  );
+  if (others.length === 0) {
+    return { block: false, message: '', result: 'clear', conflictingTaskCount: 0 };
+  }
+  const tasks = [...new Map(others.map((claim) => [claim.taskKey, claim])).values()];
+  const detail = tasks
+    .map((claim) => `${claim.taskKey} (${claim.title}, ${claim.agentKey ?? 'unassigned'})`)
+    .join(', ');
+  if (selfTaskId === undefined) {
+    return {
+      block: false,
+      message: `Concord: ${file} is also claimed by ${detail}. Set CONCORD_TASK=<your task id> to block colliding edits.`,
+      result: 'warned',
+      conflictingTaskCount: tasks.length,
+    };
+  }
+  return {
+    block: true,
+    message: `Concord: ${file} is claimed by another active task (${detail}). Coordinate or update your claim before editing.`,
+    result: 'blocked',
+    conflictingTaskCount: tasks.length,
+  };
+}
+
+/** Everyone else registered in the organization, as a session-start roster. */
+export async function cloudRoster(
+  runtime: CloudRuntime,
+  selfAgentKey: string,
+): Promise<RosterLine[]> {
+  const now = Date.now();
+  return (await listCloudAgents(runtime))
+    .filter((agent) => agent.agentKey !== selfAgentKey)
+    .map((agent) => ({
+      agentId: agent.agentKey,
+      liveness: deriveLiveness(agent.lastSeenAt, now),
+      status: agent.status,
+      summary: agent.summary,
+    }))
+    .filter((peer) => peer.liveness !== 'archived');
+}
+
+const sessionStartPayloadSchema = z
+  .object({ session_id: z.string().optional(), cwd: z.string().optional() })
+  .loose();
+
+/** Session start in a linked repository: registered in the cloud, and told who else is there. */
+export async function handleCloudSessionStart(
+  runtime: CloudRuntime,
+  rawJson: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<SessionStartResult> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    parsed = {};
+  }
+  const payload = sessionStartPayloadSchema.parse(parsed);
+  const identity = sessionStartIdentity(payload.session_id, env);
+  if (identity === undefined) {
+    return { agentId: undefined, message: `Concord: ${UNRESOLVED_IDENTITY_MESSAGE}` };
+  }
+  await registerInCloud(runtime, identity.agentId, identity.kind, payload.cwd ?? process.cwd());
+  const others = await cloudRoster(runtime, identity.agentId);
+  return { agentId: identity.agentId, message: sessionStartMessage(identity.agentId, others) };
+}
+
+/**
+ * Antigravity SessionStart in a linked repository: registers the session in
+ * Concord Cloud and returns an ephemeral intro message with the derived agent id.
+ */
+export async function handleCloudAntigravitySessionStart(
+  runtime: CloudRuntime,
+  rawJson: string,
+  cwd: string = process.cwd(),
+): Promise<{ agentId: string | undefined; output: string }> {
+  const sessionId = hookSessionId(rawJson);
+  if (sessionId === undefined) {
+    return {
+      agentId: undefined,
+      output: JSON.stringify({
+        injectSteps: [{ ephemeralMessage: `Concord: ${UNRESOLVED_IDENTITY_MESSAGE}` }],
+      }),
+    };
+  }
+  const agentId = agentIdForSession('antigravity', sessionId);
+  try {
+    await registerInCloud(runtime, agentId, 'antigravity', cwd);
+    const others = await cloudRoster(runtime, agentId);
+    const msg = antigravitySessionStartMessage(agentId, others);
+    return {
+      agentId,
+      output: JSON.stringify({
+        injectSteps: [{ systemMessage: msg }],
+      }),
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      agentId,
+      output: JSON.stringify({
+        injectSteps: [{ ephemeralMessage: `Concord Cloud could not be reached: ${detail}` }],
+      }),
+    };
+  }
+}
+
+/**
+ * Antigravity PreInvocation in a linked repository: drains pending inbox
+ * messages from Concord Cloud and injects them as userMessages.
+ */
+export async function handleCloudAntigravityPreInvocation(
+  runtime: CloudRuntime,
+  rawJson: string,
+): Promise<{ output: string }> {
+  const sessionId = hookSessionId(rawJson);
+  if (sessionId === undefined) {
+    return { output: JSON.stringify({ injectSteps: [] }) };
+  }
+  const agentId = agentIdForSession('antigravity', sessionId);
+  try {
+    const messages = await drainFromCloud(runtime, agentId, 'antigravity');
+    const nudge = antigravityMonitorNudge(rawJson, agentId, watching(runtime, agentId));
+    return { output: JSON.stringify({ injectSteps: antigravityInjectSteps(messages, nudge) }) };
+  } catch {
+    return { output: JSON.stringify({ injectSteps: [] }) };
+  }
+}
+
+/**
+ * Antigravity Stop in a linked repository: drains pending inbox messages from
+ * Concord Cloud; if any arrived before the turn ended, instructs Antigravity to continue.
+ */
+export async function handleCloudAntigravityStop(
+  runtime: CloudRuntime,
+  rawJson: string,
+): Promise<{ output: string }> {
+  const sessionId = hookSessionId(rawJson);
+  if (sessionId === undefined) {
+    return { output: JSON.stringify({}) };
+  }
+  const agentId = agentIdForSession('antigravity', sessionId);
+  try {
+    const messages = await drainFromCloud(runtime, agentId, 'antigravity');
+    if (messages.length === 0) {
+      return { output: JSON.stringify({}) };
+    }
+    return {
+      output: JSON.stringify({
+        decision: 'continue',
+        reason: `New Concord message(s) arrived before this turn ended.\n\n${renderInboxBody(messages)}`,
+      }),
+    };
+  } catch {
+    return { output: JSON.stringify({}) };
+  }
+}

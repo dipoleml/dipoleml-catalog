@@ -1,0 +1,32 @@
+services:
+  gitlab-mcp:
+    image: zereight050/gitlab-mcp:latest
+    ports:
+      - 127.0.0.1:3002:3002
+    environment:
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN}
+      - GITLAB_API_URL=${GITLAB_API_URL}
+      - GITLAB_PROJECT_ID=${GITLAB_PROJECT_ID}
+      - GITLAB_ALLOWED_PROJECT_IDS=${GITLAB_ALLOWED_PROJECT_IDS}
+      # Deprecated (removed in next major (v3.0.0)). Keep passing these so an existing
+      # .env still enforces readonly mode and wiki/milestone/pipeline tools. Prefer the
+      # replacements below; include core in GITLAB_TOOLSETS and append to an existing list.
+      - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE}
+      - USE_GITLAB_WIKI=${USE_GITLAB_WIKI}
+      - USE_MILESTONE=${USE_MILESTONE}
+      - USE_PIPELINE=${USE_PIPELINE}
+      - GITLAB_PERMISSION_MODE=${GITLAB_PERMISSION_MODE}
+      - GITLAB_TOOLSETS=${GITLAB_TOOLSETS}
+      - GITLAB_TOOLS=${GITLAB_TOOLS}
+      - STREAMABLE_HTTP=${STREAMABLE_HTTP}
+      - STREAMABLE_HTTP_AUTH_TOKEN=${STREAMABLE_HTTP_AUTH_TOKEN}
+      - REMOTE_AUTHORIZATION=${REMOTE_AUTHORIZATION}
+      - SSE=${SSE}
+      - SSE_AUTH_TOKEN=${SSE_AUTH_TOKEN}
+      - HOST=${HOST}
+      - GITLAB_MASKING_ENABLED=${GITLAB_MASKING_ENABLED:-false}
+      - GITLAB_MASKING_CONFIG=${GITLAB_MASKING_CONFIG:-.gitlab-mcp-mask.json}
+      - GITLAB_MASKING_POLICY_FILE=${GITLAB_MASKING_POLICY_FILE}
+      - GITLAB_MASKING_WORKSPACE_DIR=/app/masking-config
+    volumes:
+      - ./masking-config:/app/masking-config:ro

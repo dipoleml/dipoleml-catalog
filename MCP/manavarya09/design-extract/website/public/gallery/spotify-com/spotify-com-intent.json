@@ -1,0 +1,421 @@
+{
+  "pageIntent": {
+    "type": "landing",
+    "confidence": 0.29,
+    "path": "/",
+    "title": "Spotify - Web Player: Music for everyone",
+    "description": "Spotify is a digital music service that gives you access to millions of songs.",
+    "signals": [
+      {
+        "kind": "dom",
+        "type": "blog-post",
+        "weight": 0.35,
+        "detail": "byline|min-read"
+      },
+      {
+        "kind": "dom",
+        "type": "legal",
+        "weight": 0.4
+      },
+      {
+        "kind": "url",
+        "type": "landing",
+        "weight": 0.45,
+        "detail": "root-path"
+      }
+    ],
+    "alternates": [
+      {
+        "type": "legal",
+        "score": 0.4
+      },
+      {
+        "type": "blog-post",
+        "score": 0.35
+      }
+    ],
+    "needsSmart": true
+  },
+  "sectionRoles": {
+    "sections": [
+      {
+        "index": 0,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": "Your Library",
+        "bounds": {
+          "x": 8,
+          "y": 64,
+          "w": 294,
+          "h": 654
+        },
+        "buttonCount": 7,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Your Library",
+          "ctaCount": 7,
+          "lede": "Your Library\nCreate your first playlist\nIt's easy, we'll help you\nCreate playlist\nLet's find some podcasts to follow\nWe'll keep you updated on new episodes\nBrowse podcasts\nLegal\nSafety & Privacy Center\nPrivacy Policy\nCookies\nAbout Ads\nAccessibility\nCookies\nEnglish"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 1,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Your Library",
+        "bounds": {
+          "x": 8,
+          "y": 64,
+          "w": 294,
+          "h": 59
+        },
+        "buttonCount": 1,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Your Library",
+          "ctaCount": 1
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 2,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 16,
+          "y": 155,
+          "w": 278,
+          "h": 134
+        },
+        "buttonCount": 2,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 2,
+          "lede": "Create your first playlist\nIt's easy, we'll help you\nCreate playlist"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 3,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 16,
+          "y": 313,
+          "w": 278,
+          "h": 176
+        },
+        "buttonCount": 2,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 2,
+          "lede": "Let's find some podcasts to follow\nWe'll keep you updated on new episodes\nBrowse podcasts"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 4,
+        "tag": "aside",
+        "role": "cta",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": null,
+        "bounds": {
+          "x": 8,
+          "y": 726,
+          "w": 1264,
+          "h": 66
+        },
+        "buttonCount": 17,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 17,
+          "lede": "Preview of Spotify"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 5,
+        "tag": "main",
+        "role": "pricing",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Home",
+        "bounds": {
+          "x": 310,
+          "y": 64,
+          "w": 962,
+          "h": 654
+        },
+        "buttonCount": 166,
+        "cardCount": 200,
+        "slots": {
+          "heading": "Home",
+          "subheadings": [
+            "Trending songs",
+            "Popular artists",
+            "Popular albums and singles"
+          ],
+          "ctaCount": 166,
+          "lede": "Home\nTrending songs\nShow all"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 6,
+        "tag": "section",
+        "role": "testimonials",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Home",
+        "bounds": {
+          "x": 310,
+          "y": 64,
+          "w": 962,
+          "h": 1018.21875
+        },
+        "buttonCount": 160,
+        "cardCount": 200,
+        "slots": {
+          "heading": "Home",
+          "subheadings": [
+            "Trending songs",
+            "Popular artists",
+            "Popular albums and singles"
+          ],
+          "ctaCount": 160,
+          "lede": "Home\nTrending songs\nShow all"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 7,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.85,
+        "heading": "Trending songs",
+        "bounds": {
+          "x": 350,
+          "y": 68,
+          "w": 882,
+          "h": 332.78125
+        },
+        "buttonCount": 80,
+        "cardCount": 100,
+        "slots": {
+          "heading": "Trending songs",
+          "ctaCount": 80,
+          "lede": "Trending songs\nShow all"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 8,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Popular artists",
+        "bounds": {
+          "x": 350,
+          "y": 416.78125,
+          "w": 882,
+          "h": 287.71875
+        },
+        "buttonCount": 40,
+        "cardCount": 50,
+        "slots": {
+          "heading": "Popular artists",
+          "ctaCount": 40,
+          "lede": "Popular artists\nShow all"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 9,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Popular albums and singles",
+        "bounds": {
+          "x": 350,
+          "y": 720.5,
+          "w": 882,
+          "h": 329.71875
+        },
+        "buttonCount": 40,
+        "cardCount": 50,
+        "slots": {
+          "heading": "Popular albums and singles",
+          "ctaCount": 40,
+          "lede": "Popular albums and singles\nShow all"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 10,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 310,
+          "y": 1171.21875,
+          "w": 962,
+          "h": 355
+        },
+        "buttonCount": 6,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 6,
+          "lede": "Company"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 11,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Location",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 2,
+        "cardCount": 184,
+        "slots": {
+          "heading": "Location",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 12,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": " Manage Consent Preferences",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 10,
+        "cardCount": 10,
+        "slots": {
+          "heading": " Manage Consent Preferences",
+          "ctaCount": 10
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 13,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Cookie List",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 5,
+        "cardCount": 1,
+        "slots": {
+          "heading": "Cookie List",
+          "ctaCount": 5,
+          "lede": "Back ButtonCookie List Search IconFilter IconClear checkbox label labelApply CancelConsent Leg.Interest checkbox label label checkbox label label checkbox label label"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 14,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 3,
+        "cardCount": 1,
+        "slots": {
+          "ctaCount": 3,
+          "lede": "Clear checkbox label labelApply Cancel"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 15,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "Consent Leg.Interest checkbox label label checkbox label label checkbox label label"
+        },
+        "needsSmart": true
+      }
+    ],
+    "counts": {
+      "nav": 3,
+      "content": 8,
+      "cta": 1,
+      "pricing": 1,
+      "testimonials": 1,
+      "hero": 2
+    },
+    "readingOrder": [
+      "content",
+      "content",
+      "content",
+      "content",
+      "content",
+      "nav",
+      "nav",
+      "pricing",
+      "testimonials",
+      "hero",
+      "content",
+      "content",
+      "content",
+      "hero",
+      "cta",
+      "nav"
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+.pypirc
+
+# Runtime outputs
+cassette-exports/
+*.part
+*.log
+dist/
+
+# Local tooling / agent files
+AGENTS.md
+CLAUDE.md
+.serena/
+.codex/
+.claude/
+.impeccable/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+.agents/skills/*
+!.agents/skills/cassette-video-edit/
+skills-lock.json

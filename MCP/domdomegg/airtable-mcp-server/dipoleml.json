@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.domdomegg.airtable-mcp-server",
+  "type": "mcp",
+  "name": "Airtable MCP Server",
+  "slug": "airtable-mcp-server",
+  "vendor": "domdomegg",
+  "description": "🗂️🤖 Airtable Model Context Protocol Server, for allowing AI systems to interact with your Airtable bases",
+  "version": "1.14.0",
+  "homepage": "https://github.com/domdomegg/airtable-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "airtable",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "airtable",
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "airtable",
+    "brandName": "airtable",
+    "source": "https://cdn.simpleicons.org/airtable",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:54Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "domdomegg/airtable-mcp-server",
+    "url": "https://github.com/domdomegg/airtable-mcp-server",
+    "commit": "95c74dbc099704f96d6281f4e6d7f5d6d2d6305a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 456,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "airtable-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "airtable-mcp-server"
+    ],
+    "env": [
+      "AIRTABLE_API_KEY",
+      "MCP_TRANSPORT"
+    ],
+    "credentials": [
+      "AIRTABLE_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

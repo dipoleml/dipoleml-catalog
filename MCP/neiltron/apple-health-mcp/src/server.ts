@@ -1,0 +1,339 @@
+#!/usr/bin/env node
+
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ErrorCode,
+  McpError
+} from "@modelcontextprotocol/sdk/types.js";
+
+import { HealthDataDB } from "./db/database.js";
+import { FileCatalog, projectTableInfo } from "./db/catalog.js";
+import { TableLoader } from "./db/loader.js";
+import { defaultRegistry } from "./importers/index.js";
+import { QueryCache } from "./core/cache.js";
+import { MemoryManager } from "./core/memory.js";
+import { HealthQueryTool } from "./tools/health-query.js";
+import { HealthReportTool } from "./tools/health-report.js";
+import { HealthSchemaTool } from "./tools/health-schema.js";
+import { jsonReplacer } from "./utils.js";
+import { PROMPTS, buildPromptMessages } from "./prompts.js";
+import type { HealthQueryArgs, HealthReportArgs } from "./types.js";
+
+// Get configuration from environment
+const DATA_DIR = process.env.HEALTH_DATA_DIR ?? '';
+const MAX_MEMORY_MB = parseInt(process.env.MAX_MEMORY_MB || '2048');
+const CACHE_SIZE = parseInt(process.env.CACHE_SIZE || '100');
+
+const healthQueryInputSchema = {
+  type: "object",
+  properties: {
+    query: {
+      type: "string",
+      description: "One DuckDB analytical query. Joins, CTEs, subqueries, set operations, and window functions are supported."
+    },
+    format: {
+      type: "string",
+      enum: ["json", "csv", "summary"],
+      description: "Output format (default: json)"
+    }
+  },
+  required: ["query"]
+} satisfies JsonSchemaType;
+
+const healthReportInputSchema = {
+  type: "object",
+  properties: {
+    report_type: {
+      type: "string",
+      enum: ["weekly", "monthly", "custom"],
+      description: "Type of report to generate"
+    },
+    start_date: {
+      type: "string",
+      format: "date",
+      description: "Start date for custom reports (YYYY-MM-DD)"
+    },
+    end_date: {
+      type: "string",
+      format: "date",
+      description: "End date for custom reports (YYYY-MM-DD)"
+    },
+    include_metrics: {
+      type: "array",
+      items: { type: "string" },
+      description: "Metrics to include (default: all)"
+    }
+  },
+  required: ["report_type"]
+} satisfies JsonSchemaType;
+
+const argumentValidator = new AjvJsonSchemaValidator();
+const validateHealthQueryArgs =
+  argumentValidator.getValidator<HealthQueryArgs>(healthQueryInputSchema);
+const validateHealthReportArgs =
+  argumentValidator.getValidator<HealthReportArgs>(healthReportInputSchema);
+
+// Start without data rather than exit, so clients can still list tools.
+if (!DATA_DIR) {
+  process.stderr.write('apple-health-mcp: HEALTH_DATA_DIR is not set; starting with no tables\n');
+}
+
+// Initialize components
+const db = new HealthDataDB({ dataDir: DATA_DIR, maxMemoryMB: MAX_MEMORY_MB });
+const catalog = new FileCatalog(DATA_DIR, defaultRegistry());
+const loader = new TableLoader(db, catalog);
+const cache = new QueryCache(CACHE_SIZE);
+const memoryManager = new MemoryManager(db, catalog, loader, MAX_MEMORY_MB);
+
+// Initialize tools
+const queryTool = new HealthQueryTool(db, cache, loader);
+const reportTool = new HealthReportTool(db, cache, catalog, loader);
+const schemaTool = new HealthSchemaTool(db, catalog, loader);
+
+// Create MCP server
+const server = new Server({
+  name: "apple-health-mcp",
+  version: "1.4.5",
+}, {
+  capabilities: {
+    tools: {},
+    prompts: {},
+    resources: {}
+  }
+});
+
+// List available tools
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "health_query",
+      description: "Run one analytical query on Apple Health data.",
+      inputSchema: healthQueryInputSchema
+    },
+    {
+      name: "health_report",
+      description: "Generate structured health reports for a specific period",
+      inputSchema: healthReportInputSchema
+    },
+    {
+      name: "health_schema",
+      description: "Get information about available health data tables, their structure, and sample data to help write SQL queries",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false
+      }
+    }
+  ]
+}));
+
+// List prompt templates
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: PROMPTS
+}));
+
+// Resolve a prompt template into messages
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  try {
+    return buildPromptMessages(
+      request.params.name,
+      request.params.arguments ?? {}
+    );
+  } catch (error) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+});
+
+// List readable resources
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+  resources: [
+    {
+      uri: "health://schema",
+      name: "Health data schema",
+      description:
+        "Tables, columns, units, sample rows, and query tips for the loaded export",
+      mimeType: "application/json"
+    },
+    {
+      uri: "health://tables",
+      name: "Available tables",
+      description:
+        "Every queryable table in the export with its load state and row count",
+      mimeType: "application/json"
+    }
+  ]
+}));
+
+// Read a resource
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const { uri } = request.params;
+
+  switch (uri) {
+    case "health://schema":
+      return {
+        contents: [{
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(await schemaTool.execute(), jsonReplacer, 2)
+        }]
+      };
+
+    case "health://tables": {
+      // Pick up files exported after startup; keep the current catalog if the
+      // rescan fails.
+      try {
+        await catalog.refresh();
+      } catch {
+        // keep the existing catalog
+      }
+      // Report table names only; catalog entries also hold local file paths
+      // and importer references, which stay out of protocol responses.
+      const tables = projectTableInfo(catalog.getTableInfo());
+      // Keep parity with health_schema: a recorded multi-format conflict is
+      // visible on this surface too, so resource-only clients learn that new
+      // files are not being picked up.
+      const conflict = catalog.getScanConflict();
+      return {
+        contents: [{
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(
+            {
+              totalTables: tables.length,
+              tables,
+              scanWarning: conflict?.message
+            },
+            jsonReplacer,
+            2
+          )
+        }]
+      };
+    }
+
+    default:
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Unknown resource: ${uri}`
+      );
+  }
+});
+
+// Handle tool calls
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+  
+  try {
+    switch (name) {
+      case "health_query": {
+        const validated = validateHealthQueryArgs(args ?? {});
+        if (!validated.valid) {
+          throw new McpError(ErrorCode.InvalidParams, validated.errorMessage);
+        }
+        const result = await queryTool.execute(validated.data);
+        return {
+          content: [{
+            type: "text",
+            text: validated.data.format === 'csv' ? result : JSON.stringify(result, jsonReplacer, 2)
+          }]
+        };
+      }
+        
+      case "health_report": {
+        const validated = validateHealthReportArgs(args ?? {});
+        if (!validated.valid) {
+          throw new McpError(ErrorCode.InvalidParams, validated.errorMessage);
+        }
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(await reportTool.execute(validated.data), jsonReplacer, 2)
+          }]
+        };
+      }
+        
+      case "health_schema":
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(await schemaTool.execute(), jsonReplacer, 2)
+          }]
+        };
+        
+      default:
+        throw new McpError(
+          ErrorCode.MethodNotFound,
+          `Unknown tool: ${name}`
+        );
+    }
+  } catch (error) {
+    
+    if (error instanceof McpError) {
+      throw error;
+    }
+    
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+});
+
+// Initialize and start server
+async function main() {
+  try {
+    // Initialize database and catalog
+    await db.initialize();
+    
+    // Scan health data files. A missing or unreadable data directory must not
+    // prevent startup: clients can still connect and list tools, and
+    // health_schema reports the empty catalog with a pointer to
+    // HEALTH_DATA_DIR. health_schema's refresh() picks the files up once the
+    // directory appears. Warnings go to stderr; stdout is reserved for the
+    // protocol.
+    try {
+      await catalog.initialize();
+      if (Object.keys(catalog.getTableInfo()).length === 0) {
+        process.stderr.write(
+          `apple-health-mcp: no health CSV files found in HEALTH_DATA_DIR (${DATA_DIR}); starting with no tables\n`
+        );
+      }
+    } catch (error) {
+      process.stderr.write(
+        `apple-health-mcp: could not read HEALTH_DATA_DIR (${DATA_DIR}): ${error instanceof Error ? error.message : String(error)}; starting with no tables\n`
+      );
+    }
+    
+    // Start memory monitoring
+    memoryManager.startMonitoring();
+    
+    // Connect to transport
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    
+    
+    // Handle shutdown
+    process.on('SIGINT', async () => {
+      memoryManager.stopMonitoring();
+      await db.close();
+      process.exit(0);
+    });
+    
+  } catch {
+    process.exit(1);
+  }
+}
+
+// Start the server
+main().catch(() => {});

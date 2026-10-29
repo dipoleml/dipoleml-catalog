@@ -1,0 +1,37 @@
+{
+  "name": "markifact",
+  "displayName": "Markifact - Ads & Analytics",
+  "version": "1.0.7",
+  "icon": "./assets/icon.png",
+  "description": "Run Google Ads, Meta Ads, GA4, TikTok Ads, LinkedIn Ads, Shopify and 50+ more from Claude. Audit accounts, launch campaigns and pull reports, with your approval on every change.",
+  "author": {
+    "name": "Markifact",
+    "email": "contact@markifact.com",
+    "url": "https://www.markifact.com"
+  },
+  "homepage": "https://www.markifact.com",
+  "privacyPolicyUrl": "https://www.markifact.com/privacy-policy",
+  "repository": "https://github.com/markifact/markifact-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "claude-code-plugin",
+    "marketing",
+    "google-ads",
+    "meta-ads",
+    "facebook-ads",
+    "ga4",
+    "google-analytics",
+    "dv360",
+    "shopify",
+    "hubspot",
+    "linkedin-ads",
+    "tiktok-ads",
+    "marketing-automation",
+    "performance-marketing",
+    "ad-management",
+    "media-buying",
+    "agencies"
+  ]
+}

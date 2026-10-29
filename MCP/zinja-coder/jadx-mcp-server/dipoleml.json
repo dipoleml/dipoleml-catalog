@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.zinja-coder.jadx-mcp-server",
+  "type": "mcp",
+  "name": "Jadx MCP Server",
+  "slug": "jadx-mcp-server",
+  "vendor": "zinja-coder",
+  "description": "MCP server for JADX-AI Plugin",
+  "version": "0.0.0",
+  "homepage": "https://github.com/zinja-coder/jadx-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "android-hacking",
+    "android-reverse-engineering",
+    "application-security",
+    "mobile-security",
+    "model-context-protocol",
+    "model-context-protocol-server",
+    "reverse-engineering",
+    "vapt"
+  ],
+  "tags": [
+    "ai",
+    "android-hacking",
+    "android-reverse-engineering",
+    "application-security",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "mcp-servers",
+    "mobile-security",
+    "model-context-protocol",
+    "model-context-protocol-server",
+    "python",
+    "reverse-engineering",
+    "vapt"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zinja-coder",
+    "brandName": "zinja-coder",
+    "source": "https://github.com/zinja-coder.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zinja-coder/jadx-mcp-server",
+    "url": "https://github.com/zinja-coder/jadx-mcp-server",
+    "commit": "a8e5b7de4f7d7f9ef0ccea9d063631133105bd34",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 815,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "jadx-mcp-server"
+    ],
+    "env": [
+      "OPENAI_API_KEY",
+      "OPENAI_BASE_URL"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

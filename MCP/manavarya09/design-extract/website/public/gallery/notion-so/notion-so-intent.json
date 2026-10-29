@@ -1,0 +1,553 @@
+{
+  "pageIntent": {
+    "type": "landing",
+    "confidence": 0.61,
+    "path": "/",
+    "title": "The AI workspace that works for you. | Notion",
+    "description": "Build Custom Agents, search across all your apps, and automate busywork. The AI workspace where teams get more done, faster.",
+    "signals": [
+      {
+        "kind": "dom",
+        "type": "blog-post",
+        "weight": 0.35,
+        "detail": "byline|min-read"
+      },
+      {
+        "kind": "url",
+        "type": "landing",
+        "weight": 0.45,
+        "detail": "root-path"
+      },
+      {
+        "kind": "shape",
+        "type": "landing",
+        "weight": 0.3,
+        "detail": "features+hero+footer"
+      }
+    ],
+    "alternates": [
+      {
+        "type": "blog-post",
+        "score": 0.35
+      }
+    ],
+    "needsSmart": false
+  },
+  "sectionRoles": {
+    "sections": [
+      {
+        "index": 0,
+        "tag": "div",
+        "role": "cta",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 44
+        },
+        "buttonCount": 1,
+        "cardCount": 1,
+        "slots": {
+          "ctaCount": 1,
+          "lede": "New\nNotion's developer platform: Any data. Any tool. Any agent. No infra required.\nLearn more\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 1,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 44,
+          "w": 1280,
+          "h": 64
+        },
+        "buttonCount": 6,
+        "cardCount": 1,
+        "slots": {
+          "heading": "",
+          "subheadings": [
+            "",
+            "",
+            "",
+            ""
+          ],
+          "ctaCount": 6,
+          "lede": "Product\nAI\nSolutions\nResources\nDevelopers\nEnterprise\nPricing\nRequest a demo\nGet Notion free\nLog in"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 2,
+        "tag": "main",
+        "role": "steps",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": "Meet the night shift.",
+        "bounds": {
+          "x": 0,
+          "y": 44,
+          "w": 1280,
+          "h": 6698.765625
+        },
+        "buttonCount": 35,
+        "cardCount": 35,
+        "slots": {
+          "heading": "Meet the night shift.",
+          "subheadings": [
+            "Keep work moving 24/7.",
+            "Automate repetitive work for your team.",
+            "See what Custom Agents can do",
+            "Triage product feedback→"
+          ],
+          "ctaCount": 35
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 3,
+        "tag": "header",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Meet the night shift.",
+        "bounds": {
+          "x": 160,
+          "y": 100,
+          "w": 960,
+          "h": 256.1875
+        },
+        "buttonCount": 2,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Meet the night shift.",
+          "ctaCount": 2
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 4,
+        "tag": "section",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Keep work moving 24/7.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 1256.9375,
+          "w": 1094.40625,
+          "h": 585.453125
+        },
+        "buttonCount": 10,
+        "cardCount": 6,
+        "slots": {
+          "heading": "Keep work moving 24/7.",
+          "subheadings": [
+            "Automate repetitive work for your team."
+          ],
+          "ctaCount": 10,
+          "lede": "Keep work moving 24/7.\nCustom Agents\nAutomate repetitive work for your team.\n→\nQ&A agents"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 5,
+        "tag": "section",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Automate repetitive work for your team.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 1344.9375,
+          "w": 1094.40625,
+          "h": 497.453125
+        },
+        "buttonCount": 10,
+        "cardCount": 6,
+        "slots": {
+          "heading": "Automate repetitive work for your team.",
+          "ctaCount": 10,
+          "lede": "Custom Agents\nAutomate repetitive work for your team.\n→\nQ&A agents"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 6,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Automate repetitive work for your team.",
+        "bounds": {
+          "x": 116.796875,
+          "y": 1368.9375,
+          "w": 383.125,
+          "h": 124
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Automate repetitive work for your team.",
+          "lede": "Custom Agents\nAutomate repetitive work for your team.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 7,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "See what Custom Agents can do",
+        "bounds": {
+          "x": 92.796875,
+          "y": 1874.390625,
+          "w": 1094.40625,
+          "h": 182
+        },
+        "buttonCount": 0,
+        "cardCount": 22,
+        "slots": {
+          "heading": "See what Custom Agents can do",
+          "subheadings": [
+            "Triage product feedback→",
+            "Resolve support tickets in Slack→",
+            "Respond to security alerts faster→",
+            "Automate weekly reporting→"
+          ],
+          "lede": "See what Custom Agents can do\n \nTriage product feedback→\n \nResolve support tickets in Slack→\n \nRespond to security alerts faster→\n \nAutomate weekly reporting→\n \nCreate your own Custom Agent→"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 8,
+        "tag": "section",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Ask your on-demand assistants.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 2136.390625,
+          "w": 1094.40625,
+          "h": 946.96875
+        },
+        "buttonCount": 0,
+        "cardCount": 3,
+        "slots": {
+          "heading": "Ask your on-demand assistants.",
+          "subheadings": [
+            "You assign the tasks. Notion Agent does the work.",
+            "One search for everything.",
+            "Perfect notes, every time."
+          ],
+          "lede": "Ask your on-demand assistants.\n \nNotion Agent\nYou assign the tasks. Notion Agent does the work.\n→\n \nEnterprise Search\nOne search for everything.\n→\n \nAI Meeting Notes\nPerfect notes, every time.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 9,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "You assign the tasks. Notion Agent does the work.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 2224.390625,
+          "w": 443.234375,
+          "h": 325.578125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "You assign the tasks. Notion Agent does the work.",
+          "lede": "Notion Agent\nYou assign the tasks. Notion Agent does the work.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 10,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "One search for everything.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 2573.96875,
+          "w": 535.203125,
+          "h": 108
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "One search for everything.",
+          "lede": "Enterprise Search\nOne search for everything.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 11,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Perfect notes, every time.",
+        "bounds": {
+          "x": 652,
+          "y": 2573.96875,
+          "w": 535.203125,
+          "h": 108
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Perfect notes, every time.",
+          "lede": "AI Meeting Notes\nPerfect notes, every time.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 12,
+        "tag": "section",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Bring all your work together.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 3163.359375,
+          "w": 1094.40625,
+          "h": 946.96875
+        },
+        "buttonCount": 0,
+        "cardCount": 3,
+        "slots": {
+          "heading": "Bring all your work together.",
+          "subheadings": [
+            "Simple and powerful.",
+            "One source of truth for teams and agents.",
+            "Less tracking. More progress."
+          ],
+          "lede": "Bring all your work together.\n \nDocs\nSimple and powerful.\n→\n \nKnowledge Base\nOne source of truth for teams and agents.\n→\n \nProjects\nLess tracking. More progress.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 13,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Simple and powerful.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 3251.359375,
+          "w": 535.203125,
+          "h": 108
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Simple and powerful.",
+          "lede": "Docs\nSimple and powerful.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 14,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "One source of truth for teams and agents.",
+        "bounds": {
+          "x": 652,
+          "y": 3251.359375,
+          "w": 535.203125,
+          "h": 108
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "One source of truth for teams and agents.",
+          "lede": "Knowledge Base\nOne source of truth for teams and agents.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 15,
+        "tag": "header",
+        "role": "bento",
+        "subrole": "features",
+        "confidence": 0.75,
+        "heading": "Less tracking. More progress.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 3784.75,
+          "w": 443.234375,
+          "h": 325.578125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Less tracking. More progress.",
+          "lede": "Projects\nLess tracking. More progress.\n→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 16,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Trusted by teams that ship.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 5094.328125,
+          "w": 1094.40625,
+          "h": 759.96875
+        },
+        "buttonCount": 2,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Trusted by teams that ship.",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 17,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 1,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 1
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 18,
+        "tag": "section",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Try for free.",
+        "bounds": {
+          "x": 92.796875,
+          "y": 5982.296875,
+          "w": 1094.40625,
+          "h": 696.46875
+        },
+        "buttonCount": 3,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Try for free.",
+          "subheadings": [
+            "Get started on Notion",
+            "Notion Mail",
+            "Notion Calendar"
+          ],
+          "ctaCount": 3,
+          "lede": "Try for free.\nGet started on Notion"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 19,
+        "tag": "footer",
+        "role": "footer",
+        "subrole": null,
+        "confidence": 0.95,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 6742.765625,
+          "w": 1280,
+          "h": 416
+        },
+        "buttonCount": 3,
+        "cardCount": 60,
+        "slots": {
+          "ctaCount": 3,
+          "lede": "English (US)\nCookie settings\n© 2026 Notion Labs, Inc.\nCompany\nAbout us\nCareers\nSecurity\nStatus\nTerms & privacy\nYour privacy rights\nDownload\niOS & Android\nMac & Windows\nMail\nCalendar\nWeb Clipper\nResources\nHelp center\nPricing\nBlog\nCommunity\nConnections\nTemplates\nPartner programs\nNotion for\nEnterprise\nSmall business\nPersonal\nExplore more→"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 20,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 6742.765625,
+          "w": 1280,
+          "h": 416
+        },
+        "buttonCount": 3,
+        "cardCount": 60,
+        "slots": {
+          "ctaCount": 3,
+          "lede": "English (US)\nCookie settings\n© 2026 Notion Labs, Inc.\nCompany\nAbout us\nCareers\nSecurity\nStatus\nTerms & privacy\nYour privacy rights\nDownload\niOS & Android\nMac & Windows\nMail\nCalendar\nWeb Clipper\nResources\nHelp center\nPricing\nBlog\nCommunity\nConnections\nTemplates\nPartner programs\nNotion for\nEnterprise\nSmall business\nPersonal\nExplore more→"
+        },
+        "needsSmart": false
+      }
+    ],
+    "counts": {
+      "cta": 1,
+      "nav": 3,
+      "steps": 1,
+      "testimonial": 2,
+      "bento": 11,
+      "content": 1,
+      "hero": 1,
+      "footer": 1
+    },
+    "readingOrder": [
+      "cta",
+      "nav",
+      "nav",
+      "steps",
+      "testimonial",
+      "bento",
+      "bento",
+      "bento",
+      "content",
+      "bento",
+      "bento",
+      "bento",
+      "bento",
+      "bento",
+      "bento",
+      "bento",
+      "bento",
+      "hero",
+      "testimonial",
+      "footer",
+      "nav"
+    ]
+  }
+}

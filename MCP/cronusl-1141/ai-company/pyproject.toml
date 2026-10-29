@@ -1,0 +1,147 @@
+[build-system]
+# Same range as the dev extra: the sdist exclude rules and their tests are verified
+# on the 1.32 series, and a new major release may change the default file selection.
+requires = ["hatchling>=1.32,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-team-os"
+version = "1.16.0"
+description = "Self-driving AI company OS — turn Claude Code into a persistent, self-managing dev team"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "CronusL-1141" },
+]
+keywords = ["claude-code", "mcp", "ai-agent", "team-os", "autonomous", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    # API + MCP (required for OS to function)
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "psutil>=5.9.8",
+    # 上界不是保守，是必需：fastmcp 4.0 明确移除 3.x 兼容 shim，而 OS 没有 venv
+    # 隔离层兜底（四类进程共享系统 Python），一次 `pip install -U` 就能把用户机器
+    # 上的 MCP server 换掉。下界 3.4.5：3.4.3 的 Host/Origin 守卫会打断我们 ASGI
+    # 挂载的 /mcp/，官方在 3.4.4 才放宽。放行 4.x 前须先验私有面（见
+    # mcp/_alwaysload.py 与 mcp/tools/__init__.py 的公开 API 说明）。
+    "fastmcp>=3.4.5,<4",
+    # CLI
+    "typer[all]>=0.15.0",
+    "rich>=13.0.0",
+    # Config
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    # Storage
+    "aiosqlite>=0.20.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14.0",
+    # SQLAlchemy async 必需 greenlet，但其自带平台标记不含 Apple Silicon macOS
+    # （platform_machine=="arm64" 不在 aarch64/x86_64/... 列表）——漏装则 async
+    # 引擎首次连接即 ValueError，故显式声明保证全平台可用。
+    "greenlet>=3.0",
+    # Async
+    "anyio>=4.0",
+    "httpx>=0.28.1",
+    "websockets>=15.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/CronusL-1141/AI-company"
+Repository = "https://github.com/CronusL-1141/AI-company"
+Issues = "https://github.com/CronusL-1141/AI-company/issues"
+
+[project.optional-dependencies]
+# LangGraph orchestration runtime — only needed by the legacy `aiteam task run`
+# StateGraph execution path (orchestrator/). The API/MCP/Dashboard observability
+# layer does NOT require these. Install with: pip install 'ai-team-os[langgraph]'
+langgraph = [
+    "langgraph>=0.3.0",
+    "langchain-anthropic>=0.3.0",
+    "langchain-core>=0.3.0",
+]
+dev = [
+    # Packaging regression tests exercise the same backend range as release builds
+    # (keep it equal to [build-system] requires).
+    "hatchling>=1.32,<2",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0",
+    # Local runs only (`-n 6 --dist loadfile`); CI stays serial.
+    "pytest-xdist>=3.8",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[project.scripts]
+aiteam = "aiteam.cli.app:app"
+ai-team-os-serve = "aiteam.mcp.entry:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aiteam"]
+
+[tool.hatch.build.targets.sdist]
+# A source archive must be safe to build without .gitignore or local Git excludes.
+# Keep plugin/dashboard-dist: it is the committed marketplace distribution.
+exclude = [
+    "**/node_modules/",
+    "**/.venv*/",
+    "**/venv/",
+    "**/venv-*/",
+    "**/__pycache__/",
+    "**/*.pyc",
+    "**/*.pyo",
+    "**/.pytest_cache/",
+    "**/.mypy_cache/",
+    "**/.ruff_cache/",
+    "**/.tox/",
+    "**/.nox/",
+    "**/.hypothesis/",
+    "**/.next/",
+    "**/.vite/",
+    "**/htmlcov/",
+    "/.worktrees/",
+    "/build/",
+    "/dist/",
+    "/dashboard/dist/",
+    "/dashboard/dist-ssr/",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Data/config files with long Chinese string literals
+"src/aiteam/api/routes/system.py" = ["E501"]
+"src/aiteam/meeting/templates.py" = ["E501"]
+"src/aiteam/mcp/_instructions.py" = ["E501"]
+# Hook scripts with long Chinese prompt strings
+"plugin/hooks/*.py" = ["E501"]
+# The API module scrubs the launching session's environment before any other import (I26)
+"src/aiteam/api/app.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# src layout: make `import aiteam` work without pip install -e . (CI runs on bare deps)
+pythonpath = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

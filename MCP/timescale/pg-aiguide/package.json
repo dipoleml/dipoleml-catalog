@@ -1,0 +1,57 @@
+{
+  "name": "@tigerdata/pg-aiguide",
+  "version": "0.6.1",
+  "description": "Comprehensive PostgreSQL documentation and best practices through semantic search and curated skills, including ecosystem tools like TimescaleDB and Tiger Cloud",
+  "license": "Apache-2.0",
+  "author": "TigerData",
+  "homepage": "https://tigerdata.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/timescale/pg-aiguide"
+  },
+  "mcpName": "io.github.timescale/pg-aiguide",
+  "type": "module",
+  "bin": {
+    "pg-aiguide": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && shx chmod +x dist/*.js",
+    "check": "./bun i --silent && ./bun --silent run typecheck && ./bun --silent run lint --write && ./bun --silent run validate-skills && ./bun --silent test --only-failures",
+    "inspector": "./bun x @modelcontextprotocol/inspector",
+    "lint": "biome check",
+    "validate-skills": "./bun scripts/validate-skills.ts",
+    "migrate": "migrate",
+    "prepack": "npm run build && ./bun scripts/stage-npm-assets.ts",
+    "smoke:npm-migrations": "./bun scripts/smoke-npm-migrations.ts",
+    "smoke:npm": "./bun scripts/smoke-npm-package.ts",
+    "start": "./bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "watch": "./bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "4.0.60",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
+    "@opentelemetry/api": "^1.10.0",
+    "@tigerdata/mcp-boilerplate": "2.0.1",
+    "ai": "7.0.103",
+    "dotenv": "^17.4.2",
+    "gray-matter": "^4.0.3",
+    "migrate": "^2.1.0",
+    "pg": "^8.23.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@types/bun": "^1.4.0",
+    "@types/node": "^24.13.3",
+    "@types/pg": "^8.23.1",
+    "@types/semver": "^7.8.0",
+    "semver": "^7.8.5",
+    "shx": "^0.4.0",
+    "typescript": "7.0.2"
+  }
+}

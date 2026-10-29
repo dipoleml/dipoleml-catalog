@@ -1,0 +1,143 @@
+{
+  "name": "dsh-plugin-garmin-connect",
+  "version": "0.1.20",
+  "description": "A Garmin Connect plugin and MCP server with official Personal API and secure browser-based MFA for DeepSeek Harness and other AI agents",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/dsh-client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "garmin-connect-mcp": "lib/mcp.js",
+    "garmin-connect-auth": "lib/auth-cli.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    ".env.example",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "TEST_REPORT.md",
+    "TEST_REPORT.zh-CN.md",
+    "cordis.patch.yml",
+    "skills/garmin-connect"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Likenttt/garmin-connect-plugin-for-dsh.git"
+  },
+  "homepage": "https://github.com/Likenttt/garmin-connect-plugin-for-dsh#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "npm run build:host && npm run build:client:types && npm run build:client",
+    "build:host": "tsc && node scripts/copy-personal-sdk-attribution.cjs",
+    "build:client:types": "tsc -p tsconfig.client.json",
+    "build:client": "node scripts/build-client.mjs",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "test:coverage": "jest --coverage --runInBand",
+    "test:integration": "tsx scripts/integration-test.ts",
+    "preauth:setup": "npm run build",
+    "auth:setup": "node lib/auth-cli.js login",
+    "preauth:canary": "npm run build",
+    "auth:canary": "node lib/auth-cli.js canary",
+    "preauth:serve": "npm run build",
+    "auth:serve": "node lib/auth-cli.js serve --open",
+    "pack:smoke": "npm run build && npm run check:sdk && npm pack --dry-run --ignore-scripts",
+    "prepublishOnly": "npm run build && npm run check:sdk",
+    "prepare": "npm run build",
+    "check:sdk": "node scripts/check-sdk-dependency.cjs",
+    "sync:personal-sdk": "node scripts/sync-personal-sdk.cjs"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "garmin",
+    "garmin-connect",
+    "fitness",
+    "health",
+    "cordis",
+    "plugin",
+    "dsh-plugin",
+    "mcp",
+    "running",
+    "workout"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || >=0.2.1-rc.1 <0.2.2-0",
+    "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.2.0-rc.1 || 0.2.0-rc.2 || >=0.2.1-rc.1 <0.2.2-0",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-layout": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "axios": "1.19.0",
+    "axios-cookiejar-support": "5.0.5",
+    "dotenv": "^16.4.0",
+    "fflate": "0.8.3",
+    "garmin-connect": "npm:@likenttt/garmin-connect@1.7.0",
+    "tough-cookie": "5.1.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.28",
+    "esbuild": "^0.28.2",
+    "jest": "^29.7.0",
+    "react": "^18.3.1",
+    "ts-jest": "^29.2.0",
+    "tsx": "4.23.12",
+    "typescript": "^5.6.0",
+    "semver": "7.8.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "optionalDependencies": {
+    "playwright-core": "1.62.1"
+  }
+}

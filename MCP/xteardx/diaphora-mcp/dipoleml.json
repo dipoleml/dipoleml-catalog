@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.xteardx.diaphora-mcp",
+  "type": "mcp",
+  "name": "Diaphora MCP",
+  "slug": "diaphora-mcp",
+  "vendor": "xteardx",
+  "description": "MCP server for automated binary diffing.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/xTeardx/diaphora-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "binary-diffing",
+    "claude-plugin",
+    "codex-plugin",
+    "diaphora",
+    "idapro",
+    "model-context-protocol",
+    "reverse-engineering"
+  ],
+  "tags": [
+    "ai-tools",
+    "binary-diffing",
+    "claude-plugin",
+    "codex-plugin",
+    "diaphora",
+    "idapro",
+    "mcp",
+    "model-context-protocol",
+    "reverse-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "xteardx",
+    "brandName": "xteardx",
+    "source": "https://github.com/xTeardx.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "xTeardx/diaphora-mcp",
+    "url": "https://github.com/xTeardx/diaphora-mcp",
+    "commit": "8edcc2e920d242948407b8190be7736c83229ec7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 20,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:44Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "diaphora-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

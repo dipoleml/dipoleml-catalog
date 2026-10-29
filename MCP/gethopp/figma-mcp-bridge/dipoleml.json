@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.gethopp.figma-mcp-bridge",
+  "type": "mcp",
+  "name": "Figma MCP Bridge",
+  "slug": "figma-mcp-bridge",
+  "vendor": "gethopp",
+  "description": "Figma Plugin & MCP server to bypass API limits",
+  "version": "0.0.0",
+  "homepage": "https://github.com/gethopp/figma-mcp-bridge",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "design-to-code",
+    "figma"
+  ],
+  "tags": [
+    "design-to-code",
+    "figma",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "figma",
+    "brandName": "figma",
+    "source": "https://cdn.simpleicons.org/figma",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "gethopp/figma-mcp-bridge",
+    "url": "https://github.com/gethopp/figma-mcp-bridge",
+    "commit": "8a9ec1e3f880d895feb95b7682efb3c3aa28e42f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 843,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:55Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [],
+    "env": [
+      "FIGMA_BRIDGE_HOST"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,342 @@
+/**
+ * 배포 전 로컬 CLI smoke 테스트
+ */
+
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import {
+  CU_UPSTREAM_BLOCK_PATTERNS,
+  EMART24_UPSTREAM_403_PATTERNS,
+  SEVENELEVEN_UPSTREAM_403_PATTERNS,
+} from '../../src/api/healthCheckDefinitions.js';
+
+interface CommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+type RunCommand = (command: string, args: string[]) => Promise<CommandResult>;
+type WriteFn = (message: string) => void;
+type Validator = (stdout: string, stderr: string) => string | null;
+type SmokeService =
+  | 'daiso_jp'
+  | 'daiso'
+  | 'cu'
+  | 'gs25'
+  | 'seveneleven'
+  | 'emart24'
+  | 'oliveyoung'
+  | 'megabox'
+  | 'lottecinema'
+  | 'cgv'
+  | 'dtryx'
+  | 'opinet';
+
+interface CliSmokeDeps {
+  runCommand?: RunCommand;
+  writeOut?: WriteFn;
+  writeErr?: WriteFn;
+  command?: string;
+  cliPath?: string;
+  service?: string;
+}
+
+const DEFAULT_CLI_PATH = path.resolve('dist/bin.js');
+
+interface CliSmokeCommand {
+  service: SmokeService;
+  scenario: string;
+  args: string[];
+  expectedExitCode?: number;
+  degradedFailurePatterns?: string[];
+  validate: Validator;
+}
+
+function parseJson(stdout: string): unknown {
+  return JSON.parse(stdout.trim());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validateHealth(stdout: string): string | null {
+  const payload = parseJson(stdout);
+  if (!isRecord(payload) || payload.status !== 'ok') {
+    return 'health 응답 status가 ok가 아닙니다';
+  }
+
+  return null;
+}
+
+function validateApiEnvelope(
+  stdout: string,
+  check?: (data: Record<string, unknown>) => string | null,
+): string | null {
+  const payload = parseJson(stdout);
+  if (!isRecord(payload) || payload.success !== true || !isRecord(payload.data)) {
+    return 'API 응답이 success=true envelope가 아닙니다';
+  }
+
+  return typeof check === 'function' ? check(payload.data) : null;
+}
+
+function expectDataField(
+  key: string,
+  expected: string,
+): (data: Record<string, unknown>) => string | null {
+  return (data) => {
+    if (data[key] !== expected) {
+      return `data.${key}가 ${expected}가 아닙니다`;
+    }
+
+    return null;
+  };
+}
+
+function validateStderrContains(expected: string): Validator {
+  return (_stdout, stderr) =>
+    stderr.includes(expected) ? null : `stderr에 "${expected}"가 없습니다`;
+}
+
+function validateJapanProduct(payload: Record<string, unknown>): string | null {
+  const valid = payload.country === 'JP' && payload.currency === 'JPY' &&
+    payload.id === '4550746075917' && typeof payload.name === 'string' && payload.name.trim().length > 0 &&
+    (typeof payload.onlineAvailable === 'boolean' || payload.onlineAvailable === null) &&
+    payload.storeInventorySupported === false;
+  return valid ? null : '일본 상품 상세의 필수 필드 또는 판매 가능 여부가 올바르지 않습니다';
+}
+
+function validateJapanCollection(payload: Record<string, unknown>, key: 'products' | 'stores'): string | null {
+  const items = payload[key];
+  const valid = payload.country === 'JP' && Array.isArray(items) && items.length > 0 &&
+    items.every((item) => isRecord(item) &&
+      typeof item.id === 'string' && item.id.trim().length > 0 &&
+      typeof item.name === 'string' && item.name.trim().length > 0 &&
+      (key === 'products' ? item.currency === 'JPY' : typeof item.brand === 'string' && item.brand.trim().length > 0));
+  return valid ? null : `일본 ${key}의 국가 또는 필수 필드가 올바르지 않습니다`;
+}
+
+export const CLI_SMOKE_COMMANDS: CliSmokeCommand[] = [
+  { service: 'daiso', scenario: 'health', args: ['health'], validate: validateHealth },
+  {
+    service: 'daiso',
+    scenario: '상품명만 아는 사용자',
+    args: ['products', '수납박스', '--pageSize', '1', '--json'],
+    validate: validateApiEnvelope,
+  },
+  {
+    service: 'daiso',
+    scenario: '기본 위치 검색',
+    args: ['stores', '강남역', '--limit', '1', '--json'],
+    validate: validateApiEnvelope,
+  },
+  {
+    service: 'daiso',
+    scenario: '위치를 대강 말하는 사용자',
+    args: ['stores', '안산 중앙역', '--limit', '1', '--json'],
+    validate: validateApiEnvelope,
+  },
+  {
+    service: 'daiso',
+    scenario: '잘못된 옵션을 입력한 사용자',
+    args: ['inventory', '1034604', '--store', '강남역점'],
+    expectedExitCode: 1,
+    validate: validateStderrContains('알 수 없는 옵션: --store'),
+  },
+  {
+    service: 'daiso_jp',
+    scenario: '일본 다이소 상품 검색',
+    args: ['jp-products', 'ボウル', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, (data) => validateJapanCollection(data, 'products')),
+  },
+  {
+    service: 'daiso_jp',
+    scenario: '일본 다이소 상품 상세',
+    args: ['jp-product', '4550746075917', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, validateJapanProduct),
+  },
+  {
+    service: 'daiso_jp',
+    scenario: '일본 다이소 매장 검색',
+    args: ['jp-stores', '渋谷', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, (data) => validateJapanCollection(data, 'stores')),
+  },
+  {
+    service: 'cu',
+    scenario: 'CU 매장 검색',
+    args: ['cu-stores', '강남', '--limit', '1', '--json'],
+    degradedFailurePatterns: CU_UPSTREAM_BLOCK_PATTERNS,
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '강남')),
+  },
+  {
+    service: 'gs25',
+    scenario: 'GS25 상품명 검색',
+    args: ['gs25-products', '콜라', '--limit', '1', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '콜라')),
+  },
+  {
+    service: 'gs25',
+    scenario: 'GS25 위치 검색',
+    args: ['gs25-stores', '강남', '--limit', '1', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '강남')),
+  },
+  {
+    service: 'seveneleven',
+    scenario: '세븐일레븐 상품명 검색',
+    args: ['seveneleven-products', '커피', '--size', '1', '--json'],
+    degradedFailurePatterns: SEVENELEVEN_UPSTREAM_403_PATTERNS,
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('query', '커피')),
+  },
+  {
+    service: 'emart24',
+    scenario: '이마트24 상품명 검색',
+    args: ['emart24-products', '커피', '--pageSize', '1', '--json'],
+    degradedFailurePatterns: EMART24_UPSTREAM_403_PATTERNS,
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '커피')),
+  },
+  {
+    service: 'oliveyoung',
+    scenario: '올리브영 get 상품 검색',
+    args: ['get', '/api/oliveyoung/products', '--keyword', '선크림', '--size', '1', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '선크림')),
+  },
+  {
+    service: 'megabox',
+    scenario: '메가박스 위치 검색',
+    args: ['megabox-theaters', '강남', '--limit', '1', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '강남')),
+  },
+  {
+    service: 'lottecinema',
+    scenario: '롯데시네마 위치 검색',
+    args: ['lottecinema-theaters', '잠실', '--limit', '1', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '잠실')),
+  },
+  {
+    service: 'cgv',
+    scenario: 'CGV get 위치 검색',
+    args: ['get', '/api/cgv/theaters', '--keyword', '강남', '--limit', '1', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('keyword', '강남')),
+  },
+  {
+    service: 'opinet',
+    scenario: '오피넷 전국 평균 유가 조회',
+    args: ['get', '/api/opinet/average', '--json'],
+    validate: (stdout) => validateApiEnvelope(stdout, expectDataField('provider', 'opinet')),
+  },
+  {
+    service: 'dtryx',
+    scenario: '디트릭스 상영작 조회',
+    args: ['get', '/api/dtryx/movies', '--cinemaCode', '000067', '--json'],
+    validate: (stdout) =>
+      validateApiEnvelope(stdout, (data) => {
+        const first = Array.isArray(data.movies) ? data.movies[0] : undefined;
+        return isRecord(first) &&
+          typeof first.movieCode === 'string' &&
+          typeof first.movieName === 'string'
+          ? null
+          : '디트릭스 상영작의 movieCode 또는 movieName이 없습니다';
+      }),
+  },
+];
+
+function parseServiceArg(argv: string[]): string | undefined {
+  const serviceIndex = argv.indexOf('--service');
+  if (serviceIndex >= 0) {
+    return argv[serviceIndex + 1];
+  }
+  return process.env.CLI_SMOKE_SERVICE;
+}
+
+async function execCommand(command: string, args: string[]): Promise<CommandResult> {
+  return await new Promise<CommandResult>((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false,
+    });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ exitCode: code ?? 1, stdout, stderr });
+    });
+  });
+}
+
+function matchesDegradedFailure(command: CliSmokeCommand, result: CommandResult): boolean {
+  const output = `${result.stdout}\n${result.stderr}`;
+  return command.degradedFailurePatterns?.some((pattern) => output.includes(pattern)) ?? false;
+}
+
+export async function runCliSmoke(deps: CliSmokeDeps = {}): Promise<number> {
+  const runCommand = deps.runCommand || execCommand;
+  const writeOut = deps.writeOut || ((message: string) => process.stdout.write(`${message}\n`));
+  const writeErr = deps.writeErr || ((message: string) => process.stderr.write(`${message}\n`));
+  const command = deps.command || process.execPath;
+  const cliPath = deps.cliPath || DEFAULT_CLI_PATH;
+  const service = deps.service || parseServiceArg(process.argv.slice(2));
+  const commands = service
+    ? CLI_SMOKE_COMMANDS.filter((smokeCommand) => smokeCommand.service === service)
+    : CLI_SMOKE_COMMANDS;
+
+  if (commands.length === 0) {
+    writeErr(`CLI smoke 실패: 지원하지 않는 service=${service}`);
+    return 1;
+  }
+
+  for (const smokeCommand of commands) {
+    const { args, expectedExitCode = 0, validate } = smokeCommand;
+    const fullArgs = [cliPath, ...args];
+    writeOut(`CLI smoke 실행: ${command} ${fullArgs.join(' ')}`);
+    const result = await runCommand(command, fullArgs);
+    if (result.exitCode !== expectedExitCode) {
+      if (matchesDegradedFailure(smokeCommand, result)) {
+        writeErr(`CLI smoke degraded: ${args.join(' ')} known upstream issue`);
+        continue;
+      }
+      writeErr(`CLI smoke 실패: ${args.join(' ')} exited with ${result.exitCode}`);
+      if (result.stdout) {
+        writeErr(result.stdout.trim());
+      }
+      if (result.stderr) {
+        writeErr(result.stderr.trim());
+      }
+      return result.exitCode;
+    }
+
+    try {
+      const validationError = validate(result.stdout, result.stderr);
+      if (validationError) {
+        writeErr(`CLI smoke 검증 실패: ${args.join(' ')} - ${validationError}`);
+        writeErr(result.stdout.trim());
+        return 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '알 수 없는 오류';
+      writeErr(`CLI smoke 검증 실패: ${args.join(' ')} - ${message}`);
+      writeErr(result.stdout.trim());
+      return 1;
+    }
+  }
+
+  writeOut(`${commands.length} CLI smoke command(s) passed`);
+  return 0;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runCliSmoke().then((exitCode) => {
+    process.exit(exitCode);
+  });
+}

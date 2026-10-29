@@ -1,0 +1,48 @@
+{
+  "name": "northcinder",
+  "version": "0.2.1",
+  "description": "NorthCinder is a buyer-run MCP shopping agent that compares evidence, explains tradeoffs, and asks before purchase",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "northcinder",
+    "mcp",
+    "shopping-agent",
+    "buyer-agent",
+    "local-first"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cinderline/northcinder.git",
+    "directory": "northcinder"
+  },
+  "homepage": "https://github.com/cinderline/northcinder#readme",
+  "bugs": {
+    "url": "https://github.com/cinderline/northcinder/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "northcinder": "bin/northcinder.js"
+  },
+  "files": [
+    "bin",
+    "research-skills/product-research/SKILL.md",
+    "research-skills/seller-research/SKILL.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.61.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}

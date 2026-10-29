@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.lauriewired.ghidramcp",
+  "type": "mcp",
+  "name": "Ghidramcp",
+  "slug": "ghidramcp",
+  "vendor": "lauriewired",
+  "description": "MCP Server for Ghidra",
+  "version": "0.0.0",
+  "homepage": "https://github.com/LaurieWired/GhidraMCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lauriewired",
+    "brandName": "lauriewired",
+    "source": "https://github.com/LaurieWired.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:12Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "LaurieWired/GhidraMCP",
+    "url": "https://github.com/LaurieWired/GhidraMCP",
+    "commit": "1e980252087b2479a21b9ca6d82d5829538651a7",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 11617,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "ghidra-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

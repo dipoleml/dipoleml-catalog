@@ -1,0 +1,43 @@
+{
+  "name": "deliberation",
+  "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger, Writing Editor) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; only Gemini can implement - GPT, Grok, and OpenRouter are advisory-only).",
+  "version": "4.0.0",
+  "author": {
+    "name": "Anton Babenko",
+    "url": "https://github.com/antonbabenko"
+  },
+  "homepage": "https://github.com/antonbabenko/deliberation",
+  "repository": "https://github.com/antonbabenko/deliberation",
+  "license": "MIT",
+  "keywords": ["delegation", "mcp", "codex", "gpt", "openai", "gemini", "antigravity", "agy", "google", "grok", "xai", "files", "experts", "subagents", "orchestration"],
+  "mcpServers": {
+    "deliberation-gemini": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"],
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
+    },
+    "deliberation-grok": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"],
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
+    },
+    "deliberation-openrouter": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/openrouter/index.js"],
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
+    },
+    "deliberation": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/server/mcp/index.js"],
+      "type": "stdio",
+      "timeout": 1800000,
+      "env": { "MCP_TOOL_TIMEOUT": "1800000" }
+    }
+  }
+}

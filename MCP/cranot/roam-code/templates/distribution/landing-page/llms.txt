@@ -1,0 +1,115 @@
+# roam-code
+
+> Roam gives coding agents reusable local code analysis and checks through the CLI or MCP. Its index returns files, functions, and their connections; pattern checks can pair code with candidate alternatives from an algorithm catalog. Agents use the returned source locations, findings, and check results to decide what to inspect, try, or test instead of implementing each analysis themselves. Refresh the index as code changes. Static checks make no model calls. Alternatives require source inspection, behavior tests, and performance measurement before claiming an improvement. People set direction and decide what ships. Configured evidence workflows can save a record of checks and supplied decisions. Missing checks remain unknown, not proof of safety. A connected agent's own model usage and data handling are separate from Roam's local analysis.
+
+roam-code (`pip install roam-code`, Python 3.10+) is a local code-analysis
+toolkit for coding agents. Run `roam index` to refresh the index as code changes.
+The local SQLite index holds symbols, dependencies, call graphs, architecture
+layers, and git history. Imported runtime traces are separate observations,
+not facts inferred from parsing source. Roam exposes analysis through 288 CLI commands and 246 MCP
+tools (17 in the default `core` preset) across 28 languages. AI agents
+(Claude Code, Cursor, Codex, Aider, your own) can call it before, during, and
+after a change when their workflow is configured to do so.
+
+Configured evidence workflows can collect portable change evidence for review.
+Ordinary records, an HMAC-chained run ledger, preparation bundles and optional
+attestations are distinct components; every packet does not contain all of them.
+Cosign signatures require a separately configured signing path, and keyless
+signing contacts external services. HMAC integrity uses a local key, not an
+independent identity authority. Read which checks ran and which
+were missing, and distinguish supplied decisions from observed execution.
+The packet does not authenticate who acted or by itself prove semantic
+correctness or merge approval.
+
+Questions your agent can ask Roam:
+
+- **Codebase overview**: "What does this repo do? What should I read?" -> understand, map, tour, describe, minimap
+- **Context retrieval**: "Pull the exact spans I need." -> retrieve, context, search-semantic, agent-context
+- **Change impact**: "What could this change affect?" -> preflight, impact, affected-tests, diff, guard
+- **PR review**: "Did the AI miss a clone, a caller, a test?" -> critique, pr-analyze, pr-risk, pr-comment-render
+- **Performance investigation**: "Which patterns deserve a closer look?" -> algo, n1, missing-index, hotspots
+- **Code quality**: "Which functions are complex? Where is code repeated?" -> complexity, clones, smells, health
+- **Architecture checks**: "Is the architecture drifting?" -> layers, clusters, spectral, health, budget, fitness, dark-matter, architecture-drift
+- **Refactor safety**: "Can I simulate this first?" -> simulate, mutate, safe-delete, closure, plan-refactor
+- **Multi-agent coordination**: "Can agents work in parallel?" -> fleet, partition, orchestrate, agent-plan
+- **Review records**: "Which checks were recorded, and what is missing?" -> attest, cga, audit-trail-export, audit-trail-verify, --sarif
+
+roam algo (legacy alias: roam math) reports candidate algorithmic risks — O(n^2) nested-loop
+lookups, N+1 queries, regex compiled inside hot loops, repeated JSON
+parsing, quadratic string concatenation, branching recursion without
+memoisation, expensive work in request/render loops. Inspect the matched source,
+language context, loop inputs, receiver identity, and ordering requirements;
+run tests and measure before applying advice. Pattern matches are not proof
+that an optimization is correct or beneficial.
+
+Use `roam algo` through the CLI. For direct MCP access to `roam_algo`, start
+the server with `ROAM_MCP_PRESET=review`; changing a running server's preset
+requires a restart. The default `core` preset does not expose this tool.
+
+Evidence limits: safe-delete emits SAFE / REVIEW / UNSAFE; unresolved use needs
+review. Test mappings and path-coverage are static, not runtime coverage.
+AI-ratio is an uncalibrated pattern score, not an authorship percentage.
+CLI partition defaults to two through eight agents; roam_partition over MCP
+defaults to four. Read scope, partial_success, truncation, and skipped checks.
+Guide: https://roam-code.com/docs/command-reference#evidence-limits
+
+Roam complements linters, security scanners, and AI reviewers. Use its local
+code connections alongside their findings, tests, and review; neither a map
+nor a clean report establishes runtime safety.
+
+Evidence generation stays on your machine and hash-verifies offline. No automatic source-code or telemetry upload. A cold parser cache retrieves one checksum-verified grammar bundle and retains it locally; prewarm it before air-gap use. Explicit network features are inventoried in docs/network-boundary.md. Apache 2.0. 28 languages supported.
+
+## Products
+
+Availability: free local CLI and MCP tools; paid PR Replay reports by email
+request after scope and terms are agreed. Review and Cloud are planned hosted
+products, not available to subscribe to. No launch date is confirmed. Private
+deployment is a separately scoped enquiry, not a packaged hosted-product edition.
+
+- [Free agent tools](https://roam-code.com/setup) — CLI and MCP server, Apache 2.0. Local static checks make no model calls; the connected agent's model usage is separate.
+- [PR Replay](https://roam-code.com/audit) — free local sample; Team report <!-- product-fact:teamReplayPrice -->$2,500<!-- /product-fact -->; Deep report <!-- product-fact:deepReplayPrice -->$6,000<!-- /product-fact -->. Paid reports add founder review and a walk-through. Read the scope and conditional future credit at /audit; an email enquiry is not an order.
+- [Sample prerequisites](https://roam-code.com/audit#sample) — `roam pr-replay --tier sample` defaults to `HEAD~5..HEAD`, a commit range rather than five PR identities. Run inside a checkout with that history. Replay does not rerun tests or establish incident prevention.
+- [Roam Review](https://roam-code.com/pricing#review) — planned hosted pull-request checks; no hosted app or billing yet. Proposed tiers, not purchasable subscriptions, are at /pricing.
+- [Roam Cloud](https://roam-code.com/pricing#cloud) — planned history/dashboard; no hosted ingestion service or team accounts yet.
+- [Private deployment](https://roam-code.com/pricing#self-hosted) — describe the environment; feasibility, support, and written scope must be agreed.
+
+## Key links
+
+- Code atlas: https://roam-code.com/explore — a custom visualization of a snapshot of Roam's Python imports, not native `roam map` output, a live repository connection, or runtime impact proof. The CLI and MCP tools are the agent interfaces.
+- Docs: https://roam-code.com/docs/
+- GitHub: https://github.com/Cranot/roam-code
+- PyPI: https://pypi.org/project/roam-code/
+- Landing page: https://roam-code.com/
+- Setup (agent integration): https://roam-code.com/setup
+- Pricing: https://roam-code.com/pricing
+- PR Replay (paid audit): https://roam-code.com/audit
+- Compare coding agents, review tools and local code graphs: https://roam-code.com/compare
+- Measurements and reproduction limits: https://roam-code.com/measurements
+- Status: https://roam-code.com/status
+- MCP server card: https://roam-code.com/.well-known/mcp-server-card.json
+
+## Compliance
+
+- Configured evidence workflows can emit in-toto v1 attestations and a SHA-256-chained audit-trail JSONL file. These are supporting records for change-management and AI-governance review, not automatic coverage of every analysis or a compliance certificate.
+- `roam article-12-check` is a scoped readiness aid, not a legal classification or compliance determination. High-risk classification is not limited to Annex III; Article 6(1) also addresses qualifying Annex I product-related systems. Applicability depends on the system, role, exceptions and applicable dates. Roam development records are not Article 12 system logs. See https://roam-code.com/security and qualified counsel.
+- License: Apache-2.0
+
+## Differentiation
+
+Roam makes code relationships and mechanical checks available as structured
+results, so an agent can investigate callers, architecture, complexity, duplicate
+code, and algorithmic alternatives without deriving those results itself. Refresh the local index
+as the source changes. Use the findings alongside source inspection, tests,
+linters, security tools, and model reasoning; no one result establishes safety.
+Static checks make no model calls. Connected-agent providers and optional online
+features have separate costs and data paths; see the network boundary above.
+
+## Current product snapshot
+
+<!-- product-block:snapshot -->
+Source version: 14.1.0; 288 CLI commands; 259 MCP tools; 17 default core tools; 28 languages; Apache-2.0.
+Product states: cli: AVAILABLE; mcp: AVAILABLE; prReplay: AVAILABLE; review: PLANNED; cloud: PLANNED.
+Local code analysis and mechanical checks for coding agents.
+Source snapshot, not a fresh installed-package check. Paid reports require agreed written scope.
+Machine-readable facts: https://roam-code.com/data/product-facts.json
+<!-- /product-block -->

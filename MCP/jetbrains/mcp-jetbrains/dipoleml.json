@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.jetbrains.mcp-jetbrains",
+  "type": "mcp",
+  "name": "MCP Jetbrains",
+  "slug": "mcp-jetbrains",
+  "vendor": "jetbrains",
+  "description": "A model context protocol server to work with JetBrains IDEs: IntelliJ, PyCharm, WebStorm, etc. Also, works with Android Studio",
+  "version": "1.8.0",
+  "homepage": "https://github.com/JetBrains/mcp-jetbrains",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ide",
+    "intellij",
+    "jetbrains",
+    "pycharm"
+  ],
+  "tags": [
+    "ide",
+    "intellij",
+    "jetbrains",
+    "mcp",
+    "mcp-server",
+    "pycharm"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "jetbrains",
+    "brandName": "jetbrains",
+    "source": "https://cdn.simpleicons.org/jetbrains",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:07Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "JetBrains/mcp-jetbrains",
+    "url": "https://github.com/JetBrains/mcp-jetbrains",
+    "commit": "c8c2b85bc6f029130542fdddc3daf066e404df41",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 963,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@jetbrains/mcp-proxy"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@jetbrains/mcp-proxy"
+    ],
+    "env": [
+      "IDE_PORT",
+      "YOUR_IDEA_PORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

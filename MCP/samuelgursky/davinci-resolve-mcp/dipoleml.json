@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.samuelgursky.davinci-resolve-mcp",
+  "type": "mcp",
+  "name": "Davinci Resolve MCP",
+  "slug": "davinci-resolve-mcp",
+  "vendor": "samuelgursky",
+  "description": "MCP server integration for DaVinci Resolve Studio",
+  "version": "4.16.0",
+  "homepage": "https://github.com/samuelgursky/davinci-resolve-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "blackmagic",
+    "blackmagic-design",
+    "blackmagicdesign",
+    "davinci-resolve",
+    "davinciresolve"
+  ],
+  "tags": [
+    "blackmagic",
+    "blackmagic-design",
+    "blackmagicdesign",
+    "davinci-resolve",
+    "davinciresolve",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "samuelgursky",
+    "brandName": "samuelgursky",
+    "source": "https://github.com/samuelgursky.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "samuelgursky/davinci-resolve-mcp",
+    "url": "https://github.com/samuelgursky/davinci-resolve-mcp",
+    "commit": "c347df6cb598edf74a3df40a17753389122fa102",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3823,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:50Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "davinci-resolve-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./bin/davinci-resolve-mcp.mjs"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "davinci-resolve-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./bin/davinci-resolve-advanced-mcp.mjs"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.9",
+      "python3"
+    ],
+    "packages": [
+      "davinci-resolve-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

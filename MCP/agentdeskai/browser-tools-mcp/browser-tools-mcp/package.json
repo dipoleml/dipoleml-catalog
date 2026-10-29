@@ -1,0 +1,63 @@
+{
+  "name": "@agentdeskai/browser-tools-mcp",
+  "version": "2.0.5",
+  "description": "MCP server exposing live browser telemetry (console logs, network requests, screenshots, Lighthouse audits) from your real Chrome session",
+  "mcpName": "io.github.AgentDeskAI/browser-tools-mcp",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "browser-tools-mcp": "dist/index.js",
+    "browser-tools-connector": "dist/connector-bin.js",
+    "browser-tools": "dist/tools-cli-bin.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "browser",
+    "tools",
+    "debugging",
+    "ai",
+    "chrome",
+    "extension",
+    "lighthouse",
+    "telemetry"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentDeskAI/browser-tools-mcp.git",
+    "directory": "browser-tools-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/AgentDeskAI/browser-tools-mcp/issues"
+  },
+  "homepage": "https://github.com/AgentDeskAI/browser-tools-mcp#readme",
+  "author": "AgentDesk AI",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "chrome-launcher": "^1.2.1",
+    "express": "^5.2.1",
+    "lighthouse": "^13.4.1",
+    "ws": "^8.21.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.5.14",
+    "typescript": "5.9.3"
+  }
+}

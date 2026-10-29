@@ -1,0 +1,36 @@
+{
+  "name": "@northcinder/watches",
+  "version": "0.2.1",
+  "description": "NorthCinder notify-only price watches with a buyer-run scheduler, local state, persisted at-least-once delivery, and constrained notification channels",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "keywords": ["northcinder", "price-watch", "shopping"],
+  "publishConfig": { "access": "public" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@northcinder/adapter-kit": "workspace:*",
+    "@northcinder/protocol": "workspace:*",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

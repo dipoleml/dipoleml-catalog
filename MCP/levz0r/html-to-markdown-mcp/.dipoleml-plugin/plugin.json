@@ -1,0 +1,16 @@
+{
+  "name": "html-to-markdown-mcp",
+  "displayName": "Html to Markdown MCP",
+  "version": "1.0.2",
+  "description": "Convert HTML to Markdown using Turndown.js. Fetch web pages and extract clean, readable markdown content.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Levz0r"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/levz0r/html-to-markdown-mcp#readme",
+  "repository": "https://github.com/levz0r/html-to-markdown-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

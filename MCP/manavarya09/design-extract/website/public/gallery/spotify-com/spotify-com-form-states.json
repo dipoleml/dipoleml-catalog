@@ -1,0 +1,39 @@
+{
+  "flags": [
+    "modal",
+    "forms"
+  ],
+  "forms": {
+    "count": 1,
+    "families": [
+      1
+    ]
+  },
+  "inputTypesSeen": {
+    "textarea": 1,
+    "input": 19
+  },
+  "modals": [
+    {
+      "role": "dialog",
+      "className": "nWR7PbHjFXQJiYNL",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      }
+    }
+  ],
+  "toastLibraries": [],
+  "loading": {
+    "skeleton": 0,
+    "spinner": 0
+  },
+  "empty": {
+    "count": 0
+  },
+  "error": {
+    "count": 0
+  }
+}

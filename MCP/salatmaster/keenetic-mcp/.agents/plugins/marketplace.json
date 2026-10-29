@@ -1,0 +1,20 @@
+{
+  "name": "keenetic",
+  "interface": {
+    "displayName": "Keenetic"
+  },
+  "plugins": [
+    {
+      "name": "keenetic",
+      "source": {
+        "source": "local",
+        "path": "./plugins/keenetic"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "skill": "testing",
+  "should_trigger": [
+    "Fix the sandbox error in my user_test.exs",
+    "How do I set up Mox to mock an external API?",
+    "Build test factories with ExMachina for my accounts context",
+    "Write tests for this LiveView component using LiveViewTest",
+    "This async test keeps failing randomly"
+  ],
+  "should_not_trigger": [
+    "Build a LiveView form for user signup",
+    "App crashes when I migrate the database, help debug",
+    "Add OAuth authentication to my Phoenix API",
+    "Review my controller code and suggest improvements",
+    "How should I organize contexts in a new project?"
+  ]
+}

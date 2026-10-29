@@ -1,0 +1,302 @@
+// GENERATED FILE - do not edit.
+//
+// Written by scripts/generate-epic-actions.mjs from tests/golden/epic-catalog.json
+// and src/tools/epic/effects.ts. To change what an action DOES, edit the
+// effects file and regenerate; to pick up a new engine's toolsets, re-record
+// the catalog and regenerate.
+//
+// These are ordinary actions. They carry a declared effect, real parameters and
+// a Params: clause, they are in ALL_TOOLS, and they dispatch through the same
+// task factory, guards and locks as every hand-written action in this package.
+// Each also carries its input schema, which the compact signatures read (#1172).
+import { z } from "zod";
+import type { ActionSpec } from "../../core/types.js";
+import { bp } from "../../surface/category-tool.js";
+
+const S_epic_add_component = {"properties":{"owner":{"type":"object","properties":{"refPath":{}}},"component_type":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"}},"required":["owner","component_type","name"]} as const;
+const S_epic_add_cone = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"},"radius":{"type":"number"},"height":{"type":"number"},"local_transform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}}},"required":["actor","name"]} as const;
+const S_epic_add_cube = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"},"dimensions":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"local_transform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}}},"required":["actor","name"]} as const;
+const S_epic_add_cylinder = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"},"radius":{"type":"number"},"height":{"type":"number"},"local_transform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}}},"required":["actor","name"]} as const;
+const S_epic_add_sphere = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"},"radius":{"type":"number"},"local_transform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}}},"required":["actor","name"]} as const;
+const S_epic_add_tag = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"tag":{"type":"string"}},"required":["actor","tag"]} as const;
+const S_epic_add_to_scene_from_asset = {"properties":{"asset_path":{"type":"string"},"name":{"type":"string"},"xform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}},"parent":{"type":"object","properties":{"refPath":{}}},"snap_to_ground":{"type":"boolean"}},"required":["asset_path","name","xform"]} as const;
+const S_epic_add_to_scene_from_class = {"properties":{"actor_type":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"},"xform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}},"parent":{"type":"object","properties":{"refPath":{}}},"snap_to_ground":{"type":"boolean"}},"required":["actor_type","name","xform"]} as const;
+const S_epic_can_edit = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_commit_level_instance = {"properties":{"level_instance":{"type":"object","properties":{"refPath":{}}},"discard":{"type":"boolean"}},"required":["level_instance"]} as const;
+const S_epic_create_level_instance = {"properties":{"level_path":{"type":"string"},"name":{"type":"string"},"xform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}},"parent":{"type":"object","properties":{"refPath":{}}}},"required":["level_path","name","xform"]} as const;
+const S_epic_delete_folder = {"properties":{"folder_path":{"type":"string"}},"required":["folder_path"]} as const;
+const S_epic_edit_level_instance = {"properties":{"level_instance":{"type":"object","properties":{"refPath":{}}}},"required":["level_instance"]} as const;
+const S_epic_find_actors = {"properties":{"root":{"type":"object","properties":{"refPath":{}}},"name":{"type":"string"},"actor_type":{"type":"object","properties":{"refPath":{}}},"tag":{"type":"string"},"bounds":{"type":"object","properties":{"min":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"max":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"isValid":{"type":"boolean"}}},"collision_channels":{"type":"array","items":{"type":"string","enum":["ObjectTypeQuery1","ObjectTypeQuery2","ObjectTypeQuery3","ObjectTypeQuery4","ObjectTypeQuery5","ObjectTypeQuery6","ObjectTypeQuery7","ObjectTypeQuery8","ObjectTypeQuery9","ObjectTypeQuery10","ObjectTypeQuery11","ObjectTypeQuery12","ObjectTypeQuery13","ObjectTypeQuery14","ObjectTypeQuery15","ObjectTypeQuery16","ObjectTypeQuery17","ObjectTypeQuery18","ObjectTypeQuery19","ObjectTypeQuery20","ObjectTypeQuery21","ObjectTypeQuery22","ObjectTypeQuery23","ObjectTypeQuery24","ObjectTypeQuery25","ObjectTypeQuery26","ObjectTypeQuery27","ObjectTypeQuery28","ObjectTypeQuery29","ObjectTypeQuery30","ObjectTypeQuery31","ObjectTypeQuery32","ObjectTypeQuery33","ObjectTypeQuery34","ObjectTypeQuery35","ObjectTypeQuery36","ObjectTypeQuery37","ObjectTypeQuery38","ObjectTypeQuery39","ObjectTypeQuery40","ObjectTypeQuery41","ObjectTypeQuery42","ObjectTypeQuery43","ObjectTypeQuery44","ObjectTypeQuery45","ObjectTypeQuery46","ObjectTypeQuery47","ObjectTypeQuery48","ObjectTypeQuery49","ObjectTypeQuery50","ObjectTypeQuery51","ObjectTypeQuery52","ObjectTypeQuery53","ObjectTypeQuery54","ObjectTypeQuery55","ObjectTypeQuery56","ObjectTypeQuery57","ObjectTypeQuery58","ObjectTypeQuery59","ObjectTypeQuery60","ObjectTypeQuery61","ObjectTypeQuery62","ObjectTypeQuery63","ObjectTypeQuery64"]}}},"required":["name","tag","collision_channels"]} as const;
+const S_epic_get_actor_bounds = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_get_actor_transform = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_get_actors_in_folder = {"properties":{"folder_path":{"type":"string"},"recursive":{"type":"boolean"}},"required":["folder_path"]} as const;
+const S_epic_get_collision_channels = {"properties":{}} as const;
+const S_epic_get_component_actor = {"properties":{"component":{"type":"object","properties":{"refPath":{}}}},"required":["component"]} as const;
+const S_epic_get_components = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"component_type":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_get_current_level = {"properties":{}} as const;
+const S_epic_get_folders = {"properties":{}} as const;
+const S_epic_get_label = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_get_parent_component = {"properties":{"component":{"type":"object","properties":{"refPath":{}}}},"required":["component"]} as const;
+const S_epic_get_root_component = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_get_tags = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_has_tag = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"tag":{"type":"string"}},"required":["actor","tag"]} as const;
+const S_epic_is_checked_out = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_load_level = {"properties":{"level_path":{"type":"string"}},"required":["level_path"]} as const;
+const S_epic_look_at = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"target":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}},"required":["actor","target"]} as const;
+const S_epic_merge_actors = {"properties":{"actors":{"type":"array","items":{"type":"object","properties":{"refPath":{}}}},"output_path":{"type":"string"},"name":{"type":"string"},"destroy_source_actors":{"type":"boolean"}},"required":["actors","output_path","name"]} as const;
+const S_epic_remove_component = {"properties":{"component":{"type":"object","properties":{"refPath":{}}}},"required":["component"]} as const;
+const S_epic_remove_from_scene = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_remove_tag = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"tag":{"type":"string"}},"required":["actor","tag"]} as const;
+const S_epic_rename_folder = {"properties":{"old_path":{"type":"string"},"new_path":{"type":"string"}},"required":["old_path","new_path"]} as const;
+const S_epic_save_actor = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}}},"required":["actor"]} as const;
+const S_epic_set_actor_folder = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"folder_path":{"type":"string"}},"required":["actor","folder_path"]} as const;
+const S_epic_set_actor_transform = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"xform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}},"worldspace":{"type":"boolean"}},"required":["actor","xform"]} as const;
+const S_epic_set_label = {"properties":{"actor":{"type":"object","properties":{"refPath":{}}},"label":{"type":"string"}},"required":["actor","label"]} as const;
+const S_epic_set_parent_component = {"properties":{"component":{"type":"object","properties":{"refPath":{}}},"parent":{"type":"object","properties":{"refPath":{}}}},"required":["component"]} as const;
+const S_epic_trace_world = {"properties":{"start":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"end":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}},"required":["start","end"]} as const;
+
+/** 41 wrapped engine tools routed to the `level` category. */
+export const actions: Record<string, ActionSpec> = {
+  epic_add_component: {
+    epicSchema: S_epic_add_component,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.add_component" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Adds a component to an actor instance or blueprint. Params: owner, component_type, name", "epic_call_tool"),
+  },
+  epic_add_cone: {
+    epicSchema: S_epic_add_cone,
+    epicTool: { toolset: "editor_toolset.toolsets.primitive.PrimitiveTools", name: "editor_toolset.toolsets.primitive.PrimitiveTools.add_cone" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.primitive.PrimitiveTools] Adds a cone-shaped StaticMeshComponent to an actor. Params: actor, name, radius?, height?, local_transform?", "epic_call_tool"),
+  },
+  epic_add_cube: {
+    epicSchema: S_epic_add_cube,
+    epicTool: { toolset: "editor_toolset.toolsets.primitive.PrimitiveTools", name: "editor_toolset.toolsets.primitive.PrimitiveTools.add_cube" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.primitive.PrimitiveTools] Adds a cube-shaped StaticMeshComponent to an actor. Params: actor, name, dimensions?, local_transform?", "epic_call_tool"),
+  },
+  epic_add_cylinder: {
+    epicSchema: S_epic_add_cylinder,
+    epicTool: { toolset: "editor_toolset.toolsets.primitive.PrimitiveTools", name: "editor_toolset.toolsets.primitive.PrimitiveTools.add_cylinder" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.primitive.PrimitiveTools] Adds a cylinder-shaped StaticMeshComponent to an actor. Params: actor, name, radius?, height?, local_transform?", "epic_call_tool"),
+  },
+  epic_add_sphere: {
+    epicSchema: S_epic_add_sphere,
+    epicTool: { toolset: "editor_toolset.toolsets.primitive.PrimitiveTools", name: "editor_toolset.toolsets.primitive.PrimitiveTools.add_sphere" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.primitive.PrimitiveTools] Adds a sphere-shaped StaticMeshComponent to an actor. Params: actor, name, radius?, local_transform?", "epic_call_tool"),
+  },
+  epic_add_tag: {
+    epicSchema: S_epic_add_tag,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.add_tag" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Adds a tag to an actor. Params: actor, tag", "epic_call_tool"),
+  },
+  epic_add_to_scene_from_asset: {
+    epicSchema: S_epic_add_to_scene_from_asset,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.add_to_scene_from_asset" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Creates a new actor in the scene from an asset. Params: asset_path, name, xform, parent?, snap_to_ground?", "epic_call_tool"),
+  },
+  epic_add_to_scene_from_class: {
+    epicSchema: S_epic_add_to_scene_from_class,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.add_to_scene_from_class" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Creates a new instance of the specified object at the specified transform. Params: actor_type, name, xform, parent?, snap_to_ground?", "epic_call_tool"),
+  },
+  epic_can_edit: {
+    epicSchema: S_epic_can_edit,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.can_edit" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Checks whether an actor can be edited. Params: actor", "epic_call_tool"),
+  },
+  epic_commit_level_instance: {
+    epicSchema: S_epic_commit_level_instance,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.commit_level_instance" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Saves or discards edits to a level instance and exits edit mode. Params: level_instance, discard?", "epic_call_tool"),
+  },
+  epic_create_level_instance: {
+    epicSchema: S_epic_create_level_instance,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.create_level_instance" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Creates a Level Instance actor in the scene referencing an existing level asset. Params: level_path, name, xform, parent?", "epic_call_tool"),
+  },
+  epic_delete_folder: {
+    epicSchema: S_epic_delete_folder,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.delete_folder" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Deletes a folder from the outliner. Actors directly in the folder are moved to the parent folder. Sub-folders and their actors are preserved by re-rooting them under the parent. For example, deleting 'Lighting' with a sub-folder 'Lighting/Spotlights' leaves 'Spotlights' intact under the parent. Params: folder_path", "epic_call_tool"),
+  },
+  epic_edit_level_instance: {
+    epicSchema: S_epic_edit_level_instance,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.edit_level_instance" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Opens a level instance for editing. While in edit mode, scene tools such as add_to_scene_from_class and remove_from_scene operate within the level instance's sub-level. Only one level instance can be in edit mode at a time. Call commit_level_instance when done to save or discard changes. Params: level_instance", "epic_call_tool"),
+  },
+  epic_find_actors: {
+    epicSchema: S_epic_find_actors,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.find_actors" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Searches the scene for actors that match specific criteria. Params: root?, name, actor_type?, tag, bounds?, collision_channels", "epic_call_tool"),
+  },
+  epic_get_actor_bounds: {
+    epicSchema: S_epic_get_actor_bounds,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_actor_bounds" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the bounding box of an actor. Params: actor", "epic_call_tool"),
+  },
+  epic_get_actor_transform: {
+    epicSchema: S_epic_get_actor_transform,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_actor_transform" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the position, rotation, and scale of an actor. Params: actor", "epic_call_tool"),
+  },
+  epic_get_actors_in_folder: {
+    epicSchema: S_epic_get_actors_in_folder,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.get_actors_in_folder" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Returns the actors in the specified outliner folder. Params: folder_path, recursive?", "epic_call_tool"),
+  },
+  epic_get_collision_channels: {
+    epicSchema: S_epic_get_collision_channels,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.get_collision_channels" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Returns all available collision channels for use with find_actors. Params: none", "epic_call_tool"),
+  },
+  epic_get_component_actor: {
+    epicSchema: S_epic_get_component_actor,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_component_actor" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the actor that owns the specified component. Params: component", "epic_call_tool"),
+  },
+  epic_get_components: {
+    epicSchema: S_epic_get_components,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_components" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the components that an actor contains. Params: actor, component_type?", "epic_call_tool"),
+  },
+  epic_get_current_level: {
+    epicSchema: S_epic_get_current_level,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.get_current_level" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Returns the path to the current level asset. Params: none", "epic_call_tool"),
+  },
+  epic_get_folders: {
+    epicSchema: S_epic_get_folders,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.get_folders" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Returns all folder paths currently in use in the outliner. Includes all intermediate parent paths. For example, if an actor is assigned to 'Lighting/Spotlights', both 'Lighting' and 'Lighting/Spotlights' are returned. Params: none", "epic_call_tool"),
+  },
+  epic_get_label: {
+    epicSchema: S_epic_get_label,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_label" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the actor's human friendly name as it appears in the editor. Params: actor", "epic_call_tool"),
+  },
+  epic_get_parent_component: {
+    epicSchema: S_epic_get_parent_component,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_parent_component" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the parent component that this component is attached to, if any. Params: component", "epic_call_tool"),
+  },
+  epic_get_root_component: {
+    epicSchema: S_epic_get_root_component,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_root_component" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the root component of an actor, if any. Params: actor", "epic_call_tool"),
+  },
+  epic_get_tags: {
+    epicSchema: S_epic_get_tags,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.get_tags" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns the list of tags on an actor. Params: actor", "epic_call_tool"),
+  },
+  epic_has_tag: {
+    epicSchema: S_epic_has_tag,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.has_tag" },
+    ...bp("read", "[Epic editor_toolset.toolsets.actor.ActorTools] Returns whether an actor has a specific tag. Params: actor, tag", "epic_call_tool"),
+  },
+  epic_is_checked_out: {
+    epicSchema: S_epic_is_checked_out,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.is_checked_out" },
+    ...bp("read", "[Epic editor_toolset.toolsets.scene.SceneTools] Checks whether an actor is checked out by the current user. Params: actor", "epic_call_tool"),
+  },
+  epic_load_level: {
+    epicSchema: S_epic_load_level,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.load_level" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Loads a level in the editor. Params: level_path", "epic_call_tool"),
+  },
+  epic_look_at: {
+    epicSchema: S_epic_look_at,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.look_at" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Rotates an actor so its forward vector points at a world-space position. Params: actor, target", "epic_call_tool"),
+  },
+  epic_merge_actors: {
+    epicSchema: S_epic_merge_actors,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.merge_actors" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Merges multiple StaticMesh actors into a single mesh asset and actor. Params: actors, output_path, name, destroy_source_actors?", "epic_call_tool"),
+  },
+  epic_remove_component: {
+    epicSchema: S_epic_remove_component,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.remove_component" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Removes a component from an actor instance or blueprint. Params: component", "epic_call_tool"),
+  },
+  epic_remove_from_scene: {
+    epicSchema: S_epic_remove_from_scene,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.remove_from_scene" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Deletes an actor from the scene. Params: actor", "epic_call_tool"),
+  },
+  epic_remove_tag: {
+    epicSchema: S_epic_remove_tag,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.remove_tag" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Removes a tag from an actor. Params: actor, tag", "epic_call_tool"),
+  },
+  epic_rename_folder: {
+    epicSchema: S_epic_rename_folder,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.rename_folder" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Renames a folder in the outliner. Updates the folder path for all actors in the folder and any sub-folders. For example, renaming 'Lighting' to 'Lights' also updates actors in 'Lighting/Spotlights' to 'Lights/Spotlights'. If the new path already exists then the affected actors will be merged into it. Params: old_path, new_path", "epic_call_tool"),
+  },
+  epic_save_actor: {
+    epicSchema: S_epic_save_actor,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.save_actor" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Saves the actor to disk. Params: actor", "epic_call_tool"),
+  },
+  epic_set_actor_folder: {
+    epicSchema: S_epic_set_actor_folder,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.set_actor_folder" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Assigns an actor to the specified folder in the outliner. Creates the folder implicitly if it does not already exist. Pass an empty string to move the actor to the root of the outliner. Params: actor, folder_path", "epic_call_tool"),
+  },
+  epic_set_actor_transform: {
+    epicSchema: S_epic_set_actor_transform,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.set_actor_transform" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Updates the position, rotation, and/or scale of an actor. Params: actor, xform, worldspace?", "epic_call_tool"),
+  },
+  epic_set_label: {
+    epicSchema: S_epic_set_label,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.set_label" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Sets the human-friendly name of the actor. Params: actor, label", "epic_call_tool"),
+  },
+  epic_set_parent_component: {
+    epicSchema: S_epic_set_parent_component,
+    epicTool: { toolset: "editor_toolset.toolsets.actor.ActorTools", name: "editor_toolset.toolsets.actor.ActorTools.set_parent_component" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.actor.ActorTools] Sets the parent for the specified scene component. For blueprint actors, passing a component as the parent of the root promotes it to the scene root, making the current root a child of it. If the current root is a DefaultSceneRoot, Unreal will automatically remove it. Params: component, parent?", "epic_call_tool"),
+  },
+  epic_trace_world: {
+    epicSchema: S_epic_trace_world,
+    epicTool: { toolset: "editor_toolset.toolsets.scene.SceneTools", name: "editor_toolset.toolsets.scene.SceneTools.trace_world" },
+    ...bp("mutate", "[Epic editor_toolset.toolsets.scene.SceneTools] Traces a line through the world and returns the distance to the first hit. Params: start, end", "epic_call_tool"),
+  },
+};
+
+/** The parameters those actions accept, declared so the MCP layer stops stripping them. */
+export const schema: Record<string, z.ZodType> = {
+  actor: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  actor_type: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  actors: z.array(z.unknown()).optional(),
+  asset_path: z.string().optional(),
+  bounds: z.record(z.string(), z.unknown()).optional(),
+  collision_channels: z.array(z.unknown()).optional(),
+  component: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  component_type: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  destroy_source_actors: z.boolean().optional(),
+  dimensions: z.record(z.string(), z.unknown()).optional(),
+  discard: z.boolean().optional(),
+  end: z.record(z.string(), z.unknown()).optional(),
+  folder_path: z.string().optional(),
+  height: z.number().optional(),
+  label: z.string().optional(),
+  level_instance: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  level_path: z.string().optional(),
+  local_transform: z.record(z.string(), z.unknown()).optional().describe("Represents a 3D transformation with optional location, rotation, and scale. Unset fields mean \"identity\" when creating objects and \"don't change\" when modifyin…"),
+  name: z.string().optional(),
+  new_path: z.string().optional(),
+  old_path: z.string().optional(),
+  output_path: z.string().optional(),
+  owner: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  parent: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  radius: z.number().optional(),
+  recursive: z.boolean().optional(),
+  root: z.union([z.string(), z.record(z.string(), z.unknown())]).optional().describe("Represents a reference to a UObject or UClass."),
+  snap_to_ground: z.boolean().optional(),
+  start: z.record(z.string(), z.unknown()).optional(),
+  tag: z.string().optional(),
+  target: z.record(z.string(), z.unknown()).optional(),
+  worldspace: z.boolean().optional(),
+  xform: z.record(z.string(), z.unknown()).optional().describe("Represents a 3D transformation with optional location, rotation, and scale. Unset fields mean \"identity\" when creating objects and \"don't change\" when modifyin…"),
+};

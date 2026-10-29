@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.rekklesna.proxmoxmcp-plus",
+  "type": "mcp",
+  "name": "Proxmoxmcp Plus",
+  "slug": "proxmoxmcp-plus",
+  "vendor": "rekklesna",
+  "description": "Use MCP and OpenAPI to safely control Proxmox VE VMs, LXCs, backups, and snapshots from LLMs and AI agents.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "automation",
+    "claude-desktop",
+    "homelab",
+    "lxc",
+    "model-context-protocol",
+    "open-webui",
+    "openapi",
+    "proxmox"
+  ],
+  "tags": [
+    "ai-agent",
+    "automation",
+    "claude-desktop",
+    "homelab",
+    "llm",
+    "lxc",
+    "mcp",
+    "model-context-protocol",
+    "open-webui",
+    "openapi",
+    "proxmox",
+    "qemu",
+    "virtualization"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "rekklesna",
+    "brandName": "rekklesna",
+    "source": "https://github.com/RekklesNA.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:32Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "RekklesNA/ProxmoxMCP-Plus",
+    "url": "https://github.com/RekklesNA/ProxmoxMCP-Plus",
+    "commit": "ab1fcf757f0f270e91072f546467578692cd7d7c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 624,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:22Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "proxmox-mcp-plus"
+    ],
+    "env": [
+      "MCP_API_KEY",
+      "PROXMOX_API_KEY",
+      "MCP_HOST",
+      "MCP_PORT",
+      "MCP_TRANSPORT",
+      "MCP_OAUTH_DATABASE_URL",
+      "MCP_ALLOWED_HOSTS",
+      "MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS",
+      "MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
+      "MCP_OAUTH_KEY_VERSION",
+      "PROXMOX_HOST",
+      "PROXMOX_TOKEN_NAME"
+    ],
+    "credentials": [
+      "MCP_API_KEY",
+      "PROXMOX_API_KEY",
+      "MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS",
+      "MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
+      "MCP_OAUTH_KEY_VERSION",
+      "PROXMOX_TOKEN_NAME",
+      "PROXMOX_TOKEN_VALUE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

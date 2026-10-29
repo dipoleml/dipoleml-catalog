@@ -1,0 +1,16 @@
+{
+  "name": "exa-mcp-server",
+  "displayName": "Exa MCP Server",
+  "version": "3.4.2",
+  "description": "Exa web search, content fetching, and multi-step research via MCP tools and skills.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Exa Labs"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/exa-labs/exa-mcp-server",
+  "repository": "https://github.com/exa-labs/exa-mcp-server",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

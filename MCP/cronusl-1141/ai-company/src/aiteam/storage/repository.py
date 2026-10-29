@@ -1,0 +1,9599 @@
+"""AI Team OS — Data persistence repository.
+
+StorageRepository is the unified entry point for all database operations.
+Upper-layer modules access data only through this interface.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import binascii
+import hashlib
+import hmac
+import json
+import logging
+from collections.abc import Collection
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, NamedTuple
+from uuid import NAMESPACE_URL, uuid4, uuid5
+
+from sqlalchemy import (
+    Integer,
+    and_,
+    bindparam,
+    case,
+    delete,
+    func,
+    literal,
+    literal_column,
+    or_,
+    select,
+    text,
+    true,
+    tuple_,
+)
+from sqlalchemy import String as SAString
+from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
+
+from aiteam.api.exceptions import NotFoundError
+from aiteam.clock import ensure_utc, utc_now
+from aiteam.services.agent_liveness import (
+    AUTO_CLOSE_KEY,
+    AUTO_OFFLINE_KEY,
+    automatic_close_at,
+    automatic_offline_at,
+    codex_owned_container,
+    source_activity_time,
+    with_auto_close,
+    with_auto_offline,
+    without_auto_close,
+    without_auto_offline,
+)
+from aiteam.services.usage_coverage import (
+    LEADER_ROLE,
+    WORKFLOW_SUBAGENT_ROLE,
+    classify_unattributed,
+    is_in_flight,
+)
+from aiteam.storage.connection import get_session
+from aiteam.storage.connection import init_db as _init_db
+from aiteam.storage.models import (
+    AgentActivityModel,
+    AgentModel,
+    ChannelMessageModel,
+    ChannelReadCursorModel,
+    CrossMessageModel,
+    EcosystemDataSourceModel,
+    EcosystemDeepReviewModel,
+    EcosystemIndexDiffModel,
+    EcosystemProjectSettingsModel,
+    EcosystemRelationModel,
+    EcosystemRepoEventModel,
+    EcosystemRepoProfileModel,
+    EcosystemRepoStatusSnapshotModel,
+    EcosystemRepoTagModel,
+    EcosystemScanProfileModel,
+    EcosystemScanRunModel,
+    EcosystemShallowBatchModel,
+    EcosystemStatusChangeModel,
+    EcosystemTagModel,
+    EventModel,
+    HookEventReceiptModel,
+    KnowledgeLinkModel,
+    LeaderBriefingModel,
+    MeetingMessageModel,
+    MeetingModel,
+    MemoryModel,
+    NoticeDeliveryModel,
+    NoticeModel,
+    PhaseModel,
+    ProjectModel,
+    ReportModel,
+    ScheduledTaskModel,
+    TaskCreateBatchModel,
+    TaskMemoModel,
+    TaskModel,
+    TeamModel,
+    WakeSessionModel,
+    WorkflowAgentModel,
+    WorkflowRunModel,
+)
+from aiteam.storage.utc_type import UtcDateTime
+from aiteam.surrogates import json_dumps
+from aiteam.types import (
+    AGENT_TASK_LINK_FROM_KIND,
+    AGENT_TASK_LINK_TO_KIND,
+    AGENT_TASK_LINK_TYPE,
+    STAGE_TO_STATUS,
+    Agent,
+    AgentActivity,
+    AgentStatus,
+    AttributionMethod,
+    AttributionScope,
+    ChannelInboxCursorExpiredError,
+    ChannelInboxPage,
+    ChannelMessage,
+    ChannelReadCursor,
+    CoverageNote,
+    CrossMessage,
+    DataSource,
+    DataSourceKind,
+    DispatchPopulation,
+    EcosystemDeepReview,
+    EcosystemDeepReviewStatus,
+    EcosystemIndexDiff,
+    EcosystemProjectSettings,
+    EcosystemRelation,
+    EcosystemRepoEvent,
+    EcosystemRepoProfile,
+    EcosystemRepoStatusSnapshot,
+    EcosystemRepoTag,
+    EcosystemScanRun,
+    EcosystemShallowBatch,
+    EcosystemStageStatus,
+    EcosystemStatusChange,
+    EcosystemTag,
+    EdgeCoverage,
+    Event,
+    EventType,
+    HarnessId,
+    KnowledgeLink,
+    LeaderBriefing,
+    Meeting,
+    MeetingMessage,
+    MeetingStatus,
+    Memory,
+    MemoryScope,
+    Notice,
+    NoticeDelivery,
+    NoticeStatus,
+    OrchestrationMode,
+    Phase,
+    PhaseStatus,
+    Project,
+    Report,
+    ScanProfile,
+    ScheduledTask,
+    Task,
+    TaskActivityRecord,
+    TaskHorizon,
+    TaskMemo,
+    TaskPriority,
+    TaskStatus,
+    Team,
+    TokenAttribution,
+    TokenMetric,
+    TokenSource,
+    UnattributedReason,
+    UsageCoverageReport,
+    UsageCoverageRow,
+    WakeSession,
+    WorkflowAgent,
+    WorkflowRun,
+    derive_status_from_stage,
+)
+
+# Workflow run 状态单调推进的秩序（upsert 时不许降级，见 upsert_workflow_run）。
+# killed/failed 与 completed 同为终态同秩：真实数据约 10% 的 run 以 killed/failed
+# 收尾（缺了它们会被永久卡在 running，并打破 reaper「无 running 即零 stat」短路）；
+# 同秩允许 resumeFromRunId 原地重写文件后 killed→completed 的合法转移（守卫取 >=）。
+_WF_STATUS_RANK: dict[str, int] = {
+    "planned": 0,
+    "running": 1,
+    "interrupted": 2,
+    "completed": 3,
+    "killed": 3,
+    "failed": 3,
+}
+
+
+# ---------------------------------------------------------------------------
+# token 用量归因的取数辅助（docs/token-attribution-v1-design.md 阶段 2）
+# ---------------------------------------------------------------------------
+
+
+def _worked_on_agents_subquery(task_id: str = ""):
+    """``agent --worked_on--> task`` 边的 from_id 集合；给 task_id 则只取该 task 的。"""
+    stmt = select(KnowledgeLinkModel.from_id).where(
+        KnowledgeLinkModel.from_kind == AGENT_TASK_LINK_FROM_KIND,
+        KnowledgeLinkModel.to_kind == AGENT_TASK_LINK_TO_KIND,
+        KnowledgeLinkModel.link_type == AGENT_TASK_LINK_TYPE,
+    )
+    if task_id:
+        stmt = stmt.where(KnowledgeLinkModel.to_id == task_id)
+    return stmt
+
+
+def _single_worked_on_agents_subquery():
+    """只在**一个** task 上留过账的 agent —— 也就是四层数能干净归到那个 task 的那些。
+
+    留过两个及以上的进不来：agents 五列是整个生命周期的一个合计，没有逐区间用量
+    可供按边的时间序切分。§2.4 定死此时如实计"task 级未归因"，**不做平均分摊**
+    —— 分摊会造出无法证伪的数字，比缺失更坏。
+    """
+    return (
+        _worked_on_agents_subquery()
+        .group_by(KnowledgeLinkModel.from_id)
+        .having(func.count(func.distinct(KnowledgeLinkModel.to_id)) == 1)
+    )
+
+
+def _apply_created_window(
+    stmt: Any,
+    since: datetime | None,
+    until: datetime | None,
+    model: Any = None,
+) -> Any:
+    """把查询窗口落在 ``created_at`` 上。
+
+    **不是 ``tokens_measured_at``**，这条不容商量：按测量时间落窗会让没测过的行
+    直接从分母里消失，覆盖率于是恒等于 100%（§4.1 / R2）。这是"分母被悄悄做假"
+    最容易发生、也最难事后察觉的一种形态 —— 数字会变好看，而且完全说得通。
+    """
+    column = (model or AgentModel).created_at
+    if since is not None:
+        stmt = stmt.where(column >= since)
+    if until is not None:
+        stmt = stmt.where(column < until)
+    return stmt
+
+# 覆盖率按 harness 分列时的"不过滤"哨兵。
+#
+# 为什么需要一个哨兵而不是直接用 None：``agents.harness`` 为 NULL 是一个**有意义的
+# 取值**（这一行没有标注 harness，多半是 Codex 接入之前写下的历史行），它自己就是
+# 一个桶。若拿 None 兼表"全部 harness"，"未标注桶"与"全库"会退化成同一个查询，
+# 分列呈现当场失去意义 —— 这正是 no-data 与具体取值必须分得开的老规矩。
+# ``HarnessId`` 是 StrEnum，"*" 永远不是它的合法取值，故可安全作哨兵。
+ANY_HARNESS: str = "*"
+
+
+def _apply_harness_filter(stmt: Any, harness: str | None) -> Any:
+    """按 harness 收窄查询；``ANY_HARNESS`` 表示不收窄，``None`` 表示只取未标注行。"""
+    if harness == ANY_HARNESS:
+        return stmt
+    if harness is None:
+        return stmt.where(AgentModel.harness.is_(None))
+    return stmt.where(AgentModel.harness == str(harness))
+
+
+# Terminal statuses (rank 3) — a run in any of these is finished. Kept in lockstep
+# with workflow_ingest._WF_TERMINAL_STATUSES.
+_WF_TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "killed", "failed"})
+
+# ------------------------------------------------------------------
+# Reserved identities — fake rows must not reach the real ledger
+# ------------------------------------------------------------------
+# Incident (2026-07-28): tests/unit/test_context_scripts.py runs the real
+# pre_compact_save.py hook as a subprocess with session_id="test-session".  The
+# hook falls back to localhost:8000 — the *production* instance — whenever the
+# port file is missing, which is exactly what an overridden HOME guarantees.  So
+# every test-suite run appended a fake checkpoint to the real ledger: 14 of the
+# 18 rows in that table were test residue, leaving 4 genuine ones.
+#
+# The guard sits at the single write entry rather than in the test, because the
+# test is only the currently-known caller — any script, smoke run or demo that
+# reaches a live API would do the same.  Prefix match (not substring) so ordinary
+# ids like "latest-run-7" are untouched.
+logger = logging.getLogger(__name__)
+
+RESERVED_ID_PREFIXES: tuple[str, ...] = ("test-", "demo-")
+
+# 一行 agent 是否携带 token 归因账。判据刻意宽：四层用量任意一层非零，**或**
+# 只是被测量过（``tokens_measured_at`` 有值）——测出来是 0 也是一次测量结果，
+# 与"从没测过"不是一回事（no-data != zero）。删掉这样一行等于把 transcript 已经
+# 解析出的数字永久抹掉：transcript 本身会随时间被清掉，重采是不可能的。
+_TOKEN_LEDGER_COLUMNS: tuple[str, ...] = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_tokens",
+    "cache_read_tokens",
+)
+
+
+def _carries_token_ledger(agent: Any) -> bool:
+    """True when this agent row holds token attribution that cannot be re-measured."""
+    if getattr(agent, "tokens_measured_at", None) is not None:
+        return True
+    return any((getattr(agent, col, None) or 0) > 0 for col in _TOKEN_LEDGER_COLUMNS)
+
+
+def _holds_unharvested_transcript(agent: Any) -> bool:
+    """True when this row is the only pointer to a transcript not yet harvested.
+
+    ``transcript_path`` 只记在 agent 行上：行一删，即使 transcript 还躺在磁盘上，
+    回采也永远找不到它——窗口静默关闭，与销毁已记账是同一失败模式，只是早一步。
+    文件已被 CC 清掉的行不受此保护：没有可采的东西，回落为普通 husk。
+    路径读不了（权限等）时取宽当作还在——宁可多留一行，不可误关窗口。
+    """
+    if getattr(agent, "tokens_measured_at", None) is not None:
+        return False
+    path = getattr(agent, "transcript_path", None)
+    if not path:
+        return False
+    try:
+        return Path(path).expanduser().exists()
+    except OSError:
+        return True
+
+# Payload keys that carry an identity worth guarding.
+_IDENTITY_KEYS: tuple[str, ...] = ("session_id", "task_id", "agent_id", "team_id")
+
+# 未读扫描的取回上限。SQL 侧只能做超集粗筛（mentions 是 JSON 列），精确判定在 Python
+# 侧，所以要给取回量一个天花板。命中上限时如实回报 truncated，不静默截断——"没提示"
+# 与"提示少算了"在用户那里长得一模一样，只有如实上报才分得开。
+_MENTION_SCAN_CAP: int = 2000
+
+
+def _encode_inbox_cursor(rowid: int, message_id: str, scope: dict[str, str]) -> str:
+    payload = {"v": 1, "rowid": rowid, "message_id": message_id, **scope}
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    cursor = base64.urlsafe_b64encode(encoded).decode().rstrip("=")
+    if len(cursor) > 4096:
+        raise ValueError("inbox scope is too large for cursor")
+    return cursor
+
+
+def _decode_inbox_cursor(cursor: str, scope: dict[str, str]) -> tuple[int, str]:
+    if len(cursor) > 4096:
+        raise ValueError("invalid_cursor")
+    try:
+        decoded = base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True)
+        payload = json.loads(decoded)
+    except (ValueError, binascii.Error, UnicodeError, RecursionError) as exc:
+        raise ValueError("invalid_cursor") from exc
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"v", "rowid", "message_id", *scope}
+        or type(payload["v"]) is not int or payload["v"] != 1
+        or type(payload["rowid"]) is not int or not 0 <= payload["rowid"] <= 2**63 - 1
+        or not isinstance(payload["message_id"], str)
+        or bool(payload["rowid"]) != bool(payload["message_id"])
+        or any(payload[key] != value for key, value in scope.items())
+    ):
+        raise ValueError("invalid_cursor")
+    return payload["rowid"], payload["message_id"]
+
+
+def _mention_candidates(name: str) -> frozenset[str]:
+    """一个收件人名对应的全部合法书写形态。
+
+    两种形态野外都存在：types.ChannelMessage 的注释历来写 "@name"，而真实调用方
+    （CC↔Codex 专线）写的是裸名。只认一种必然漏，所以两种都认。
+    """
+    stripped = name.lstrip("@")
+    return frozenset({stripped, f"@{stripped}"})
+
+
+def _mention_sql_filter(name: str):
+    """把「mentions 整值命中 name」下沉到 SQL —— 让 LIMIT 作用在真匹配上。
+
+    早先这里只做 LIKE 粗筛、精确匹配留给 Python，结果被 LIMIT 咬了一口：粗筛是超集，
+    较新的相似名（"leader-cc-2"）会先占满配额，把真匹配挤出结果集。实测 cap=2 时
+    1 条真实 + 2 条较新相似名 → 返回 0 条。这不是少算，是当成"没人叫你"。
+
+    json_each 逐元素比对，等价于 Python 侧 _mentions_hit 的整值语义（SQLite 3.38+，
+    仓库实测 3.53 可用）。两层都留着：SQL 决定取哪些行，Python 那层守住语义权威，
+    也接住 mentions 不是合法 JSON 数组的历史行。
+    """
+    bare = name.lstrip("@")
+    return text(
+        "EXISTS (SELECT 1 FROM json_each(channel_messages.mentions) "
+        "WHERE json_each.value IN (:mc_bare, :mc_at))"
+    ).bindparams(mc_bare=bare, mc_at=f"@{bare}")
+
+
+def _mentions_hit(mentions: Any, candidates: frozenset[str]) -> bool:
+    """mentions 列表是否**整值**命中候选集之一。
+
+    整值匹配不是洁癖：子串 contains 会让 "leader-cc" 命中 "leader-cc-2"，而 SQLite 的
+    LIKE 还对 ASCII 大小写不敏感、把 % 与 _ 当通配符。同款理由见 leader_briefings 的
+    tag 过滤（"release" 会匹到 "release-candidate"）。
+    """
+    if not isinstance(mentions, list):
+        return False
+    return any(isinstance(m, str) and m in candidates for m in mentions)
+
+
+def _first_line(content: str, limit: int = 80) -> str:
+    """取正文首行做摘要：够勾起去读的欲望，又不至于让人读完就不去读原文。"""
+    line = (content or "").strip().splitlines()[0] if (content or "").strip() else ""
+    return line[:limit]
+
+
+def _reserved_identity(data: dict, entity_id: str | None) -> str | None:
+    """Return the offending identity when a payload carries a reserved id."""
+    candidates: list[str] = [entity_id] if entity_id else []
+    if isinstance(data, dict):
+        candidates.extend(str(data[k]) for k in _IDENTITY_KEYS if isinstance(data.get(k), str))
+    for value in candidates:
+        lowered = value.lower()
+        if any(lowered.startswith(prefix) for prefix in RESERVED_ID_PREFIXES):
+            return value
+    return None
+
+# ------------------------------------------------------------------
+# Ecosystem claim lease (2026-07-27 queue-deadlock fix)
+# ------------------------------------------------------------------
+# A ``queued`` deep-review row is *reserved* the moment it is dispatched
+# (``claimed_by`` written inside the INSERT — D5) so ``tick`` dispatch and the
+# pull-based ``claim_next_shallow_repo`` can never grab the same row. That
+# reservation used to be **eternal**: when the dispatched sub-agent died without
+# advancing the stage, the row stayed ``queued + claimed`` forever, invisible to
+# every claimer (production: 74 rows wedged for 17 days, pending=0).
+#
+# The reservation is therefore a *lease*: after this TTL it expires and any
+# claimer may take the row over. Sized above every in-flight budget so a lease is
+# never stolen from a live worker — Stage 0 timeout is 600 s
+# (``STAGE0_TIMEOUT_SECONDS``) and the deep-review watchdog defaults to 45 min.
+STALE_CLAIM_TTL_SECONDS: int = 3600  # 60 min
+
+
+def _team_scope_clause(team_ids: list[str]):
+    """SQL predicate for "this event belongs to one of these teams".
+
+    Events do NOT carry a team_id column, and — measured on the live 229k-row
+    table — **zero** rows put a team id in ``entity_id``. The old predicate
+    (``entity_id IN team_ids``) therefore matched nothing at all, which silently
+    turned every team/project-scoped event query into an empty list.
+
+    Team membership is expressed four different ways depending on the emitter:
+      * team-level events  → ``source = 'team:<team_id>'``
+      * agent-level events → ``source = 'agent:<agent_id>'`` (intent stream)
+        or ``entity_id = <agent_id>`` with ``source='repository'`` (CRUD stream)
+      * task-level events  → ``entity_id = <task_id>``
+    All four are unioned here so the caller gets the team's real activity feed.
+    """
+    from sqlalchemy import literal
+
+    agent_ids = select(AgentModel.id).where(AgentModel.team_id.in_(team_ids))
+    task_ids = select(TaskModel.id).where(TaskModel.team_id.in_(team_ids))
+    agent_sources = select(literal("agent:") + AgentModel.id).where(
+        AgentModel.team_id.in_(team_ids)
+    )
+    team_sources = [f"team:{tid}" for tid in team_ids]
+    return or_(
+        EventModel.source.in_(team_sources),
+        EventModel.source.in_(agent_sources),
+        EventModel.entity_id.in_(team_ids),
+        EventModel.entity_id.in_(agent_ids),
+        EventModel.entity_id.in_(task_ids),
+    )
+
+
+def _project_session_event_clause(project_id: str):
+    """Resolve raw session events through current, unambiguous persisted bindings."""
+    effective_project = func.coalesce(
+        func.nullif(AgentModel.project_id, ""), func.nullif(TeamModel.project_id, ""),
+    )
+    session_sources = (
+        select(literal("session:") + AgentModel.session_id)
+        .select_from(AgentModel)
+        .outerjoin(TeamModel, TeamModel.id == AgentModel.team_id)
+        .where(AgentModel.session_id.is_not(None), AgentModel.session_id != "")
+        .group_by(AgentModel.session_id)
+        .having(func.count(func.distinct(effective_project)) == 1,
+                func.max(effective_project) == project_id)
+    )
+    return and_(
+        or_(EventModel.entity_id.is_(None), EventModel.entity_id == ""),
+        EventModel.source.in_(session_sources),
+    )
+
+
+def _project_event_scope_clause(project_id: str, team_ids: list[str]):
+    """Prefer a task's explicit project over team or event-source attribution.
+
+    Teamless tasks still have a project. Legacy tasks without a project fall
+    back to their team, while other event entities keep the existing team-based
+    paths. A known task entity must not re-enter through a team/agent source
+    when its explicit project disagrees with that source's project.
+    """
+    # Some task emitters (including task.status_changed) only put the primary
+    # task id in data. Never infer task ownership from unrelated event payloads,
+    # and never replace an explicit entity id with a secondary task reference.
+    task_entity_id = func.coalesce(
+        func.nullif(EventModel.entity_id, ""),
+        case((EventModel.type.like("task.%"), EventModel.data["task_id"].as_string())),
+    )
+    project_task_ids = select(TaskModel.id).where(
+        or_(
+            TaskModel.project_id == project_id,
+            and_(
+                or_(TaskModel.project_id.is_(None), TaskModel.project_id == ""),
+                TaskModel.team_id.in_(team_ids),
+            ),
+        )
+    )
+    is_task_entity = select(TaskModel.id).where(TaskModel.id == task_entity_id).exists()
+    return or_(
+        task_entity_id.in_(project_task_ids),
+        and_(~is_task_entity, or_(
+            _team_scope_clause(team_ids), _project_session_event_clause(project_id),
+        )),
+    )
+
+
+# update_agent 的"纯记账"字段集：改动只涉及这些字段时不落 agent.updated 事件。
+# 只有 last_active_at 在内 —— 它是心跳时间戳，写完列就完事，没有任何检测、页面
+# 或 API 从事件流里读它。ctx_* 水位一组（近 7 天占 agent.updated 的 6.1%）**刻意
+# 不在此列**：它们是可解释的状态变化（上下文涨了），留在事件流里有信息量。
+_SILENT_AGENT_UPDATE_FIELDS = frozenset({"last_active_at"})
+
+
+class WorkflowRunUpsert(NamedTuple):
+    """Result of :meth:`StorageRepository.upsert_workflow_run`.
+
+    ``became_completed`` / ``became_terminal`` report — atomically, within the same
+    transaction that read the old status and wrote the new one — whether *this* upsert
+    was the call that transitioned the run into ``completed`` / any terminal state. The
+    caller uses them for once-only event emission instead of a check-then-act read done
+    outside the write transaction (which raced across three un-serialised ingest
+    drivers → duplicate ``workflow.completed``; audit WP10).
+    """
+
+    run: WorkflowRun
+    became_completed: bool
+    became_terminal: bool
+
+
+class UsageRemeasureCandidate(NamedTuple):
+    """An offline CC sub-agent row the reaper may re-measure (see aiteam.api.usage_remeasure)."""
+
+    agent_id: str
+    cc_tool_use_id: str
+    session_id: str | None
+    stored_path: str | None
+    project_root: str | None
+    measured_at: datetime | None
+    last_active_at: datetime | None
+
+
+class HookReceiptClaim(NamedTuple):
+    """Result of :meth:`StorageRepository.claim_hook_receipt`.
+
+    ``claimed`` is True when this caller now owns the receipt and must handle the
+    event; ``token`` then identifies this ownership for completing or releasing it.
+    Otherwise ``response`` is what the first delivery returned, or None while that
+    delivery is still being handled.
+    """
+
+    claimed: bool
+    response: dict[str, Any] | None
+    token: datetime | None = None
+
+
+def _merge_wf_source(old: str | None, new: str | None) -> str:
+    """合并 workflow run 的数据面溯源标签：hook + file → 'hook+file'（保序去重）。"""
+    tokens: list[str] = []
+    for src in (old or "", new or ""):
+        for part in src.split("+"):
+            part = part.strip()
+            if part and part not in tokens:
+                tokens.append(part)
+    return "+".join(tokens) if tokens else (new or old or "")
+
+
+def _parse_memo_timestamp(raw: object) -> datetime:
+    """把旧 memo 的 timestamp 字符串解析成 datetime；无法解析时退回 now。"""
+    if isinstance(raw, str) and raw:
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            pass
+    return utc_now()
+
+
+def _task_memo_to_legacy(memo: TaskMemo) -> dict[str, Any]:
+    """把 TaskMemo 行转成旧 config['memo'] 数组元素形态（写入接口零改动）。
+
+    保留原有 timestamp/author/content/type 键，额外附真 id 便于引用/前端定位。
+    """
+    return {
+        "id": memo.id,
+        "timestamp": memo.created_at.isoformat() if memo.created_at else "",
+        "author": memo.author,
+        "content": memo.content,
+        "type": memo.memo_type,
+    }
+
+
+# The task wall's open statuses (aiteam.loop.task_wall_engine.OPEN_STATUSES).
+_OPEN_TASK_STATUSES = (
+    TaskStatus.PENDING.value, TaskStatus.RUNNING.value, TaskStatus.BLOCKED.value, TaskStatus.FAILED.value,
+)
+# Memos read per open task from before the digest's window: the latest few, since
+# one may be memory reconciliation's merge, which does not count as work.
+_OLDER_MEMOS_PER_TASK = 3
+
+
+def _open_wall_ids(project_id: str):
+    """Subquery: the ids of a project's open top-level tasks (what is on the wall)."""
+    return select(TaskModel.id).where(
+        TaskModel.project_id == project_id,
+        TaskModel.parent_id.is_(None),
+        TaskModel.status.in_(_OPEN_TASK_STATUSES),
+    )
+
+
+def _open_work_ids(project_id: str):
+    """Subquery: the open top-level tasks and their direct subtasks.
+
+    A pipeline parent stays running while its subtasks carry the work, so their
+    memos and status changes are the parent's activity.
+    """
+    open_ids = _open_wall_ids(project_id)
+    return select(TaskModel.id).where(or_(TaskModel.id.in_(open_ids), TaskModel.parent_id.in_(open_ids)))
+
+
+def task_status_events_stmt(project_id: str, closed_since: datetime):
+    """Status changes on the open tasks, their subtasks, and the tasks closed since ``closed_since``.
+
+    Completed tasks are otherwise described by their own row (completed_at), so their
+    history is never read. Only ``task.updated`` events whose ``changes`` list names
+    status; the filter runs in SQL so title, description and config edits never
+    reach Python. The type test is written ``+events.type``: the unary plus keeps
+    SQLite from picking ix_events_type, which scans every task.updated row once per
+    task (376ms on the 2026-09-29 library, 3.5ms through ix_events_entity_id). A
+    test pins the plan.
+    """
+    recently_closed = select(TaskModel.id).where(
+        TaskModel.project_id == project_id,
+        TaskModel.parent_id.is_(None),
+        TaskModel.status == TaskStatus.COMPLETED.value,
+        TaskModel.completed_at >= closed_since,
+    )
+    return (
+        select(EventModel.entity_id, EventModel.timestamp, EventModel.data, EventModel.state_snapshot)
+        .where(or_(EventModel.entity_id.in_(_open_work_ids(project_id)), EventModel.entity_id.in_(recently_closed)))
+        .where(text("+events.type = 'task.updated'"))
+        .where(text(
+            "json_valid(events.data) AND EXISTS "
+            "(SELECT 1 FROM json_each(events.data, '$.changes') WHERE json_each.value = 'status')"
+        ))
+    )
+
+
+def window_task_memos_stmt(project_id: str, since: datetime):
+    """Every memo written since ``since`` on the open tasks and their subtasks.
+
+    One idx_memos_task_created range per task: the rows follow the open tasks and
+    the recent writing rate, however many memos came before.
+    """
+    return select(
+        TaskMemoModel.task_id, TaskMemoModel.author, TaskMemoModel.memo_type, TaskMemoModel.created_at,
+    ).where(TaskMemoModel.task_id.in_(_open_work_ids(project_id)), TaskMemoModel.created_at >= since)
+
+
+def older_task_memos_stmt(project_id: str, since: datetime):
+    """The latest few memos from before ``since`` of each open task and subtask.
+
+    Walks idx_memos_task_created backwards from ``since`` and stops after
+    _OLDER_MEMOS_PER_TASK rows per task, so it never reads a task's whole history.
+    """
+    return text(
+        "WITH wall AS (SELECT id FROM tasks WHERE project_id = :project_id AND parent_id IS NULL"
+        " AND status IN ('pending', 'running', 'blocked', 'failed')),"
+        " work AS (SELECT id FROM wall UNION SELECT id FROM tasks WHERE parent_id IN (SELECT id FROM wall))"
+        " SELECT m.task_id, m.author, m.memo_type, m.created_at FROM work"
+        " JOIN task_memos AS m ON m.rowid IN (SELECT o.rowid FROM task_memos AS o"
+        " WHERE o.task_id = work.id AND o.created_at < :since ORDER BY o.created_at DESC LIMIT :per_task)"
+    ).bindparams(
+        bindparam("project_id", project_id),
+        bindparam("since", since, type_=UtcDateTime),
+        bindparam("per_task", _OLDER_MEMOS_PER_TASK),
+    ).columns(
+        task_id=SAString, author=SAString, memo_type=SAString, created_at=UtcDateTime,
+    )
+
+
+def _release_lease_sync(db_file: str, sql: str, params: dict[str, Any], lock_wait: float) -> bool:
+    """Run the lease release on its own stdlib connection whose busy timeout is ``lock_wait``.
+
+    Bypassing the engine also bypasses its JSON serializer, the storage layer's one
+    place lone surrogates are replaced (aiteam.surrogates). That does not matter
+    here: governance_lease has no JSON column, and the values written are plain
+    strings built by this process ('' , an ISO timestamp, the holder "api-<pid>").
+    """
+    import sqlite3
+
+    con = sqlite3.connect(db_file, timeout=lock_wait)
+    try:
+        cursor = con.execute(sql, params)
+        con.commit()
+        return cursor.rowcount > 0
+    finally:
+        con.close()
+
+
+class StorageRepository:
+    """Data persistence repository — unified data access interface."""
+
+    def __init__(
+        self,
+        db_url: str | None = None,
+        project_scope: str = "",
+        unresolved_dir: str = "",
+    ) -> None:
+        self._db_url = db_url
+        self._project_scope = project_scope  # Current project ID; empty = no filtering
+        # Unregistered-dir cwd: carried through when X-Project-Dir did not resolve
+        # to a project, so direction-memory scoping can bucket by a dir fingerprint
+        # instead of silently falling back to the global "system" bucket. NEVER used
+        # for project_id table filtering — it is a memory-scope-only concern.
+        self._unresolved_dir = unresolved_dir
+
+    def _apply_project_filter(self, query: Any, model_class: Any) -> Any:
+        """Auto-apply project_id filter if project_scope is set and model has project_id."""
+        if self._project_scope and hasattr(model_class, "project_id"):
+            query = query.where(model_class.project_id == self._project_scope)
+        return query
+
+    async def init_db(self) -> None:
+        """Initialize database (create tables / run migrations)."""
+        await _init_db(self._db_url)
+
+    # ================================================================
+    # Projects
+    # ================================================================
+
+    async def create_project(
+        self,
+        name: str,
+        root_path: str = "",
+        description: str = "",
+        config: dict | None = None,
+    ) -> Project:
+        """Create a project."""
+        project = Project(
+            name=name,
+            root_path=root_path,
+            description=description,
+            config=config or {},
+        )
+        orm = ProjectModel.from_pydantic(project)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return project
+
+    async def get_project(self, project_id: str) -> Project | None:
+        """Get a project by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ProjectModel).where(ProjectModel.id == project_id)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_projects(self) -> list[Project]:
+        """List all projects."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ProjectModel).order_by(ProjectModel.created_at.desc())
+            )
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def update_project(self, project_id: str, **kwargs: object) -> Project | None:
+        """Update project information.
+
+        A new ``config`` replaces the old one except for its ``memory`` subtree, which
+        the system writes (last_reconcile_at, the reconcile lease): supplied memory keys
+        are merged over the stored ones, so a config edit cannot drop a lease in flight.
+        The ``memory`` subtree therefore cannot be removed through this path; a single
+        key can still be overwritten, e.g. ``{"memory": {"reconcile_lease": None}}``
+        clears a lease by hand.
+        """
+        async with get_session(self._db_url) as session:
+            if "config" in kwargs:
+                row = await self._locked_project_row(session, project_id)
+            else:
+                result = await session.execute(
+                    select(ProjectModel).where(ProjectModel.id == project_id)
+                )
+                row = result.scalar_one_or_none()
+            if row is None:
+                return None
+
+            if "config" in kwargs:
+                incoming = dict(kwargs["config"] or {})
+                stored_memory = (row.config or {}).get("memory") if isinstance(row.config, dict) else None
+                if isinstance(stored_memory, dict):
+                    supplied = incoming.get("memory")
+                    incoming["memory"] = {
+                        **stored_memory,
+                        **(supplied if isinstance(supplied, dict) else {}),
+                    }
+                kwargs["config"] = incoming
+
+            kwargs["updated_at"] = utc_now()
+
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+
+            return row.to_pydantic()
+
+    async def delete_project(self, project_id: str) -> bool:
+        """Delete a project and the data filed under it; agent rows are kept.
+
+        Agent rows are the audit trail and carry the token attribution that
+        SubagentStop parsed from transcripts which may since be gone, so they cannot
+        be rebuilt. They stay behind with a team_id that no longer resolves, the
+        same way ``delete_team`` leaves them.
+        """
+        async with get_session(self._db_url) as session:
+            # Check project exists
+            proj = await session.get(ProjectModel, project_id)
+            if not proj:
+                return False
+
+            # Cascade: delete meeting messages for project meetings
+            meeting_ids_stmt = select(MeetingModel.id).where(MeetingModel.project_id == project_id)
+            await session.execute(
+                delete(MeetingMessageModel).where(
+                    MeetingMessageModel.meeting_id.in_(meeting_ids_stmt)
+                )
+            )
+            # Cascade: meetings
+            await session.execute(delete(MeetingModel).where(MeetingModel.project_id == project_id))
+            # Cascade: task memos（先于 tasks 删——task_id 子查询兜底需 tasks 仍在；
+            # project_id 直删 + 子查询覆盖 project_id 为空的历史行）
+            task_ids_stmt = select(TaskModel.id).where(TaskModel.project_id == project_id)
+            await session.execute(
+                delete(TaskMemoModel).where(
+                    (TaskMemoModel.project_id == project_id)
+                    | (TaskMemoModel.task_id.in_(task_ids_stmt))
+                )
+            )
+            # Cascade: tasks (includes subtasks via project_id)
+            # Batch receipts only hold creation idempotency keys/IDs, not token
+            # measurements. Their project no longer exists; usage-carrying agent
+            # rows and external execution receipts retain their existing protection.
+            await session.execute(delete(TaskCreateBatchModel).where(TaskCreateBatchModel.project_id == project_id))
+            await session.execute(delete(TaskModel).where(TaskModel.project_id == project_id))
+            # 团队 id 必须**在删 teams 行之前取实**：下面 team 记忆 / events 两处都按
+            # 它清理，若沿用惰性子查询，teams 删掉后子查询恒空——events 那处就一直在
+            # 清了个寂寞（2026-07-27 批 3 实测复现）。
+            team_ids = list(
+                (
+                    await session.execute(
+                        select(TeamModel.id).where(TeamModel.project_id == project_id)
+                    )
+                ).scalars()
+            )
+            # agents 行不删：审计留痕，token 归因记在这些行上，删了不可重建。
+            # Cascade: teams
+            await session.execute(delete(TeamModel).where(TeamModel.project_id == project_id))
+            # Cascade: phases
+            await session.execute(delete(PhaseModel).where(PhaseModel.project_id == project_id))
+            # Cascade: reports
+            await session.execute(delete(ReportModel).where(ReportModel.project_id == project_id))
+            # Cascade: briefings
+            await session.execute(delete(LeaderBriefingModel).where(LeaderBriefingModel.project_id == project_id))
+            # Cascade: memories (project-scoped)
+            await session.execute(
+                delete(MemoryModel).where(
+                    (MemoryModel.scope == "project") & (MemoryModel.scope_id == project_id)
+                )
+            )
+            # Cascade: memories (team-scoped)——团队知识 scope='team' + scope_id=<team_id>。
+            # 漏删它们正是孤儿记忆的直接成因：teams 行没了，这些条目 scope_id 指向不
+            # 存在的团队，从此既查不出也删不掉（历史孤儿另议，此处只堵住新增）。
+            if team_ids:
+                await session.execute(
+                    delete(MemoryModel).where(
+                        (MemoryModel.scope == "team") & (MemoryModel.scope_id.in_(team_ids))
+                    )
+                )
+            # Cascade: cross-project messages
+            await session.execute(
+                delete(CrossMessageModel).where(
+                    (CrossMessageModel.from_project_id == project_id)
+                    | (CrossMessageModel.to_project_id == project_id)
+                )
+            )
+            # Cascade: events for project teams（events 无 team_id 列——
+            # 事件按 entity_id 关联团队，见 list_events 同款用法；此处曾写
+            # EventModel.team_id 致 project_delete 恒 500，2026-07-08 实测）
+            if team_ids:
+                await session.execute(
+                    delete(EventModel).where(EventModel.entity_id.in_(team_ids))
+                )
+            # Finally: delete project itself
+            await session.execute(delete(ProjectModel).where(ProjectModel.id == project_id))
+            return True
+
+    async def get_project_by_root_path(self, root_path: str) -> Project | None:
+        """Get a project by root_path."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ProjectModel).where(ProjectModel.root_path == root_path)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    # ================================================================
+    # Phases
+    # ================================================================
+
+    async def create_phase(
+        self,
+        project_id: str,
+        name: str,
+        description: str = "",
+        order: int = 0,
+        config: dict | None = None,
+    ) -> Phase:
+        """Create a phase."""
+        phase = Phase(
+            project_id=project_id,
+            name=name,
+            description=description,
+            order=order,
+            config=config or {},
+        )
+        orm = PhaseModel.from_pydantic(phase)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return phase
+
+    async def get_phase(self, phase_id: str) -> Phase | None:
+        """Get a phase by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(PhaseModel).where(PhaseModel.id == phase_id))
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_phases(self, project_id: str) -> list[Phase]:
+        """List all phases under a project, sorted by order."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(PhaseModel)
+                .where(PhaseModel.project_id == project_id)
+                .order_by(PhaseModel.order, PhaseModel.created_at)
+            )
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def update_phase(self, phase_id: str, **kwargs: object) -> Phase | None:
+        """Update phase information."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(PhaseModel).where(PhaseModel.id == phase_id))
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+
+            # Handle status field: convert to string value
+            if "status" in kwargs:
+                status_val = kwargs["status"]
+                if isinstance(status_val, PhaseStatus):
+                    kwargs["status"] = status_val.value
+                elif isinstance(status_val, str):
+                    PhaseStatus(status_val)
+
+            kwargs["updated_at"] = utc_now()
+
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+
+            return row.to_pydantic()
+
+    async def delete_phase(self, phase_id: str) -> bool:
+        """Delete a phase."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(delete(PhaseModel).where(PhaseModel.id == phase_id))
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    async def get_active_phase(self, project_id: str) -> Phase | None:
+        """Get the currently active phase of a project."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(PhaseModel).where(
+                    PhaseModel.project_id == project_id,
+                    PhaseModel.status == PhaseStatus.ACTIVE.value,
+                )
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def deactivate_phases(self, project_id: str) -> int:
+        """Set all active phases under a project to completed."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(PhaseModel).where(
+                    PhaseModel.project_id == project_id,
+                    PhaseModel.status == PhaseStatus.ACTIVE.value,
+                )
+            )
+            rows = result.scalars().all()
+            for row in rows:
+                row.status = PhaseStatus.COMPLETED.value
+                row.updated_at = utc_now()
+            return len(rows)
+
+    # ================================================================
+    # Teams
+    # ================================================================
+
+    async def create_team(
+        self,
+        name: str,
+        mode: str,
+        config: dict | None = None,
+        **kwargs: Any,
+    ) -> Team:
+        """Create a team."""
+        # Auto-fill project_id from scope if not explicitly provided
+        effective_project_id = kwargs.get("project_id") or (self._project_scope or None)
+        team = Team(
+            name=name,
+            mode=OrchestrationMode(mode),
+            config=without_auto_close(config or {}),
+            project_id=effective_project_id,
+            leader_agent_id=kwargs.get("leader_agent_id"),
+        )
+        orm = TeamModel.from_pydantic(team)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return team
+
+    async def get_or_create_team(
+        self,
+        name: str,
+        mode: str,
+        config: dict | None = None,
+        **kwargs: Any,
+    ) -> tuple[Team, bool]:
+        """Race-safe find-or-create by unique team name. Returns (team, created).
+
+        Concurrent hook events can both miss ``get_team_by_name`` and then race the
+        INSERT; ``teams.name`` UNIQUE makes the loser raise IntegrityError (an
+        uncaught 500 that drops the hook event — 2026-07-21 session-e713a6cb).
+        Symmetric to the agents ``cc_tool_use_id`` B1 fix (4f508bd): swallow the
+        conflict and re-fetch the winner's row. Callers gate post-create side
+        effects (event emit / project link / member migration) on ``created``.
+        """
+        existing = await self.get_team_by_name(name)
+        if existing is not None:
+            return existing, False
+        try:
+            team = await self.create_team(name, mode, config=config, **kwargs)
+            return team, True
+        except IntegrityError:
+            # Lost the create race — the winner's row is now committed; re-fetch it.
+            # A non-name integrity error would re-fetch None, so re-raise then.
+            existing = await self.get_team_by_name(name)
+            if existing is None:
+                raise
+            return existing, False
+
+    async def get_team(self, team_id: str) -> Team | None:
+        """Get a team by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(TeamModel).where(TeamModel.id == team_id))
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def get_team_by_name(self, name: str) -> Team | None:
+        """Get a team by name."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(TeamModel).where(TeamModel.name == name))
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_teams(self) -> list[Team]:
+        """List all teams."""
+        async with get_session(self._db_url) as session:
+            stmt = select(TeamModel).order_by(TeamModel.created_at.desc())
+            stmt = self._apply_project_filter(stmt, TeamModel)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def list_teams_by_project(self, project_id: str) -> list[Team]:
+        """List all teams under a project."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(TeamModel)
+                .where(TeamModel.project_id == project_id)
+                .order_by(TeamModel.created_at.desc())
+            )
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def repair_team_project_attribution(
+        self,
+        *,
+        dry_run: bool = True,
+        limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """列出（或修正）项目归属与「队内 Leader 行」矛盾的团队及其成员。
+
+        清账对象是 2026-07-27 之前 ``deps._auto_create_projects`` 用 **API 进程
+        cwd** 批量认领孤儿队留下的错行：队被记成服务器启动目录所在的项目，而队内
+        Leader 行（会话开启时按本会话 cwd 锁定）指向另一个项目。agent 行由
+        ``_on_subagent_start`` 顺着队继承，于是一并错。
+
+        判据保守——只在**同队 Leader 行有明确 project_id 且与队不一致**时才算错
+        账。无 Leader、Leader 未绑项目、kind=workflow（归属由观测层按落盘 slug
+        回填）一律不动：宁可留着无主，也不再猜一次。
+
+        Returns a row per affected team with ``agents_fixed`` counting the member
+        rows realigned alongside it. Writes nothing when ``dry_run`` is True.
+        """
+        findings: list[dict[str, Any]] = []
+        async with get_session(self._db_url) as session:
+            teams = (await session.execute(select(TeamModel).limit(limit))).scalars().all()
+            for team in teams:
+                if (team.config or {}).get("kind") == "workflow":
+                    continue
+                members = (
+                    (
+                        await session.execute(
+                            select(AgentModel).where(AgentModel.team_id == team.id)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                authoritative = next(
+                    (a.project_id for a in members if a.role == "leader" and a.project_id),
+                    None,
+                )
+                if not authoritative or authoritative == team.project_id:
+                    continue
+                stale_members = [
+                    a for a in members if a.role != "leader" and a.project_id != authoritative
+                ]
+                findings.append(
+                    {
+                        "team_id": team.id,
+                        "team_name": team.name,
+                        "from_project_id": team.project_id,
+                        "to_project_id": authoritative,
+                        "agents_fixed": len(stale_members),
+                    }
+                )
+                if not dry_run:
+                    team.project_id = authoritative
+                    team.updated_at = utc_now()
+                    for a in stale_members:
+                        a.project_id = authoritative
+        return findings
+
+    async def find_active_team_by_leader(self, leader_agent_id: str) -> Team | None:
+        """Find the active team currently led by a Leader."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(TeamModel)
+                .where(TeamModel.leader_agent_id == leader_agent_id)
+                .where(TeamModel.status == "active")
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def find_leader_by_project(self, project_id: str) -> Agent | None:
+        """Find the Leader agent for a project (role=leader + project_id match)."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(AgentModel)
+                .where(AgentModel.project_id == project_id)
+                .where(AgentModel.role == "leader")
+                .order_by(AgentModel.created_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def update_team(self, team_id: str, **kwargs: object) -> Team:
+        """Update team information."""
+        if "mode" in kwargs:
+            mode_val = kwargs["mode"]
+            if isinstance(mode_val, OrchestrationMode):
+                kwargs["mode"] = mode_val.value
+            elif isinstance(mode_val, str):
+                OrchestrationMode(mode_val)
+        kwargs["updated_at"] = utc_now()
+        values = {key: value for key, value in kwargs.items() if key in TeamModel.__table__.columns}
+        revoke = bool(set(values) & {"status", "config", "name", "project_id", "leader_agent_id"})
+        if "config" in values:
+            if isinstance(values["config"], dict):
+                values["config"] = without_auto_close(values["config"])
+        elif revoke:
+            values["config"] = func.json_remove(
+                func.coalesce(TeamModel.config, literal("{}")), f"$.{AUTO_CLOSE_KEY}",
+            )
+        closed_roots = []
+        async with get_session(self._db_url) as session:
+            if str(kwargs.get("status")) == "completed":
+                # docs/codex-leader-liveness-design.md: normalize the CURRENT old
+                # owner under the write lock, before this same call can rebind it.
+                closed_roots = list((await session.execute(sa_update(AgentModel).where(
+                    AgentModel.team_id == team_id,
+                    *self._exact_codex_owner_predicates(),
+                ).values(status="offline", current_task=None, config=func.json_remove(
+                    func.coalesce(AgentModel.config, literal("{}")), f"$.{AUTO_OFFLINE_KEY}",
+                )).returning(AgentModel))).scalars())
+            statement = sa_update(TeamModel).where(TeamModel.id == team_id).values(
+                **values,
+            ).returning(TeamModel)
+            row = (await session.execute(statement)).scalar_one_or_none()
+            if row is None:
+                msg = f"团队 {team_id} 不存在"
+                raise NotFoundError(msg)
+            if revoke:
+                # Preserve the old non-active whole-roster revocation. Metadata
+                # edits and same-value active writes affect only Codex roots.
+                all_members = "status" in kwargs and str(kwargs["status"]) != "active"
+                roots_only = () if all_members else (
+                    AgentModel.role == "leader", AgentModel.source == "hook",
+                    AgentModel.harness == "codex", AgentModel.session_id.is_not(None),
+                    AgentModel.cc_tool_use_id == AgentModel.session_id,
+                )
+                await session.execute(sa_update(AgentModel).where(
+                    AgentModel.team_id == team_id, *roots_only,
+                    func.json_type(AgentModel.config, f"$.{AUTO_OFFLINE_KEY}").is_not(None),
+                ).values(config=func.json_remove(AgentModel.config, f"$.{AUTO_OFFLINE_KEY}")))
+            updated = row.to_pydantic()
+            closed = [root.to_pydantic() for root in closed_roots]
+        for root in closed:
+            await self.create_event(
+                "agent.updated", "repository", {"agent_id": root.id, "team_id": team_id,
+                    "changes": ["status", "current_task", "config"], "reason": "codex_owner_manual_team_close"},
+                entity_id=root.id, entity_type="agent", state_snapshot={"status": "offline", "name": root.name},
+            )
+        return updated
+
+    async def delete_team(self, team_id: str) -> bool:
+        """Delete a team."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(delete(TeamModel).where(TeamModel.id == team_id))
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    # 一支容器队的"实质记录"清单：挂着其中任何一样，这支队就不是空壳，永不清理。
+    # 每一项都是用户还可能去看的东西，宁可让空壳多留几支，也不删掉一份记录。
+    _CONTAINER_KEEP_IF_ANY: tuple[tuple[Any, str], ...] = (
+        (TaskModel, "team_id"),
+        (MeetingModel, "team_id"),
+        (ReportModel, "team_id"),
+        (ScheduledTaskModel, "team_id"),
+        (WakeSessionModel, "team_id"),
+        (WorkflowRunModel, "team_id"),
+    )
+
+    async def purge_stale_session_containers(
+        self,
+        *,
+        retention_days: int = 7,
+        limit: int = 20,
+        dry_run: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Delete spent ``session-<sid8>`` container teams and their roster.
+
+        A CC session owns exactly one container team and never reuses another's
+        (fleet layer section 3), so a long-running CC process leaves one completed
+        husk behind per session it starts. They are not an accounting error — the
+        user ruled (2026-07-27) that one team per session is the correct model and
+        that the husks should simply be swept up periodically.
+
+        Deletion is deliberately hard to earn. A team is purged only when it is a
+        container by BOTH markers (``config.kind == "session"`` and the
+        ``session-`` name), is already ``completed``, has aged past
+        ``retention_days``, has no busy or recently active member, has no member
+        holding a token ledger, an unharvested transcript, an attribution-exclusion
+        mark or an outgoing ``knowledge_links`` edge, and carries none of
+        ``_CONTAINER_KEEP_IF_ANY``.
+        Age comes from ``completed_at`` when present
+        and falls back to ``updated_at`` / ``created_at`` — the close paths do not
+        all stamp ``completed_at`` (13 of 13 purge candidates had it NULL in the
+        2026-07-27 production reading).
+
+        The roster goes with the team: members and their activity rows are removed
+        in the same transaction, since neither means anything once the team is gone
+        and this repository has no FK cascades (see ``delete_project``).
+
+        ``retention_days <= 0`` disables the purge outright. Returns one summary
+        row per purged team; with ``dry_run`` it returns the same rows and writes
+        nothing.
+        """
+        if retention_days <= 0 or limit <= 0:
+            return []
+
+        now = utc_now()
+        cutoff = now - timedelta(days=retention_days)
+        age_basis = func.coalesce(
+            TeamModel.completed_at, TeamModel.updated_at, TeamModel.created_at
+        )
+        purged: list[dict[str, Any]] = []
+
+        async with get_session(self._db_url) as session:
+            candidates = (
+                (
+                    await session.execute(
+                        select(TeamModel)
+                        .where(
+                            TeamModel.status == "completed",
+                            TeamModel.name.like("session-%"),
+                            age_basis < cutoff,
+                        )
+                        .order_by(age_basis)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            for team in candidates:
+                if (team.config or {}).get("kind") != "session":
+                    continue
+
+                members = (
+                    (
+                        await session.execute(
+                            select(AgentModel).where(AgentModel.team_id == team.id)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                # 成员还在忙 / 刚活跃过 = 这支队还在用，比队上任何时间戳都硬。
+                if any(m.status == "busy" for m in members):
+                    continue
+                if any(m.last_active_at and m.last_active_at >= cutoff for m in members):
+                    continue
+                # 成员行上挂着用量账，或还指着一份没采过账、仍在磁盘上的 transcript
+                # = 永不清理。这道闸与上面六张表的判据不同：那些问"这支队挂着谁还会去
+                # 看的记录"，这一条问"删掉这些行会不会毁掉再也采不回来的数据"。token
+                # 五列是 transcript 解析出来的，路径又只记在行自己身上——行没了，账与
+                # 回采窗口一起永久消失，不像任务/报告还能从别处重建。
+                # 时序是这个缺口的根因：purge 随 v1.11.0（2026-07-27）上线，token 五列
+                # 直到 v1.11.1（2026-07-29）才落到 agents 行上，清理闸从未回头补这一条。
+                if any(
+                    _carries_token_ledger(m) or _holds_unharvested_transcript(m)
+                    for m in members
+                ):
+                    continue
+                # 打了归因排除标记的成员行 = 永不清理。标记是"这一行不是真实派工/会话"
+                # 的审计结论（按用户 09-30 的裁定：行不删、打标留痕），页面上"已排除 N 条"
+                # 数的就是它们；行被清掉，这份留痕与那个数一起悄悄消失。
+                if any(m.attribution_exclusion is not None for m in members):
+                    continue
+
+                member_ids = [m.id for m in members]
+                # 成员行是某条 agent 出边（今天只有 worked_on）的起点 = 永不清理。
+                # knowledge_links 是 append-only，边不随行删除：行一没，边就悬空，
+                # agent->task 归因永久断开，连"这个空壳是哪次会话的"这条重指线索也
+                # 一起丢掉（清理事件只留 8 位队名）。实录（2026-09-30）：resume 后 MCP
+                # 带的是启动时的一次性会话 id，Leader 的边全绑到空壳 Leader 行上，
+                # 316 条 worked_on 边里 281 条已随清理悬空。
+                if member_ids:
+                    linked = (
+                        await session.execute(
+                            select(func.count())
+                            .select_from(KnowledgeLinkModel)
+                            .where(
+                                KnowledgeLinkModel.from_kind == AGENT_TASK_LINK_FROM_KIND,
+                                KnowledgeLinkModel.from_id.in_(member_ids),
+                            )
+                        )
+                    ).scalar_one()
+                    if linked:
+                        continue
+
+                has_records = False
+                for model, column in self._CONTAINER_KEEP_IF_ANY:
+                    count = (
+                        await session.execute(
+                            select(func.count())
+                            .select_from(model)
+                            .where(getattr(model, column) == team.id)
+                        )
+                    ).scalar_one()
+                    if count:
+                        has_records = True
+                        break
+                if has_records:
+                    continue
+
+                activities = 0
+                if member_ids:
+                    activities = (
+                        await session.execute(
+                            select(func.count())
+                            .select_from(AgentActivityModel)
+                            .where(AgentActivityModel.agent_id.in_(member_ids))
+                        )
+                    ).scalar_one()
+
+                purged.append(
+                    {
+                        "team_id": team.id,
+                        "name": team.name,
+                        "project_id": team.project_id,
+                        "agents_deleted": len(member_ids),
+                        "activities_deleted": activities,
+                        "age_days": round(
+                            (
+                                now
+                                - (team.completed_at or team.updated_at or team.created_at)
+                            ).total_seconds()
+                            / 86400,
+                            1,
+                        ),
+                    }
+                )
+
+                if not dry_run:
+                    if member_ids:
+                        await session.execute(
+                            delete(AgentActivityModel).where(
+                                AgentActivityModel.agent_id.in_(member_ids)
+                            )
+                        )
+                        await session.execute(
+                            delete(AgentModel).where(AgentModel.team_id == team.id)
+                        )
+                    await session.execute(delete(TeamModel).where(TeamModel.id == team.id))
+
+                if len(purged) >= limit:
+                    break
+
+        return purged
+
+    # ================================================================
+    # Agents
+    # ================================================================
+
+    async def create_agent(self, team_id: str, name: str, role: str, **kwargs: object) -> Agent:
+        """Create an Agent."""
+        agent = Agent(
+            team_id=team_id,
+            name=name,
+            role=role,
+            system_prompt=str(kwargs.get("system_prompt", "")),
+            # 默认不落具体型号：模型未知就留空（展示为 --），真实值由 transcript
+            # 尾读(Leader)/wf 终态(workflow agent)回填。曾因默认 'claude-opus-4-7'
+            # 在多个建行点反复冒出误导展示（2026-07-07 用户三次实测追出根因）。
+            model=str(kwargs.get("model", "")),
+            config=without_auto_offline(kwargs.get("config", {})),  # type: ignore[arg-type]
+            source=str(kwargs.get("source", "api")),
+            session_id=kwargs.get("session_id"),  # type: ignore[arg-type]
+            cc_tool_use_id=kwargs.get("cc_tool_use_id"),  # type: ignore[arg-type]
+            # 建行即可落 transcript 路径（调用方知道就传）。此前这一列只能靠 SubagentStop
+            # 回填，回执丢失（会话中断/OS 离线）时该行永久无路径，用量归因只能记进
+            # no_transcript_path 桶。未传即 None——不猜、不兜底。
+            transcript_path=kwargs.get("transcript_path"),  # type: ignore[arg-type]
+            # 建行的一方知道来源就传（hook 事件按入口定，见 hook_translator._payload_harness）；
+            # 不传即 None = 未标注，不等于 claude-code。
+            harness=kwargs.get("harness"),  # type: ignore[arg-type]
+        )
+        orm = AgentModel.from_pydantic(agent)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return agent
+
+    async def get_agent(self, agent_id: str) -> Agent | None:
+        """Get an Agent by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(AgentModel).where(AgentModel.id == agent_id))
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_agents(self, team_id: str) -> list[Agent]:
+        """List all Agents in a team."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .where(AgentModel.team_id == team_id)
+                .order_by(AgentModel.created_at)
+            )
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def update_agent(self, agent_id: str, **kwargs: object) -> Agent:
+        """Update Agent information."""
+        if "status" in kwargs:
+            status_val = kwargs["status"]
+            if isinstance(status_val, AgentStatus):
+                kwargs["status"] = status_val.value
+            elif isinstance(status_val, str):
+                AgentStatus(status_val)
+        values = {key: value for key, value in kwargs.items() if key in AgentModel.__table__.columns}
+        clear_current = func.json_remove(
+            func.coalesce(AgentModel.config, literal("{}")), f"$.{AUTO_OFFLINE_KEY}",
+        )
+        if "config" in values:
+            if isinstance(values["config"], dict):
+                values["config"] = without_auto_offline(values["config"])
+        elif "status" in values:
+            # Operate on the current row, even when the requested status equals
+            # an earlier read. ORM dirty tracking cannot express that guarantee.
+            values["config"] = clear_current
+        else:
+            rebound = [
+                getattr(AgentModel, key).is_distinct_from(value)
+                for key, value in values.items()
+                if key in {"team_id", "session_id", "cc_tool_use_id", "source"}
+            ]
+            rebound.extend(
+                and_(AgentModel.role == "leader", AgentModel.harness == "codex",
+                     getattr(AgentModel, key).is_distinct_from(value))
+                for key, value in values.items() if key in {"role", "project_id", "name"}
+            )
+            if "harness" in values:
+                rebound.append(and_(AgentModel.harness.is_not(None),
+                                    AgentModel.harness.is_distinct_from(values["harness"])))
+            if rebound:
+                values["config"] = case((or_(*rebound), clear_current), else_=AgentModel.config)
+        async with get_session(self._db_url) as session:
+            statement = (sa_update(AgentModel).where(AgentModel.id == agent_id).values(
+                **values,
+            ).returning(AgentModel) if values else select(AgentModel).where(AgentModel.id == agent_id))
+            result = await session.execute(statement)
+            row = result.scalar_one_or_none()
+            if row is None:
+                msg = f"Agent {agent_id} 不存在"
+                raise NotFoundError(msg)
+            updated = row.to_pydantic()
+
+        # 纯心跳不落事件（Q2，用户 2026-07-27 拍板，硬条件"不影响任何检测功能"）。
+        # 心跳**检测**分毫未动：判据一直是 agents.last_active_at 这一列，上面已经
+        # 写完了；停的只是"顺手再写一行事件"。
+        # 取证：agent.updated 共 112,349 行 = events 全表 237,126 行的 47.4%，其中
+        # changes 恰好只有 last_active_at 的占 94,029 行——单这一类就是全表的
+        # 39.7%（近 7 天 45,717 / 118,867 = 38.5%）。
+        # 消费面已逐个查过，**零检测消费者**：StateReaper / wake_actionable /
+        # wake_manager / watchdog 一个都不读 events 表；state_snapshot 全仓只写不读；
+        # 这条路径走的是 repository.create_event（只落库），不经 EventBus，所以也
+        # 从没参与过 WS 实时刷新——UI 的刷新一直由 cc.tool_use / cc.tool_complete
+        # 驱动，与本改动无关。真实消费者只有 /api/events 列表与 team_briefing 的
+        # 最近事件，两者都因为少了这层噪声而变好。
+        # 历史行按红线一概保留，只停写不删。
+        if set(kwargs) <= _SILENT_AGENT_UPDATE_FIELDS:
+            return updated
+
+        # Auto-emit snapshot event after state change
+        snapshot = {
+            "status": updated.status.value if hasattr(updated.status, "value") else str(updated.status),
+            "name": updated.name,
+        }
+        await self.create_event(
+            event_type="agent.updated",
+            source="repository",
+            data={"agent_id": agent_id, "changes": list(kwargs.keys())},
+            entity_id=agent_id,
+            entity_type="agent",
+            state_snapshot=snapshot,
+        )
+        return updated
+
+    @staticmethod
+    def _agent_liveness_snapshot(agent: Agent) -> tuple:
+        """Compare identity, state, activity, provenance, and the current nonce."""
+        normalized_config = case(
+            (or_(AgentModel.config.is_(None), func.json_type(AgentModel.config) == "null"),
+             literal("{}")), else_=AgentModel.config,
+        )
+        return (
+            AgentModel.id == agent.id,
+            AgentModel.team_id == agent.team_id,
+            AgentModel.session_id == agent.session_id,
+            AgentModel.cc_tool_use_id == agent.cc_tool_use_id,
+            AgentModel.source == agent.source,
+            AgentModel.role == agent.role,
+            AgentModel.project_id == agent.project_id,
+            AgentModel.name == agent.name,
+            AgentModel.harness == agent.harness,
+            AgentModel.status == agent.status,
+            AgentModel.last_active_at == agent.last_active_at,
+            func.json(normalized_config) == func.json(json_dumps(agent.config)),
+        )
+
+    async def auto_offline_agent(self, agent: Agent, *, reason: str, occurred_at: datetime) -> bool:
+        """Record a recoverable automatic transition only if the snapshot is current."""
+        if agent.source != "hook" or agent.status not in ("busy", "waiting"):
+            return False
+        conditions = list(self._agent_liveness_snapshot(agent))
+        conditions.append(select(TeamModel.id).where(
+            TeamModel.id == agent.team_id, TeamModel.status == "active",
+        ).exists())
+        if reason == "config_liveness":
+            conditions.append(or_(AgentModel.harness.is_(None), AgentModel.harness != "codex"))
+        statement = sa_update(AgentModel).where(*conditions).values(
+            status="offline", current_task=None,
+            config=with_auto_offline(agent.config, reason, occurred_at),
+        ).returning(AgentModel)
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(statement)).scalar_one_or_none()
+            if row is None:
+                return False
+            updated = row.to_pydantic()
+        await self.create_event(
+            event_type="agent.updated", source="repository",
+            data={"agent_id": agent.id, "changes": ["status", "current_task", "config"]},
+            entity_id=agent.id, entity_type="agent",
+            state_snapshot={"status": "offline", "name": updated.name},
+        )
+        return True
+
+    async def touch_codex_active_agent(self, agent: Agent, *, now: datetime) -> Agent | None:
+        """Refresh an active observation without undoing a concurrent manual stop."""
+        if (agent.source != "hook" or agent.harness != HarnessId.CODEX
+                or agent.status not in (AgentStatus.BUSY, AgentStatus.WAITING)):
+            return None
+        statement = sa_update(AgentModel).where(
+            *self._agent_liveness_snapshot(agent),
+            AgentModel.role == agent.role,
+            AgentModel.project_id == agent.project_id,
+            select(TeamModel.id).where(
+                TeamModel.id == agent.team_id, TeamModel.status == "active",
+            ).exists(),
+        ).values(status="busy", last_active_at=now, config=without_auto_offline(agent.config)).returning(AgentModel)
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(statement)).scalar_one_or_none()
+            if row is None:
+                return None
+            updated = row.to_pydantic()
+        if agent.status != AgentStatus.BUSY:
+            await self.create_event(
+                event_type="agent.updated", source="repository",
+                data={"agent_id": agent.id, "changes": ["status", "last_active_at", "config"]},
+                entity_id=agent.id, entity_type="agent",
+                state_snapshot={"status": "busy", "name": updated.name},
+            )
+        return updated
+
+    async def rehome_codex_legacy_root(
+        self, agent: Agent, *, target_team_id: str, previous_owner: str,
+    ) -> Agent | None:
+        """CAS a proven short-name collision; retain the row, history and status."""
+        root_id = agent.session_id
+        if (not root_id or not agent.project_id or agent.role != "leader" or agent.source != "hook"
+                or agent.harness not in (None, HarnessId.CODEX) or agent.cc_tool_use_id
+                or agent.status not in (AgentStatus.BUSY, AgentStatus.WAITING)
+                or previous_owner == root_id or previous_owner[:8] != root_id[:8]):
+            return None
+        statement = sa_update(AgentModel).where(
+            *self._agent_liveness_snapshot(agent),
+            AgentModel.role == "leader",
+            AgentModel.project_id == agent.project_id,
+            select(TeamModel.id).where(
+                TeamModel.id == agent.team_id,
+                TeamModel.name == f"session-{root_id[:8]}",
+                TeamModel.config["kind"].as_string() == "session",
+                TeamModel.config["owner_session_id"].as_string() == previous_owner,
+            ).exists(),
+            select(TeamModel.id).where(
+                TeamModel.id == target_team_id, TeamModel.status == "active",
+                TeamModel.name == f"session-{root_id}",
+                TeamModel.config["kind"].as_string() == "session",
+                TeamModel.config["owner_session_id"].as_string() == root_id,
+                or_(TeamModel.project_id.is_(None), TeamModel.project_id == agent.project_id),
+                or_(TeamModel.leader_agent_id.is_(None), TeamModel.leader_agent_id == agent.id),
+            ).exists(),
+        ).values(
+            team_id=target_team_id, cc_tool_use_id=root_id, config=without_auto_offline(agent.config),
+        ).returning(AgentModel)
+        async with get_session(self._db_url) as session:
+            try:
+                row = (await session.execute(statement)).scalar_one_or_none()
+            except IntegrityError:
+                # Another row already owns the native identity; never steal it.
+                await session.rollback()
+                return None
+            if row is None:
+                return None
+            updated = row.to_pydantic()
+            target = (await session.execute(sa_update(TeamModel).where(
+                TeamModel.id == target_team_id, TeamModel.status == "active",
+                TeamModel.name == f"session-{root_id}",
+                TeamModel.config["kind"].as_string() == "session",
+                TeamModel.config["owner_session_id"].as_string() == root_id,
+                or_(TeamModel.project_id.is_(None), TeamModel.project_id == agent.project_id),
+                or_(TeamModel.leader_agent_id.is_(None), TeamModel.leader_agent_id == agent.id),
+            ).values(
+                leader_agent_id=agent.id, project_id=agent.project_id, updated_at=utc_now(),
+            ).returning(TeamModel.id))).scalar_one_or_none()
+            if target is None:
+                await session.rollback()
+                return None
+            moved_members = list((await session.execute(sa_update(AgentModel).where(
+                AgentModel.team_id == agent.team_id,
+                AgentModel.session_id == root_id,
+                AgentModel.project_id == agent.project_id,
+                AgentModel.source == "hook",
+                AgentModel.harness == HarnessId.CODEX,
+                AgentModel.role != "leader",
+                AgentModel.cc_tool_use_id.is_not(None),
+                AgentModel.cc_tool_use_id != "",
+            ).values(
+                team_id=target_team_id,
+                config=func.json_remove(
+                    func.coalesce(AgentModel.config, literal("{}")), f"$.{AUTO_OFFLINE_KEY}",
+                ),
+            ).returning(AgentModel.id))).scalars())
+        await self.create_event(
+            event_type="agent.updated", source="repository",
+            data={"agent_id": agent.id, "changes": ["team_id", "cc_tool_use_id", "config"],
+                  "reason": "legacy_session_prefix_collision", "previous_team_id": agent.team_id,
+                  "moved_member_ids": moved_members},
+            entity_id=agent.id, entity_type="agent",
+            state_snapshot={"status": str(updated.status), "name": updated.name},
+        )
+        return updated
+
+    @staticmethod
+    def _exact_codex_owner_predicates() -> tuple:
+        """SQL current-owner check; independent of Python snapshots and rebindings."""
+        return (
+            AgentModel.role == "leader", AgentModel.source == "hook", AgentModel.harness == "codex",
+            AgentModel.session_id.is_not(None), AgentModel.session_id != "",
+            AgentModel.cc_tool_use_id == AgentModel.session_id, AgentModel.project_id.is_not(None),
+            AgentModel.project_id != "",
+            select(TeamModel.id).where(
+                TeamModel.id == AgentModel.team_id, TeamModel.leader_agent_id == AgentModel.id,
+                TeamModel.project_id == AgentModel.project_id,
+                TeamModel.config["kind"].as_string() == "session",
+                TeamModel.config["owner_session_id"].as_string() == AgentModel.session_id,
+                or_(TeamModel.name == literal("session-") + AgentModel.session_id,
+                    TeamModel.name == literal("session-") + func.substr(AgentModel.session_id, 1, 8)),
+            ).exists(),
+        )
+
+    @staticmethod
+    def _team_liveness_snapshot(team: Team) -> tuple:
+        normalized = case(
+            (or_(TeamModel.config.is_(None), func.json_type(TeamModel.config) == "null"), literal("{}")),
+            else_=TeamModel.config,
+        )
+        return (
+            TeamModel.id == team.id, TeamModel.status == team.status,
+            TeamModel.name == team.name, TeamModel.project_id == team.project_id,
+            TeamModel.leader_agent_id == team.leader_agent_id,
+            TeamModel.updated_at == team.updated_at, TeamModel.created_at == team.created_at,
+            func.json(normalized) == func.json(json_dumps(team.config)),
+        )
+
+    @staticmethod
+    def _codex_owner_conditions(team: Team, agent: Agent) -> tuple:
+        return (
+            TeamModel.id == agent.team_id, TeamModel.name == team.name,
+            TeamModel.project_id == agent.project_id, TeamModel.leader_agent_id == agent.id,
+            TeamModel.config["kind"].as_string() == "session",
+            TeamModel.config["owner_session_id"].as_string() == agent.session_id,
+        )
+
+    async def startup_reconcile_codex_owner(
+        self, agent: Agent, team: Team, *, status: str, now: datetime,
+    ) -> Agent | None:
+        """Automatic startup transition, never overwrite a later manual/identity write."""
+        if (team.status != "active" or not codex_owned_container(team, agent)
+                or status not in {"waiting", "offline"}
+                or (status == "waiting" and agent.status != "busy")
+                or (status == "offline" and agent.status != "waiting")):
+            return None
+        config = (with_auto_offline(agent.config, "startup_reconciliation", now)
+                  if status == "offline" else without_auto_offline(agent.config))
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(sa_update(AgentModel).where(
+                *self._agent_liveness_snapshot(agent), *self._exact_codex_owner_predicates(),
+                select(TeamModel.id).where(*self._team_liveness_snapshot(team)).exists(),
+            ).values(status=status, current_task=None, config=config).returning(AgentModel))).scalar_one_or_none()
+            if row is None:
+                return None
+            updated = row.to_pydantic()
+        await self.create_event(
+            "agent.updated", "repository", {"agent_id": agent.id, "changes": ["status", "current_task", "config"],
+                "reason": "startup_reconciliation"}, entity_id=agent.id, entity_type="agent",
+            state_snapshot={"status": status, "name": agent.name},
+        )
+        return updated
+
+    async def revive_codex_busy_owner(self, team: Team, agent: Agent, *, now: datetime) -> bool:
+        """Only exact busy owner corrects contradiction; old snapshots lose to explicit close."""
+        if team.status != "completed" or agent.status != "busy" or not codex_owned_container(team, agent):
+            return False
+        async with get_session(self._db_url) as session:
+            changed = (await session.execute(sa_update(TeamModel).where(
+                *self._team_liveness_snapshot(team), *self._codex_owner_conditions(team, agent),
+                select(AgentModel.id).where(*self._agent_liveness_snapshot(agent),
+                    *self._exact_codex_owner_predicates(), AgentModel.status == "busy").exists(),
+            ).values(status="active", config=without_auto_close(team.config), updated_at=now)
+                .returning(TeamModel.id))).scalar_one_or_none()
+            if changed is None:
+                return False
+        await self.create_event(
+            "team.auto_revived", "repository", {"team_id": team.id, "reason": "codex_busy_owner_reconciliation"},
+            entity_id=team.id, entity_type="team", state_snapshot={"status": "active"},
+        )
+        return True
+
+    async def auto_close_codex_session(
+        self, team: Team, members: list[Agent], *, now: datetime,
+    ) -> bool:
+        """Close a current roster atomically; only its exact Leader retains eligibility."""
+        leader = next((member for member in members if member.id == team.leader_agent_id), None)
+        if (team.status != "active" or leader is None or not codex_owned_container(team, leader)
+                or any(member.team_id != team.id or member.status == "busy" for member in members)
+                or any(member.last_active_at and member.last_active_at >= now - timedelta(minutes=30)
+                       for member in members)):
+            return False
+        offline_at = automatic_offline_at(leader.config)
+        waiting = leader.status == "waiting"
+        eligible = waiting or (leader.status == "offline" and offline_at is not None and offline_at <= now)
+        leader_config = with_auto_offline(leader.config, "session_auto_close", now) if waiting else leader.config
+        config = (with_auto_close(team.config, leader.id, leader_config[AUTO_OFFLINE_KEY]["nonce"], now)
+                  if eligible else without_auto_close(team.config))
+        roster = [select(AgentModel.id).where(*self._agent_liveness_snapshot(member)).exists()
+                  for member in members]
+        count = select(func.count()).select_from(AgentModel).where(AgentModel.team_id == team.id).scalar_subquery()
+        statement = sa_update(TeamModel).where(
+            *self._team_liveness_snapshot(team), *self._codex_owner_conditions(team, leader),
+            count == len(members), *roster,
+        ).values(status="completed", config=config, updated_at=now).returning(TeamModel.id)
+        async with get_session(self._db_url) as session:
+            if (await session.execute(statement)).scalar_one_or_none() is None:
+                return False
+            if eligible:
+                await session.execute(sa_update(AgentModel).where(AgentModel.id == leader.id).values(
+                    status="offline", current_task=None, config=leader_config,
+                ))
+            # Team UPDATE owns the SQLite write transaction. No member can change
+            # between the roster CAS above and this close of non-Leader members.
+            await session.execute(sa_update(AgentModel).where(
+                AgentModel.team_id == team.id,
+                *([AgentModel.id != leader.id] if eligible else []),
+            ).values(status="offline", current_task=None, config=func.json_remove(
+                func.coalesce(AgentModel.config, literal("{}")), f"$.{AUTO_OFFLINE_KEY}",
+            )))
+        for member in members:
+            await self.create_event(
+                "agent.updated", "repository", {"agent_id": member.id, "team_id": team.id,
+                    "changes": ["status", "current_task", "config"], "reason": "codex_session_auto_close",
+                    "close_marker": config.get(AUTO_CLOSE_KEY), "previous_status": str(member.status),
+                    "recovery_eligible": eligible and member.id == leader.id}, entity_id=member.id, entity_type="agent",
+                state_snapshot={"status": "offline", "name": member.name},
+            )
+        return True
+
+    async def recover_codex_auto_offline(
+        self, agent: Agent, *, native_id: str, session_id: str,
+        source_time: datetime, now: datetime,
+    ) -> Agent | None:
+        """Consume the current nonce; an owned auto-closed team reopens in the same CAS transaction."""
+        if (agent.source != "hook" or agent.harness != "codex" or agent.status != "offline"
+                or not native_id or native_id != agent.cc_tool_use_id
+                or not session_id or session_id != agent.session_id or source_time.tzinfo is None):
+            return None
+        offline_at = automatic_offline_at(agent.config)
+        checked, _ = source_activity_time(source_time.isoformat(), now)
+        if checked is None or offline_at is None or checked <= offline_at:
+            return None
+        team = await self.get_team(agent.team_id)
+        if team is None:
+            return None
+        reopen = team.status == "completed"
+        if reopen:
+            if not codex_owned_container(team, agent):
+                return None
+            closed_at = automatic_close_at(team.config, agent.id, agent.config[AUTO_OFFLINE_KEY]["nonce"])
+            if closed_at is None or checked <= closed_at:
+                return None
+        elif team.status != "active":
+            return None
+        # Active members retain the original id/status gate; unrelated team
+        # metadata writes do not revoke a child. Closed restoration is stricter.
+        team_conditions = ((TeamModel.id == team.id, TeamModel.status == "active") if not reopen
+                           else self._team_liveness_snapshot(team) + self._codex_owner_conditions(team, agent))
+        statement = sa_update(AgentModel).where(
+            *self._agent_liveness_snapshot(agent),
+            select(TeamModel.id).where(*team_conditions).exists(),
+        ).values(
+            status="busy", last_active_at=now, config=without_auto_offline(agent.config),
+        ).returning(AgentModel)
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(statement)).scalar_one_or_none()
+            if row is None:
+                return None
+            updated = row.to_pydantic()
+            if reopen:
+                reopened = (await session.execute(sa_update(TeamModel).where(
+                    *team_conditions,
+                ).values(status="active", config=without_auto_close(team.config), updated_at=now)
+                    .returning(TeamModel.id))).scalar_one_or_none()
+                if reopened is None:
+                    await session.rollback()
+                    return None
+        await self.create_event(
+            event_type="agent.updated", source="repository",
+            data={"agent_id": agent.id, "changes": ["status", "last_active_at", "config"]},
+            entity_id=agent.id, entity_type="agent",
+            state_snapshot={"status": "busy", "name": updated.name},
+        )
+        if reopen:
+            await self.create_event(
+                "team.auto_revived", "repository", {"team_id": team.id, "changes": ["status", "config"],
+                                               "reason": "codex_native_activity"},
+                entity_id=team.id, entity_type="team", state_snapshot={"status": "active"},
+            )
+        return updated
+
+    async def delete_agent(self, agent_id: str) -> bool:
+        """Delete an Agent."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(delete(AgentModel).where(AgentModel.id == agent_id))
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    # ================================================================
+    # Tasks
+    # ================================================================
+
+    async def create_task(
+        self, team_id: str | None, title: str, description: str = "", **kwargs: object
+    ) -> Task:
+        """Create a task.
+
+        team_id can be None (project-level task, not bound to a team).
+        """
+        # Build optional parameters
+        optional: dict[str, object] = {}
+        for key in (
+            "assigned_to",
+            "parent_id",
+            "project_id",
+            "depends_on",
+            "depth",
+            "order",
+            "template_id",
+            "priority",
+            "horizon",
+            "tags",
+            "config",
+            "status",
+            "cc_task_id",
+            "completed_at",
+        ):
+            if key in kwargs:
+                optional[key] = kwargs[key]
+        # Set default values
+        optional.setdefault("depends_on", [])
+        optional.setdefault("depth", 0)
+        optional.setdefault("order", 0)
+
+        # 项目归属（2026-07-27 修复）：显式参数 > 所属队的 project_id > 请求作用域。
+        #
+        # 队绑定排在作用域之前，因为它是结构事实（任务就长在那支队的墙上），而
+        # _project_scope 只是本次请求的视图上下文（X-Project-Id/Dir 头）。
+        #
+        # 补这一档之前，四个「经团队建任务」的入口（tasks/run、task_decompose 的
+        # 父子任务、issue 上报、TeamManager.execute_task）全都不写 project_id，
+        # 而 MCP 侧调用不带作用域头 → 任务一律 project_id=None，项目级任务墙
+        # （task_list_project / GET /api/projects/{id}/task-wall）永远看不到它们。
+        # 修在这一个收口点而非四个调用点：新入口不会再漏。
+        if not optional.get("project_id") and team_id:
+            team = await self.get_team(team_id)
+            if team is not None and team.project_id:
+                optional["project_id"] = team.project_id
+        if self._project_scope and not optional.get("project_id"):
+            optional["project_id"] = self._project_scope
+
+        task = Task(
+            team_id=team_id,
+            title=title,
+            description=description,
+            **optional,  # type: ignore[arg-type]
+        )
+        orm = TaskModel.from_pydantic(task)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return task
+
+    async def create_managed_task(self, project_id: str | None, team_id: str | None, values: dict) -> Task:
+        from aiteam.task_management import TaskManagement
+        return await TaskManagement(self).create(project_id, team_id, values)
+
+    async def update_managed_task(self, task_id: str, values: dict) -> dict:
+        from aiteam.task_management import TaskManagement
+        return await TaskManagement(self).update(task_id, values)
+
+    async def create_managed_task_batch(
+        self, project_id: str, entries: list[dict], idempotency_key: str,
+    ) -> dict:
+        from aiteam.task_management import TaskManagement
+        return await TaskManagement(self).create_batch(project_id, None, entries, idempotency_key)
+
+    async def list_subtasks(self, parent_id: str) -> list[Task]:
+        """List all subtasks of a task, sorted by order."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(TaskModel)
+                .where(TaskModel.parent_id == parent_id)
+                .order_by(TaskModel.order, TaskModel.created_at)
+            )
+            stmt = self._apply_project_filter(stmt, TaskModel)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            tasks = [r.to_pydantic() for r in rows]
+            await self._hydrate_task_memos(session, tasks)
+            return tasks
+
+    async def find_tasks_by_cc_ids(self, cc_task_ids: list[str]) -> dict[str, Task]:
+        """Map CC task ids to the OS rows that mirror them (missing ids simply absent).
+
+        Used by the CC task bridge for two things: idempotency (a repeated
+        TaskCompleted must not create a second row) and dependency resolution
+        (a CC ``blockedBy`` id only becomes an OS ``depends_on`` entry once the
+        blocking task has itself been mirrored).
+        """
+        wanted = [i for i in cc_task_ids if i]
+        if not wanted:
+            return {}
+        async with get_session(self._db_url) as session:
+            stmt = select(TaskModel).where(TaskModel.cc_task_id.in_(wanted))
+            stmt = self._apply_project_filter(stmt, TaskModel)
+            rows = (await session.execute(stmt)).scalars().all()
+            return {r.cc_task_id: r.to_pydantic() for r in rows if r.cc_task_id}
+
+    async def find_task_prefix_candidates(self, prefix: str, *, limit: int = 21) -> list[dict[str, str]]:
+        """Bounded, project-only ID/title lookup; never hydrate tasks or memo history."""
+        shape = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        prefix = prefix.lower()
+        if not 8 <= len(prefix) < len(shape) or any(
+            char != "-" if shape[index] == "-" else char not in "0123456789abcdef"
+            for index, char in enumerate(prefix)
+        ):
+            raise ValueError("任务 ID 前缀须为至少 8 位的 UUID 前缀")
+        if not self._project_scope:
+            raise ValueError("任务短 ID 需要明确的项目上下文")
+        # Lexical range uses the primary-key index, with no LIKE wildcards or
+        # case-folding expression on the indexed column. Validation makes the
+        # next-character upper bound safe even when the prefix ends in '-'.
+        upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(TaskModel.id, TaskModel.title)
+                .where(TaskModel.project_id == self._project_scope,
+                       TaskModel.id >= prefix, TaskModel.id < upper)
+                .order_by(TaskModel.id)
+                .limit(max(1, min(limit, 21)))
+            )
+            rows = (await session.execute(stmt)).all()
+            return [{"id": row.id, "title": row.title} for row in rows]
+
+    async def get_task(self, task_id: str) -> Task | None:
+        """Get a task by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(TaskModel).where(TaskModel.id == task_id))
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            task = row.to_pydantic()
+            await self._hydrate_task_memos(session, [task])
+            return task
+
+    async def list_tasks(self, team_id: str, status: TaskStatus | None = None) -> list[Task]:
+        """List team tasks, optionally filtered by status."""
+        async with get_session(self._db_url) as session:
+            stmt = select(TaskModel).where(TaskModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, TaskModel)
+            if status is not None:
+                stmt = stmt.where(TaskModel.status == status.value)
+            stmt = stmt.order_by(TaskModel.created_at.desc())
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            tasks = [r.to_pydantic() for r in rows]
+            await self._hydrate_task_memos(session, tasks)
+            return tasks
+
+    @staticmethod
+    def _waiting_user_task_condition():
+        """The digest and pending count share the structured waiting predicate."""
+        return (
+            (TaskModel.status != TaskStatus.COMPLETED.value)
+            & (func.json_extract(TaskModel.config, "$.task_management.waiting_on.kind") == "user")
+        )
+
+    async def count_all_tasks(self) -> int:
+        """COUNT(*) over this database's tasks table, every project included.
+
+        The data directory migration reconciles on it (/api/health?task_count=1),
+        against the same count read from the database file before the move.
+        """
+        async with get_session(self._db_url) as session:
+            return int((await session.execute(select(func.count()).select_from(TaskModel))).scalar() or 0)
+
+    async def count_waiting_user_tasks(self) -> int:
+        """Count real user waits, including subtasks, in this repository's scope."""
+        async with get_session(self._db_url) as session:
+            stmt = select(func.count()).select_from(TaskModel).where(self._waiting_user_task_condition())
+            stmt = self._apply_project_filter(stmt, TaskModel)
+            return int((await session.execute(stmt)).scalar() or 0)
+
+    async def list_tasks_by_project(
+        self, project_id: str, status: TaskStatus | None = None
+    ) -> list[Task]:
+        """List all tasks under a project (including project-level tasks with team_id=None and team tasks)."""
+        async with get_session(self._db_url) as session:
+            stmt = select(TaskModel).where(TaskModel.project_id == project_id)
+            if status is not None:
+                stmt = stmt.where(TaskModel.status == status.value)
+            stmt = stmt.order_by(TaskModel.created_at.desc())
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def list_wall_tasks(self, project_id: str, *, waiting_user_only: bool = False) -> list[Task]:
+        """The project's top-level tasks without description, result or config.
+
+        The task-wall digest reads identity, status, priority, horizon, tags and the
+        timestamps only; the full rows run to megabytes once completed tasks pile up.
+        """
+        condition = (TaskModel.project_id == project_id) & (
+            self._waiting_user_task_condition()
+            if waiting_user_only else TaskModel.parent_id.is_(None)
+        )
+        async with get_session(self._db_url) as session:
+            rows = (await session.execute(
+                select(
+                    TaskModel.id, TaskModel.team_id, TaskModel.title, TaskModel.status,
+                    TaskModel.assigned_to, TaskModel.project_id, TaskModel.priority,
+                    TaskModel.horizon, TaskModel.tags, TaskModel.created_at,
+                    TaskModel.started_at, TaskModel.completed_at, TaskModel.parent_id, TaskModel.depth,
+                    func.json_extract(TaskModel.config, "$.task_management").label("management"),
+                )
+                .where(condition)
+                .order_by(TaskModel.created_at.desc())
+            )).all()
+        return [
+            Task(
+                id=row.id,
+                team_id=row.team_id,
+                title=row.title,
+                status=TaskStatus(row.status),
+                assigned_to=row.assigned_to,
+                project_id=row.project_id,
+                priority=TaskPriority(row.priority) if row.priority else TaskPriority.MEDIUM,
+                horizon=TaskHorizon(row.horizon) if row.horizon else TaskHorizon.SHORT,
+                tags=row.tags if isinstance(row.tags, list) else [],
+                created_at=row.created_at,
+                started_at=row.started_at,
+                completed_at=row.completed_at,
+                parent_id=row.parent_id, depth=row.depth or 0,
+                config={"task_management": json.loads(row.management) if row.management else {}},
+            )
+            for row in rows
+        ]
+
+    async def list_waiting_user_tasks(self, project_id: str) -> list[Task]:
+        """Identity + management projection for parents and children, never frozen memo."""
+        return await self.list_wall_tasks(project_id, waiting_user_only=True)
+
+    async def task_wall_management_metadata(self, task_ids: list[str]) -> dict[str, dict]:
+        """Bounded read projection: latest valid progress and observed executor status."""
+        if not task_ids:
+            return {}
+        async with get_session(self._db_url) as session:
+            ranked = select(
+                TaskMemoModel.task_id, TaskMemoModel.author, TaskMemoModel.content, TaskMemoModel.created_at,
+                func.row_number().over(
+                    partition_by=TaskMemoModel.task_id,
+                    order_by=(TaskMemoModel.created_at.desc(), TaskMemoModel.id.desc()),
+                ).label("rank"),
+            ).where(TaskMemoModel.task_id.in_(task_ids), TaskMemoModel.memo_type == "progress",
+                    TaskMemoModel.invalid_at.is_(None)).subquery()
+            progress = (await session.execute(select(ranked).where(ranked.c.rank == 1))).all()
+            tasks = (await session.execute(select(
+                TaskModel.id, TaskModel.project_id, TaskModel.team_id, TaskModel.assigned_to,
+            ).where(TaskModel.id.in_(task_ids)))).all()
+            assigned = {task.assigned_to for task in tasks if task.assigned_to}
+            agents = (await session.execute(select(
+                AgentModel.id, AgentModel.name, AgentModel.status, AgentModel.team_id,
+                func.coalesce(func.nullif(AgentModel.project_id, ""), TeamModel.project_id).label("owner"),
+            ).outerjoin(TeamModel, TeamModel.id == AgentModel.team_id).where(
+                or_(AgentModel.id.in_(assigned), AgentModel.name.in_(assigned)),
+            ))).all() if assigned else []
+        result = {task.id: {"latest_progress": None, "executor_stopped": False} for task in tasks}
+        for row in progress:
+            result[row.task_id]["latest_progress"] = {
+                "content": row.content[:160], "author": row.author, "timestamp": row.created_at.isoformat(),
+            }
+        for task in tasks:
+            matching = [agent for agent in agents if task.assigned_to in (agent.id, agent.name)
+                        and (agent.owner == task.project_id if task.project_id else agent.team_id == task.team_id)]
+            if matching:
+                result[task.id]["executor_stopped"] = all(agent.status == "offline" for agent in matching)
+        return result
+
+    async def list_task_activity(
+        self, project_id: str, since: datetime, closed_since: datetime,
+    ) -> list[TaskActivityRecord]:
+        """The work actions the task-wall digest reads: open tasks only, bounded in time.
+
+        Only tasks still on the wall (pending, running, blocked, failed) and their
+        direct subtasks are read (founder, 2026-09-29): a completed task is described
+        by its own row, and no memo of it is ever read; only the ones closed since
+        ``closed_since`` (the last 7 days) bring their status changes. For the open
+        tasks:
+        - every memo (invalidated included) written since ``since``;
+        - before ``since``, only the latest few memos of each. The window is longer
+          than the digest's longest threshold, so an older memo can only ever say
+          "quiet for longer than that";
+        - their status changes: ``task.updated`` events whose ``changes`` include
+          status, read by entity id; ``task.status_changed`` carries no entity id and
+          is not a source.
+        Both memo reads walk idx_memos_task_created per open task: the cost follows
+        the open tasks and their recent writing, not the memos accumulated so far or
+        the completed tasks. A subtask's memos count for its parent (task_id is the
+        parent's), and its status changes come back as source "subtask". Memory
+        reconciliation's merges are left to the digest to drop. Content is never read.
+        """
+        async with get_session(self._db_url) as session:
+            parent_of = dict((await session.execute(
+                select(TaskModel.id, TaskModel.parent_id).where(TaskModel.parent_id.in_(_open_wall_ids(project_id)))
+            )).tuples().all())
+            memo_rows = (await session.execute(window_task_memos_stmt(project_id, since))).all()
+            older_rows = (await session.execute(older_task_memos_stmt(project_id, since))).all()
+            event_rows = (await session.execute(task_status_events_stmt(project_id, closed_since))).all()
+        records = []
+        for row, windowed in [*((row, True) for row in memo_rows), *((row, False) for row in older_rows)]:
+            if not windowed and row.author == "reconcile":
+                continue
+            records.append(TaskActivityRecord(
+                task_id=parent_of.get(row.task_id, row.task_id),
+                at=ensure_utc(row.created_at),
+                source="memo",
+                author=row.author or "",
+                memo_type=row.memo_type or "",
+            ))
+        for row in event_rows:
+            changes = (row.data or {}).get("changes") if isinstance(row.data, dict) else None
+            if not isinstance(changes, list) or "status" not in changes:
+                continue
+            snapshot = row.state_snapshot if isinstance(row.state_snapshot, dict) else {}
+            parent = parent_of.get(row.entity_id)
+            records.append(TaskActivityRecord(
+                task_id=parent or row.entity_id,
+                at=row.timestamp,
+                source="subtask" if parent else "status",
+                status=str(snapshot.get("status") or ""),
+            ))
+        return records
+
+    async def update_task(self, task_id: str, **kwargs: object) -> Task:
+        """Update task information."""
+        async with get_session(self._db_url) as session:
+            # Serialize managed revision read-modify-write with API transactions.
+            await session.execute(text("BEGIN IMMEDIATE"))
+            result = await session.execute(select(TaskModel).where(TaskModel.id == task_id))
+            row = result.scalar_one_or_none()
+            if row is None:
+                msg = f"任务 {task_id} 不存在"
+                raise NotFoundError(msg)
+
+            # Handle status field: convert to string value
+            if "status" in kwargs:
+                status_val = kwargs["status"]
+                if isinstance(status_val, TaskStatus):
+                    kwargs["status"] = status_val.value
+                elif isinstance(status_val, str):
+                    TaskStatus(status_val)
+
+            # Capture the pre-change status *before* setattr — a failure event
+            # without the state it fell from is not attributable after the fact.
+            prev_status = str(row.status)
+            old_management = (row.config or {}).get("task_management") if isinstance(row.config, dict) else None
+
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+
+            previous_config = row.config if isinstance(row.config, dict) else (
+                {"legacy_config_value": row.config} if row.config is not None else {}
+            )
+            info = previous_config.get("task_management")
+            if kwargs:
+                current_management = old_management if isinstance(old_management, dict) else (
+                    info if isinstance(info, dict) else {}
+                )
+                row.config = {**previous_config, "task_management": {
+                    # This subtree belongs to managed writes. A stale watchdog
+                    # config snapshot cannot roll waiting/status metadata back.
+                    **current_management, "revision": int(current_management.get("revision", 0)) + 1,
+                }}
+
+            updated = row.to_pydantic()
+
+        # Auto-emit snapshot event after state change
+        snapshot = {
+            "status": updated.status.value if hasattr(updated.status, "value") else str(updated.status),
+            "assigned_to": updated.assigned_to,
+            "title": updated.title,
+        }
+        await self.create_event(
+            event_type="task.updated",
+            source="repository",
+            data={"task_id": task_id, "changes": list(kwargs.keys())},
+            entity_id=task_id,
+            entity_type="task",
+            state_snapshot=snapshot,
+        )
+
+        # Failure observability is bolted onto the state machine, not onto the
+        # caller.  Every path that fails a task — API, MCP tool, reaper reclaim,
+        # orchestrator — funnels through update_task, so emitting here is the
+        # only way to stop depending on an agent voluntarily reporting its own
+        # death.  Fires on the *transition* into failed so a retry that fails
+        # again is recorded as a new fact, while re-writing the same status is
+        # not (the event stream is a ledger, not a log).
+        if snapshot["status"] == TaskStatus.FAILED.value and prev_status != TaskStatus.FAILED.value:
+            await self.create_event(
+                event_type=EventType.TASK_FAILED.value,
+                source="repository",
+                data={
+                    "task_id": task_id,
+                    "from_status": prev_status,
+                    "to_status": TaskStatus.FAILED.value,
+                    "failure_context": updated.result or "",
+                    "team_id": updated.team_id,
+                    "project_id": updated.project_id,
+                    "assigned_to": updated.assigned_to,
+                    "title": updated.title,
+                    # Distinguishes state-machine capture from a caller's own
+                    # report, so later analysis can tell observed from claimed.
+                    "detected_by": "state_machine",
+                },
+                entity_id=task_id,
+                entity_type="task",
+                state_snapshot=snapshot,
+            )
+        return updated
+
+    async def get_downstream_tasks(self, task_id: str) -> list[Task]:
+        """Find all tasks whose depends_on contains task_id (i.e., downstream tasks depending on this task)."""
+        async with get_session(self._db_url) as session:
+            # SQL LIKE pre-filter to narrow down results, then Python-level precise check on JSON array
+            stmt = select(TaskModel).where(
+                TaskModel.depends_on.cast(SAString).contains(task_id),
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            downstream = []
+            for row in rows:
+                deps = row.depends_on if isinstance(row.depends_on, list) else []
+                if task_id in deps:
+                    downstream.append(row.to_pydantic())
+            return downstream
+
+    async def resolve_task_dependencies(self, task_id: str) -> list[Task]:
+        """Cascade unlock when a task completes.
+
+        Check all downstream BLOCKED tasks that depend on this task_id.
+        If all their dependencies are completed, unlock them to PENDING.
+
+        Returns:
+            List of unblocked tasks.
+        """
+        downstream = await self.get_downstream_tasks(task_id)
+        blocked = [t for t in downstream if t.status == TaskStatus.BLOCKED
+                   and t.block_reason == "dependency" and t.waiting_on is None]
+        if not blocked:
+            return []
+
+        # Collect all dep IDs we need to check in one batch query
+        all_dep_ids: set[str] = set()
+        for task in blocked:
+            all_dep_ids.update(task.depends_on)
+
+        # Batch-load all dependency tasks with a single IN query
+        dep_status: dict[str, str] = {}
+        if all_dep_ids:
+            async with get_session(self._db_url) as session:
+                stmt = select(TaskModel).where(TaskModel.id.in_(all_dep_ids))
+                result = await session.execute(stmt)
+                for row in result.scalars().all():
+                    dep_status[row.id] = row.status
+
+        unblocked: list[Task] = []
+        for task in blocked:
+            all_deps_done = all(
+                dep_status.get(dep_id) == TaskStatus.COMPLETED
+                for dep_id in task.depends_on
+            )
+            if all_deps_done:
+                outcome = await self.update_managed_task(task.id, {"status": TaskStatus.PENDING.value})
+                unblocked.append(outcome["task"])
+
+        return unblocked
+
+    async def detect_dependency_cycle(self, task_id: str, new_dep_id: str) -> bool:
+        """Detect if adding a dependency would create a cycle.
+
+        Starting from new_dep_id, trace upstream along the depends_on chain.
+        If it leads back to task_id, a cycle would be formed.
+
+        Uses BFS with batch IN queries to avoid N+1 per traversal level.
+
+        Returns:
+            True if a cycle exists, False if safe.
+        """
+        # Self-dependency is a direct cycle
+        if task_id == new_dep_id:
+            return True
+
+        visited: set[str] = set()
+        frontier: set[str] = {new_dep_id}
+
+        while frontier:
+            to_fetch = frontier - visited
+            if not to_fetch:
+                break
+            visited.update(to_fetch)
+
+            # Batch-load all frontier nodes in a single IN query
+            async with get_session(self._db_url) as session:
+                stmt = select(TaskModel).where(TaskModel.id.in_(to_fetch))
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+            next_frontier: set[str] = set()
+            for row in rows:
+                deps = row.depends_on if isinstance(row.depends_on, list) else []
+                for dep_id in deps:
+                    if dep_id == task_id:
+                        return True  # Cycle found
+                    if dep_id not in visited:
+                        next_frontier.add(dep_id)
+
+            frontier = next_frontier
+
+        return False
+
+    # ================================================================
+    # Events
+    # ================================================================
+
+    async def create_event(
+        self,
+        event_type: str,
+        source: str,
+        data: dict,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
+        state_snapshot: dict | None = None,
+        timestamp: datetime | None = None,
+        _session: Any | None = None,
+    ) -> Event:
+        """Create a system event.
+
+        Reserved identities (see :data:`RESERVED_ID_PREFIXES`) are refused here —
+        this is the single write entry for the events ledger, so the guard cannot
+        be routed around.
+
+        Args:
+            event_type: Event type string (e.g. "task.created").
+            source: Event source identifier.
+            data: Full event payload.
+            entity_id: ID of the primary entity involved (task/agent/team/meeting).
+            entity_type: Entity type label: "task" / "agent" / "team" / "meeting".
+            state_snapshot: Trimmed key fields of entity state at event time.
+            timestamp: When it happened, if not now (a redelivered hook event
+                carries its original time).
+        """
+        extra = {"timestamp": ensure_utc(timestamp)} if timestamp is not None else {}
+        reserved = _reserved_identity(data, entity_id)
+        if reserved:
+            # Dropped, not raised: the ledger refusing a fake row must never take
+            # down the caller that produced it (hooks are fire-and-forget, and a
+            # test-suite run is exactly when this fires).
+            logger.warning(
+                "events 写入被护栏拒绝：保留身份 %r（type=%s source=%s）", reserved, event_type, source
+            )
+            return Event(
+                type=EventType(event_type),
+                source=source,
+                data=data,
+                entity_id=entity_id,
+                entity_type=entity_type,
+                state_snapshot=state_snapshot,
+                **extra,
+            )
+
+        event = Event(
+            type=EventType(event_type),
+            source=source,
+            data=data,
+            entity_id=entity_id,
+            entity_type=entity_type,
+            state_snapshot=state_snapshot,
+            **extra,
+        )
+        orm = EventModel.from_pydantic(event)
+        if _session is not None:
+            _session.add(orm)
+        else:
+            async with get_session(self._db_url) as session:
+                session.add(orm)
+        return event
+
+    async def list_events(
+        self,
+        event_type: str | None = None,
+        source: str | None = None,
+        limit: int = 50,
+        type_prefix: str | None = None,
+        entity_id: str | None = None,
+        team_ids: list[str] | None = None,
+        project_id: str | None = None,
+    ) -> list[Event]:
+        """List events, optionally filtered by type, source, entity, team, or project.
+
+        Args:
+            event_type: Exact match on event type (e.g., "agent.created")
+            source: Exact match on event source
+            limit: Maximum number of results to return
+            type_prefix: Literal prefix (e.g., "decision."); event_type takes precedence.
+            entity_id: Filter by entity ID — returns all events for a specific entity
+            team_ids: Restrict to events belonging to one of these teams — see
+                :func:`_team_scope_clause` for what "belonging" means in practice
+            project_id: Restrict to the project's events, including teamless tasks.
+                Explicit task project wins; legacy tasks fall back to their team.
+                Raw session events use registered session ownership, not payload hints.
+                Combined with team_ids this is an intersection, not a union.
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(EventModel)
+            if event_type is not None:
+                stmt = stmt.where(EventModel.type == event_type)
+            elif type_prefix is not None:
+                stmt = stmt.where(EventModel.type.startswith(type_prefix, autoescape=True))
+            if source is not None:
+                stmt = stmt.where(EventModel.source == source)
+            if entity_id is not None:
+                stmt = stmt.where(EventModel.entity_id == entity_id)
+            if team_ids is not None:
+                if not team_ids:
+                    # Scope resolved to zero teams — nothing can belong to it.
+                    return []
+                stmt = stmt.where(_team_scope_clause(team_ids))
+            if project_id is not None:
+                project_teams = await self.list_teams_by_project(project_id)
+                stmt = stmt.where(
+                    _project_event_scope_clause(project_id, [team.id for team in project_teams])
+                )
+            stmt = stmt.order_by(EventModel.timestamp.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def list_event_data_since(
+        self, event_type: str, since: datetime,
+    ) -> list[tuple[datetime, dict[str, Any]]]:
+        """(timestamp, data) of every event of one type since a time, oldest first.
+
+        For small, hour-grained event types (request rollups) read whole over a
+        window; not for high-volume types.
+        """
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EventModel.timestamp, EventModel.data)
+                .where(EventModel.type == event_type, EventModel.timestamp >= since)
+                .order_by(EventModel.timestamp)
+            )
+            return [(row[0], row[1] or {}) for row in result.all()]
+
+    async def alwaysload_tool_frequencies(
+        self,
+        *,
+        days: int = 7,
+        name_prefix: str = "mcp__ai-team-os%",
+        min_distinct_days: int = 2,
+    ) -> list[tuple[str, int, int]]:
+        """近期高频 MCP 工具频次聚合（工具加载 P1 alwaysLoad 轮换的唯一取数）。
+
+        一条 SQL：近 ``days`` 天 agent_activities 中匹配 ``name_prefix`` 的工具，
+        按 tool_name 分组，本地自然日数（COUNT DISTINCT date(timestamp, 'localtime')）
+        ≥ ``min_distinct_days``；转换使用每条 UTC 时间戳当时的宿主时区偏移（含 DST），
+        以挡时段性爆发，按总频次降序返回。
+
+        Returns:
+            [(tool_name, count, distinct_days), ...]，频次降序。tool_name 为库中原始
+            全名（含 ``mcp__ai-team-os__`` 前缀），归一化在服务层做。
+        """
+        cutoff = utc_now() - timedelta(days=days)
+        distinct_days = func.count(func.distinct(func.date(AgentActivityModel.timestamp, "localtime")))
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(
+                    AgentActivityModel.tool_name,
+                    func.count().label("c"),
+                    distinct_days.label("d"),
+                )
+                .where(AgentActivityModel.timestamp >= cutoff)
+                .where(AgentActivityModel.tool_name.like(name_prefix))
+                .group_by(AgentActivityModel.tool_name)
+                .having(distinct_days >= min_distinct_days)
+                .order_by(func.count().desc())
+            )
+            result = await session.execute(stmt)
+            return [(row[0], int(row[1]), int(row[2])) for row in result.all()]
+
+    # ================================================================
+    # Memories
+    # ================================================================
+
+    # 方向层直属 kind（记忆系统 v2 P1）：注入/红线只作用于这四类，team/agent 遗留分区不受影响。
+    DIRECTION_KINDS = ("constraint", "design", "directive", "preference")
+    # 注入截断优先级（高→低）：约束/护栏最先保留，格式偏好最先被砍。
+    DIRECTION_KIND_PRIORITY = {"constraint": 0, "design": 1, "directive": 2, "preference": 3}
+
+    async def create_memory(
+        self,
+        scope: str,
+        scope_id: str,
+        content: str,
+        metadata: dict | None = None,
+        *,
+        kind: str = "preference",
+        source_refs: list[str] | None = None,
+        supersedes: str | None = None,
+    ) -> Memory:
+        """Create a memory（方向层写入，零 LLM）。
+
+        supersedes 给定时置被取代行 invalid_at=now、invalidated_by=新 id
+        （Zep 失效语义：偏好被改 = 新条置换旧条，不删除）。体量红线在服务层
+        （POST /api/memories）强制，此处只负责落库与置换。
+        """
+        memory = Memory(
+            scope=MemoryScope(scope),
+            scope_id=scope_id,
+            content=content,
+            kind=kind,
+            metadata=metadata or {},
+            source_refs=source_refs or [],
+        )
+        async with get_session(self._db_url) as session:
+            session.add(MemoryModel.from_pydantic(memory))
+            if supersedes:
+                res = await session.execute(
+                    select(MemoryModel).where(MemoryModel.id == supersedes)
+                )
+                old = res.scalar_one_or_none()
+                if old is not None and old.invalid_at is None:
+                    old.invalid_at = memory.created_at
+                    old.invalidated_by = memory.id
+        return memory
+
+    async def invalidate_memory(
+        self, memory_id: str, invalidated_by: str | None = None
+    ) -> Memory | None:
+        """显式失效一条方向层记忆（不删除，Zep 失效语义）。返回失效后的条目。"""
+        async with get_session(self._db_url) as session:
+            res = await session.execute(
+                select(MemoryModel).where(MemoryModel.id == memory_id)
+            )
+            row = res.scalar_one_or_none()
+            if row is None:
+                return None
+            if row.invalid_at is None:
+                row.invalid_at = utc_now()
+                row.invalidated_by = invalidated_by
+            return row.to_pydantic()
+
+    # count_valid_memories 已随条数轴一同退役（记忆 v2.1，2026-07-31）：体量红线改按
+    # 桶字符配额校验，且超限协议要交回全桶条目全文，读的是 list_memories 而不是计数。
+
+    async def list_direction_memories(
+        self,
+        project_id: str | None = None,
+        kind: str | None = None,
+        include_invalidated: bool = False,
+    ) -> list[Memory]:
+        """列方向层有效条目供双 hook 常驻注入（Zep 双读之"方向层全量"）。
+
+        方向层 = scope∈{global, user}（全局/用户级恒纳入）+ scope=project 且
+        scope_id==project_id（仅当前项目）。默认只返回有效条目，按 kind 优先级 +
+        时间倒序排列，便于注入时按预算从高优先级向低截断。
+        """
+        async with get_session(self._db_url) as session:
+            scope_clause = MemoryModel.scope.in_(
+                [MemoryScope.GLOBAL.value, MemoryScope.USER.value]
+            )
+            if project_id:
+                scope_clause = scope_clause | (
+                    (MemoryModel.scope == MemoryScope.PROJECT.value)
+                    & (MemoryModel.scope_id == project_id)
+                )
+            stmt = select(MemoryModel).where(scope_clause)
+            if not include_invalidated:
+                stmt = stmt.where(MemoryModel.invalid_at.is_(None))
+            if kind:
+                stmt = stmt.where(MemoryModel.kind == kind)
+            stmt = stmt.order_by(MemoryModel.created_at.desc())
+            rows = (await session.execute(stmt)).scalars().all()
+
+        memories = [r.to_pydantic() for r in rows]
+        memories.sort(
+            key=lambda m: self.DIRECTION_KIND_PRIORITY.get(m.kind, 99)
+        )
+        return memories
+
+    async def get_memory(self, memory_id: str) -> Memory | None:
+        """Get a memory by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(select(MemoryModel).where(MemoryModel.id == memory_id))
+            row = result.scalar_one_or_none()
+            if row is not None:
+                # Update access time
+                row.accessed_at = utc_now()
+                return row.to_pydantic()
+            return None
+
+    async def list_memories(
+        self,
+        scope: str,
+        scope_id: str,
+        include_invalidated: bool = False,
+        kind: str | None = None,
+    ) -> list[Memory]:
+        """List memories within a scope（记忆 v2 P1：默认只返回有效条目）。
+
+        include_invalidated=True 时含已失效条目；kind 给定时按 kind 过滤。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(MemoryModel).where(
+                MemoryModel.scope == scope,
+                MemoryModel.scope_id == scope_id,
+            )
+            if not include_invalidated:
+                stmt = stmt.where(MemoryModel.invalid_at.is_(None))
+            if kind:
+                stmt = stmt.where(MemoryModel.kind == kind)
+            stmt = stmt.order_by(MemoryModel.created_at.desc())
+            rows = (await session.execute(stmt)).scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def search_memories(
+        self, scope: str, scope_id: str, query: str, limit: int = 5
+    ) -> list[Memory]:
+        """Search memories: SQL coarse-recall within scope, then Python BM25 rerank.
+
+        The old whole-string LIKE match missed multi-word queries whose terms
+        were not contiguous (e.g. "Python 部署" against "Python 后端 部署"). We now
+        pull the scope's candidates from SQL (scope isolation unchanged — the
+        scope/scope_id filter is the project boundary for memories, which carry
+        no project_id column) and rerank them in-process with the built-in BM25.
+        """
+        # Lazy import keeps the foundational storage module free of the memory
+        # package's heavier import graph and avoids any import cycle.
+        from aiteam.memory.retriever import bm25_search
+
+        async with get_session(self._db_url) as session:
+            # Coarse recall: recency window within scope (BM25 handles precision;
+            # a stricter SQL prefilter would risk dropping BM25 hits). The cap
+            # keeps rerank O(window) instead of O(scope) as long-lived scopes
+            # (team knowledge) accumulate — 500 most-recent is far beyond any
+            # limit callers actually use.
+            stmt = (
+                select(MemoryModel)
+                .where(
+                    MemoryModel.scope == scope,
+                    MemoryModel.scope_id == scope_id,
+                    # v2 失效语义：检索读路径与 list 路径同规——失效不删除、读时过滤
+                    #（审查 major：此前唯独 BM25 路径漏过滤，同端点行为自相矛盾）
+                    MemoryModel.invalid_at.is_(None),
+                )
+                .order_by(MemoryModel.created_at.desc())
+                .limit(max(500, limit * 20))
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
+        candidates = [r.to_pydantic() for r in rows]
+        if not candidates:
+            return []
+
+        # Empty/whitespace query: no ranking signal — return most-recent slice.
+        if not query or not query.strip():
+            return candidates[:limit]
+
+        ranked = bm25_search(candidates, query)
+        return ranked[:limit]
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(delete(MemoryModel).where(MemoryModel.id == memory_id))
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    # ================================================================
+    # Task memos（记忆系统 v2 P0：情景层升表）
+    # ================================================================
+
+    async def add_task_memo(
+        self,
+        task_id: str,
+        content: str,
+        author: str = "leader",
+        memo_type: str = "progress",
+        scope_path: str = "",
+        project_id: str | None = None,
+        supersedes: str | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> TaskMemo:
+        """写一条 task memo 到 task_memos 表（零 LLM，纯 append）。
+
+        supersedes 给定时置被取代行 invalid_at=now、invalidated_by=新 id
+        （Zep 失效语义：矛盾/更新不删旧条，只失效）。
+        """
+        memo = TaskMemo(
+            task_id=task_id,
+            project_id=project_id,
+            author=author,
+            memo_type=memo_type,
+            content=content,
+            scope_path=scope_path,
+            meta=meta or {},
+        )
+        async with get_session(self._db_url) as session:
+            session.add(TaskMemoModel.from_pydantic(memo))
+            if supersedes:
+                res = await session.execute(
+                    select(TaskMemoModel).where(TaskMemoModel.id == supersedes)
+                )
+                old = res.scalar_one_or_none()
+                if old is not None and old.invalid_at is None:
+                    old.invalid_at = memo.created_at
+                    old.invalidated_by = memo.id
+        return memo
+
+    async def list_task_memos(
+        self, task_id: str, include_invalidated: bool = False
+    ) -> list[TaskMemo]:
+        """列一个任务的 memo，默认只返回有效条目（invalid_at IS NULL）。"""
+        async with get_session(self._db_url) as session:
+            stmt = select(TaskMemoModel).where(TaskMemoModel.task_id == task_id)
+            if not include_invalidated:
+                stmt = stmt.where(TaskMemoModel.invalid_at.is_(None))
+            stmt = stmt.order_by(TaskMemoModel.created_at.asc(), text("rowid"))
+            result = await session.execute(stmt)
+            return [r.to_pydantic() for r in result.scalars().all()]
+
+    async def list_task_memos_by_author(self, author: str, limit: int = 2000) -> list[TaskMemo]:
+        """Valid memos written by *author* across all tasks, newest first."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(TaskMemoModel)
+                .where(TaskMemoModel.author == author, TaskMemoModel.invalid_at.is_(None))
+                .order_by(TaskMemoModel.created_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            return [r.to_pydantic() for r in result.scalars().all()]
+
+    async def get_task_memo(self, memo_id: str) -> TaskMemo | None:
+        """按真 id 取单条 memo。"""
+        async with get_session(self._db_url) as session:
+            res = await session.execute(
+                select(TaskMemoModel).where(TaskMemoModel.id == memo_id)
+            )
+            row = res.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_project_task_memos(
+        self,
+        project_id: str,
+        scope_path: str | None = None,
+        include_invalidated: bool = False,
+    ) -> list[TaskMemo]:
+        """列一个项目的全部 task memo（记忆 v2 P2 reconcile 粗筛的语料源）。
+
+        默认只返回有效条目（invalid_at IS NULL）。scope_path 给定时仅取该路径
+        作用域的 memo，便于按需切片整理。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(TaskMemoModel).where(
+                TaskMemoModel.project_id == project_id
+            )
+            if not include_invalidated:
+                stmt = stmt.where(TaskMemoModel.invalid_at.is_(None))
+            if scope_path is not None:
+                stmt = stmt.where(TaskMemoModel.scope_path == scope_path)
+            stmt = stmt.order_by(TaskMemoModel.created_at.asc(), text("rowid"))
+            result = await session.execute(stmt)
+            return [r.to_pydantic() for r in result.scalars().all()]
+
+    async def invalidate_task_memo(
+        self, memo_id: str, invalidated_by: str | None = None
+    ) -> TaskMemo | None:
+        """显式失效一条 task memo（不删除，Zep 失效语义）。
+
+        幂等：已失效条目直接返回其当前状态、不二次改写（reconcile apply 重复
+        操作返回 noop 的底座）。id 不存在返回 None。
+        """
+        async with get_session(self._db_url) as session:
+            res = await session.execute(
+                select(TaskMemoModel).where(TaskMemoModel.id == memo_id)
+            )
+            row = res.scalar_one_or_none()
+            if row is None:
+                return None
+            if row.invalid_at is None:
+                row.invalid_at = utc_now()
+                row.invalidated_by = invalidated_by
+            return row.to_pydantic()
+
+    async def score_task_memo(
+        self, memo_id: str, quality_score: int, reason: str = ""
+    ) -> TaskMemo | None:
+        """为 memo 补质量分（⑧）：quality_score 入列、reason 入 meta。id 不存在返回 None。"""
+        async with get_session(self._db_url) as session:
+            res = await session.execute(
+                select(TaskMemoModel).where(TaskMemoModel.id == memo_id)
+            )
+            row = res.scalar_one_or_none()
+            if row is None:
+                return None
+            row.quality_score = quality_score
+            # 重新赋新 dict 触发 JSON 列脏检测（plain JSON 无 MutableDict 追踪）。
+            meta = dict(row.meta) if isinstance(row.meta, dict) else {}
+            if reason:
+                meta["quality_reason"] = reason
+            row.meta = meta
+            return row.to_pydantic()
+
+    async def count_valid_task_memos_since(
+        self,
+        project_id: str,
+        since: datetime | None,
+        exclude_authors: Collection[str] | None = None,
+    ) -> int:
+        """统计项目内 since 之后创建的有效 task memo 数。
+
+        现役调用方是唤醒判据（wake_actionable._memo_count：自上次唤醒以来有无新进展）。
+        曾用于 memo 写入路径的整理软提示，该提示 2026-09-08 已移除，理由见
+        api/routes/task_memo.py 顶部注释——别照旧用途把它接回写入路径。
+
+        exclude_authors 用于把"唤醒者自己写的 memo"排除在信号之外：这个计数的语义是
+        子 agent 报进展，而写字的人不该被自己写的字叫醒。判据侧怎么定"自己"见
+        wake_actionable._SELF_AUTHOR_ALIASES。
+
+        since 为 None 时统计全部有效条目。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(func.count())
+                .select_from(TaskMemoModel)
+                .where(
+                    TaskMemoModel.project_id == project_id,
+                    TaskMemoModel.invalid_at.is_(None),
+                )
+            )
+            if since is not None:
+                stmt = stmt.where(TaskMemoModel.created_at > since)
+            if exclude_authors:
+                stmt = stmt.where(TaskMemoModel.author.notin_(list(exclude_authors)))
+            res = await session.execute(stmt)
+            return int(res.scalar() or 0)
+
+    async def get_last_reconcile_at(self, project_id: str) -> datetime | None:
+        """读项目上次整理时间（存在 project.config['memory']['last_reconcile_at']）。"""
+        project = await self.get_project(project_id)
+        if project is None:
+            return None
+        raw = (project.config or {}).get("memory", {}).get("last_reconcile_at")
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except (ValueError, TypeError):
+            return None
+
+    async def set_last_reconcile_at(
+        self, project_id: str, when: datetime | None = None
+    ) -> datetime | None:
+        """记项目整理时间戳到 project.config（复用现有 config 存储，不建新表）。"""
+        when = when or utc_now()
+        async with get_session(self._db_url) as session:
+            row = await self._locked_project_row(session, project_id)
+            if row is None:
+                return None
+            cfg = dict(row.config) if isinstance(row.config, dict) else {}
+            mem = dict(cfg.get("memory") or {})
+            mem["last_reconcile_at"] = when.isoformat()
+            cfg["memory"] = mem
+            row.config = cfg
+            row.updated_at = utc_now()
+        return when
+
+    @staticmethod
+    async def _locked_project_row(session: Any, project_id: str) -> ProjectModel | None:
+        """Read a project row after taking its write lock, for read-modify-write of config.
+
+        A plain SELECT runs outside any transaction, so two writers of project.config
+        would each read the same dict and the later commit would drop the other's key.
+        The no-op UPDATE opens the write transaction first; the SELECT then sees the
+        committed state and nobody else can write until this session commits.
+        """
+        await session.execute(
+            sa_update(ProjectModel)
+            .where(ProjectModel.id == project_id)
+            .values(config=ProjectModel.config)
+        )
+        res = await session.execute(select(ProjectModel).where(ProjectModel.id == project_id))
+        return res.scalar_one_or_none()
+
+    # 整理互斥（整理权）：同一项目同一时刻只有一个会话能整理。记在
+    # project.config['memory']['reconcile_lease']，带 TTL，按需判定过期（无定时器）。
+    #
+    # 记录里只有凭据的哈希。project.config 经 GET /api/projects、项目摘要、MCP
+    # project_list 等面对任何会话可读，明文落在这里就等于公开（审查 1f62451a 实测：
+    # 被挡的会话从 project_list 读到 lease_id，冒充持有者 apply 并释放了对方的租约）。
+    # 明文 lease_id 只在新发的那一刻交给调用方一次；holder_prefix / holder_kind 只供展示。
+    RECONCILE_LEASE_KEY = "reconcile_lease"
+    RECONCILE_MCP_HOLDER_PREFIX = "mcp:"
+
+    @staticmethod
+    def _credential_hash(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _credential_matches(cls, presented: str, stored: object) -> bool:
+        """Constant-time comparison of a presented credential with a stored hash.
+
+        A stored value that is not an ASCII string (a config edited by hand) never
+        matches; compare_digest would raise on it rather than answer.
+        """
+        if not presented or not isinstance(stored, str) or not stored or not stored.isascii():
+            return False
+        return hmac.compare_digest(cls._credential_hash(presented), stored)
+
+    @staticmethod
+    def _stored_reconcile_lease(raw: object) -> dict | None:
+        """库里的整理权记录；不是哈希形态的一律按无租约处理。
+
+        旧库兼容选的是「按无租约处理」而不是当场迁移：部署前的明文形态（有 lease_id、
+        没有 lease_id_hash）若迁移成哈希，已经从 config 里泄漏过的明文就会继续有效；
+        按无租约处理后它什么也换不来，下一次 claim 直接覆盖掉。生产库部署前没有这条
+        记录（审查 1f62451a 只读取证），所以不会有进行中的整理因此丢权。
+        """
+        return dict(raw) if isinstance(raw, dict) and raw.get("lease_id_hash") else None
+
+    @classmethod
+    def reconcile_holder_display(cls, holder: str) -> tuple[str, str]:
+        """持有者身份的展示形态 (holder_kind, holder_prefix)，前缀只取 8 位。"""
+        if holder.startswith(cls.RECONCILE_MCP_HOLDER_PREFIX):
+            return "mcp_connection", holder[len(cls.RECONCILE_MCP_HOLDER_PREFIX):][:8]
+        if holder:
+            return "cc_session", holder[:8]
+        return "lease_id_only", ""
+
+    @classmethod
+    def reconcile_lease_owned(cls, lease: dict | None, session_id: str, lease_id: str) -> bool:
+        """持有判定：回传的 lease_id 或持有者身份，其哈希与记录相符（空值一律不算）。"""
+        lease = cls._stored_reconcile_lease(lease)
+        if lease is None:
+            return False
+        if cls._credential_matches(lease_id, lease.get("lease_id_hash")):
+            return True
+        return cls._credential_matches(session_id, lease.get("holder_hash"))
+
+    @staticmethod
+    def reconcile_lease_seconds_left(lease: dict, now: datetime | None = None) -> float:
+        """租约还剩几秒；expires_at 缺失或解析不了按 0 处理（即已过期，防死锁）。"""
+        try:
+            expires = ensure_utc(datetime.fromisoformat(str(lease.get("expires_at"))))
+        except (TypeError, ValueError):
+            return 0.0
+        return (expires - (now or utc_now())).total_seconds()
+
+    @classmethod
+    def reconcile_lease_expired(cls, lease: dict, now: datetime | None = None) -> bool:
+        """租约是否已过期。"""
+        return cls.reconcile_lease_seconds_left(lease, now) <= 0
+
+    async def get_reconcile_lease(self, project_id: str) -> dict | None:
+        """读当前整理权记录（不加锁、不改写；只供只读查看）。"""
+        project = await self.get_project(project_id)
+        raw = ((project.config or {}).get("memory") or {}).get(self.RECONCILE_LEASE_KEY) if project else None
+        return self._stored_reconcile_lease(raw)
+
+    async def claim_reconcile_lease(
+        self,
+        project_id: str,
+        *,
+        session_id: str,
+        lease_id: str,
+        ttl_seconds: int,
+        allow_new: bool,
+    ) -> tuple[str, dict | None, str | None]:
+        """原子地取得或续约项目整理权。返回 (结果, 当前租约记录, 新发的明文 lease_id)。
+
+        结果取值：
+        - ``renewed``：调用方已持有（过期但未被接管也算），到期时间顺延；
+        - ``acquired``：无租约或他人租约已过期，新发一张（仅 allow_new）；
+        - ``held``：他人持有且未过期，返回的是对方的租约（allow_new 时）；
+        - ``not_held``：allow_new=False 且调用方不是当前记录的持有者；
+        - ``no_project``：项目不存在。
+
+        明文 lease_id 只在 ``acquired`` 时返回，库里只存它的哈希；其余结果第三项为 None。
+        candidates 用 allow_new=True（开工即占位）；apply 用 allow_new=False
+        （只认自己拿到的那张：租约被他人接管过，说明手里的候选已可能过期）。
+        """
+        now = utc_now()
+        expires = (now + timedelta(seconds=ttl_seconds)).isoformat()
+        issued: str | None = None
+        async with get_session(self._db_url) as session:
+            row = await self._locked_project_row(session, project_id)
+            if row is None:
+                return "no_project", None, None
+            cfg = dict(row.config) if isinstance(row.config, dict) else {}
+            mem = dict(cfg.get("memory") or {})
+            current = self._stored_reconcile_lease(mem.get(self.RECONCILE_LEASE_KEY))
+
+            if self.reconcile_lease_owned(current, session_id, lease_id):
+                lease = {**current, "expires_at": expires}
+                outcome = "renewed"
+            elif not allow_new:
+                return "not_held", current, None
+            elif current is not None and not self.reconcile_lease_expired(current, now):
+                return "held", current, None
+            else:
+                issued = uuid4().hex
+                kind, prefix = self.reconcile_holder_display(session_id)
+                lease = {
+                    "lease_id_hash": self._credential_hash(issued),
+                    "holder_hash": self._credential_hash(session_id) if session_id else "",
+                    "holder_kind": kind,
+                    "holder_prefix": prefix,
+                    "acquired_at": now.isoformat(),
+                    "expires_at": expires,
+                }
+                outcome = "acquired"
+
+            mem[self.RECONCILE_LEASE_KEY] = lease
+            cfg["memory"] = mem
+            row.config = cfg
+            row.updated_at = now
+        return outcome, lease, issued
+
+    async def release_reconcile_lease(
+        self, project_id: str, *, session_id: str, lease_id: str
+    ) -> bool:
+        """释放整理权（仅当调用方是当前持有者）。返回是否真的释放了。"""
+        async with get_session(self._db_url) as session:
+            row = await self._locked_project_row(session, project_id)
+            if row is None:
+                return False
+            cfg = dict(row.config) if isinstance(row.config, dict) else {}
+            mem = dict(cfg.get("memory") or {})
+            if not self.reconcile_lease_owned(
+                mem.get(self.RECONCILE_LEASE_KEY), session_id, lease_id
+            ):
+                return False
+            mem.pop(self.RECONCILE_LEASE_KEY, None)
+            cfg["memory"] = mem
+            row.config = cfg
+            row.updated_at = utc_now()
+        return True
+
+    async def _hydrate_task_memos(
+        self, session: Any, tasks: list[Task]
+    ) -> None:
+        """把 task_memos 表中有效 memo 拼回各 task 的 config['memo'] 视图字段。
+
+        升表后写路径只进表、config 里的原 JSON 冻结为档案。此处让所有仍读
+        task.config['memo'] 的消费方（completion 验证 / 完成门 hook / 失败诊断 /
+        replay / 前端等）零改动地拿到有效 memo，且 id 为真 id、失效条目已过滤。
+        """
+        ids = [t.id for t in tasks]
+        if not ids:
+            return
+        stmt = (
+            select(TaskMemoModel)
+            .where(
+                TaskMemoModel.task_id.in_(ids),
+                TaskMemoModel.invalid_at.is_(None),
+            )
+            .order_by(TaskMemoModel.created_at.asc(), text("rowid"))
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            grouped.setdefault(r.task_id, []).append(
+                _task_memo_to_legacy(r.to_pydantic())
+            )
+        # 仅当表里存在该任务的有效 memo 时才覆盖 config['memo'] 视图；表里没有
+        # 则保留 config 原值（升表后写路径只进表、绝不再写 config.memo，故生产
+        # 不会残留脏 memo；此回退只让"直写 config 的遗留/测试路径"保持兼容）。
+        for t in tasks:
+            memos = grouped.get(t.id)
+            if not memos:
+                continue
+            cfg = dict(t.config) if isinstance(t.config, dict) else {}
+            cfg["memo"] = memos
+            t.config = cfg
+
+    async def backfill_task_memos_from_config(self) -> int:
+        """记忆系统 v2 P0 一次性回填：tasks.config['memo'] 数组 → task_memos 行。
+
+        幂等两层（审查 major：本仓有双 uvicorn 实例并存史，check-then-insert
+        跨进程非原子，曾可产生 2N 重复行）：
+        ① 快路径：表非空即跳过；
+        ② 竞态兜底：行 id 用 uuid5(task_id, 数组下标) 确定性生成——config.memo
+          已冻结为档案下标稳定，双实例同时回填落同一批 PK，INSERT OR IGNORE
+          让后者逐行静默跳过，行数守恒。
+        原 JSON 保留不动（档案）。
+        """
+        import uuid as _uuid
+
+        from sqlalchemy.dialects.sqlite import insert as _sqlite_insert
+
+        async with get_session(self._db_url) as session:
+            existing = await session.execute(
+                select(func.count()).select_from(TaskMemoModel)
+            )
+            if (existing.scalar() or 0) > 0:
+                return 0  # 表非空 = 已迁移，不重复跑
+
+            rows = (await session.execute(select(TaskModel))).scalars().all()
+            inserted = 0
+            for row in rows:
+                cfg = row.config if isinstance(row.config, dict) else {}
+                memos = cfg.get("memo") or []
+                if not isinstance(memos, list):
+                    continue
+                for idx, m in enumerate(memos):
+                    if not isinstance(m, dict):
+                        continue
+                    content = m.get("content") or ""
+                    if not content:
+                        continue
+                    created = _parse_memo_timestamp(m.get("timestamp"))
+                    det_id = str(
+                        _uuid.uuid5(
+                            _uuid.NAMESPACE_URL,
+                            f"aiteam:task-memo-backfill:{row.id}:{idx}",
+                        )
+                    )
+                    stmt = (
+                        _sqlite_insert(TaskMemoModel)
+                        .values(
+                            id=det_id,
+                            task_id=row.id,
+                            project_id=row.project_id,
+                            author=m.get("author") or "leader",
+                            memo_type=m.get("type") or "progress",
+                            content=content,
+                            scope_path="",
+                            quality_score=None,
+                            invalid_at=None,
+                            invalidated_by=None,
+                            meta={},
+                            created_at=created,
+                        )
+                        .on_conflict_do_nothing(index_elements=["id"])
+                    )
+                    result = await session.execute(stmt)
+                    inserted += result.rowcount or 0
+            return inserted
+
+    async def list_team_knowledge(
+        self,
+        team_id: str,
+        memory_type: str | None = None,
+        limit: int = 50,
+    ) -> list[Memory]:
+        """List the knowledge a team can draw on, with optional type filtering.
+
+        Reads two scopes and merges them newest-first:
+          * ``scope=team, scope_id=team_id`` — the historical home of failure
+            alchemy output, plus anything explicitly filed against this team;
+          * ``scope=project, scope_id=<the team's project>`` — where failure
+            alchemy files new lessons since 2026-07-27 (teams are session-level
+            containers and die young; the project is what outlives them).
+        Reading both keeps this endpoint whole across that cut-over — the 125
+        pre-existing team-scoped rows were deliberately NOT migrated.
+
+        Args:
+            team_id: Team ID
+            memory_type: Optional type filter, matches metadata.type field
+                         e.g., failure_alchemy / lesson_learned / loop_review
+            limit: Maximum number of results to return
+        """
+        team = await self.get_team(team_id) or await self.get_team_by_name(team_id)
+        project_id = team.project_id if team else None
+        resolved_team_id = team.id if team else team_id
+
+        conditions = [
+            (MemoryModel.scope == MemoryScope.TEAM.value)
+            & (MemoryModel.scope_id == resolved_team_id)
+        ]
+        if project_id:
+            conditions.append(
+                (MemoryModel.scope == MemoryScope.PROJECT.value)
+                & (MemoryModel.scope_id == project_id)
+            )
+
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(MemoryModel)
+                .where(or_(*conditions))
+                .order_by(MemoryModel.created_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            memories = [r.to_pydantic() for r in rows]
+
+        if memory_type:
+            memories = [m for m in memories if m.metadata.get("type") == memory_type]
+        return memories
+
+    async def list_agent_experience(
+        self,
+        agent_id: str,
+        limit: int = 50,
+    ) -> list[Memory]:
+        """List an Agent's experience memories (scope=agent).
+
+        Args:
+            agent_id: Agent ID
+            limit: Maximum number of results to return
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(MemoryModel)
+                .where(
+                    MemoryModel.scope == MemoryScope.AGENT.value,
+                    MemoryModel.scope_id == agent_id,
+                )
+                .order_by(MemoryModel.created_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Meetings
+    # ================================================================
+
+    async def create_meeting(
+        self,
+        team_id: str,
+        topic: str,
+        participants: list[str] | None = None,
+        meta_json: dict | None = None,
+    ) -> Meeting:
+        """Create a meeting."""
+        meeting = Meeting(
+            team_id=team_id,
+            topic=topic,
+            participants=participants or [],
+            meta_json=meta_json or {},
+        )
+        orm = MeetingModel.from_pydantic(meeting)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return meeting
+
+    async def get_meeting(self, meeting_id: str) -> Meeting | None:
+        """Get a meeting by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(MeetingModel).where(MeetingModel.id == meeting_id)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_meetings(
+        self,
+        team_id: str,
+        status: MeetingStatus | None = None,
+    ) -> list[Meeting]:
+        """List team meetings, optionally filtered by status."""
+        async with get_session(self._db_url) as session:
+            stmt = select(MeetingModel).where(MeetingModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, MeetingModel)
+            if status is not None:
+                stmt = stmt.where(MeetingModel.status == status.value)
+            stmt = stmt.order_by(MeetingModel.created_at.desc())
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def update_meeting(self, meeting_id: str, **kwargs: object) -> Meeting:
+        """Update meeting information."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(MeetingModel).where(MeetingModel.id == meeting_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                msg = f"会议 {meeting_id} 不存在"
+                raise NotFoundError(msg)
+
+            # Handle status field: convert to string value
+            if "status" in kwargs:
+                status_val = kwargs["status"]
+                if isinstance(status_val, MeetingStatus):
+                    kwargs["status"] = status_val.value
+                elif isinstance(status_val, str):
+                    MeetingStatus(status_val)
+
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+
+            return row.to_pydantic()
+
+    async def create_meeting_message(
+        self,
+        meeting_id: str,
+        agent_id: str,
+        agent_name: str,
+        content: str,
+        round_number: int = 1,
+        msg_metadata: dict | None = None,
+        join_participants: bool = False,
+    ) -> MeetingMessage:
+        """Create a meeting message.
+
+        ``join_participants`` adds the speaker to the meeting's participants in the
+        same transaction, so a message that fails to insert leaves no speaker behind.
+        """
+        message = MeetingMessage(
+            meeting_id=meeting_id,
+            agent_id=agent_id,
+            agent_name=agent_name,
+            content=content,
+            round_number=round_number,
+            msg_metadata=msg_metadata or {},
+        )
+        orm = MeetingMessageModel.from_pydantic(message)
+        async with get_session(self._db_url) as session:
+            if join_participants:
+                # Take the row's write lock before reading it: a plain SELECT runs
+                # outside any transaction, so concurrent speakers each read the same
+                # list and the last write drops the others (measured: 42 of 48 lost).
+                await session.execute(
+                    sa_update(MeetingModel)
+                    .where(MeetingModel.id == meeting_id)
+                    .values(participants=MeetingModel.participants)
+                )
+                result = await session.execute(
+                    select(MeetingModel).where(MeetingModel.id == meeting_id)
+                )
+                row = result.scalar_one_or_none()
+                if row is not None and agent_name not in (row.participants or []):
+                    # A new list: an in-place append on a JSON column is not tracked.
+                    row.participants = [*(row.participants or []), agent_name]
+            session.add(orm)
+        return message
+
+    async def list_meeting_messages(
+        self,
+        meeting_id: str,
+        limit: int = 100,
+    ) -> list[MeetingMessage]:
+        """List meeting messages."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(MeetingMessageModel)
+                .where(MeetingMessageModel.meeting_id == meeting_id)
+                .order_by(MeetingMessageModel.timestamp)
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def get_expired_meetings(self, hours: int = 24) -> list[Meeting]:
+        """Get active meetings with no new messages for more than the specified hours.
+
+        Determination logic:
+        - Meetings with messages: last message timestamp is more than `hours` ago
+        - Meetings without messages: creation time is more than `hours` ago
+        """
+        cutoff = utc_now() - timedelta(hours=hours)
+        async with get_session(self._db_url) as session:
+            # Subquery: last message time for each meeting
+            last_msg_subq = (
+                select(
+                    MeetingMessageModel.meeting_id,
+                    func.max(MeetingMessageModel.timestamp).label("last_msg_time"),
+                )
+                .group_by(MeetingMessageModel.meeting_id)
+                .subquery()
+            )
+
+            # Main query: active meetings LEFT JOIN last message time
+            stmt = (
+                select(MeetingModel)
+                .outerjoin(
+                    last_msg_subq,
+                    MeetingModel.id == last_msg_subq.c.meeting_id,
+                )
+                .where(
+                    MeetingModel.status == MeetingStatus.ACTIVE.value,
+                    # Use last message time if available, otherwise use creation time
+                    func.coalesce(
+                        last_msg_subq.c.last_msg_time,
+                        MeetingModel.created_at,
+                    )
+                    < cutoff,
+                )
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def conclude_meeting(self, meeting_id: str) -> Meeting | None:
+        """Conclude a meeting, setting its status to concluded."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(MeetingModel).where(MeetingModel.id == meeting_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.status = MeetingStatus.CONCLUDED.value
+            row.concluded_at = utc_now()
+            return row.to_pydantic()
+
+    # ================================================================
+    # Hooks — CC session-related queries
+    # ================================================================
+
+    async def find_agents_by_session_and_name(
+        self,
+        session_id: str,
+        agent_name: str,
+    ) -> list[Agent]:
+        """All rows matching (session, name), newest first.
+
+        Dedup callers need to see **every** candidate, not an arbitrary one: the
+        row they may reuse must be chosen by dispatch identity (cc_tool_use_id +
+        token ledger, see ``services.agent_identity``), and that decision cannot be
+        made from a single row picked at random by the database.
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .where(
+                    AgentModel.session_id == session_id,
+                    AgentModel.name == agent_name,
+                )
+                .order_by(AgentModel.created_at.desc(), AgentModel.id.desc())
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def find_agent_by_session(
+        self,
+        session_id: str,
+        agent_name: str,
+    ) -> Agent | None:
+        """Find a registered Agent by CC session ID and Agent name.
+
+        Returns the **newest** match. The previous implementation was ``limit(1)``
+        with no ORDER BY, i.e. "whichever row the engine happened to hand back
+        first" - and every caller here wants the row that belongs to the current
+        spawn (whoami resolution, TeammateIdle observation), which is the newest
+        one. Ordering is not a nicety: an ambiguous answer here used to decide
+        which row a new dispatch got welded onto (A-06).
+        """
+        rows = await self.find_agents_by_session_and_name(session_id, agent_name)
+        return rows[0] if rows else None
+
+    async def find_agents_by_session(self, session_id: str) -> list[Agent]:
+        """Find all Agents associated with a CC session."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .where(AgentModel.session_id == session_id)
+                .order_by(AgentModel.created_at)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def find_session_leaders(self, session_id: str) -> list[Agent]:
+        """Leader rows of one CC session, oldest first.
+
+        The role filter runs in SQL: hook events hit this on the event loop, and a
+        long session carries hundreds of sub-agent rows that would otherwise all be
+        hydrated just to be discarded.
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .where(AgentModel.session_id == session_id, AgentModel.role == LEADER_ROLE)
+                .order_by(AgentModel.created_at)
+            )
+            result = await session.execute(stmt)
+            return [r.to_pydantic() for r in result.scalars().all()]
+
+    async def find_session_primary_agent(self, session_id: str) -> Agent | None:
+        """The row a main-session tool call belongs to, picked in SQL.
+
+        Preference order, each tier oldest first: a leader row, then an api-source
+        row, then a busy row, then any row. Same pick as scanning
+        :meth:`find_agents_by_session` in Python, without hydrating the session.
+        """
+        tier = case(
+            (AgentModel.role == LEADER_ROLE, 0),
+            (AgentModel.source == "api", 1),
+            (AgentModel.status == AgentStatus.BUSY.value, 2),
+            else_=3,
+        )
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .where(AgentModel.session_id == session_id)
+                .order_by(tier, AgentModel.created_at)
+                .limit(1)
+            )
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_usage_remeasure_candidates(
+        self, *, since: datetime, limit: int,
+    ) -> list[UsageRemeasureCandidate]:
+        """Offline CC sub-agent rows active since ``since``: never-measured first, then newest.
+
+        Read-only. Codex rows are left out: their usage comes from the rollout parser
+        path, not from CC transcripts. So are rows without a cc id, which have no
+        transcript to locate. Only the columns the re-measure needs are read, so a
+        cycle does not hydrate thousands of rows.
+        """
+        activity = func.coalesce(AgentModel.last_active_at, AgentModel.created_at)
+        stmt = (
+            select(
+                AgentModel.id,
+                AgentModel.cc_tool_use_id,
+                AgentModel.session_id,
+                AgentModel.transcript_path,
+                ProjectModel.root_path,
+                AgentModel.tokens_measured_at,
+                AgentModel.last_active_at,
+            )
+            .outerjoin(ProjectModel, ProjectModel.id == AgentModel.project_id)
+            .where(
+                AgentModel.role != LEADER_ROLE,
+                AgentModel.status == AgentStatus.OFFLINE.value,
+                or_(AgentModel.harness.is_(None), AgentModel.harness != HarnessId.CODEX.value),
+                AgentModel.cc_tool_use_id.is_not(None),
+                AgentModel.cc_tool_use_id != "",
+                activity >= since,
+            )
+            .order_by(AgentModel.tokens_measured_at.is_not(None), activity.desc())
+            .limit(limit)
+        )
+        async with get_session(self._db_url) as session:
+            rows = (await session.execute(stmt)).all()
+        return [UsageRemeasureCandidate(*row) for row in rows]
+
+    async def update_remeasured_usage(
+        self, agent_id: str, *, measured_at: datetime | None, values: dict[str, object],
+    ) -> bool:
+        """Write a re-measured sub-agent's usage only over the state it was picked in.
+
+        The row must still be offline and still carry ``measured_at`` as its
+        tokens_measured_at, checked in the UPDATE itself: a Stop measurement or a
+        wake-up landing in between wins, and this write is dropped (False). Records
+        the same agent.updated event as :meth:`update_agent`.
+        """
+        current = (
+            AgentModel.tokens_measured_at.is_(None)
+            if measured_at is None
+            else AgentModel.tokens_measured_at == measured_at
+        )
+        statement = (
+            sa_update(AgentModel)
+            .where(AgentModel.id == agent_id, AgentModel.status == AgentStatus.OFFLINE.value, current)
+            .values(**values)
+            .returning(AgentModel)
+        )
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(statement)).scalar_one_or_none()
+            if row is None:
+                return False
+            updated = row.to_pydantic()
+        await self.create_event(
+            event_type="agent.updated",
+            source="repository",
+            data={"agent_id": agent_id, "changes": list(values.keys())},
+            entity_id=agent_id,
+            entity_type="agent",
+            state_snapshot={"status": updated.status.value, "name": updated.name},
+        )
+        return True
+
+    async def list_busy_agents_by_team(self) -> dict[str, list[Agent]]:
+        """BUSY agents grouped by team id, each group oldest first.
+
+        One query standing in for ``list_agents`` per team from ``list_teams``: the
+        join keeps the same team set (rows whose team is gone are left out) and both
+        project filters apply as they would there.
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .join(TeamModel, TeamModel.id == AgentModel.team_id)
+                .where(AgentModel.status == AgentStatus.BUSY.value)
+                .order_by(AgentModel.created_at)
+            )
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            stmt = self._apply_project_filter(stmt, TeamModel)
+            result = await session.execute(stmt)
+            grouped: dict[str, list[Agent]] = {}
+            for row in result.scalars().all():
+                grouped.setdefault(row.team_id, []).append(row.to_pydantic())
+            return grouped
+
+    async def find_agent_by_cc_id(self, cc_agent_id: str) -> Agent | None:
+        """Find an Agent by CC internal agent_id."""
+        async with get_session(self._db_url) as session:
+            stmt = select(AgentModel).where(AgentModel.cc_tool_use_id == cc_agent_id).limit(1)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def find_agents_by_role(self, role: str) -> list[Agent]:
+        """Find all Agents by role (across teams)."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentModel)
+                .where(AgentModel.role == role)
+                .order_by(AgentModel.created_at.desc())
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def count_agents_by_source(
+        self,
+        source: str,
+        session_id: str | None = None,
+    ) -> int:
+        """Count Agents by source, optionally filtered by session."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(func.count())
+                .select_from(AgentModel)
+                .where(
+                    AgentModel.source == source,
+                )
+            )
+            if session_id is not None:
+                stmt = stmt.where(AgentModel.session_id == session_id)
+            result = await session.execute(stmt)
+            return result.scalar_one()
+
+    # ================================================================
+    # Hook event receipts - redelivery idempotency
+    # ================================================================
+
+    async def claim_hook_receipt(
+        self, session_id: str, hook_event_name: str, tool_use_id: str, *,
+        stale_before: datetime,
+    ) -> HookReceiptClaim:
+        """Claim the receipt for one hook event before handling it.
+
+        The first caller inserts the row and owns the event. Later callers get the
+        stored response, or ``response=None`` while the owner is still handling it.
+        A claim with no response that predates ``stale_before`` is treated as
+        abandoned (the owner died between claim and completion) and taken over, so
+        a crash cannot turn every later redelivery into a permanent "in flight".
+        """
+        now = utc_now()
+        try:
+            async with get_session(self._db_url) as session:
+                session.add(HookEventReceiptModel(
+                    session_id=session_id, hook_event_name=hook_event_name,
+                    tool_use_id=tool_use_id, claimed_at=now,
+                ))
+            return HookReceiptClaim(True, None, now)
+        except IntegrityError:
+            pass
+        key = (
+            HookEventReceiptModel.session_id == session_id,
+            HookEventReceiptModel.hook_event_name == hook_event_name,
+            HookEventReceiptModel.tool_use_id == tool_use_id,
+        )
+        async with get_session(self._db_url) as session:
+            taken_over = await session.execute(
+                sa_update(HookEventReceiptModel)
+                .where(
+                    *key, HookEventReceiptModel.response.is_(None),
+                    HookEventReceiptModel.claimed_at < stale_before,
+                )
+                .values(claimed_at=now)
+            )
+            if taken_over.rowcount == 1:
+                return HookReceiptClaim(True, None, now)
+            row = (await session.execute(
+                select(HookEventReceiptModel.response).where(*key)
+            )).one_or_none()
+        if row is None:
+            # The owner released its claim between our insert and this read.
+            return await self.claim_hook_receipt(
+                session_id, hook_event_name, tool_use_id, stale_before=stale_before,
+            )
+        return HookReceiptClaim(False, row[0])
+
+    async def complete_hook_receipt(
+        self, session_id: str, hook_event_name: str, tool_use_id: str, token: datetime,
+        response: dict[str, Any],
+    ) -> bool:
+        """Store the handler's response on the claim ``token`` still owns.
+
+        Returns False when the claim was taken over meanwhile: the new owner's
+        answer is the one that stands.
+        """
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(HookEventReceiptModel)
+                .where(
+                    HookEventReceiptModel.session_id == session_id,
+                    HookEventReceiptModel.hook_event_name == hook_event_name,
+                    HookEventReceiptModel.tool_use_id == tool_use_id,
+                    HookEventReceiptModel.claimed_at == token,
+                )
+                .values(response=response, completed_at=utc_now())
+            )
+            return result.rowcount == 1
+
+    async def release_hook_receipt(
+        self, session_id: str, hook_event_name: str, tool_use_id: str, token: datetime,
+    ) -> bool:
+        """Drop the unfinished claim ``token`` owns so a redelivery handles the event again.
+
+        A claim taken over by another delivery is left alone: deleting it would let a
+        third delivery handle the event while the new owner is still at it.
+        """
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                delete(HookEventReceiptModel).where(
+                    HookEventReceiptModel.session_id == session_id,
+                    HookEventReceiptModel.hook_event_name == hook_event_name,
+                    HookEventReceiptModel.tool_use_id == tool_use_id,
+                    HookEventReceiptModel.claimed_at == token,
+                    HookEventReceiptModel.response.is_(None),
+                )
+            )
+            return result.rowcount == 1
+
+    async def prune_hook_receipts(self, claimed_before: datetime, *, limit: int) -> int:
+        """Delete up to ``limit`` receipts claimed before the cutoff; returns how many.
+
+        Receipts only answer redeliveries. The events they guard live in the event
+        tables, and the stored response is a copy of what the handler returned.
+        Bounded per call so a backlog is drained in short transactions.
+        """
+        key = tuple_(
+            HookEventReceiptModel.session_id,
+            HookEventReceiptModel.hook_event_name,
+            HookEventReceiptModel.tool_use_id,
+        )
+        expired = (
+            select(
+                HookEventReceiptModel.session_id,
+                HookEventReceiptModel.hook_event_name,
+                HookEventReceiptModel.tool_use_id,
+            )
+            .where(HookEventReceiptModel.claimed_at < claimed_before)
+            .limit(limit)
+        )
+        async with get_session(self._db_url) as session:
+            result = await session.execute(delete(HookEventReceiptModel).where(key.in_(expired)))
+            return result.rowcount or 0
+
+    # ================================================================
+    # Agent Activities — tool call activity logs
+    # ================================================================
+
+    async def create_activity(
+        self,
+        agent_id: str,
+        session_id: str,
+        tool_name: str,
+        input_summary: str = "",
+        output_summary: str = "",
+        status: str = "completed",
+        duration_ms: int | None = None,
+        error: str | None = None,
+        turn_id: str | None = None,
+        timestamp: datetime | None = None,
+    ) -> AgentActivity:
+        """Record a single tool call activity for an Agent.
+
+        ``turn_id`` is optional and defaults to None: the CC hook payload has no
+        turn concept, so CC-side callers never pass it and the column stays NULL
+        on every CC row. Only the Codex path supplies it.
+        """
+        activity = AgentActivity(
+            agent_id=agent_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            input_summary=input_summary[:500],
+            output_summary=output_summary[:500],
+            status=status,
+            duration_ms=duration_ms,
+            error=error,
+            turn_id=turn_id,
+            **({"timestamp": ensure_utc(timestamp)} if timestamp is not None else {}),
+        )
+        orm = AgentActivityModel.from_pydantic(activity)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return activity
+
+    async def update_codex_usage_if_current(
+        self, agent_id: str, *, expected_session_id: str | None,
+        expected_cc_tool_use_id: str | None, expected_transcript_path: str | None,
+        expected_measured_at: datetime | None, input_tokens: int, output_tokens: int,
+        cache_creation_tokens: int | None, cache_read_tokens: int,
+        reasoning_output_tokens: int | None, tokens_measured_at: datetime,
+        transcript_path: str,
+    ) -> bool:
+        """Compare-and-set one Codex ledger; stale parses never overwrite new bindings."""
+        counts = (input_tokens, output_tokens, cache_read_tokens)
+        optional = (cache_creation_tokens, reasoning_output_tokens)
+        if any(type(v) is not int or v < 0 for v in counts) or any(
+            v is not None and (type(v) is not int or v < 0) for v in optional
+        ):
+            raise ValueError("invalid Codex usage counts")
+        if reasoning_output_tokens is not None and reasoning_output_tokens > output_tokens:
+            raise ValueError("reasoning must be a subset of output")
+        if not isinstance(tokens_measured_at, datetime) or not isinstance(transcript_path, str) or not transcript_path:
+            raise ValueError("Codex usage requires timestamp and original path")
+        values = dict(input_tokens=input_tokens, output_tokens=output_tokens,
+            cache_creation_tokens=cache_creation_tokens, cache_read_tokens=cache_read_tokens,
+            reasoning_output_tokens=reasoning_output_tokens,
+            tokens_measured_at=ensure_utc(tokens_measured_at),
+            tokens_source=TokenSource.CODEX_ROLLOUT.value, transcript_path=transcript_path,
+            # A real measurement voids an earlier "no usage event" verdict.
+            usage_unmeasurable=None)
+        async with get_session(self._db_url) as session:
+            result = await session.execute(sa_update(AgentModel).where(
+                AgentModel.id == agent_id, AgentModel.harness == HarnessId.CODEX.value,
+                AgentModel.session_id.is_not_distinct_from(expected_session_id),
+                AgentModel.cc_tool_use_id.is_not_distinct_from(expected_cc_tool_use_id),
+                AgentModel.transcript_path.is_not_distinct_from(expected_transcript_path),
+                AgentModel.tokens_measured_at.is_not_distinct_from(expected_measured_at),
+            ).values(**values))
+            return result.rowcount == 1
+
+    async def mark_codex_no_usage_if_current(
+        self, agent_id: str, *, expected_session_id: str | None,
+        expected_cc_tool_use_id: str | None, expected_transcript_path: str | None,
+        now: datetime | None = None,
+    ) -> bool:
+        """Record that a Codex thread's rollout has no usage event, if the row is unchanged.
+
+        Same identity guard as :meth:`update_codex_usage_if_current`, and only on a row
+        that was never measured and carries no verdict yet: a verdict from an older
+        parse must not land on a row that has since been rebound or measured.
+
+        Only a finished row gets the verdict (:func:`usage_coverage.is_in_flight`, the
+        predicate the unattributed view and the maintenance scripts use): a running
+        actor's first usage event may simply not be on disk yet, and a verdict written
+        now would outlive it if the closing capture were lost. The update also compares
+        the status and activity time it judged, so an actor that becomes active in
+        between keeps no verdict.
+        """
+        now = now or utc_now()
+        async with get_session(self._db_url) as session:
+            current = (await session.execute(
+                select(AgentModel.status, AgentModel.last_active_at).where(AgentModel.id == agent_id)
+            )).one_or_none()
+            if current is None or is_in_flight(current.status, current.last_active_at, now):
+                return False
+            result = await session.execute(sa_update(AgentModel).where(
+                AgentModel.id == agent_id, AgentModel.harness == HarnessId.CODEX.value,
+                AgentModel.session_id.is_not_distinct_from(expected_session_id),
+                AgentModel.cc_tool_use_id.is_not_distinct_from(expected_cc_tool_use_id),
+                AgentModel.transcript_path.is_not_distinct_from(expected_transcript_path),
+                AgentModel.tokens_measured_at.is_(None),
+                AgentModel.usage_unmeasurable.is_(None),
+                AgentModel.status == current.status,
+                AgentModel.last_active_at.is_not_distinct_from(current.last_active_at),
+            ).values(usage_unmeasurable=UnattributedReason.NO_USAGE_LINES.value))
+            return result.rowcount == 1
+
+    async def record_codex_tool_activity(
+        self,
+        *,
+        agent_id: str,
+        session_id: str,
+        tool_call_id: str,
+        tool_name: str,
+        completed: bool,
+        input_summary: str = "",
+        output_summary: str = "",
+        turn_id: str | None = None,
+    ) -> AgentActivity:
+        """Persist exact host-call correlation without an in-memory span cache.
+
+        The existing primary key is the idempotency boundary. A late start or a
+        duplicate completion cannot reopen or duplicate a completed activity.
+        """
+        if not agent_id or not session_id or not tool_call_id or not tool_name:
+            raise ValueError("A Codex tool activity requires explicit call identity")
+        activity_id = str(uuid5(NAMESPACE_URL, json.dumps([
+            "aiteam:codex-tool-activity:v1", agent_id, session_id, tool_call_id,
+        ], separators=(",", ":"))))
+        now = utc_now()
+        conflict: IntegrityError | None = None
+        try:
+            # A separate transaction rolls back a duplicate on every supported
+            # dialect, including PostgreSQL, before the authoritative reread.
+            async with get_session(self._db_url) as session:
+                session.add(AgentActivityModel(
+                    id=activity_id, agent_id=agent_id, session_id=session_id,
+                    tool_name=tool_name, input_summary=input_summary[:500],
+                    output_summary=output_summary[:500] if completed else "",
+                    timestamp=now, status="completed" if completed else "running",
+                    duration_ms=None, error=None, turn_id=turn_id,
+                ))
+        except IntegrityError as exc:
+            conflict = exc
+        async with get_session(self._db_url) as session:
+            row = await session.get(AgentActivityModel, activity_id)
+            if row is None:
+                if conflict is not None:
+                    raise conflict
+                raise RuntimeError("Persisted Codex activity was not found")
+            if row.tool_name != tool_name:
+                raise ValueError("Codex call identity cannot change tool name")
+            if completed and row.status == "running":
+                await session.execute(
+                    sa_update(AgentActivityModel)
+                    .where(AgentActivityModel.id == activity_id,
+                           AgentActivityModel.status == "running")
+                    # Receipt time includes delivery delay, not just tool work.
+                    # No verified host start/end pair is persisted in this row.
+                    .values(status="completed", output_summary=output_summary[:500],
+                            duration_ms=None)
+                )
+                await session.refresh(row)
+            return row.to_pydantic()
+
+    async def record_cc_tool_activity(
+        self,
+        *,
+        agent_id: str,
+        session_id: str,
+        tool_use_id: str,
+        tool_name: str,
+        phase: str,
+        at: datetime,
+        input_summary: str = "",
+        output_summary: str = "",
+        error: str | None = None,
+        duration_ms: int | None = None,
+    ) -> AgentActivity:
+        """Record one Claude Code tool-call phase, paired by ``tool_use_id`` in the database.
+
+        ``phase`` is "start" (PreToolUse), "complete" (PostToolUse) or "fail"
+        (PostToolUseFailure). The row id is derived from (session_id, tool_use_id),
+        so the pairing survives a process restart and does not depend on arrival
+        order: whichever phase arrives first creates the row, the other one finishes
+        it, and the end state is the same either way.
+
+        The row spans the call: ``timestamp`` is when it started and
+        ``timestamp + duration_ms`` is when its completion arrived, in either order.
+        The start is the PreToolUse time. Only when the completion comes first is
+        the host's ``duration_ms`` used, to estimate the start until the PreToolUse
+        arrives; that late start then moves the start back and keeps the end where
+        it was. A repeated phase never reopens or rewrites a finished row.
+
+        The common orders cost one write transaction each: a start inserts, a
+        completion updates the running row it finds. An insert that loses a race
+        falls back to reading the winner's row.
+        """
+        if not agent_id or not session_id or not tool_use_id or not tool_name:
+            raise ValueError("A Claude Code tool activity requires explicit call identity")
+        if phase not in ("start", "complete", "fail"):
+            raise ValueError(f"Unknown tool activity phase: {phase!r}")
+        activity_id = str(uuid5(NAMESPACE_URL, json.dumps([
+            "aiteam:cc-tool-activity:v1", session_id, tool_use_id,
+        ], separators=(",", ":"))))
+        at = ensure_utc(at)
+        finished = phase != "start"
+        status = {"start": "running", "complete": "completed", "fail": "error"}[phase]
+        error_text = (error or "")[:500] or None
+
+        async def finish(row: AgentActivityModel, session) -> None:
+            """Close a running row at ``at``; a finished row is left as it is."""
+            if row.status != "running":
+                return
+            span = max(0, int((at - ensure_utc(row.timestamp)).total_seconds() * 1000))
+            await session.execute(
+                sa_update(AgentActivityModel)
+                .where(AgentActivityModel.id == activity_id,
+                       AgentActivityModel.status == "running")
+                .values(status=status, output_summary=output_summary[:500],
+                        error=error_text, duration_ms=span)
+            )
+            await session.refresh(row)
+
+        async def rewind(row: AgentActivityModel, session) -> None:
+            """A start arriving after the completion: move the start back, keep the end."""
+            recorded_at = ensure_utc(row.timestamp)
+            if row.status == "running" or at >= recorded_at:
+                return
+            ended_at = recorded_at + timedelta(milliseconds=row.duration_ms or 0)
+            values: dict[str, Any] = {
+                "timestamp": at,
+                "duration_ms": int((ended_at - at).total_seconds() * 1000),
+            }
+            if not row.input_summary and input_summary:
+                values["input_summary"] = input_summary[:500]
+            await session.execute(
+                sa_update(AgentActivityModel)
+                .where(AgentActivityModel.id == activity_id,
+                       AgentActivityModel.status != "running")
+                .values(**values)
+            )
+            await session.refresh(row)
+
+        if finished:
+            # Usually the start is already there: finish it without a doomed insert.
+            async with get_session(self._db_url) as session:
+                row = await session.get(AgentActivityModel, activity_id)
+                if row is not None:
+                    await finish(row, session)
+                    return row.to_pydantic()
+        estimated_start = at - timedelta(milliseconds=duration_ms) if finished and duration_ms else at
+        activity = AgentActivity(
+            id=activity_id, agent_id=agent_id, session_id=session_id, tool_name=tool_name,
+            input_summary=input_summary[:500],
+            output_summary=output_summary[:500] if finished else "",
+            timestamp=estimated_start, status=status,
+            # Unknown (None) until a start arrives, unless the host reported one.
+            duration_ms=duration_ms if finished and duration_ms else None,
+            error=error_text if finished else None,
+        )
+        try:
+            # Its own transaction, so a duplicate rolls back before the reread below.
+            async with get_session(self._db_url) as session:
+                session.add(AgentActivityModel.from_pydantic(activity))
+            return activity
+        except IntegrityError as exc:
+            conflict = exc
+        async with get_session(self._db_url) as session:
+            row = await session.get(AgentActivityModel, activity_id)
+            if row is None:
+                raise conflict
+            if finished:
+                await finish(row, session)
+            else:
+                await rewind(row, session)
+            return row.to_pydantic()
+
+    async def find_running_activity(
+        self,
+        agent_id: str,
+        session_id: str,
+        tool_name: str,
+    ) -> AgentActivity | None:
+        """Find a matching running-status activity (Pre→Post correlation)."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentActivityModel)
+                .where(
+                    AgentActivityModel.agent_id == agent_id,
+                    AgentActivityModel.session_id == session_id,
+                    AgentActivityModel.tool_name == tool_name,
+                    AgentActivityModel.status == "running",
+                )
+                .order_by(AgentActivityModel.timestamp.desc())
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def update_activity(
+        self,
+        activity_id: str,
+        **kwargs: Any,
+    ) -> None:
+        """Update activity fields (used by PostToolUse to backfill duration_ms/status/output)."""
+        async with get_session(self._db_url) as session:
+            stmt = select(AgentActivityModel).where(AgentActivityModel.id == activity_id)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+            session.add(row)
+
+    async def list_activities(
+        self,
+        agent_id: str,
+        limit: int = 50,
+    ) -> list[AgentActivity]:
+        """Get an Agent's activity log."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentActivityModel)
+                .where(AgentActivityModel.agent_id == agent_id)
+                .order_by(AgentActivityModel.timestamp.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def list_activities_by_session(
+        self,
+        session_id: str,
+        limit: int = 100,
+    ) -> list[AgentActivity]:
+        """Get all activities under a session."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentActivityModel)
+                .where(AgentActivityModel.session_id == session_id)
+                .order_by(AgentActivityModel.timestamp.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def list_activities_by_team(
+        self,
+        team_id: str,
+        agent_id: str | None = None,
+        limit: int = 50,
+    ) -> list[AgentActivity]:
+        """Get activity logs for all agents under a team, sorted by timestamp descending."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(AgentActivityModel)
+                .join(AgentModel, AgentActivityModel.agent_id == AgentModel.id)
+                .where(AgentModel.team_id == team_id)
+                .order_by(AgentActivityModel.timestamp.desc())
+                .limit(limit)
+            )
+            if agent_id is not None:
+                stmt = stmt.where(AgentActivityModel.agent_id == agent_id)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Analytics — aggregate statistics queries
+    # ================================================================
+
+    async def aggregate_activity_stats_by_role(
+        self, error_sample_limit: int = 500
+    ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+        """Aggregate every agent activity by the owning agent's role — in 2 queries.
+
+        Prompt-effectiveness stats used to be assembled by looping over every team
+        and issuing three queries each (agents + activities + knowledge). On this
+        install that is 254 teams x 3 = 762 round-trips per page load, and it also
+        pulled up to 2000 activity ROWS per team into Python just to count them.
+
+        Returns:
+            (stats, error_samples) where stats is one dict per role with
+            total/success/failure/total_duration_ms/duration_samples, and
+            error_samples is a bounded list of (role, error) for failed rows.
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(
+                    AgentModel.role.label("role"),
+                    func.count(AgentActivityModel.id).label("total"),
+                    func.sum(
+                        case((AgentActivityModel.status == "completed", 1), else_=0)
+                    ).label("success"),
+                    func.sum(
+                        case(
+                            (AgentActivityModel.status.in_(("failed", "error")), 1),
+                            else_=0,
+                        )
+                    ).label("failure"),
+                    func.coalesce(func.sum(AgentActivityModel.duration_ms), 0).label(
+                        "total_duration_ms"
+                    ),
+                    func.count(AgentActivityModel.duration_ms).label("duration_samples"),
+                )
+                .join(AgentModel, AgentActivityModel.agent_id == AgentModel.id)
+                .group_by(AgentModel.role)
+            )
+            rows = (await session.execute(stmt)).all()
+            stats = [
+                {
+                    "role": r.role or "",
+                    "total": int(r.total or 0),
+                    "success": int(r.success or 0),
+                    "failure": int(r.failure or 0),
+                    "total_duration_ms": int(r.total_duration_ms or 0),
+                    "duration_samples": int(r.duration_samples or 0),
+                }
+                for r in rows
+            ]
+
+            err_stmt = (
+                select(AgentModel.role, AgentActivityModel.error)
+                .join(AgentModel, AgentActivityModel.agent_id == AgentModel.id)
+                .where(
+                    AgentActivityModel.status.in_(("failed", "error")),
+                    AgentActivityModel.error.isnot(None),
+                )
+                .order_by(AgentActivityModel.timestamp.desc())
+                .limit(error_sample_limit)
+            )
+            err_rows = (await session.execute(err_stmt)).all()
+            errors = [(r[0] or "", r[1] or "") for r in err_rows]
+        return stats, errors
+
+    async def list_memories_by_metadata_type(
+        self, memory_type: str, limit: int = 2000
+    ) -> list[Memory]:
+        """All memories whose ``metadata.type`` equals *memory_type*, newest first.
+
+        One query instead of one per team (see aggregate_activity_stats_by_role).
+        The JSON predicate is pushed down when the backend supports it and falls
+        back to a Python filter otherwise, so behaviour never depends on the
+        SQLite build's JSON1 availability.
+        """
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(MemoryModel)
+                .order_by(MemoryModel.created_at.desc())
+                .limit(limit)
+            )
+            try:
+                stmt = stmt.where(
+                    MemoryModel.metadata_json["type"].as_string() == memory_type
+                )
+                rows = (await session.execute(stmt)).scalars().all()
+                return [r.to_pydantic() for r in rows]
+            except Exception:
+                pass  # JSON path filter unavailable on this backend — scan below
+            rows = (
+                await session.execute(
+                    select(MemoryModel).order_by(MemoryModel.created_at.desc()).limit(limit)
+                )
+            ).scalars().all()
+        return [
+            m
+            for m in (r.to_pydantic() for r in rows)
+            if (m.metadata or {}).get("type") == memory_type
+        ]
+
+    async def count_activities_by_tool(
+        self,
+        agent_id: str | None = None,
+        team_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """Count activities grouped by tool name."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(
+                    AgentActivityModel.tool_name,
+                    func.count().label("count"),
+                )
+                .group_by(AgentActivityModel.tool_name)
+                .order_by(func.count().desc())
+            )
+            if agent_id is not None:
+                stmt = stmt.where(AgentActivityModel.agent_id == agent_id)
+            if team_id is not None or project_id is not None or self._project_scope:
+                # Filter by team via agent table join
+                stmt = stmt.join(
+                    AgentModel,
+                    AgentActivityModel.agent_id == AgentModel.id,
+                )
+            if team_id is not None:
+                stmt = stmt.where(AgentModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            if project_id is not None:
+                stmt = stmt.where(AgentModel.project_id == project_id)
+
+            result = await session.execute(stmt)
+            return [{"tool_name": row.tool_name, "count": row.count} for row in result.all()]
+
+    async def get_activity_timeline(
+        self,
+        team_id: str | None = None,
+        hours: int = 24,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """Count activities by hour (last N hours)."""
+        cutoff = utc_now() - timedelta(hours=hours)
+        async with get_session(self._db_url) as session:
+            # Hour granularity via strftime (SQLite-compatible). The stored value is
+            # UTC, so the bucket label is spelled with an explicit "+00:00": a bare
+            # "2026-07-28 09:00" would be read as local time by the browser and slide
+            # the whole chart by the viewer's offset.
+            hour_expr = func.strftime(
+                "%Y-%m-%dT%H:00:00+00:00", AgentActivityModel.timestamp
+            )
+            stmt = (
+                select(
+                    hour_expr.label("hour"),
+                    func.count().label("count"),
+                )
+                .where(AgentActivityModel.timestamp >= cutoff)
+                .group_by(hour_expr)
+                .order_by(hour_expr)
+            )
+            if team_id is not None or project_id is not None or self._project_scope:
+                stmt = stmt.join(
+                    AgentModel,
+                    AgentActivityModel.agent_id == AgentModel.id,
+                )
+            if team_id is not None:
+                stmt = stmt.where(AgentModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            if project_id is not None:
+                stmt = stmt.where(AgentModel.project_id == project_id)
+
+            result = await session.execute(stmt)
+            return [{"hour": row.hour, "count": row.count} for row in result.all()]
+
+    async def get_agent_productivity(
+        self,
+        team_id: str | None = None,
+        project_id: str | None = None,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Productivity metrics per Agent: activity count, tool diversity, last active time."""
+        # Internal overview callers retain their complete aggregate contract;
+        # the ranking API always supplies a bounded limit.
+        if limit is not None and not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        if not 0 <= offset <= 9_223_372_036_854_775_807:
+            raise ValueError("offset must fit a non-negative SQLite integer")
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(
+                    AgentActivityModel.agent_id,
+                    AgentModel.name.label("agent_name"),
+                    func.count().label("activity_count"),
+                    func.count(AgentActivityModel.tool_name.distinct()).label("tools_used"),
+                    func.max(AgentActivityModel.timestamp).label("last_active"),
+                )
+                .join(
+                    AgentModel,
+                    AgentActivityModel.agent_id == AgentModel.id,
+                )
+                .group_by(AgentActivityModel.agent_id, AgentModel.name)
+                .order_by(func.count().desc(), AgentActivityModel.agent_id.asc())
+            )
+            if team_id is not None:
+                stmt = stmt.where(AgentModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            if project_id is not None:
+                stmt = stmt.where(AgentModel.project_id == project_id)
+
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            stmt = stmt.offset(offset)
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            return [
+                {
+                    "agent_id": row.agent_id,
+                    "agent_name": row.agent_name or "unknown",
+                    "activity_count": row.activity_count,
+                    "tools_used": row.tools_used,
+                    "last_active": row.last_active.isoformat() if row.last_active else None,
+                }
+                for row in rows
+            ]
+
+    async def get_agent_productivity_summary(
+        self,
+        team_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict:
+        """Count observed agents and activities across the entire matching scope."""
+        async with get_session(self._db_url) as session:
+            stmt = select(
+                func.count(AgentActivityModel.agent_id.distinct()).label("total"),
+                func.count().label("total_activities"),
+            ).select_from(AgentActivityModel).join(
+                AgentModel, AgentActivityModel.agent_id == AgentModel.id,
+            )
+            if team_id is not None:
+                stmt = stmt.where(AgentModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            if project_id is not None:
+                stmt = stmt.where(AgentModel.project_id == project_id)
+            row = (await session.execute(stmt)).one()
+            return {"total": row.total, "total_activities": row.total_activities}
+
+    async def get_task_completion_stats(
+        self,
+        team_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict:
+        """Task completion rate and average completion time statistics."""
+        async with get_session(self._db_url) as session:
+            stmt = select(
+                func.count().label("total"),
+                func.sum(
+                    case(
+                        (TaskModel.status == TaskStatus.COMPLETED.value, 1),
+                        else_=0,
+                    )
+                ).label("completed"),
+                func.avg(
+                    case(
+                        (
+                            TaskModel.completed_at.isnot(None),
+                            func.julianday(TaskModel.completed_at)
+                            - func.julianday(TaskModel.created_at),
+                        ),
+                        else_=None,
+                    )
+                ).label("avg_completion_days"),
+            ).select_from(TaskModel)
+
+            if team_id is not None:
+                stmt = stmt.where(TaskModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, TaskModel)
+            if project_id is not None:
+                stmt = stmt.where(TaskModel.project_id == project_id)
+
+            result = await session.execute(stmt)
+            row = result.one()
+
+            total = row.total or 0
+            completed = row.completed or 0
+            avg_days = row.avg_completion_days
+
+            return {
+                "total_tasks": total,
+                "completed_tasks": completed,
+                "completion_rate": round(completed / total, 4) if total > 0 else 0,
+                "avg_completion_hours": round(avg_days * 24, 2) if avg_days else None,
+            }
+
+    async def get_agent_utilization(
+        self,
+        team_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """Agent utilization: calculate active period ratio based on activity timestamps."""
+        async with get_session(self._db_url) as session:
+            # Query each Agent's activity time span and count (JOIN to get name, avoid N+1)
+            stmt = (
+                select(
+                    AgentActivityModel.agent_id,
+                    AgentModel.name.label("agent_name"),
+                    func.count().label("activity_count"),
+                    func.min(AgentActivityModel.timestamp).label("first_active"),
+                    func.max(AgentActivityModel.timestamp).label("last_active"),
+                    func.count(AgentActivityModel.tool_name.distinct()).label("tools_used"),
+                )
+                .join(
+                    AgentModel,
+                    AgentActivityModel.agent_id == AgentModel.id,
+                )
+                .group_by(AgentActivityModel.agent_id, AgentModel.name)
+                .order_by(func.count().desc())
+            )
+            if team_id is not None:
+                stmt = stmt.where(AgentModel.team_id == team_id)
+            stmt = self._apply_project_filter(stmt, AgentModel)
+            if project_id is not None:
+                stmt = stmt.where(AgentModel.project_id == project_id)
+
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            output: list[dict] = []
+            for row in rows:
+                # Estimate utilization: activity density (activities per hour)
+                span_hours = 0.0
+                if row.first_active and row.last_active:
+                    span = (row.last_active - row.first_active).total_seconds() / 3600
+                    span_hours = max(span, 1.0)  # Minimum 1 hour
+
+                utilization = round(row.activity_count / span_hours, 2) if span_hours > 0 else 0
+
+                output.append(
+                    {
+                        "agent_id": row.agent_id,
+                        "agent_name": row.agent_name or "unknown",
+                        "activity_count": row.activity_count,
+                        "tools_used": row.tools_used,
+                        "span_hours": round(span_hours, 2),
+                        "activities_per_hour": utilization,
+                        "first_active": row.first_active.isoformat() if row.first_active else None,
+                        "last_active": row.last_active.isoformat() if row.last_active else None,
+                    }
+                )
+            return output
+
+    # ================================================================
+    # Cross-project messages — always in the global default DB
+    # ================================================================
+
+    async def list_cross_messages(
+        self,
+        project_id: str,
+        unread_only: bool = False,
+        limit: int = 50,
+    ) -> list[CrossMessage]:
+        """List inbox messages for a project — READ-ONLY ARCHIVE ACCESSOR.
+
+        Cross-project messaging was retired 2026-07-27 (batch 8a): the two MCP
+        tools and /api/cross-messages are gone, and the two writers
+        (create_cross_message / mark_cross_message_read) with them. The table is
+        frozen, not dropped — the same treatment as tasks.config.memo — so this
+        reader stays for anyone who needs to look at the history.
+
+        Returns messages where to_project_id == project_id (direct)
+        OR to_project_id IS NULL (broadcast), sorted newest-first.
+
+        Args:
+            project_id: Recipient project's 12-char ID.
+            unread_only: If True, exclude messages that have been read.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of CrossMessage sorted by created_at descending.
+        """
+        from sqlalchemy import or_
+
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(CrossMessageModel)
+                .where(
+                    or_(
+                        CrossMessageModel.to_project_id == project_id,
+                        CrossMessageModel.to_project_id.is_(None),
+                    )
+                )
+                .order_by(CrossMessageModel.created_at.desc())
+                .limit(limit)
+            )
+            if unread_only:
+                stmt = stmt.where(CrossMessageModel.read_at.is_(None))
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def count_unread_cross_messages(self, project_id: str) -> int:
+        """Count unread messages in a project's inbox (direct + broadcast).
+
+        Args:
+            project_id: Recipient project's 12-char ID.
+
+        Returns:
+            Number of unread messages.
+        """
+        from sqlalchemy import or_
+
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(func.count())
+                .select_from(CrossMessageModel)
+                .where(
+                    or_(
+                        CrossMessageModel.to_project_id == project_id,
+                        CrossMessageModel.to_project_id.is_(None),
+                    ),
+                    CrossMessageModel.read_at.is_(None),
+                )
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one() or 0
+
+    # ================================================================
+    # Scheduled Tasks
+    # ================================================================
+
+    async def create_scheduled_task(
+        self,
+        name: str,
+        interval_seconds: int,
+        action_type: str,
+        next_run_at: datetime,
+        team_id: str | None = None,
+        description: str = "",
+        action_config: dict | None = None,
+    ) -> ScheduledTask:
+        """Create a scheduled task."""
+        task = ScheduledTask(
+            team_id=team_id,
+            name=name,
+            description=description,
+            interval_seconds=interval_seconds,
+            action_type=action_type,
+            action_config=action_config or {},
+            next_run_at=next_run_at,
+        )
+        orm = ScheduledTaskModel.from_pydantic(task)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return task
+
+    async def list_scheduled_tasks(self, team_id: str | None = None) -> list[ScheduledTask]:
+        """List scheduled tasks, optionally filtered by team_id."""
+        async with get_session(self._db_url) as session:
+            stmt = select(ScheduledTaskModel).order_by(ScheduledTaskModel.created_at.desc())
+            if team_id is not None:
+                stmt = stmt.where(ScheduledTaskModel.team_id == team_id)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def get_scheduled_task(self, task_id: str) -> ScheduledTask | None:
+        """Get a scheduled task by ID."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ScheduledTaskModel).where(ScheduledTaskModel.id == task_id)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def update_scheduled_task(self, task_id: str, **kwargs: Any) -> ScheduledTask | None:
+        """Update a scheduled task."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ScheduledTaskModel).where(ScheduledTaskModel.id == task_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+            return row.to_pydantic()
+
+    async def delete_scheduled_task(self, task_id: str) -> bool:
+        """Delete a scheduled task."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                delete(ScheduledTaskModel).where(ScheduledTaskModel.id == task_id)
+            )
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    # ================================================================
+    # Wake Sessions
+    # ================================================================
+
+    async def create_wake_session(
+        self, scheduled_task_id: str, agent_name: str, team_id: str = ""
+    ) -> WakeSession:
+        """Create a new wake session record."""
+        ws = WakeSession(
+            scheduled_task_id=scheduled_task_id,
+            agent_name=agent_name,
+            team_id=team_id,
+        )
+        orm = WakeSessionModel.from_pydantic(ws)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return ws
+
+    async def update_wake_session(self, session_id: str, **kwargs: Any) -> WakeSession | None:
+        """Update wake session fields (finished_at, outcome, exit_code, etc)."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(WakeSessionModel).where(WakeSessionModel.id == session_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, value)
+            return row.to_pydantic()
+
+    async def get_recent_wake_sessions(
+        self, agent_name: str, limit: int = 30
+    ) -> list[WakeSession]:
+        """Get recent wake sessions for an agent, ordered by started_at desc."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(WakeSessionModel)
+                .where(WakeSessionModel.agent_name == agent_name)
+                .order_by(WakeSessionModel.started_at.desc())
+                .limit(limit)
+            )
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def get_consecutive_failures(self, agent_name: str) -> int:
+        """Count consecutive real failures for an agent (circuit breaker logic).
+
+        Only 'error' and 'timeout' count as failures. Skips like
+        'skipped_triage', 'skipped_concurrent', 'cancelled' are ignored.
+        """
+        _failure_outcomes = {"error", "timeout"}
+        sessions = await self.get_recent_wake_sessions(agent_name, limit=30)
+        count = 0
+        for s in sessions:
+            if s.outcome in _failure_outcomes:
+                count += 1
+            elif s.outcome == "completed":
+                break
+            # skip non-failure, non-completed outcomes (triage skip, concurrent skip, etc.)
+        return count
+
+    async def has_actionable_tasks(self, agent_name: str) -> tuple[bool, str]:
+        """Check if agent has pending/running tasks assigned to them."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(TaskModel).where(
+                    TaskModel.assigned_to == agent_name,
+                    TaskModel.status.in_(["pending", "running"]),
+                )
+            )
+            tasks = result.scalars().all()
+            if tasks:
+                return True, f"{len(tasks)} actionable tasks"
+            return False, "no actionable tasks"
+
+    async def toggle_wake_agents(self, enabled: bool) -> int:
+        """Enable/disable all wake_agent scheduled tasks. Returns count affected."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ScheduledTaskModel).where(
+                    ScheduledTaskModel.action_type == "wake_agent",
+                    ScheduledTaskModel.enabled == (not enabled),
+                )
+            )
+            tasks = result.scalars().all()
+            for t in tasks:
+                t.enabled = enabled
+            await session.commit()
+            return len(tasks)
+
+    async def cleanup_old_sessions(self, days: int = 30) -> int:
+        """Delete wake sessions older than specified days. Returns count deleted."""
+        cutoff = utc_now() - timedelta(days=days)
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                delete(WakeSessionModel).where(WakeSessionModel.started_at < cutoff)
+            )
+            return result.rowcount  # type: ignore[union-attr]
+
+    async def get_due_tasks(self, now: datetime) -> list[ScheduledTask]:
+        """Get all enabled scheduled tasks whose next_run_at <= now."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(ScheduledTaskModel).where(
+                    ScheduledTaskModel.enabled == True,  # noqa: E712
+                    ScheduledTaskModel.next_run_at <= now,
+                )
+            )
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Leader Briefings
+    # ================================================================
+
+    async def create_briefing(
+        self,
+        title: str,
+        description: str = "",
+        options: str = "",
+        recommendation: str = "",
+        urgency: str = "medium",
+        project_id: str = "",
+        tags: list[str] | None = None,
+    ) -> LeaderBriefing:
+        """Create a new leader briefing item."""
+        briefing = LeaderBriefing(
+            title=title,
+            description=description,
+            options=options,
+            recommendation=recommendation,
+            urgency=urgency,
+            project_id=project_id,
+            tags=tags or [],
+        )
+        orm = LeaderBriefingModel.from_pydantic(briefing)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return briefing
+
+    async def list_briefings(
+        self, status: str = "pending", project_id: str = "", tag: str = ""
+    ) -> list[LeaderBriefing]:
+        """List briefing items, optionally filtered by status, project_id and tag.
+
+        Project scope:
+        - explicit ``project_id``: only items stamped with that project;
+        - no ``project_id`` on a project-scoped repo: that project's items plus
+          items stamped with no project;
+        - neither: every item.
+
+        Unstamped items are not only legacy rows: header-less writers (the
+        permission-denied hook, the state reaper) still create them today. The
+        universal project filter would hide all of them from every scoped caller,
+        and the MCP client always sends a project header, so briefing_list showed
+        1 of 307 pending items.
+        """
+        async with get_session(self._db_url) as session:
+            conditions = []
+            if status and status != "all":
+                conditions.append(LeaderBriefingModel.status == status)
+            if project_id:
+                conditions.append(LeaderBriefingModel.project_id == project_id)
+            elif self._project_scope:
+                conditions.append(
+                    or_(
+                        LeaderBriefingModel.project_id == self._project_scope,
+                        LeaderBriefingModel.project_id == "",
+                        LeaderBriefingModel.project_id.is_(None),
+                    )
+                )
+            stmt = select(LeaderBriefingModel).order_by(
+                LeaderBriefingModel.created_at.desc()
+            )
+            if conditions:
+                stmt = stmt.where(*conditions)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            items = [r.to_pydantic() for r in rows]
+        if tag:
+            # 标签比对在 Python 侧做整值匹配：tags 是 JSON 列，用 LIKE '%tag%'
+            # 会把 "release" 匹到 "release-candidate" 上（子串误命中）。队列规模是
+            # 人工决策项，全表取回再过滤的代价可以忽略。
+            items = [b for b in items if tag in (b.tags or [])]
+        return items
+
+    async def resolve_briefing(
+        self, briefing_id: str, resolution: str, status: str = "resolved"
+    ) -> LeaderBriefing | None:
+        """Resolve a briefing item with user's decision."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(LeaderBriefingModel).where(LeaderBriefingModel.id == briefing_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.resolution = resolution
+            row.status = status
+            row.resolved_at = utc_now()
+            return row.to_pydantic()
+
+    async def dismiss_briefing(self, briefing_id: str) -> LeaderBriefing | None:
+        """Dismiss a briefing item without a resolution."""
+        return await self.resolve_briefing(briefing_id, resolution="", status="dismissed")
+
+    async def expire_stale_briefings(self, created_before: datetime) -> int:
+        """Mark pending briefings created before ``created_before`` as expired.
+
+        Status only: the row, its text and ``resolved_at`` stay untouched, so an
+        expired item remains readable (Dashboard, ``status=expired``). Runs on
+        demand from the read paths; there is no timer.
+        """
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(LeaderBriefingModel)
+                .where(
+                    LeaderBriefingModel.status == "pending",
+                    LeaderBriefingModel.created_at < created_before,
+                )
+                .values(status="expired")
+            )
+            return int(result.rowcount or 0)
+
+    # ================================================================
+    # User notices (docs/user-notice-design.md §5.2)
+    # ================================================================
+
+    async def upsert_notice(
+        self,
+        *,
+        key: str,
+        catalog_id: str,
+        now: datetime,
+        variant: str = "",
+        params: dict[str, Any] | None = None,
+        project_id: str = "",
+        session_id: str = "",
+        host: str = "",
+        source: str = "",
+        status: NoticeStatus = NoticeStatus.ACTIVE,
+    ) -> Notice:
+        """Register or refresh one notice by key.
+
+        A detector hit refreshes ``last_seen_at``. A cleared or expired row that is
+        hit again is revived with a new ``first_seen_at``. A dismissed row stays
+        dismissed (the user said no), and a snoozed row stays snoozed until its time.
+        ``status=cleared`` records an already-finished notice (a local line that
+        was shown once) without reviving anything.
+        """
+        async with get_session(self._db_url) as session:
+            row = await session.get(NoticeModel, key)
+            if row is None:
+                row = NoticeModel(
+                    key=key, catalog_id=catalog_id, variant=variant, params=params or {},
+                    project_id=project_id or "", session_id=session_id or "", host=host or "",
+                    source=source or "",
+                    status=status.value, first_seen_at=now, last_seen_at=now,
+                    cleared_at=now if status == NoticeStatus.CLEARED else None,
+                )
+                session.add(row)
+                try:
+                    await session.flush()
+                except IntegrityError:
+                    # A concurrent writer inserted the key first; refresh theirs.
+                    await session.rollback()
+                    row = await session.get(NoticeModel, key)
+                    if row is None:
+                        raise
+                else:
+                    return row.to_pydantic()
+            row.catalog_id = catalog_id
+            row.variant = variant
+            row.params = params or {}
+            row.project_id = project_id or ""
+            row.session_id = session_id or ""
+            row.host = host or ""
+            row.source = source or row.source or ""
+            row.last_seen_at = now
+            if status == NoticeStatus.CLEARED:
+                if row.status in (NoticeStatus.ACTIVE.value, NoticeStatus.SNOOZED.value):
+                    row.status = NoticeStatus.CLEARED.value
+                    row.cleared_at = now
+            elif row.status in (NoticeStatus.CLEARED.value, NoticeStatus.EXPIRED.value):
+                row.status = NoticeStatus.ACTIVE.value
+                row.first_seen_at = now
+                row.cleared_at = None
+            return row.to_pydantic()
+
+    async def clear_notices(self, keys: Collection[str], now: datetime) -> int:
+        """Clear active or snoozed notices by key (dismissed ones are left alone)."""
+        return await self._close_notices(keys, NoticeStatus.CLEARED, now)
+
+    async def expire_notices(self, keys: Collection[str], now: datetime) -> int:
+        """Expire active or snoozed notices by key: aged out unanswered, status only."""
+        return await self._close_notices(keys, NoticeStatus.EXPIRED, now)
+
+    async def _close_notices(self, keys: Collection[str], status: NoticeStatus, now: datetime) -> int:
+        if not keys:
+            return 0
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(NoticeModel)
+                .where(
+                    NoticeModel.key.in_(list(keys)),
+                    NoticeModel.status.in_([NoticeStatus.ACTIVE.value, NoticeStatus.SNOOZED.value]),
+                )
+                .values(status=status.value, cleared_at=now)
+            )
+            return int(result.rowcount or 0)
+
+    async def set_notice_status(
+        self, key: str, status: NoticeStatus, now: datetime, snoozed_until: datetime | None = None,
+    ) -> Notice | None:
+        """Dismiss, snooze, clear or re-activate one notice."""
+        async with get_session(self._db_url) as session:
+            row = await session.get(NoticeModel, key)
+            if row is None:
+                return None
+            row.status = status.value
+            row.snoozed_until = snoozed_until if status == NoticeStatus.SNOOZED else None
+            closed = status in (NoticeStatus.CLEARED, NoticeStatus.EXPIRED)
+            row.cleared_at = now if closed else row.cleared_at
+            return row.to_pydantic()
+
+    async def get_notice(self, key: str) -> Notice | None:
+        """One notice by key."""
+        async with get_session(self._db_url) as session:
+            row = await session.get(NoticeModel, key)
+            return row.to_pydantic() if row else None
+
+    async def list_notices(
+        self,
+        *,
+        statuses: Collection[str] | None = None,
+        catalog_ids: Collection[str] | None = None,
+        project_ids: Collection[str] | None = None,
+        key_prefix: str = "",
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> tuple[list[Notice], int]:
+        """Filtered notices, newest ``last_seen_at`` first, plus the total count."""
+        conditions = []
+        if statuses:
+            conditions.append(NoticeModel.status.in_(list(statuses)))
+        if catalog_ids is not None:
+            conditions.append(NoticeModel.catalog_id.in_(list(catalog_ids)))
+        if project_ids is not None:
+            conditions.append(NoticeModel.project_id.in_(list(project_ids)))
+        if key_prefix:
+            conditions.append(NoticeModel.key.startswith(key_prefix, autoescape=True))
+        async with get_session(self._db_url) as session:
+            total = (await session.execute(
+                select(func.count()).select_from(NoticeModel).where(*conditions)
+            )).scalar() or 0
+            stmt = (
+                select(NoticeModel).where(*conditions)
+                .order_by(NoticeModel.last_seen_at.desc(), NoticeModel.key)
+                .offset(max(0, offset))
+            )
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+            return [row.to_pydantic() for row in rows], int(total)
+
+    async def claim_notice_delivery(
+        self,
+        delivery: NoticeDelivery,
+        *,
+        inflight_after: datetime,
+        cooldown_after: datetime | None = None,
+        once: bool = False,
+    ) -> bool:
+        """Atomically claim one delivery; True only for the caller whose row landed.
+
+        One ``INSERT OR IGNORE ... SELECT ... WHERE NOT EXISTS`` statement: the
+        unique (key, host, session_id) index arbitrates racers for the same
+        session, and the ``NOT EXISTS`` guard (evaluated inside the same write
+        statement) keeps ``once`` / ``cooldown`` notices from being claimed by a
+        second session while another session holds a live delivery.
+        """
+        from sqlalchemy import exists, insert, literal
+
+        from aiteam.storage.utc_type import UtcDateTime
+
+        table = NoticeDeliveryModel.__table__
+        other = aliased(NoticeDeliveryModel)
+        guards = []
+        if once or cooldown_after is not None:
+            live = or_(
+                other.emitted_at.is_not(None),
+                other.claimed_at > inflight_after,
+            ) if once else or_(
+                other.confirmed_at > cooldown_after,
+                and_(other.emitted_at.is_(None), other.claimed_at > inflight_after),
+            )
+            guards.append(~exists().where(other.key == delivery.key, other.host == delivery.host, live))
+        values = select(
+            literal(delivery.id, SAString()).label("id"),
+            literal(delivery.key, SAString()).label("key"),
+            literal(delivery.host, SAString()).label("host"),
+            literal(delivery.session_id, SAString()).label("session_id"),
+            literal(delivery.event, SAString()).label("event"),
+            literal(delivery.channel_reliable).label("channel_reliable"),
+            literal(delivery.language, SAString()).label("language"),
+            literal(delivery.claimed_at, UtcDateTime()).label("claimed_at"),
+        )
+        if guards:
+            values = values.where(*guards)
+        stmt = insert(table).prefix_with("OR IGNORE").from_select(
+            ["id", "key", "host", "session_id", "event", "channel_reliable", "language", "claimed_at"],
+            values,
+        )
+        async with get_session(self._db_url) as session:
+            result = await session.execute(stmt)
+            return (result.rowcount or 0) == 1
+
+    async def reclaim_notice_delivery(
+        self, delivery_id: str, *, now: datetime, stale_before: datetime,
+        event: str, channel_reliable: bool, language: str,
+    ) -> bool:
+        """Take over a claim that was never reported as written (claimed too long ago)."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(NoticeDeliveryModel)
+                .where(
+                    NoticeDeliveryModel.id == delivery_id,
+                    NoticeDeliveryModel.emitted_at.is_(None),
+                    NoticeDeliveryModel.claimed_at <= stale_before,
+                )
+                .values(claimed_at=now, event=event, channel_reliable=channel_reliable, language=language)
+            )
+            return (result.rowcount or 0) == 1
+
+    async def list_notice_deliveries(
+        self,
+        *,
+        host: str | None = None,
+        session_id: str | None = None,
+        keys: Collection[str] | None = None,
+        ids: Collection[str] | None = None,
+        limit: int | None = None,
+    ) -> list[NoticeDelivery]:
+        """Delivery rows, newest claim first."""
+        conditions = []
+        if host is not None:
+            conditions.append(NoticeDeliveryModel.host == host)
+        if session_id is not None:
+            conditions.append(NoticeDeliveryModel.session_id == session_id)
+        if keys is not None:
+            conditions.append(NoticeDeliveryModel.key.in_(list(keys)))
+        if ids is not None:
+            conditions.append(NoticeDeliveryModel.id.in_(list(ids)))
+        stmt = select(NoticeDeliveryModel).where(*conditions).order_by(NoticeDeliveryModel.claimed_at.desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        async with get_session(self._db_url) as session:
+            rows = (await session.execute(stmt)).scalars().all()
+            return [row.to_pydantic() for row in rows]
+
+    async def insert_notice_delivery_if_absent(self, delivery: NoticeDelivery) -> bool:
+        """Record a delivery that already happened (a line a hook rendered locally)."""
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        stmt = sqlite_insert(NoticeDeliveryModel).values(
+            id=delivery.id, key=delivery.key, host=delivery.host, session_id=delivery.session_id,
+            event=delivery.event, channel_reliable=delivery.channel_reliable,
+            language=delivery.language, claimed_at=delivery.claimed_at,
+            emitted_at=delivery.emitted_at, confirmed_at=delivery.confirmed_at,
+        ).on_conflict_do_nothing()
+        async with get_session(self._db_url) as session:
+            result = await session.execute(stmt)
+            return (result.rowcount or 0) == 1
+
+    async def mark_notice_deliveries_emitted(self, ids: Collection[str], now: datetime) -> int:
+        """Record that a hook wrote these deliveries to stdout.
+
+        A reliable channel counts as displayed once written, so it is confirmed in
+        the same step. So does a refired delivery: the refire goes out on a
+        prompt, a reliable exit, and its only report arrives after the refire
+        (the refire requires the first write to be reported already). Without
+        this the 24-hour cool-down, which counts confirmed deliveries only, would
+        never start for a line that needed the refire. Idempotent: an id already
+        marked keeps its first time.
+        """
+        if not ids:
+            return 0
+        id_list = list(ids)
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(NoticeDeliveryModel)
+                .where(NoticeDeliveryModel.id.in_(id_list), NoticeDeliveryModel.emitted_at.is_(None))
+                .values(emitted_at=now)
+            )
+            await session.execute(
+                sa_update(NoticeDeliveryModel)
+                .where(
+                    NoticeDeliveryModel.id.in_(id_list),
+                    or_(
+                        NoticeDeliveryModel.channel_reliable.is_(True),
+                        NoticeDeliveryModel.refired_at.is_not(None),
+                    ),
+                    NoticeDeliveryModel.confirmed_at.is_(None),
+                )
+                .values(confirmed_at=now)
+            )
+            return int(result.rowcount or 0)
+
+    async def update_notice_delivery(self, delivery_id: str, **values: Any) -> bool:
+        """Set confirmation, refire or loss times; refire only once per row."""
+        allowed = {"confirmed_at", "refired_at", "lost_at", "emitted_at"}
+        if not values or set(values) - allowed:
+            raise ValueError(f"unsupported delivery fields: {sorted(set(values) - allowed)}")
+        stmt = sa_update(NoticeDeliveryModel).where(NoticeDeliveryModel.id == delivery_id)
+        for name in values:
+            stmt = stmt.where(getattr(NoticeDeliveryModel, name).is_(None))
+        async with get_session(self._db_url) as session:
+            result = await session.execute(stmt.values(**values))
+            return (result.rowcount or 0) == 1
+
+    async def mark_notice_deliveries_lost(self, *, claimed_before: datetime, now: datetime) -> int:
+        """Flag claims never reported as written after the loss window (diagnostics)."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(NoticeDeliveryModel)
+                .where(
+                    NoticeDeliveryModel.emitted_at.is_(None),
+                    NoticeDeliveryModel.lost_at.is_(None),
+                    NoticeDeliveryModel.claimed_at < claimed_before,
+                )
+                .values(lost_at=now)
+            )
+            return int(result.rowcount or 0)
+
+    async def create_event_once(
+        self,
+        event_id: str,
+        event_type: str,
+        source: str,
+        data: dict,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
+    ) -> bool:
+        """Insert an event with a caller-chosen id; a repeated id is a no-op.
+
+        For records imported more than once (local hook records carry a uuid),
+        so the event ledger holds exactly one row per record. Same reserved-id
+        guard as :meth:`create_event`.
+        """
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        if _reserved_identity(data, entity_id):
+            logger.warning("events 写入被护栏拒绝：type=%s source=%s", event_type, source)
+            return False
+        stmt = sqlite_insert(EventModel).values(
+            id=event_id, type=EventType(event_type).value, source=source, data=data,
+            timestamp=utc_now(), entity_id=entity_id, entity_type=entity_type,
+        ).on_conflict_do_nothing(index_elements=["id"])
+        async with get_session(self._db_url) as session:
+            result = await session.execute(stmt)
+            return (result.rowcount or 0) == 1
+
+    # ================================================================
+    # Channel Messages (v1.0 P1-6)
+    # ================================================================
+
+    async def create_channel_message(
+        self,
+        channel: str,
+        sender: str,
+        content: str,
+        mentions: list[str] | None = None,
+        metadata: dict | None = None,
+        project_id: str | None = None,
+    ) -> ChannelMessage:
+        """Create a channel message.
+
+        project_id 决定这条消息在未读判定里属于哪个项目。留空的消息任何按项目查询
+        的收件人都看不到——校验归校验层（路由）做，这里如实落盘。
+        """
+        msg = ChannelMessage(
+            channel=channel,
+            sender=sender,
+            content=content,
+            mentions=mentions or [],
+            metadata=metadata or {},
+            project_id=project_id,
+        )
+        orm = ChannelMessageModel.from_pydantic(msg)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return msg
+
+    async def list_channel_messages(
+        self,
+        channel: str,
+        since: datetime | None = None,
+        limit: int = 50,
+    ) -> list[ChannelMessage]:
+        """List messages in a channel, optionally filtered by since timestamp."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(ChannelMessageModel)
+                .where(ChannelMessageModel.channel == channel)
+                .order_by(ChannelMessageModel.created_at.asc())
+                .limit(limit)
+            )
+            if since is not None:
+                stmt = stmt.where(ChannelMessageModel.created_at > since)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def list_channel_inbox(
+        self,
+        channel: str,
+        project_id: str,
+        reader: str,
+        sender: str,
+        since: datetime | None = None,
+        cursor: str = "",
+        limit: int = 50,
+    ) -> ChannelInboxPage:
+        """Read one insertion-ordered page using a single SQLite snapshot."""
+        scope = {"project_id": project_id, "channel": channel, "reader": reader, "sender": sender}
+        if not cursor and since is None:
+            raise ValueError("since or cursor is required")
+        after_rowid, anchor_id = _decode_inbox_cursor(cursor, scope) if cursor else (0, "")
+        model = ChannelMessageModel
+        rowid = literal_column("channel_messages.rowid", type_=Integer)
+        channel_scope = and_(model.project_id == project_id, model.channel == channel)
+        upper = (
+            select(func.coalesce(func.max(rowid), 0).label("upper_rowid"))
+            .select_from(model).where(channel_scope).cte("inbox_upper")
+        )
+        upper_id = (
+            select(model.id).where(rowid == upper.c.upper_rowid)
+            .correlate(upper).scalar_subquery()
+        )
+        anchor_valid = (
+            select(model.id).where(channel_scope, rowid == after_rowid, model.id == anchor_id).exists()
+            if after_rowid else literal(True)
+        )
+        lower_bound = rowid > after_rowid if cursor else (
+            model.created_at > ensure_utc(since).replace(tzinfo=None)
+        )
+        page = (
+            select(model, rowid.label("inbox_rowid"))
+            .where(
+                channel_scope, model.sender == sender, model.sender != reader,
+                _mention_sql_filter(reader), lower_bound,
+                rowid <= select(upper.c.upper_rowid).scalar_subquery(),
+            )
+            .order_by(rowid.asc()).limit(limit + 1).cte("inbox_page")
+        )
+        page_model = aliased(model, page)
+        # The outer join preserves the scan boundary even when no messages match.
+        stmt = (
+            select(upper.c.upper_rowid, upper_id, anchor_valid, page_model, page.c.inbox_rowid)
+            .select_from(upper.outerjoin(page, true()))
+            .order_by(page.c.inbox_rowid.asc())
+        )
+        async with get_session(self._db_url) as session:
+            result = await session.execute(stmt)
+            rows = result.all()
+            if not rows[0][2]:
+                raise ChannelInboxCursorExpiredError("cursor_expired")
+            matched = [row for row in rows if row[3] is not None]
+            messages = [row[3].to_pydantic() for row in matched[:limit]]
+            if messages:
+                last = matched[len(messages) - 1]
+                next_cursor = _encode_inbox_cursor(last[4], last[3].id, scope)
+            else:
+                next_cursor = cursor or _encode_inbox_cursor(rows[0][0], rows[0][1] or "", scope)
+        return ChannelInboxPage(
+            messages=messages,
+            has_more=len(matched) > limit,
+            next_cursor=next_cursor,
+        )
+
+    async def list_channel_mentions(
+        self,
+        agent_name: str,
+        limit: int = 50,
+        project_id: str | None = None,
+    ) -> list[ChannelMessage]:
+        """List channel messages that mention a specific agent.
+
+        匹配规则见 _mention_candidates：裸名与 "@"+名 都算命中，且是**整值匹配**。
+        （2026-09-08 前这里只拼 f"@{agent_name}" 做子串 contains，而真实调用方写的是
+        裸名，导致本方法对专线上的每一条消息都返回 0。）
+        """
+        candidates = _mention_candidates(agent_name)
+        async with get_session(self._db_url) as session:
+            # SQL 侧只做**超集粗筛**：LIKE 对 ASCII 大小写不敏感、%/_ 是通配符，因此它
+            # 只会多命中不会漏，正确性由下面的 Python 整值匹配兜底。粗筛的意义是别把
+            # 整张表拉回内存。
+            # 粗筛必须用**去 @ 后**的名：查询方写 "@leader-cc" 而库里存裸名时，拿原串
+            # 去粗筛会当场漏掉全部候选，Python 侧再精确也救不回来。
+            stmt = (
+                select(ChannelMessageModel)
+                .where(_mention_sql_filter(agent_name))
+                .order_by(ChannelMessageModel.created_at.desc())
+                .limit(_MENTION_SCAN_CAP)
+            )
+            if project_id is not None:
+                stmt = stmt.where(ChannelMessageModel.project_id == project_id)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+
+        matched = [r.to_pydantic() for r in rows if _mentions_hit(r.mentions, candidates)]
+        return matched[:limit]
+
+    # ── Channel read cursors（未读水位）─────────────────────────
+
+    async def get_channel_cursor(
+        self, reader: str, channel: str, project_id: str
+    ) -> ChannelReadCursor | None:
+        """取一条水位；不存在返回 None（调用方按 epoch 处理，**不要在读路径补写**）。"""
+        async with get_session(self._db_url) as session:
+            stmt = select(ChannelReadCursorModel).where(
+                ChannelReadCursorModel.reader == reader,
+                ChannelReadCursorModel.channel == channel,
+                ChannelReadCursorModel.project_id == project_id,
+            )
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            return row.to_pydantic() if row is not None else None
+
+    async def set_channel_cursor(
+        self, reader: str, channel: str, project_id: str, last_read_at: datetime
+    ) -> tuple[ChannelReadCursor, bool]:
+        """推进水位，返回 (水位, 是否真的前进了)。
+
+        **单调**：传入值早于或等于现有水位时不动，返回 advanced=False。水位回退会让
+        已读消息重新变成未读，比不推进更糟。
+
+        last_read_at 由调用方给出，取"本次实际读到的最后一条消息的 created_at"。这里
+        刻意不取 utc_now()：分页只拿了前 N 条时按 now 推进会静默跳过未返回的那些。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(ChannelReadCursorModel).where(
+                ChannelReadCursorModel.reader == reader,
+                ChannelReadCursorModel.channel == channel,
+                ChannelReadCursorModel.project_id == project_id,
+            )
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            if row is None:
+                row = ChannelReadCursorModel(
+                    reader=reader,
+                    channel=channel,
+                    project_id=project_id,
+                    last_read_at=last_read_at,
+                )
+                session.add(row)
+                return row.to_pydantic(), True
+            if ensure_utc(last_read_at) <= ensure_utc(row.last_read_at):
+                return row.to_pydantic(), False
+            row.last_read_at = last_read_at
+            return row.to_pydantic(), True
+
+    async def count_new_mentions_since(
+        self, reader: str, project_id: str, since: datetime | None
+    ) -> int:
+        """since 之后**新到达**的、点名 reader 的消息数——不看已读水位。
+
+        唤醒判据专用，与 count_channel_unread 的语义刻意不同：那个算"当前未读"，
+        用在这里会把自己变成死循环——读了但尚未 ack（或决定不 ack）的消息会让每一轮
+        轮询都判定 actionable，于是每 8 秒唤醒一次，永不停歇。
+
+        "新到达"配合调用方滚动水位才是对的：同一条消息只触发一次唤醒。这与 memo
+        信号（_memo_count）用的是同一套语义。
+
+        since 为空时返回 0：刚武装 watcher 的那一刻不应因历史消息立即触发。
+        """
+        if not reader or not project_id or since is None:
+            return 0
+        candidates = _mention_candidates(reader)
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(ChannelMessageModel)
+                .where(
+                    ChannelMessageModel.project_id == project_id,
+                    ChannelMessageModel.created_at > since,
+                    _mention_sql_filter(reader),
+                )
+                .order_by(ChannelMessageModel.created_at.desc())
+                .limit(_MENTION_SCAN_CAP)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+        return sum(1 for r in rows if _mentions_hit(r.mentions, candidates))
+
+    async def count_channel_unread(
+        self, reader: str, project_id: str
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """统计 reader 在 project 下每个频道的未读，返回 (逐频道明细, 是否被截断)。
+
+        未读 = mentions 整值命中 reader AND project_id 相符 AND created_at > 该频道水位。
+        缺水位按 epoch 算（即全部算未读），且**本方法绝不写库**——读路径补水位会把
+        "第一次查看"变成"已读全部"，正好埋掉这个功能要暴露的存量消息。
+
+        频道集合由数据本身决定（本方法即枚举），不需要额外的"列频道"接口。
+        """
+        candidates = _mention_candidates(reader)
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(ChannelMessageModel)
+                .where(
+                    ChannelMessageModel.project_id == project_id,
+                    _mention_sql_filter(reader),
+                )
+                .order_by(ChannelMessageModel.created_at.desc())
+                .limit(_MENTION_SCAN_CAP)
+            )
+            rows = list((await session.execute(stmt)).scalars().all())
+
+            cur_stmt = select(ChannelReadCursorModel).where(
+                ChannelReadCursorModel.reader == reader,
+                ChannelReadCursorModel.project_id == project_id,
+            )
+            cursors = {
+                c.channel: ensure_utc(c.last_read_at)
+                for c in (await session.execute(cur_stmt)).scalars().all()
+            }
+
+        truncated = len(rows) >= _MENTION_SCAN_CAP
+        per_channel: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if not _mentions_hit(row.mentions, candidates):
+                continue
+            created = ensure_utc(row.created_at)
+            cursor = cursors.get(row.channel)
+            if cursor is not None and created <= cursor:
+                continue
+            slot = per_channel.setdefault(
+                row.channel,
+                {
+                    "channel": row.channel,
+                    "count": 0,
+                    "latest_sender": row.sender,
+                    "latest_excerpt": _first_line(row.content),
+                    "latest_at": created,
+                },
+            )
+            slot["count"] += 1
+            # rows 已按 created_at 降序，首个落到某频道的即该频道最新一条
+        return sorted(per_channel.values(), key=lambda s: s["latest_at"], reverse=True), truncated
+
+    # ── Reports ────────────────────────────────────────────────
+
+    async def create_report(self, report: Report) -> Report:
+        """Create a new report."""
+        async with get_session(self._db_url) as session:
+            row = ReportModel.from_pydantic(report)
+            session.add(row)
+            return report
+
+    async def get_report(self, report_id: str) -> Report | None:
+        """Get a single report by ID."""
+        async with get_session(self._db_url) as session:
+            row = await session.get(ReportModel, report_id)
+            return row.to_pydantic() if row else None
+
+    async def list_reports(
+        self,
+        project_id: str = "",
+        report_type: str = "",
+        author: str = "",
+        topic: str = "",
+        limit: int = 50,
+    ) -> list[Report]:
+        """List reports with optional filters."""
+        async with get_session(self._db_url) as session:
+            stmt = select(ReportModel)
+            if project_id:
+                stmt = stmt.where(ReportModel.project_id == project_id)
+            if report_type:
+                stmt = stmt.where(ReportModel.report_type == report_type)
+            if author:
+                stmt = stmt.where(ReportModel.author == author)
+            if topic:
+                stmt = stmt.where(ReportModel.topic.contains(topic))
+            stmt = stmt.order_by(ReportModel.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def delete_report(self, report_id: str) -> bool:
+        """Delete a report."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                delete(ReportModel).where(ReportModel.id == report_id)
+            )
+            return result.rowcount > 0  # type: ignore[union-attr]
+
+    async def delete_reports_by_project(self, project_id: str) -> int:
+        """Delete all reports for a project."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                delete(ReportModel).where(ReportModel.project_id == project_id)
+            )
+            return result.rowcount or 0  # type: ignore[union-attr]
+
+    # ================================================================
+    # Ecosystem repo profiles
+    # ================================================================
+
+    def _effective_project_id(
+        self, explicit: str | None
+    ) -> str | None:
+        """Resolve project_id used to scope ecosystem rows.
+
+        Precedence: explicit argument > _project_scope (set on repo init) > None.
+        Empty string is normalised to None so callers can pass "" to mean
+        "no override".
+        """
+        if explicit:
+            return explicit
+        if self._project_scope:
+            return self._project_scope
+        return None
+
+    async def upsert_ecosystem_profile(
+        self,
+        profile: EcosystemRepoProfile,
+        project_id: str | None = None,
+    ) -> None:
+        """按 (project_id, repo_full_name) 唯一键 upsert 生态仓档案，更新动态字段。
+
+        Args:
+            profile: 待写入的生态仓档案 Pydantic 模型。
+            project_id: 显式指定项目作用域；为空时回退到当前 repo 的 _project_scope，
+                        最终 None 表示全局/未归属（兼容旧数据）。
+        """
+
+        now = profile.last_scanned_at
+        effective_pid = self._effective_project_id(project_id) or profile.project_id
+        # Stamp project_id back onto the Pydantic so from_pydantic carries it.
+        if effective_pid and not profile.project_id:
+            profile.project_id = effective_pid
+
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.repo_full_name == profile.repo_full_name
+            )
+            if effective_pid is None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id.is_(None))
+            else:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                session.add(EcosystemRepoProfileModel.from_pydantic(profile))
+            else:
+                # Update dynamic fields; preserve first_seen_at + project_id
+                row.stars = profile.stars
+                row.description = profile.description
+                row.language = profile.language
+                row.topics = json_dumps(profile.topics) if profile.topics else None
+                row.homepage = profile.homepage
+                row.last_commit_at = profile.last_commit_at
+                row.needs_deep_review = profile.needs_deep_review
+                row.relevance_category = profile.relevance_category
+                row.relevance_score = profile.relevance_score
+                row.one_line_summary = profile.one_line_summary
+                row.last_scanned_at = now
+                # Stage B 字段：动态可更新
+                row.pushed_at = profile.pushed_at
+                row.is_archived = profile.is_archived
+                row.scan_run_id = profile.scan_run_id
+                row.description_excerpt = profile.description_excerpt or ""
+                # P1.C-1: persist discovered_via_queries when provided (union handled by scanner)
+                if profile.discovered_via_queries:
+                    row.discovered_via_queries = json_dumps(profile.discovered_via_queries)
+
+    async def search_ecosystem_profiles(
+        self,
+        keyword: str = "",
+        topic: str = "",
+        min_stars: int = 0,
+        max_stars: int | None = None,
+        needs_deep_review: bool | None = None,
+        category: str = "",
+        limit: int = 50,
+        project_id: str | None = None,
+    ) -> list[EcosystemRepoProfile]:
+        """按字段筛选生态仓档案，支持关键词、topic、star 范围、深审标记。
+
+        Args:
+            project_id: 显式指定项目作用域；为空时由 _project_scope 自动注入。
+        """
+        from sqlalchemy import or_
+
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel)
+            stmt = self._apply_project_filter(stmt, EcosystemRepoProfileModel)
+            if project_id:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.project_id == project_id
+                )
+
+            if min_stars > 0:
+                stmt = stmt.where(EcosystemRepoProfileModel.stars >= min_stars)
+            if max_stars is not None and max_stars > 0:
+                stmt = stmt.where(EcosystemRepoProfileModel.stars <= max_stars)
+            if needs_deep_review is not None:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.needs_deep_review == needs_deep_review
+                )
+            if category:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.relevance_category == category
+                )
+            if keyword:
+                kw = f"%{keyword}%"
+                stmt = stmt.where(
+                    or_(
+                        EcosystemRepoProfileModel.name.ilike(kw),
+                        EcosystemRepoProfileModel.description.ilike(kw),
+                        EcosystemRepoProfileModel.one_line_summary.ilike(kw),
+                        EcosystemRepoProfileModel.repo_full_name.ilike(kw),
+                    )
+                )
+            if topic:
+                tp = f"%{topic}%"
+                stmt = stmt.where(EcosystemRepoProfileModel.topics.ilike(tp))
+
+            stmt = stmt.order_by(EcosystemRepoProfileModel.stars.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def get_ecosystem_profile(
+        self,
+        repo_full_name: str,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """按 repo_full_name 获取单个生态仓档案。
+
+        Args:
+            project_id: 显式作用域；为空回退到 _project_scope。
+                若都为空则匹配 project_id IS NULL（全局行）。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.repo_full_name == repo_full_name
+            )
+            if effective_pid is None and self._project_scope == "":
+                # No scope at all — return any (global lookup, used by
+                # cross-project tooling and tests).
+                pass
+            elif effective_pid is None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id.is_(None))
+            else:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def get_ecosystem_profile_by_id(
+        self,
+        repo_id: str,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """按主键 id 获取单个生态仓档案。
+
+        Args:
+            project_id: 显式作用域；为空回退到 _project_scope。
+                作用域非空时仅匹配同项目 id，避免跨项目泄露。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.id == repo_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    # ================================================================
+    # Ecosystem deep reviews
+    # ================================================================
+
+    async def create_deep_review(
+        self,
+        review: EcosystemDeepReview,
+        project_id: str | None = None,
+    ) -> EcosystemDeepReview:
+        """创建一份深扫报告记录。
+
+        D5 收敛 choke point ①：``status`` 是 ``stage_status`` 的派生只读视图，
+        入库前强制 ``status = derive_status_from_stage(stage_status)``，
+        调用方传入的 status 值被忽略（types.STAGE_TO_STATUS 为唯一真源）。
+
+        Args:
+            project_id: 显式作用域；空时使用 _project_scope，再空时使用 review.project_id。
+        """
+        effective_pid = self._effective_project_id(project_id) or review.project_id
+        if effective_pid and not review.project_id:
+            review.project_id = effective_pid
+        review.status = derive_status_from_stage(review.stage_status)
+        async with get_session(self._db_url) as session:
+            session.add(EcosystemDeepReviewModel.from_pydantic(review))
+        return review
+
+    async def get_deep_review(
+        self,
+        review_id: str,
+        project_id: str | None = None,
+    ) -> EcosystemDeepReview | None:
+        """按 id 获取深扫报告。
+
+        Args:
+            project_id: 显式作用域；空回退到 _project_scope，作用域非空时仅匹配同项目。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel).where(
+                EcosystemDeepReviewModel.id == review_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemDeepReviewModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def update_deep_review(
+        self,
+        review_id: str,
+        **fields: Any,
+    ) -> EcosystemDeepReview | None:
+        """部分更新深扫报告字段。fields 中的 enum 自动转 .value。
+
+        - 若 fields 含 _project_id 关键字（service 显式传入），仅匹配同项目；
+        - 否则若当前 repo 设置了 _project_scope，则只允许更新同项目下的行。
+        """
+        explicit_pid = fields.pop("_project_id", None)
+        effective_pid = explicit_pid or self._effective_project_id(None)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel).where(
+                EcosystemDeepReviewModel.id == review_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemDeepReviewModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in fields.items():
+                if hasattr(value, "value"):
+                    value = value.value  # noqa: PLW2901  # enum -> str
+                if hasattr(row, key):
+                    setattr(row, key, value)
+            await session.flush()
+            return row.to_pydantic()
+
+    async def list_deep_reviews(
+        self,
+        repo_id: str = "",
+        status: str = "",
+        limit: int = 50,
+        project_id: str | None = None,
+        debate_meeting_id: str = "",
+    ) -> list[EcosystemDeepReview]:
+        """按 repo_id / status / 关联的辩论会议列出深扫报告。空字符串忽略对应过滤条件。
+
+        Args:
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+            debate_meeting_id: 只取 Stage 2 关联到该会议的 review。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel)
+            stmt = self._apply_project_filter(stmt, EcosystemDeepReviewModel)
+            if project_id:
+                stmt = stmt.where(
+                    EcosystemDeepReviewModel.project_id == project_id
+                )
+            if repo_id:
+                stmt = stmt.where(EcosystemDeepReviewModel.repo_id == repo_id)
+            if status:
+                stmt = stmt.where(EcosystemDeepReviewModel.status == status)
+            if debate_meeting_id:
+                stmt = stmt.where(
+                    EcosystemDeepReviewModel.debate_meeting_id == debate_meeting_id
+                )
+            stmt = stmt.order_by(EcosystemDeepReviewModel.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Ecosystem worker pool claim helpers (v1.5.3)
+    # ================================================================
+
+    @staticmethod
+    def _claim_lease_available(
+        now: datetime,
+        ttl_seconds: int = STALE_CLAIM_TTL_SECONDS,
+    ) -> Any:
+        """认领租约可用的 SQL 谓词：未认领 / 不可判龄 / 已过期。
+
+        Args:
+            now: 当前时刻（aware UTC，见 aiteam/clock.py）。
+            ttl_seconds: 租约时长，超过即视为夭折可被接管。
+
+        Returns:
+            可直接挂到 select/update 的 ``WHERE`` 条件。
+        """
+        cutoff = now - timedelta(seconds=ttl_seconds)
+        return or_(
+            EcosystemDeepReviewModel.claimed_by.is_(None),
+            EcosystemDeepReviewModel.claimed_at.is_(None),
+            EcosystemDeepReviewModel.claimed_at < cutoff,
+        )
+
+    async def reclaim_stale_shallow_claims(
+        self,
+        *,
+        dry_run: bool = True,
+        ttl_seconds: int = STALE_CLAIM_TTL_SECONDS,
+        project_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """回收（或仅预览）租约过期的 ``queued`` 认领行。
+
+        认领租约到期后 ``claim_next_shallow_repo`` 已能自行接管，本方法是配套的
+        **批量清账**：把僵死预定显式清空，让 ``shallow_queue_status`` 的
+        pending / in_progress 计数立刻回到真相，也便于运维一次性止血
+        （见 ``scripts/reclaim_stale_shallow_claims.py``）。
+
+        Args:
+            dry_run: True（默认）只返回将被回收的行，不写库。
+            ttl_seconds: 判定过期的租约时长。
+            project_id: 显式作用域；空时回退到 _project_scope。
+            limit: 单次处理上限，防一次扫全表。
+
+        Returns:
+            每行 ``{id, repo_id, project_id, claimed_by, claimed_at, stale_seconds}``，
+            按认领时间从旧到新排序。dry_run=False 时这些行的认领已被清空。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        now = utc_now()
+        cutoff = now - timedelta(seconds=ttl_seconds)
+
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(EcosystemDeepReviewModel)
+                .where(EcosystemDeepReviewModel.stage_status == "queued")
+                .where(EcosystemDeepReviewModel.claimed_by.is_not(None))
+                .where(
+                    or_(
+                        EcosystemDeepReviewModel.claimed_at.is_(None),
+                        EcosystemDeepReviewModel.claimed_at < cutoff,
+                    )
+                )
+                .order_by(EcosystemDeepReviewModel.claimed_at.asc())
+                .limit(limit)
+            )
+            stmt = self._apply_project_filter(stmt, EcosystemDeepReviewModel)
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemDeepReviewModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            rows = list(result.scalars().all())
+
+            preview: list[dict[str, Any]] = [
+                {
+                    "id": row.id,
+                    "repo_id": row.repo_id,
+                    "project_id": row.project_id,
+                    "claimed_by": row.claimed_by,
+                    "claimed_at": (
+                        row.claimed_at.isoformat() if row.claimed_at else None
+                    ),
+                    "stale_seconds": (
+                        (now - row.claimed_at).total_seconds()
+                        if row.claimed_at
+                        else float("inf")
+                    ),
+                }
+                for row in rows
+            ]
+
+            if not dry_run:
+                for row in rows:
+                    row.claimed_by = None
+                    row.claimed_at = None
+                await session.flush()
+
+            return preview
+
+    async def claim_next_shallow_repo(
+        self,
+        worker_id: str,
+        project_id: str | None = None,
+    ) -> EcosystemDeepReview | None:
+        """原子认领下一个待浅扫仓（stage_status='queued' 且认领租约可用）。
+
+        使用两步原子协议：
+        1. UPDATE ... WHERE stage_status='queued' AND <租约可用> LIMIT 1 SET claimed_by=worker_id
+        2. 用 rowcount 判断是否成功（rowcount > 0 = 认领成功），再 SELECT 取回完整行。
+
+        SQLite 序列化写入保证两步操作间不会有其他 writer 插入，rowcount 是
+        "我是否真正更新了行"的唯一真相源，避免 SKIP LOCKED（SQLite 不支持）。
+
+        「租约可用」= 未认领，或认领已过期（超过 ``STALE_CLAIM_TTL_SECONDS``，
+        含 claimed_at 缺失的不可判龄行）。过期条件是队列死锁的解药：tick 建行时
+        原子预写 claimed_by 防双抓（D5），但派遣出去的 sub-agent 一旦夭折，
+        这份预定过去是**永久**的——行永远 queued+claimed，对所有认领方隐身
+        （生产实测 74 行卡死 17 天，pending 恒 0）。
+
+        Args:
+            worker_id: 认领方的唯一标识字符串。
+            project_id: 显式作用域；空时回退到 _project_scope。
+
+        Returns:
+            认领到的深扫报告（已写入 claimed_by/claimed_at），无可用行时返回 None。
+        """
+        from sqlalchemy import text
+
+        effective_pid = self._effective_project_id(project_id)
+        now = utc_now()
+        lease_free = self._claim_lease_available(now)
+
+        async with get_session(self._db_url) as session:
+            # Retry loop: handle the case where another worker claims the same candidate
+            # between our SELECT (read) and UPDATE (write). SQLite serializes writes so
+            # rowcount=0 means we lost the race; we then find the next unclaimed row.
+            already_tried: set[str] = set()
+            while True:
+                # Step 1: find the next claimable candidate (skip already-tried ids)
+                candidate_stmt = (
+                    select(EcosystemDeepReviewModel.id)
+                    .where(EcosystemDeepReviewModel.stage_status == "queued")
+                    .where(lease_free)
+                    .order_by(EcosystemDeepReviewModel.created_at.asc())
+                    .limit(1)
+                )
+                if effective_pid is not None:
+                    candidate_stmt = candidate_stmt.where(
+                        EcosystemDeepReviewModel.project_id == effective_pid
+                    )
+                # Expire session cache so we see committed changes from other workers
+                await session.execute(text("SELECT 1"))
+                candidate_result = await session.execute(candidate_stmt)
+                candidate_id = candidate_result.scalar_one_or_none()
+                if candidate_id is None:
+                    return None
+                if candidate_id in already_tried:
+                    return None  # Row exists but was just claimed by someone else
+                already_tried.add(candidate_id)
+
+                # Step 2: atomic UPDATE — wins only if the lease is still free.
+                # Typed ORM UPDATE (not raw text) so ``claimed_at`` is bound through
+                # SQLAlchemy's SQLite DATETIME processor: raw ``isoformat()`` writes
+                # "…T…+00:00" while the ORM writes "… …", and the two do not compare
+                # lexicographically — a mixed-format column would break TTL arithmetic.
+                update_result = await session.execute(
+                    sa_update(EcosystemDeepReviewModel)
+                    .where(EcosystemDeepReviewModel.id == candidate_id)
+                    .where(lease_free)
+                    .values(claimed_by=worker_id, claimed_at=now)
+                    .execution_options(synchronize_session=False)
+                )
+                if update_result.rowcount > 0:
+                    break  # We won the race — fetch and return
+
+            # Step 3: fetch the updated row to return full Pydantic model
+            await session.execute(text("SELECT 1"))  # flush read cache
+            fetch_result = await session.execute(
+                select(EcosystemDeepReviewModel).where(
+                    EcosystemDeepReviewModel.id == candidate_id
+                )
+            )
+            row = fetch_result.scalar_one_or_none()
+            if row is None:
+                return None
+            await session.refresh(row)
+            return row.to_pydantic()
+
+    async def claim_next_review_repo(
+        self,
+        worker_id: str,
+        project_id: str | None = None,
+        min_stars: int = 0,
+    ) -> tuple[EcosystemDeepReview, EcosystemRepoProfile] | None:
+        """原子认领下一个待质量审查行（stage_status='shallow_done'，quality_score IS NULL，租约可用）。
+
+        同时返回关联的 EcosystemRepoProfile（含 shallow_summary 供审查者评估）。
+        与浅扫认领同源的租约语义：认领超过 ``STALE_CLAIM_TTL_SECONDS`` 未收敛
+        即视为夭折可被接管，避免审查 worker 掉线把行永久锁死。
+
+        Args:
+            worker_id: 认领方的唯一标识字符串。
+            project_id: 显式作用域；空时回退到 _project_scope。
+            min_stars: 最小星数过滤，0 表示不过滤。
+
+        Returns:
+            (deep_review, repo_profile) 元组；无可用行时返回 None。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        now = utc_now()
+        lease_free = self._claim_lease_available(now)
+
+        async with get_session(self._db_url) as session:
+            # Step 1: find candidate with JOIN on profile stars filter
+            candidate_stmt = (
+                select(EcosystemDeepReviewModel.id, EcosystemDeepReviewModel.repo_id)
+                .join(
+                    EcosystemRepoProfileModel,
+                    EcosystemDeepReviewModel.repo_id == EcosystemRepoProfileModel.id,
+                )
+                .where(EcosystemDeepReviewModel.stage_status == "shallow_done")
+                .where(EcosystemDeepReviewModel.quality_score.is_(None))
+                .where(lease_free)
+                .order_by(EcosystemDeepReviewModel.created_at.asc())
+                .limit(1)
+            )
+            if effective_pid is not None:
+                candidate_stmt = candidate_stmt.where(
+                    EcosystemDeepReviewModel.project_id == effective_pid
+                )
+            if min_stars > 0:
+                candidate_stmt = candidate_stmt.where(
+                    EcosystemRepoProfileModel.stars >= min_stars
+                )
+            candidate_result = await session.execute(candidate_stmt)
+            candidate_row = candidate_result.first()
+            if candidate_row is None:
+                return None
+            candidate_id, repo_id = candidate_row
+
+            # Step 2: atomic UPDATE — wins only if the lease is still free
+            update_result = await session.execute(
+                sa_update(EcosystemDeepReviewModel)
+                .where(EcosystemDeepReviewModel.id == candidate_id)
+                .where(lease_free)
+                .values(claimed_by=worker_id, claimed_at=now)
+                .execution_options(synchronize_session=False)
+            )
+            if update_result.rowcount == 0:
+                return None
+
+            # Step 3: fetch updated review + profile
+            dr_result = await session.execute(
+                select(EcosystemDeepReviewModel).where(
+                    EcosystemDeepReviewModel.id == candidate_id
+                )
+            )
+            dr_row = dr_result.scalar_one_or_none()
+            if dr_row is None:
+                return None
+            await session.refresh(dr_row)
+
+            profile_result = await session.execute(
+                select(EcosystemRepoProfileModel).where(
+                    EcosystemRepoProfileModel.id == repo_id
+                )
+            )
+            profile_row = profile_result.scalar_one_or_none()
+            if profile_row is None:
+                return None
+            return dr_row.to_pydantic(), profile_row.to_pydantic()
+
+    async def apply_quality_review(
+        self,
+        dr_id: str,
+        quality_score: int,
+        quality_notes: str,
+        recommendation: str,
+        project_id: str | None = None,
+    ) -> EcosystemDeepReview | None:
+        """写入质量审查结果并释放认领锁。
+
+        写入 quality_score / quality_notes / reviewed_by / reviewed_at，
+        清空 claimed_by 释放认领锁，并更新 integration_recommendation。
+
+        Args:
+            dr_id: 目标 EcosystemDeepReview.id。
+            quality_score: 0-100 质量分。
+            quality_notes: 审查理由文本。
+            recommendation: integrate / reference / learn / skip。
+            project_id: 显式作用域；空时回退到 _project_scope。
+
+        Returns:
+            更新后的深扫报告；行不存在时返回 None。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        now = utc_now()
+
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel).where(
+                EcosystemDeepReviewModel.id == dr_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemDeepReviewModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.quality_score = quality_score
+            row.quality_notes = quality_notes
+            row.reviewed_by = row.claimed_by  # reviewer = who claimed it
+            row.reviewed_at = now
+            row.claimed_by = None  # release claim lock
+            row.claimed_at = None
+            if recommendation:
+                row.integration_recommendation = recommendation
+            await session.flush()
+            return row.to_pydantic()
+
+    async def release_claim(
+        self,
+        dr_id: str,
+        reason: str,
+        project_id: str | None = None,
+    ) -> EcosystemDeepReview | None:
+        """释放认领锁（不写质量分），将 reason 记录到 quality_notes。
+
+        用于 worker 放弃认领（超时、错误）场景，清空 claimed_by 让其他 worker 可重新认领。
+
+        Args:
+            dr_id: 目标 EcosystemDeepReview.id。
+            reason: 释放原因，记录到 quality_notes。
+            project_id: 显式作用域；空时回退到 _project_scope。
+
+        Returns:
+            更新后的深扫报告；行不存在时返回 None。
+        """
+        effective_pid = self._effective_project_id(project_id)
+
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel).where(
+                EcosystemDeepReviewModel.id == dr_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemDeepReviewModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.claimed_by = None
+            row.claimed_at = None
+            row.quality_notes = reason
+            await session.flush()
+            return row.to_pydantic()
+
+    # ================================================================
+    # Ecosystem tags
+    # ================================================================
+
+    async def upsert_tag(self, tag: EcosystemTag) -> EcosystemTag:
+        """按 name 唯一键 upsert 标签。已存在则更新非主键字段。"""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemTagModel).where(EcosystemTagModel.name == tag.name)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                session.add(EcosystemTagModel.from_pydantic(tag))
+            else:
+                row.aliases = tag.aliases
+                row.category = tag.category.value
+                row.description = tag.description
+        return tag
+
+    async def get_tag_by_name(self, name: str) -> EcosystemTag | None:
+        """按名称获取标签。"""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemTagModel).where(EcosystemTagModel.name == name)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def get_tag(self, tag_id: str) -> EcosystemTag | None:
+        """按 id 获取标签。"""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemTagModel).where(EcosystemTagModel.id == tag_id)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_tags(
+        self, category: str = "", limit: int = 200
+    ) -> list[EcosystemTag]:
+        """列出标签，可按 category 过滤。"""
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemTagModel)
+            if category:
+                stmt = stmt.where(EcosystemTagModel.category == category)
+            stmt = stmt.order_by(EcosystemTagModel.name).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Ecosystem repo-tag associations
+    # ================================================================
+
+    async def add_repo_tag(
+        self,
+        repo_tag: EcosystemRepoTag,
+        project_id: str | None = None,
+    ) -> EcosystemRepoTag:
+        """添加仓-标签关联，已存在则更新 confidence/source/agent_id（应用层 upsert）。
+
+        Args:
+            project_id: 显式作用域；空时回退到 _project_scope/repo_tag.project_id。
+        """
+        effective_pid = self._effective_project_id(project_id) or repo_tag.project_id
+        if effective_pid and not repo_tag.project_id:
+            repo_tag.project_id = effective_pid
+
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemRepoTagModel).where(
+                    EcosystemRepoTagModel.repo_id == repo_tag.repo_id,
+                    EcosystemRepoTagModel.tag_id == repo_tag.tag_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                session.add(EcosystemRepoTagModel.from_pydantic(repo_tag))
+            else:
+                row.confidence = repo_tag.confidence
+                row.source = repo_tag.source.value
+                row.agent_id = repo_tag.agent_id
+                if effective_pid and not row.project_id:
+                    row.project_id = effective_pid
+        return repo_tag
+
+    async def remove_repo_tag(
+        self,
+        repo_id: str,
+        tag_id: str,
+        project_id: str | None = None,
+    ) -> bool:
+        """移除仓-标签关联，返回是否实际删除了记录。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoTagModel).where(
+                EcosystemRepoTagModel.repo_id == repo_id,
+                EcosystemRepoTagModel.tag_id == tag_id,
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemRepoTagModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return False
+            await session.delete(row)
+            return True
+
+    async def delete_repo_tags_by_sources(
+        self,
+        repo_id: str,
+        sources: list[str],
+        project_id: str | None = None,
+    ) -> int:
+        """Bulk-delete a repo's tag associations whose source is in ``sources``.
+
+        Used by ``apply_batch(replace_auto=True)`` to clear stale auto-generated
+        tags before re-applying. ``MANUAL`` and other sources are preserved.
+
+        Args:
+            repo_id: Target EcosystemRepoProfile.id.
+            sources: List of source values to delete (e.g. ["github_topic", "auto_rule"]).
+            project_id: Explicit project scope; falls back to repository scope.
+
+        Returns:
+            Number of rows actually deleted.
+        """
+        if not sources:
+            return 0
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoTagModel).where(
+                EcosystemRepoTagModel.repo_id == repo_id,
+                EcosystemRepoTagModel.source.in_(sources),
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemRepoTagModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            for row in rows:
+                await session.delete(row)
+            return len(rows)
+
+    async def list_repo_tags(
+        self,
+        repo_id: str = "",
+        tag_id: str = "",
+        limit: int = 200,
+        project_id: str | None = None,
+    ) -> list[EcosystemRepoTag]:
+        """列出仓-标签关联，按 repo_id 或 tag_id 过滤。
+
+        Args:
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoTagModel)
+            stmt = self._apply_project_filter(stmt, EcosystemRepoTagModel)
+            if project_id:
+                stmt = stmt.where(EcosystemRepoTagModel.project_id == project_id)
+            if repo_id:
+                stmt = stmt.where(EcosystemRepoTagModel.repo_id == repo_id)
+            if tag_id:
+                stmt = stmt.where(EcosystemRepoTagModel.tag_id == tag_id)
+            stmt = stmt.order_by(EcosystemRepoTagModel.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Ecosystem relations (repo <-> repo)
+    # ================================================================
+
+    async def add_relation(
+        self,
+        relation: EcosystemRelation,
+        project_id: str | None = None,
+    ) -> EcosystemRelation:
+        """添加仓与仓的引用关系。
+
+        Args:
+            project_id: 显式作用域；空时回退到 _project_scope/relation.project_id。
+        """
+        effective_pid = self._effective_project_id(project_id) or relation.project_id
+        if effective_pid and not relation.project_id:
+            relation.project_id = effective_pid
+        async with get_session(self._db_url) as session:
+            session.add(EcosystemRelationModel.from_pydantic(relation))
+        return relation
+
+    async def list_relations(
+        self,
+        from_repo_id: str = "",
+        to_repo_id: str = "",
+        relation_type: str = "",
+        limit: int = 200,
+        project_id: str | None = None,
+    ) -> list[EcosystemRelation]:
+        """列出仓-仓关联，按起点 / 终点 / 类型过滤。
+
+        Args:
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRelationModel)
+            stmt = self._apply_project_filter(stmt, EcosystemRelationModel)
+            if project_id:
+                stmt = stmt.where(EcosystemRelationModel.project_id == project_id)
+            if from_repo_id:
+                stmt = stmt.where(EcosystemRelationModel.from_repo_id == from_repo_id)
+            if to_repo_id:
+                stmt = stmt.where(EcosystemRelationModel.to_repo_id == to_repo_id)
+            if relation_type:
+                stmt = stmt.where(EcosystemRelationModel.relation_type == relation_type)
+            stmt = stmt.order_by(EcosystemRelationModel.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def remove_relation(
+        self,
+        relation_id: str,
+        project_id: str | None = None,
+    ) -> bool:
+        """删除一条关联记录。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRelationModel).where(
+                EcosystemRelationModel.id == relation_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemRelationModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return False
+            await session.delete(row)
+            return True
+
+    # ================================================================
+    # Ecosystem scan runs
+    # ================================================================
+
+    async def create_scan_run(
+        self,
+        scan_run: EcosystemScanRun,
+        project_id: str | None = None,
+    ) -> EcosystemScanRun:
+        """创建一次扫描批次记录。
+
+        Args:
+            project_id: 显式作用域；空时回退到 _project_scope / scan_run.project_id。
+        """
+        effective_pid = self._effective_project_id(project_id) or scan_run.project_id
+        if effective_pid and not scan_run.project_id:
+            scan_run.project_id = effective_pid
+        async with get_session(self._db_url) as session:
+            session.add(EcosystemScanRunModel.from_pydantic(scan_run))
+        return scan_run
+
+    async def get_scan_run(
+        self,
+        scan_run_id: str,
+        project_id: str | None = None,
+    ) -> EcosystemScanRun | None:
+        """按 id 获取扫描批次。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemScanRunModel).where(
+                EcosystemScanRunModel.id == scan_run_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemScanRunModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def update_scan_run(
+        self,
+        scan_run_id: str,
+        **fields: Any,
+    ) -> EcosystemScanRun | None:
+        """部分更新扫描批次字段。fields 中的 enum 自动转 .value。
+
+        作用域非空时只允许更新同项目下的行。
+        """
+        effective_pid = self._effective_project_id(None)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemScanRunModel).where(
+                EcosystemScanRunModel.id == scan_run_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemScanRunModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in fields.items():
+                if hasattr(value, "value"):
+                    value = value.value  # noqa: PLW2901
+                if hasattr(row, key):
+                    setattr(row, key, value)
+            await session.flush()
+            return row.to_pydantic()
+
+    async def list_scan_runs(
+        self,
+        strategy: str = "",
+        limit: int = 50,
+        project_id: str | None = None,
+    ) -> list[EcosystemScanRun]:
+        """按 strategy 列出扫描批次，按 started_at 降序。
+
+        Args:
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemScanRunModel)
+            stmt = self._apply_project_filter(stmt, EcosystemScanRunModel)
+            if project_id:
+                stmt = stmt.where(EcosystemScanRunModel.project_id == project_id)
+            if strategy:
+                stmt = stmt.where(EcosystemScanRunModel.strategy == strategy)
+            stmt = stmt.order_by(EcosystemScanRunModel.started_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Stage E: Ecosystem extended search & holistic detail
+    # ================================================================
+
+    async def search_ecosystem_profiles_extended(
+        self,
+        keyword: str = "",
+        topic: str = "",
+        min_stars: int = 0,
+        max_stars: int | None = None,
+        needs_deep_review: bool | None = None,
+        category: str = "",
+        language: str = "",
+        pushed_after: datetime | None = None,
+        is_archived: bool | None = None,
+        tags: list[str] | None = None,
+        tag_match_mode: str = "all",
+        sort: str = "stars",
+        limit: int = 50,
+        offset: int = 0,
+        project_id: str | None = None,
+        id_filter: list[str] | None = None,
+        id_exclude: list[str] | None = None,
+    ) -> tuple[list[EcosystemRepoProfile], int]:
+        """Stage E 扩展检索：支持 tags / language / pushed_after / 多种排序。
+
+        参数：
+            tags: 标签名列表（按 EcosystemTag.name 匹配）。空 list / None 不过滤。
+            tag_match_mode: "all"（默认，AND 语义，所有 tag 必须存在）/ "any"（OR 语义）。
+            sort: "stars"（默认，stars desc）/ "recency"（pushed_at desc，nulls last）
+                / "relevance"（relevance_score desc）。
+            offset: 分页偏移，配合 limit 实现翻页。
+
+        返回 (profiles, total_count_before_limit)。
+        """
+        from sqlalchemy import or_
+
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel)
+            stmt = self._apply_project_filter(stmt, EcosystemRepoProfileModel)
+            if project_id:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.project_id == project_id
+                )
+
+            # 基础字段过滤
+            if id_filter is not None:
+                if not id_filter:
+                    return ([], 0)
+                stmt = stmt.where(EcosystemRepoProfileModel.id.in_(id_filter))
+            if id_exclude:
+                stmt = stmt.where(EcosystemRepoProfileModel.id.notin_(id_exclude))
+            if min_stars > 0:
+                stmt = stmt.where(EcosystemRepoProfileModel.stars >= min_stars)
+            if max_stars is not None and max_stars > 0:
+                stmt = stmt.where(EcosystemRepoProfileModel.stars <= max_stars)
+            if needs_deep_review is not None:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.needs_deep_review == needs_deep_review
+                )
+            if category:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.relevance_category == category
+                )
+            if language:
+                stmt = stmt.where(EcosystemRepoProfileModel.language == language)
+            if pushed_after is not None:
+                stmt = stmt.where(EcosystemRepoProfileModel.pushed_at >= pushed_after)
+            if is_archived is not None:
+                stmt = stmt.where(
+                    EcosystemRepoProfileModel.is_archived == is_archived
+                )
+            if keyword:
+                kw = f"%{keyword}%"
+                stmt = stmt.where(
+                    or_(
+                        EcosystemRepoProfileModel.name.ilike(kw),
+                        EcosystemRepoProfileModel.description.ilike(kw),
+                        EcosystemRepoProfileModel.one_line_summary.ilike(kw),
+                        EcosystemRepoProfileModel.repo_full_name.ilike(kw),
+                        EcosystemRepoProfileModel.description_excerpt.ilike(kw),
+                    )
+                )
+            if topic:
+                tp = f"%{topic}%"
+                stmt = stmt.where(EcosystemRepoProfileModel.topics.ilike(tp))
+
+            # tags 过滤：通过 EXISTS subquery 实现 AND/OR
+            if tags:
+                # 解析 tag 名 -> tag_id
+                tag_ids: list[str] = []
+                tag_rows = await session.execute(
+                    select(EcosystemTagModel).where(EcosystemTagModel.name.in_(tags))
+                )
+                for t in tag_rows.scalars().all():
+                    tag_ids.append(t.id)
+
+                if not tag_ids:
+                    # 标签全不存在 -> 0 结果
+                    return ([], 0)
+
+                if tag_match_mode == "any":
+                    # OR 语义：repo 至少有一个匹配标签
+                    subq = (
+                        select(EcosystemRepoTagModel.repo_id)
+                        .where(EcosystemRepoTagModel.tag_id.in_(tag_ids))
+                    )
+                    stmt = stmt.where(EcosystemRepoProfileModel.id.in_(subq))
+                else:
+                    # AND 语义：每个 tag_id 都必须有对应 repo_tag 行
+                    for tid in tag_ids:
+                        subq = (
+                            select(EcosystemRepoTagModel.repo_id)
+                            .where(EcosystemRepoTagModel.tag_id == tid)
+                        )
+                        stmt = stmt.where(EcosystemRepoProfileModel.id.in_(subq))
+
+            # 计算 total（offset/limit 之前）
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            total_result = await session.execute(count_stmt)
+            total = int(total_result.scalar() or 0)
+
+            # 排序
+            if sort == "recency":
+                # SQLite 的 NULLS LAST 兼容做法：is null asc + value desc
+                stmt = stmt.order_by(
+                    EcosystemRepoProfileModel.pushed_at.is_(None).asc(),
+                    EcosystemRepoProfileModel.pushed_at.desc(),
+                    EcosystemRepoProfileModel.stars.desc(),
+                )
+            elif sort == "relevance":
+                stmt = stmt.order_by(
+                    EcosystemRepoProfileModel.relevance_score.desc(),
+                    EcosystemRepoProfileModel.stars.desc(),
+                )
+            else:  # default "stars"
+                stmt = stmt.order_by(EcosystemRepoProfileModel.stars.desc())
+
+            stmt = stmt.offset(max(offset, 0)).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return ([r.to_pydantic() for r in rows], total)
+
+    async def compute_ecosystem_facet_counts(
+        self,
+        keyword: str = "",
+        min_stars: int = 0,
+        max_stars: int | None = None,
+        category: str = "",
+        language: str = "",
+        is_archived: bool | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, dict[str, int]]:
+        """计算 facet 聚合：在给定基础筛选下，统计 category / language / archived 的分布。
+
+        返回 {"category": {...}, "language": {...}, "archived": {"true": n, "false": n}}。
+
+        K1 perf: 三个 GROUP BY 共享一个 session + 单一 ``_apply_filters`` helper
+        消除原版的 cat_stmt dead-code 和 5 段重复 ``or_(...)``。GROUP BY 在 SQL 层
+        聚合比 fetch 全行后 Python 聚合在大表上更快（实测 50K 行 GROUP BY 132ms
+        vs Python 全 fetch 152ms）。
+        """
+        from sqlalchemy import or_
+
+        effective_pid = self._effective_project_id(project_id)
+
+        def _apply_filters(q):
+            """Apply common filters (project + stars + cat/lang/archived + keyword)."""
+            if effective_pid is not None:
+                q = q.where(
+                    EcosystemRepoProfileModel.project_id == effective_pid
+                )
+            if min_stars > 0:
+                q = q.where(EcosystemRepoProfileModel.stars >= min_stars)
+            if max_stars is not None and max_stars > 0:
+                q = q.where(EcosystemRepoProfileModel.stars <= max_stars)
+            if category:
+                q = q.where(
+                    EcosystemRepoProfileModel.relevance_category == category
+                )
+            if language:
+                q = q.where(EcosystemRepoProfileModel.language == language)
+            if is_archived is not None:
+                q = q.where(
+                    EcosystemRepoProfileModel.is_archived == is_archived
+                )
+            if keyword:
+                kw = f"%{keyword}%"
+                q = q.where(
+                    or_(
+                        EcosystemRepoProfileModel.name.ilike(kw),
+                        EcosystemRepoProfileModel.description.ilike(kw),
+                        EcosystemRepoProfileModel.one_line_summary.ilike(kw),
+                        EcosystemRepoProfileModel.repo_full_name.ilike(kw),
+                        EcosystemRepoProfileModel.description_excerpt.ilike(kw),
+                    )
+                )
+            return q
+
+        async with get_session(self._db_url) as session:
+            cat_q = _apply_filters(
+                select(
+                    EcosystemRepoProfileModel.relevance_category,
+                    func.count(EcosystemRepoProfileModel.id).label("cnt"),
+                )
+            ).group_by(EcosystemRepoProfileModel.relevance_category)
+            cat_result = await session.execute(cat_q)
+            category_counts: dict[str, int] = {}
+            for row in cat_result.all():
+                key = row[0] or "unknown"
+                category_counts[key] = int(row[1])
+
+            lang_q = _apply_filters(
+                select(
+                    EcosystemRepoProfileModel.language,
+                    func.count(EcosystemRepoProfileModel.id).label("cnt"),
+                )
+            ).group_by(EcosystemRepoProfileModel.language)
+            lang_result = await session.execute(lang_q)
+            language_counts: dict[str, int] = {}
+            for row in lang_result.all():
+                key = row[0] or "unknown"
+                language_counts[key] = int(row[1])
+
+            arch_q = _apply_filters(
+                select(
+                    EcosystemRepoProfileModel.is_archived,
+                    func.count(EcosystemRepoProfileModel.id).label("cnt"),
+                )
+            ).group_by(EcosystemRepoProfileModel.is_archived)
+            arch_result = await session.execute(arch_q)
+            archived_counts: dict[str, int] = {"true": 0, "false": 0}
+            for row in arch_result.all():
+                key = "true" if row[0] else "false"
+                archived_counts[key] = int(row[1])
+
+            # v1.5.1: stage facet — 透出渐进漏斗状态分布（让前端 StatsBar/筛选不被 limit 截断）
+            # 实现：1) 取所有 deep_reviews 按 created_at desc 在 Python 端聚合 latest stage map
+            #       2) 再取所有满足 filter 的 profile id，按 stage_map 聚合
+            # 当前数据量级（< 1万 reviews）此方案够用；后续大表可改窗口函数 SQL。
+            all_reviews_q = select(
+                EcosystemDeepReviewModel.repo_id,
+                EcosystemDeepReviewModel.stage_status,
+            ).order_by(EcosystemDeepReviewModel.created_at.desc())
+            if effective_pid is not None:
+                all_reviews_q = all_reviews_q.where(
+                    EcosystemDeepReviewModel.project_id == effective_pid
+                )
+            all_reviews_result = await session.execute(all_reviews_q)
+            latest_stage_map: dict[str, str] = {}
+            for row in all_reviews_result.all():
+                rid = row[0]
+                if rid in latest_stage_map:
+                    continue
+                stg = row[1]
+                latest_stage_map[rid] = (
+                    stg.value if hasattr(stg, "value") else stg
+                ) or "queued"
+
+            profile_ids_q = _apply_filters(select(EcosystemRepoProfileModel.id))
+            profile_ids_result = await session.execute(profile_ids_q)
+            stage_counts: dict[str, int] = {}
+            for row in profile_ids_result.all():
+                stg2 = latest_stage_map.get(row[0], "queued")
+                stage_counts[stg2] = stage_counts.get(stg2, 0) + 1
+
+            # v1.6.0 SST: topics facet — full project (no filter beyond project_id)
+            # topics stored as JSON string; parse and count per-topic across all project repos
+            topics_q = select(EcosystemRepoProfileModel.topics)
+            if effective_pid is not None:
+                topics_q = topics_q.where(
+                    EcosystemRepoProfileModel.project_id == effective_pid
+                )
+            topics_result = await session.execute(topics_q)
+            topics_counter: dict[str, int] = {}
+            import json as _json
+            for (topics_raw,) in topics_result.all():
+                if not topics_raw:
+                    continue
+                try:
+                    topic_list = _json.loads(topics_raw) if isinstance(topics_raw, str) else topics_raw
+                    if isinstance(topic_list, list):
+                        for t in topic_list:
+                            if isinstance(t, str) and t:
+                                topics_counter[t] = topics_counter.get(t, 0) + 1
+                except Exception:
+                    pass
+            topics_sorted = dict(sorted(topics_counter.items(), key=lambda x: -x[1]))
+
+            return {
+                "category": category_counts,
+                "language": language_counts,
+                "archived": archived_counts,
+                "stage": stage_counts,
+                "topics": topics_sorted,
+            }
+
+    async def get_ecosystem_profile_full(
+        self,
+        repo_full_name: str = "",
+        repo_id: str = "",
+        relations_limit: int = 50,
+        deep_reviews_limit: int = 20,
+        project_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """全息获取仓档案：profile + tags(含名称) + deep_reviews + relations(from/to) + scan_run。
+
+        repo_full_name 与 repo_id 二选一（repo_id 优先）。
+        返回 None 当仓不存在。
+
+        Args:
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+        """
+        # 1) 主档案
+        profile: EcosystemRepoProfile | None = None
+        if repo_id:
+            profile = await self.get_ecosystem_profile_by_id(
+                repo_id, project_id=project_id
+            )
+        elif repo_full_name:
+            profile = await self.get_ecosystem_profile(
+                repo_full_name, project_id=project_id
+            )
+        if profile is None:
+            return None
+
+        # 2) tags（join EcosystemTag 取名称 + category）
+        async with get_session(self._db_url) as session:
+            tag_join = await session.execute(
+                select(EcosystemRepoTagModel, EcosystemTagModel)
+                .join(
+                    EcosystemTagModel,
+                    EcosystemTagModel.id == EcosystemRepoTagModel.tag_id,
+                )
+                .where(EcosystemRepoTagModel.repo_id == profile.id)
+                .order_by(EcosystemTagModel.name)
+            )
+            tags_payload: list[dict[str, Any]] = []
+            for repo_tag, tag in tag_join.all():
+                tags_payload.append(
+                    {
+                        "tag_id": tag.id,
+                        "name": tag.name,
+                        "category": tag.category,
+                        "aliases": tag.aliases or [],
+                        "description": tag.description,
+                        "confidence": repo_tag.confidence,
+                        "source": repo_tag.source,
+                        "agent_id": repo_tag.agent_id,
+                        "created_at": (
+                            repo_tag.created_at.isoformat()
+                            if repo_tag.created_at
+                            else None
+                        ),
+                    }
+                )
+
+        # 3) deep reviews（带 project 作用域）
+        deep_reviews = await self.list_deep_reviews(
+            repo_id=profile.id,
+            limit=deep_reviews_limit,
+            project_id=project_id,
+        )
+
+        # 4) relations from + to（含目标仓简要信息）
+        async with get_session(self._db_url) as session:
+            from_rows = await session.execute(
+                select(EcosystemRelationModel, EcosystemRepoProfileModel)
+                .outerjoin(
+                    EcosystemRepoProfileModel,
+                    EcosystemRepoProfileModel.id
+                    == EcosystemRelationModel.to_repo_id,
+                )
+                .where(EcosystemRelationModel.from_repo_id == profile.id)
+                .order_by(EcosystemRelationModel.created_at.desc())
+                .limit(relations_limit)
+            )
+            relations_from: list[dict[str, Any]] = []
+            for rel, target in from_rows.all():
+                relations_from.append(
+                    {
+                        "relation_id": rel.id,
+                        "relation_type": rel.relation_type,
+                        "to_repo_id": rel.to_repo_id,
+                        "to_repo_full_name": (
+                            target.repo_full_name if target else None
+                        ),
+                        "to_repo_stars": target.stars if target else None,
+                        "evidence": rel.evidence,
+                        "confidence": rel.confidence,
+                        "agent_id": rel.agent_id,
+                    }
+                )
+
+            to_rows = await session.execute(
+                select(EcosystemRelationModel, EcosystemRepoProfileModel)
+                .outerjoin(
+                    EcosystemRepoProfileModel,
+                    EcosystemRepoProfileModel.id
+                    == EcosystemRelationModel.from_repo_id,
+                )
+                .where(EcosystemRelationModel.to_repo_id == profile.id)
+                .order_by(EcosystemRelationModel.created_at.desc())
+                .limit(relations_limit)
+            )
+            relations_to: list[dict[str, Any]] = []
+            for rel, source in to_rows.all():
+                relations_to.append(
+                    {
+                        "relation_id": rel.id,
+                        "relation_type": rel.relation_type,
+                        "from_repo_id": rel.from_repo_id,
+                        "from_repo_full_name": (
+                            source.repo_full_name if source else None
+                        ),
+                        "from_repo_stars": source.stars if source else None,
+                        "evidence": rel.evidence,
+                        "confidence": rel.confidence,
+                        "agent_id": rel.agent_id,
+                    }
+                )
+
+        # 5) scan_run（带 project 作用域）
+        scan_run = None
+        if profile.scan_run_id:
+            scan_run = await self.get_scan_run(
+                profile.scan_run_id, project_id=project_id
+            )
+
+        return {
+            "profile": profile,
+            "tags": tags_payload,
+            "deep_reviews": deep_reviews,
+            "relations_from": relations_from,
+            "relations_to": relations_to,
+            "scan_run": scan_run,
+        }
+
+    # ================================================================
+    # Stage J: 项目隔离 backfill
+    # ================================================================
+
+    async def backfill_ecosystem_to_project(
+        self, project_id: str
+    ) -> dict[str, int]:
+        """把所有 project_id IS NULL 的 ecosystem 数据迁移至指定项目。
+
+        覆盖 5 张数据表：profiles / scan_runs / deep_reviews / repo_tags / relations。
+        EcosystemTag 字典保持 NULL（全局共用）。
+
+        幂等：已有 project_id 的行不动；只迁移 NULL 行。
+
+        Args:
+            project_id: 目标项目 id（必须存在于 projects 表）。
+
+        Returns:
+            每张表实际迁移行数的字典。
+        """
+        from sqlalchemy import update
+
+        if not project_id:
+            raise ValueError("project_id 不能为空")
+
+        async with get_session(self._db_url) as session:
+            # 校验目标项目存在
+            existing_project = await session.execute(
+                select(ProjectModel).where(ProjectModel.id == project_id)
+            )
+            if existing_project.scalar_one_or_none() is None:
+                raise ValueError(f"项目 {project_id} 不存在")
+
+            counts: dict[str, int] = {}
+            tables = [
+                ("ecosystem_repo_profiles", EcosystemRepoProfileModel),
+                ("ecosystem_scan_runs", EcosystemScanRunModel),
+                ("ecosystem_deep_reviews", EcosystemDeepReviewModel),
+                ("ecosystem_repo_tags", EcosystemRepoTagModel),
+                ("ecosystem_relations", EcosystemRelationModel),
+            ]
+            for label, model in tables:
+                stmt = (
+                    update(model)
+                    .where(model.project_id.is_(None))
+                    .values(project_id=project_id)
+                )
+                result = await session.execute(stmt)
+                counts[label] = int(result.rowcount or 0)
+
+            return counts
+
+    # ================================================================
+    # v1.5.0-A: Stage status helpers (DeepReview 渐进式漏斗)
+    # ================================================================
+
+    async def update_deep_review_stage(
+        self,
+        review_id: str,
+        stage_status: EcosystemStageStatus | str,
+        *,
+        completed_at: datetime | None = None,
+        debate_meeting_id: str | None = None,
+        integration_task_id: str | None = None,
+        integration_md: str | None = None,
+        project_id: str | None = None,
+    ) -> EcosystemDeepReview | None:
+        """推进 DeepReview 的 stage_status，自动写对应阶段时间戳。
+
+        D5 收敛 choke point ②：每次 stage 推进同步——
+        - ``status`` := derive_status_from_stage(stage)（派生只读视图，唯一合法写入口）；
+        - 统一清空 ``claimed_by`` / ``claimed_at``（释放认领，覆盖 tick / lifecycle /
+          claim worker 全部派遣来源，与 apply_quality_review / release_claim 语义一致）；
+        - 派生态 ∈ {completed, failed} 且行 ``completed_at`` 为空时补写（历史不可改写）。
+
+        Args:
+            review_id: 目标 DeepReview id。
+            stage_status: 新 stage 值；接受 enum 或字符串。
+            completed_at: 阶段完成时间，默认当前 UTC 时间；用于回填历史时显式指定。
+            debate_meeting_id: stage_status=DEBATED 时关联的会议 id。
+            integration_task_id: stage_status=INTEGRATED 时关联的任务 id。
+            integration_md: 集成建议的 markdown 内容。
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+
+        Returns:
+            更新后的 DeepReview Pydantic 模型；找不到则返回 None。
+        """
+        if isinstance(stage_status, str):
+            stage_status = EcosystemStageStatus(stage_status)
+
+        ts = completed_at or utc_now()
+
+        # 不同阶段写入不同时间戳字段
+        timestamp_fields: dict[str, datetime | None] = {}
+        if stage_status == EcosystemStageStatus.SHALLOW_DONE:
+            timestamp_fields["shallow_completed_at"] = ts
+        elif stage_status == EcosystemStageStatus.ARCHITECTURE_DONE:
+            timestamp_fields["architecture_completed_at"] = ts
+        elif stage_status == EcosystemStageStatus.DEBATED:
+            timestamp_fields["debated_at"] = ts
+        elif stage_status in (
+            EcosystemStageStatus.REFERENCED,
+            EcosystemStageStatus.INTEGRATED,
+        ):
+            timestamp_fields["stage3_completed_at"] = ts
+
+        derived = derive_status_from_stage(stage_status)
+        update_kwargs: dict[str, Any] = {
+            "stage_status": stage_status.value,
+            # D5: status 列为派生只读视图，仅在此处随 stage 推进联动。
+            "status": derived.value,
+            # D5: stage 每次推进/失败统一释放认领，防悬挂占住。
+            "claimed_by": None,
+            "claimed_at": None,
+        }
+        update_kwargs.update(timestamp_fields)
+        if debate_meeting_id is not None:
+            update_kwargs["debate_meeting_id"] = debate_meeting_id
+        if integration_task_id is not None:
+            update_kwargs["integration_task_id"] = integration_task_id
+        if integration_md is not None:
+            update_kwargs["integration_md"] = integration_md
+        if project_id is not None:
+            update_kwargs["_project_id"] = project_id
+
+        # 派生终态补齐 completed_at（COALESCE 语义：已有值绝不覆盖，保历史快照）
+        if derived in (
+            EcosystemDeepReviewStatus.COMPLETED,
+            EcosystemDeepReviewStatus.FAILED,
+        ):
+            current = await self.get_deep_review(review_id, project_id=project_id)
+            if current is not None and current.completed_at is None:
+                update_kwargs["completed_at"] = ts
+
+        return await self.update_deep_review(review_id, **update_kwargs)
+
+    async def list_deep_reviews_by_stage(
+        self,
+        stage_status: EcosystemStageStatus | str,
+        repo_id: str = "",
+        limit: int = 50,
+        project_id: str | None = None,
+    ) -> list[EcosystemDeepReview]:
+        """按 stage_status 列出 deep reviews。
+
+        v1.5.0 漏斗 UI/Worker 使用：例如查 ``shallow_done`` 的所有仓供 Stage 1
+        候选展示，或查 ``shallow_failed`` 仓供 manual retry 列表。
+        """
+        if isinstance(stage_status, EcosystemStageStatus):
+            stage_status = stage_status.value
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel)
+            stmt = self._apply_project_filter(stmt, EcosystemDeepReviewModel)
+            if project_id:
+                stmt = stmt.where(EcosystemDeepReviewModel.project_id == project_id)
+            stmt = stmt.where(EcosystemDeepReviewModel.stage_status == stage_status)
+            if repo_id:
+                stmt = stmt.where(EcosystemDeepReviewModel.repo_id == repo_id)
+            stmt = stmt.order_by(EcosystemDeepReviewModel.created_at.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def count_shallow_dr_stages(
+        self,
+        project_id: str | None = None,
+    ) -> dict[str, int]:
+        """统计浅扫 DR 行的各 stage_status 精确计数。
+
+        Bug 4 修复辅助方法：直接查 ecosystem_deep_reviews 表，
+        避免用 profile.shallow_summary 空判定导致语义偏差。
+
+        Returns:
+            {
+              "pending":     queued 且 claimed_by IS NULL 的行数,
+              "in_progress": queued 且 claimed_by IS NOT NULL 的行数,
+              "done":        shallow_done 的行数,
+              "failed":      shallow_failed 的行数,
+            }
+        """
+        from sqlalchemy import case, func
+
+        effective_pid = self._effective_project_id(project_id)
+
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(
+                    func.sum(
+                        case(
+                            (
+                                (EcosystemDeepReviewModel.stage_status == "queued")
+                                & EcosystemDeepReviewModel.claimed_by.is_(None),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ).label("pending"),
+                    func.sum(
+                        case(
+                            (
+                                (EcosystemDeepReviewModel.stage_status == "queued")
+                                & EcosystemDeepReviewModel.claimed_by.is_not(None),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ).label("in_progress"),
+                    func.sum(
+                        case(
+                            (EcosystemDeepReviewModel.stage_status == "shallow_done", 1),
+                            else_=0,
+                        )
+                    ).label("done"),
+                    func.sum(
+                        case(
+                            (EcosystemDeepReviewModel.stage_status == "shallow_failed", 1),
+                            else_=0,
+                        )
+                    ).label("failed"),
+                )
+                .select_from(EcosystemDeepReviewModel)
+            )
+            stmt = self._apply_project_filter(stmt, EcosystemDeepReviewModel)
+            if effective_pid is not None:
+                stmt = stmt.where(
+                    EcosystemDeepReviewModel.project_id == effective_pid
+                )
+            result = await session.execute(stmt)
+            row = result.one_or_none()
+            if row is None:
+                return {"pending": 0, "in_progress": 0, "done": 0, "failed": 0}
+            return {
+                "pending": int(row.pending or 0),
+                "in_progress": int(row.in_progress or 0),
+                "done": int(row.done or 0),
+                "failed": int(row.failed or 0),
+            }
+
+    async def backfill_shallow_done_status_completed(
+        self,
+        project_id: str | None = None,
+    ) -> int:
+        """v1.6.1 backfill: 将 stage_status='shallow_done' 且 status='running' 的行 status 改为 'completed'。
+
+        根因：apply_shallow_summary 的 v1.5.2 注释误保留了 status='running'，
+        导致 678 个 shallow_done 行的 status 字段是脏数据，令 _dispatch_one 的
+        旧 status 判定误跳过所有老库重扫。此 backfill 幂等修正历史数据。
+
+        Returns:
+            实际更新的行数。
+        """
+        from sqlalchemy import update as sa_update
+
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = (
+                sa_update(EcosystemDeepReviewModel)
+                .where(EcosystemDeepReviewModel.stage_status == "shallow_done")
+                .where(EcosystemDeepReviewModel.status == "running")
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemDeepReviewModel.project_id == effective_pid)
+            stmt = stmt.values(status="completed")
+            result = await session.execute(stmt)
+            await session.flush()
+            return result.rowcount or 0
+
+    async def backfill_deep_review_dual_axis(
+        self,
+        project_id: str | None = None,
+    ) -> dict[str, int]:
+        """D5 双轴收敛回填：status 派生视图全量对齐 stage_status 权威轴。
+
+        5 条纯 UPDATE 按 R1→R2→F1→F2→F3 固定序单次串行执行（反向规则必须
+        先于正向规则，否则 F3 会把老 reviewer 遗留 completed 行误重置回
+        queued）。派生映射唯一真源为 types.STAGE_TO_STATUS，本方法的 SQL
+        字面量从该 dict 生成。全程只 UPDATE（append-only 铁律），幂等：
+        每条 WHERE 都排除自身写后状态，重跑 rowcount 恒 0。
+
+        规则：
+        - R1 反向：(status=completed, stage=queued) 老 reviewer 完成行 →
+          stage=shallow_done，shallow_completed_at=COALESCE(自身, completed_at, created_at)。
+          消除 M20(a) "永久跳过" 残根。
+        - R2 反向：(status=failed, stage=queued) 且有派遣证据
+          (started_at / report_id / dispatch_prompt 任一非空) → stage=shallow_failed。
+          无证据的 (failed, queued) 行交 F3 重置回真排队。
+        - F1 正向：stage ∈ 完成态 且 status≠completed → status=completed，
+          completed_at=COALESCE(自身, created_at)。覆盖 v1.5.2 误留 running 的
+          678 行主病灶及 Stage1/2/3 纯 stage 写入行。
+        - F2 正向：stage ∈ 失败态 且 status≠failed → status=failed，同上补时间戳。
+        - F3 正向收口（必须最后）：stage=queued 且 status≠queued → status=queued。
+
+        Returns:
+            分规则 rowcount 字典 {"R1": n, "R2": n, "F1": n, "F2": n, "F3": n}。
+        """
+        from sqlalchemy import func, or_
+        from sqlalchemy import update as sa_update
+
+        queued_stage = EcosystemStageStatus.QUEUED.value
+        completed_stages = sorted(
+            s.value
+            for s, v in STAGE_TO_STATUS.items()
+            if v is EcosystemDeepReviewStatus.COMPLETED
+        )
+        failed_stages = sorted(
+            s.value
+            for s, v in STAGE_TO_STATUS.items()
+            if v is EcosystemDeepReviewStatus.FAILED
+        )
+
+        effective_pid = self._effective_project_id(project_id)
+        model = EcosystemDeepReviewModel
+
+        def _scoped(stmt):  # noqa: ANN001, ANN202 — sqlalchemy Update
+            if effective_pid is not None:
+                return stmt.where(model.project_id == effective_pid)
+            return stmt
+
+        counts: dict[str, int] = {}
+        async with get_session(self._db_url) as session:
+            # R1 — 反向：completed 卡 queued 的老 reviewer 行推到 shallow_done
+            r1 = _scoped(
+                sa_update(model)
+                .where(model.stage_status == queued_stage)
+                .where(model.status == EcosystemDeepReviewStatus.COMPLETED.value)
+            ).values(
+                stage_status=EcosystemStageStatus.SHALLOW_DONE.value,
+                shallow_completed_at=func.coalesce(
+                    model.shallow_completed_at,
+                    model.completed_at,
+                    model.created_at,
+                ),
+            )
+            counts["R1"] = int((await session.execute(r1)).rowcount or 0)
+
+            # R2 — 反向：failed 卡 queued 且有派遣证据的行推到 shallow_failed
+            r2 = _scoped(
+                sa_update(model)
+                .where(model.stage_status == queued_stage)
+                .where(model.status == EcosystemDeepReviewStatus.FAILED.value)
+                .where(
+                    or_(
+                        model.started_at.is_not(None),
+                        func.coalesce(model.report_id, "") != "",
+                        func.coalesce(model.dispatch_prompt, "") != "",
+                    )
+                )
+            ).values(stage_status=EcosystemStageStatus.SHALLOW_FAILED.value)
+            counts["R2"] = int((await session.execute(r2)).rowcount or 0)
+
+            # F1 — 正向：完成态 stage 的行 status 对齐 completed
+            f1 = _scoped(
+                sa_update(model)
+                .where(model.stage_status.in_(completed_stages))
+                .where(model.status != EcosystemDeepReviewStatus.COMPLETED.value)
+            ).values(
+                status=EcosystemDeepReviewStatus.COMPLETED.value,
+                completed_at=func.coalesce(model.completed_at, model.created_at),
+            )
+            counts["F1"] = int((await session.execute(f1)).rowcount or 0)
+
+            # F2 — 正向：失败态 stage 的行 status 对齐 failed
+            f2 = _scoped(
+                sa_update(model)
+                .where(model.stage_status.in_(failed_stages))
+                .where(model.status != EcosystemDeepReviewStatus.FAILED.value)
+            ).values(
+                status=EcosystemDeepReviewStatus.FAILED.value,
+                completed_at=func.coalesce(model.completed_at, model.created_at),
+            )
+            counts["F2"] = int((await session.execute(f2)).rowcount or 0)
+
+            # F3 — 正向收口（必须最后）：真排队行 status 重置回 queued
+            f3 = _scoped(
+                sa_update(model)
+                .where(model.stage_status == queued_stage)
+                .where(model.status != EcosystemDeepReviewStatus.QUEUED.value)
+            ).values(status=EcosystemDeepReviewStatus.QUEUED.value)
+            counts["F3"] = int((await session.execute(f3)).rowcount or 0)
+
+            await session.flush()
+        return counts
+
+    # ================================================================
+    # v1.5.0-A: Failed flag helpers (Profile 失败追踪)
+    # ================================================================
+
+    async def mark_profile_deleted(
+        self,
+        repo_id: str,
+        *,
+        error_message: str = "",
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """把 profile 标为 GitHub 端被删除。
+
+        - 设置 is_deleted=True / is_active=False；
+        - 失败次数 +1，记最近错误消息；
+        - lifecycle 标签由调用方另行 add_repo_tag('deleted', source='lifecycle')。
+        """
+        return await self._update_profile_failure_state(
+            repo_id,
+            is_deleted=True,
+            is_active=False,
+            last_fetch_error=error_message or "GitHub 404",
+            project_id=project_id,
+        )
+
+    async def mark_profile_private(
+        self,
+        repo_id: str,
+        *,
+        error_message: str = "",
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """把 profile 标为 GitHub 端被设为私密 (403 forbidden, not rate limit)。"""
+        return await self._update_profile_failure_state(
+            repo_id,
+            is_private_now=True,
+            is_active=False,
+            last_fetch_error=error_message or "GitHub 403 forbidden",
+            project_id=project_id,
+        )
+
+    async def mark_profile_fetch_failure(
+        self,
+        repo_id: str,
+        *,
+        error_message: str,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """记录一次抓取失败，failure_count +1。
+
+        不切换 is_deleted/is_private/is_active；调用方根据错误类型决定是否升级到
+        mark_profile_deleted/private。
+        """
+        return await self._update_profile_failure_state(
+            repo_id,
+            last_fetch_error=error_message,
+            project_id=project_id,
+            increment_failure=True,
+        )
+
+    async def clear_profile_failure(
+        self,
+        repo_id: str,
+        *,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """复活：抓取重新成功，清空失败状态 (decision §3.3 复活机制)。
+
+        - is_deleted/is_private_now → False
+        - is_active → True
+        - last_fetch_error → ''
+        - fetch_failure_count → 0
+        """
+        return await self._update_profile_failure_state(
+            repo_id,
+            is_deleted=False,
+            is_private_now=False,
+            is_active=True,
+            last_fetch_error="",
+            fetch_failure_count_reset=True,
+            project_id=project_id,
+        )
+
+    async def _update_profile_failure_state(
+        self,
+        repo_id: str,
+        *,
+        is_deleted: bool | None = None,
+        is_private_now: bool | None = None,
+        is_active: bool | None = None,
+        last_fetch_error: str | None = None,
+        increment_failure: bool = False,
+        fetch_failure_count_reset: bool = False,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """内部统一入口，更新 profile 失败/活跃相关字段。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.id == repo_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            if is_deleted is not None:
+                row.is_deleted = is_deleted
+            if is_private_now is not None:
+                row.is_private_now = is_private_now
+            if is_active is not None:
+                row.is_active = is_active
+            if last_fetch_error is not None:
+                row.last_fetch_error = last_fetch_error
+            if increment_failure:
+                row.fetch_failure_count = (row.fetch_failure_count or 0) + 1
+            if fetch_failure_count_reset:
+                row.fetch_failure_count = 0
+            await session.flush()
+            return row.to_pydantic()
+
+    async def update_profile_active_set(
+        self,
+        repo_id: str,
+        *,
+        is_active: bool,
+        active_rank: int | None,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """更新仓的活跃集状态 (recompute_active_set 内部用)。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.id == repo_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.is_active = is_active
+            row.active_rank = active_rank
+            await session.flush()
+            return row.to_pydantic()
+
+    async def update_profile_shallow_summary(
+        self,
+        repo_id: str,
+        *,
+        shallow_summary: str,
+        refreshed_at: datetime | None = None,
+        project_id: str | None = None,
+    ) -> EcosystemRepoProfile | None:
+        """写入 Stage 0 浅扫总结，更新 last_shallow_refreshed_at。"""
+        effective_pid = self._effective_project_id(project_id)
+        ts = refreshed_at or utc_now()
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.id == repo_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            row.shallow_summary = shallow_summary or ""
+            row.last_shallow_refreshed_at = ts
+            await session.flush()
+            return row.to_pydantic()
+
+    # ================================================================
+    # v1.5.0-A: Status snapshot helpers (append-only 决策 D)
+    # ================================================================
+
+    async def create_status_snapshot(
+        self,
+        snapshot: EcosystemRepoStatusSnapshot,
+        project_id: str | None = None,
+    ) -> EcosystemRepoStatusSnapshot:
+        """写入一条状态快照 (append-only)。
+
+        Args:
+            snapshot: 状态快照 Pydantic。
+            project_id: 显式作用域；空时回退到 _project_scope/snapshot.project_id。
+        """
+        effective_pid = self._effective_project_id(project_id) or snapshot.project_id
+        if effective_pid and not snapshot.project_id:
+            snapshot.project_id = effective_pid
+        async with get_session(self._db_url) as session:
+            session.add(EcosystemRepoStatusSnapshotModel.from_pydantic(snapshot))
+        return snapshot
+
+    async def list_status_snapshots(
+        self,
+        repo_id: str = "",
+        scan_run_id: str = "",
+        limit: int = 100,
+        project_id: str | None = None,
+    ) -> list[EcosystemRepoStatusSnapshot]:
+        """列出状态快照，按 snapshot_at 降序。
+
+        参数：
+            repo_id: 按仓过滤；空 = 不过滤。
+            scan_run_id: 按 scan 批次过滤；空 = 不过滤。
+            project_id: 显式作用域；空时由 _project_scope 自动注入。
+        """
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoStatusSnapshotModel)
+            stmt = self._apply_project_filter(stmt, EcosystemRepoStatusSnapshotModel)
+            if project_id:
+                stmt = stmt.where(EcosystemRepoStatusSnapshotModel.project_id == project_id)
+            if repo_id:
+                stmt = stmt.where(EcosystemRepoStatusSnapshotModel.repo_id == repo_id)
+            if scan_run_id:
+                stmt = stmt.where(
+                    EcosystemRepoStatusSnapshotModel.scan_run_id == scan_run_id
+                )
+            stmt = stmt.order_by(
+                EcosystemRepoStatusSnapshotModel.snapshot_at.desc()
+            ).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # v1.5.0-A: Project ecosystem settings helpers
+    # ================================================================
+
+    async def get_ecosystem_project_settings(
+        self,
+        project_id: str,
+    ) -> EcosystemProjectSettings | None:
+        """按 project_id 获取项目的 ecosystem 配置。"""
+        if not project_id:
+            return None
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemProjectSettingsModel).where(
+                EcosystemProjectSettingsModel.project_id == project_id
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def upsert_ecosystem_project_settings(
+        self,
+        settings: EcosystemProjectSettings,
+    ) -> EcosystemProjectSettings:
+        """按 project_id 主键 upsert 项目 ecosystem 配置。
+
+        已存在则更新所有字段（除 created_at）；不存在则插入。
+        updated_at 总是设为当前 UTC。
+        """
+        if not settings.project_id:
+            raise ValueError("project_id 不能为空")
+        now = utc_now()
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemProjectSettingsModel).where(
+                EcosystemProjectSettingsModel.project_id == settings.project_id
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                settings.updated_at = now
+                session.add(EcosystemProjectSettingsModel.from_pydantic(settings))
+            else:
+                row.min_stars = settings.min_stars
+                row.top_n = settings.top_n
+                row.refresh_interval_days = settings.refresh_interval_days
+                row.auto_shallow_on_archive = settings.auto_shallow_on_archive
+                row.focus_topics = settings.focus_topics
+                row.focus_languages = settings.focus_languages
+                row.shallow_concurrency = settings.shallow_concurrency
+                row.deep_concurrency = settings.deep_concurrency
+                row.updated_at = now
+                settings.updated_at = now
+        return settings
+
+    async def ensure_ecosystem_project_settings(
+        self,
+        project_id: str,
+        *,
+        is_ai_team_os: bool = False,
+    ) -> EcosystemProjectSettings:
+        """确保项目存在 ecosystem 设置；不存在则按默认值创建。
+
+        AI Team OS 项目用更严格默认 (min_stars=5000, focus claude/mcp/agent topics)；
+        其他项目用通用默认 (min_stars=1000, top_n=100, focus_topics=[])。
+
+        幂等：已存在则直接返回，不覆盖人工修改。
+        """
+        existing = await self.get_ecosystem_project_settings(project_id)
+        if existing is not None:
+            return existing
+        if is_ai_team_os:
+            payload = EcosystemProjectSettings(
+                project_id=project_id,
+                min_stars=5000,
+                top_n=200,
+                focus_topics=["claude-code", "mcp", "agent-framework"],
+            )
+        else:
+            payload = EcosystemProjectSettings(
+                project_id=project_id,
+                min_stars=1000,
+                top_n=100,
+            )
+        return await self.upsert_ecosystem_project_settings(payload)
+
+    # ================================================================
+    # Ecosystem shallow batch management (v1.7.0)
+    # ================================================================
+
+    async def create_shallow_batch(
+        self,
+        batch: EcosystemShallowBatch,
+    ) -> EcosystemShallowBatch:
+        """创建新浅扫批次。"""
+        async with get_session(self._db_url) as session:
+            session.add(EcosystemShallowBatchModel.from_pydantic(batch))
+        return batch
+
+    async def get_shallow_batch(
+        self,
+        batch_id: str,
+        project_id: str | None = None,
+    ) -> EcosystemShallowBatch | None:
+        """按 ID 查询浅扫批次。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemShallowBatchModel).where(
+                EcosystemShallowBatchModel.id == batch_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemShallowBatchModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_shallow_batches(
+        self,
+        project_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[EcosystemShallowBatch], int]:
+        """列出浅扫批次（按 created_at 倒序）。返回 (batches, total)。"""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            base = select(EcosystemShallowBatchModel)
+            count_q = select(func.count()).select_from(EcosystemShallowBatchModel)
+            if effective_pid is not None:
+                base = base.where(EcosystemShallowBatchModel.project_id == effective_pid)
+                count_q = count_q.where(EcosystemShallowBatchModel.project_id == effective_pid)
+            total_result = await session.execute(count_q)
+            total = total_result.scalar_one() or 0
+            stmt = base.order_by(EcosystemShallowBatchModel.created_at.desc()).limit(limit).offset(offset)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows], total
+
+    async def update_shallow_batch(
+        self,
+        batch_id: str,
+        project_id: str | None = None,
+        **kwargs: Any,
+    ) -> EcosystemShallowBatch | None:
+        """更新浅扫批次字段（通过 kwargs 传入字段名/值）。"""
+        effective_pid = self._effective_project_id(project_id)
+        now = utc_now()
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemShallowBatchModel).where(
+                EcosystemShallowBatchModel.id == batch_id
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemShallowBatchModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            for key, val in kwargs.items():
+                if hasattr(row, key):
+                    setattr(row, key, val)
+            row.updated_at = now
+            await session.flush()
+            return row.to_pydantic()
+
+    async def delete_unstarted_batch_reviews(
+        self,
+        batch_id: str,
+        project_id: str | None = None,
+    ) -> int:
+        """删除批次中尚未开工的浅扫任务行（stage_status='queued' 且未被认领）。
+
+        已认领/已完成的行不动。approve 的逆操作，用于回滚不再执行的批次。
+        """
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemDeepReviewModel).where(
+                EcosystemDeepReviewModel.batch_id == batch_id,
+                EcosystemDeepReviewModel.stage_status == "queued",
+                EcosystemDeepReviewModel.claimed_by.is_(None),
+            )
+            if effective_pid is not None:
+                stmt = stmt.where(EcosystemDeepReviewModel.project_id == effective_pid)
+            rows = (await session.execute(stmt)).scalars().all()
+            for row in rows:
+                await session.delete(row)
+            return len(rows)
+
+    async def get_batch_items(
+        self,
+        batch_id: str,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """获取批次内候选仓清单（含 repo 基础信息）。
+
+        返回格式: [{repo_id, repo_full_name, stars, stage_status, shallow_summary_excerpt, last_commit_at}, ...]
+        """
+        import json
+
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            # 1. 拉批次行取 candidates_snapshot_json
+            batch_stmt = select(EcosystemShallowBatchModel).where(
+                EcosystemShallowBatchModel.id == batch_id
+            )
+            if effective_pid is not None:
+                batch_stmt = batch_stmt.where(
+                    EcosystemShallowBatchModel.project_id == effective_pid
+                )
+            batch_result = await session.execute(batch_stmt)
+            batch_row = batch_result.scalar_one_or_none()
+            if batch_row is None:
+                return []
+
+            # 2. 解析候选快照
+            repo_ids: list[str] = []
+            if batch_row.candidates_snapshot_json:
+                try:
+                    repo_ids = json.loads(batch_row.candidates_snapshot_json)
+                except Exception:
+                    repo_ids = []
+
+            if not repo_ids:
+                return []
+
+            # 3. 批量拉 repo profile 基础字段
+            profile_stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.id.in_(repo_ids)
+            )
+            if effective_pid is not None:
+                profile_stmt = profile_stmt.where(
+                    EcosystemRepoProfileModel.project_id == effective_pid
+                )
+            profile_result = await session.execute(profile_stmt)
+            profiles = {r.id: r for r in profile_result.scalars().all()}
+
+            # 4. 拉关联 DR 的 stage_status（最新一条）
+            dr_stmt = (
+                select(EcosystemDeepReviewModel.repo_id, EcosystemDeepReviewModel.stage_status)
+                .where(EcosystemDeepReviewModel.repo_id.in_(repo_ids))
+                .where(EcosystemDeepReviewModel.batch_id == batch_id)
+            )
+            dr_result = await session.execute(dr_stmt)
+            dr_map = {row[0]: row[1] for row in dr_result.all()}
+
+            items = []
+            for repo_id in repo_ids:
+                profile = profiles.get(repo_id)
+                if profile is None:
+                    items.append({"repo_id": repo_id, "repo_full_name": repo_id, "stars": 0,
+                                  "stage_status": "unknown", "shallow_summary_excerpt": "", "last_commit_at": None})
+                    continue
+                summary = profile.shallow_summary or ""
+                items.append({
+                    "repo_id": profile.id,
+                    "repo_full_name": profile.repo_full_name,
+                    "stars": profile.stars or 0,
+                    "stage_status": dr_map.get(repo_id, "queued"),
+                    "shallow_summary_excerpt": summary[:200] if summary else "",
+                    "last_commit_at": profile.last_commit_at.isoformat() if profile.last_commit_at else None,
+                })
+            return items
+
+
+    # ================================================================
+    # v1.6.0 P0: DataSource CRUD
+    # ================================================================
+
+    async def create_data_source(
+        self,
+        project_id: str,
+        kind: DataSourceKind,
+        name: str,
+        config: dict | None = None,
+    ) -> DataSource:
+        """Create a new data source configuration for a project."""
+        ds = DataSource(
+            project_id=project_id,
+            kind=kind,
+            name=name,
+            config=config or {},
+        )
+        orm = EcosystemDataSourceModel.from_pydantic(ds)
+        async with get_session(self._db_url) as session:
+            session.add(orm)
+        return ds
+
+    async def list_data_sources(self, project_id: str) -> list[DataSource]:
+        """List all data sources for a project."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemDataSourceModel).where(
+                    EcosystemDataSourceModel.project_id == project_id
+                )
+            )
+            rows = result.scalars().all()
+        return [r.to_pydantic() for r in rows]
+
+    async def update_data_source(
+        self,
+        ds_id: str,
+        *,
+        name: str | None = None,
+        config: dict | None = None,
+        enabled: bool | None = None,
+    ) -> DataSource:
+        """Update a data source and increment its version."""
+
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemDataSourceModel).where(
+                    EcosystemDataSourceModel.id == ds_id
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                raise NotFoundError(f"DataSource {ds_id} not found")
+            if name is not None:
+                row.name = name
+            if config is not None:
+                row.config_json = config
+            if enabled is not None:
+                row.enabled = enabled
+            row.version = (row.version or 1) + 1
+            row.updated_at = utc_now()
+            return row.to_pydantic()
+
+    async def disable_data_source(self, ds_id: str) -> None:
+        """Disable a data source (soft delete via enabled=False)."""
+        await self.update_data_source(ds_id, enabled=False)
+
+    # ================================================================
+    # v1.6.0 P0: ScanProfile versioned CRUD
+    # ================================================================
+
+    async def get_active_scan_profile(self, project_id: str) -> ScanProfile | None:
+        """Return the active scan profile for a project, or None if none exists."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemScanProfileModel)
+                .where(
+                    EcosystemScanProfileModel.project_id == project_id,
+                    EcosystemScanProfileModel.is_active == True,  # noqa: E712
+                )
+                .order_by(EcosystemScanProfileModel.version.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+        return row.to_pydantic() if row else None
+
+    async def create_or_update_scan_profile(
+        self,
+        project_id: str,
+        profile_dict: dict,
+    ) -> ScanProfile:
+        """Create a new scan profile version; deactivate the previous active version.
+
+        Each call creates a new row (version increments). Old is_active rows
+        for this project are set to False atomically.
+        """
+        async with get_session(self._db_url) as session:
+            # Deactivate all current active profiles for this project
+            result = await session.execute(
+                select(EcosystemScanProfileModel).where(
+                    EcosystemScanProfileModel.project_id == project_id,
+                    EcosystemScanProfileModel.is_active == True,  # noqa: E712
+                )
+            )
+            old_rows = result.scalars().all()
+            max_version = 0
+            for old in old_rows:
+                old.is_active = False
+                if (old.version or 0) > max_version:
+                    max_version = old.version or 0
+
+            new_profile = ScanProfile(
+                project_id=project_id,
+                version=max_version + 1,
+                profile=profile_dict,
+                is_active=True,
+            )
+            orm = EcosystemScanProfileModel.from_pydantic(new_profile)
+            session.add(orm)
+        return new_profile
+
+    # ================================================================
+    # v1.6.0 P0.4: EcosystemIndexDiff CRUD
+    # ================================================================
+
+    async def create_index_diff(self, diff: EcosystemIndexDiff) -> EcosystemIndexDiff:
+        """Persist an index diff record."""
+        async with get_session(self._db_url) as session:
+            orm = EcosystemIndexDiffModel.from_pydantic(diff)
+            session.add(orm)
+        return diff
+
+    async def get_latest_index_diff(self, project_id: str) -> EcosystemIndexDiff | None:
+        """Return the most recent index diff for a project."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemIndexDiffModel)
+                .where(EcosystemIndexDiffModel.project_id == project_id)
+                .order_by(EcosystemIndexDiffModel.generated_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_index_diffs(
+        self,
+        project_id: str,
+        limit: int = 10,
+    ) -> list[EcosystemIndexDiff]:
+        """Return recent index diffs for a project, newest first."""
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemIndexDiffModel)
+                .where(EcosystemIndexDiffModel.project_id == project_id)
+                .order_by(EcosystemIndexDiffModel.generated_at.desc())
+                .limit(limit)
+            )
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # v1.6.0 P0.4: EcosystemStatusChange CRUD
+    # ================================================================
+
+    async def create_status_change(self, sc: EcosystemStatusChange) -> EcosystemStatusChange:
+        """Persist a single repo status change record."""
+        async with get_session(self._db_url) as session:
+            orm = EcosystemStatusChangeModel.from_pydantic(sc)
+            session.add(orm)
+        return sc
+
+    async def bulk_create_status_changes(
+        self,
+        changes: list[EcosystemStatusChange],
+    ) -> int:
+        """Bulk insert status change records; returns count inserted."""
+        if not changes:
+            return 0
+        async with get_session(self._db_url) as session:
+            for sc in changes:
+                session.add(EcosystemStatusChangeModel.from_pydantic(sc))
+        return len(changes)
+
+    async def update_repo_active_status(
+        self,
+        repo_id: str,
+        new_status: str,
+        popularity_percentile: float | None = None,
+        activity_score: float | None = None,
+        active_rank: int | None = None,
+    ) -> None:
+        """Update last_active_status and optional NormalizedSignal fields on a repo profile."""
+        from sqlalchemy import update as sa_update
+
+        now = utc_now()
+        values: dict = {
+            "last_active_status": new_status,
+            "last_status_change_at": now,
+        }
+        if popularity_percentile is not None:
+            values["popularity_percentile"] = popularity_percentile
+        if activity_score is not None:
+            values["activity_score"] = activity_score
+        if active_rank is not None:
+            values["active_rank"] = active_rank
+
+        async with get_session(self._db_url) as session:
+            await session.execute(
+                sa_update(EcosystemRepoProfileModel)
+                .where(EcosystemRepoProfileModel.id == repo_id)
+                .values(**values)
+            )
+
+    async def update_repo_manual_status(
+        self,
+        repo_id: str,
+        manual_status: str | None,
+        reason: str = "",
+        set_by: str = "user",
+    ) -> bool:
+        """Set or clear manual_status on a repo profile. Returns True if row found."""
+        from sqlalchemy import update as sa_update
+
+        now = utc_now()
+        values: dict = {
+            "manual_status": manual_status,
+            "manual_status_reason": reason if manual_status else None,
+            "manual_status_set_at": now if manual_status else None,
+            "manual_status_set_by": set_by if manual_status else None,
+        }
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                sa_update(EcosystemRepoProfileModel)
+                .where(EcosystemRepoProfileModel.id == repo_id)
+                .values(**values)
+            )
+            return result.rowcount > 0
+
+    async def list_pinned_repos(
+        self,
+        project_id: str | None = None,
+        limit: int = 500,
+    ) -> tuple[list[EcosystemRepoProfile], int]:
+        """Return all repos with manual_status='pinned' for the given project."""
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.manual_status == "pinned"
+            )
+            if effective_pid is None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id.is_(None))
+            else:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id == effective_pid)
+            stmt = stmt.order_by(EcosystemRepoProfileModel.stars.desc()).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            profiles = [r.to_pydantic() for r in rows]
+            return profiles, len(profiles)
+
+    async def update_repo_discovered_queries(
+        self,
+        repo_id: str,
+        new_query: str,
+    ) -> bool:
+        """Union-append new_query into discovered_via_queries JSON array.
+
+        Idempotent: if new_query already present, no change is made.
+        Returns True if the row was found.
+        """
+        import json as _json
+
+        from sqlalchemy import update as sa_update
+
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(EcosystemRepoProfileModel).where(
+                    EcosystemRepoProfileModel.id == repo_id
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                return False
+            existing: list[str] = []
+            if row.discovered_via_queries:
+                try:
+                    existing = _json.loads(row.discovered_via_queries)
+                except Exception:
+                    existing = []
+            if new_query not in existing:
+                existing.append(new_query)
+                await session.execute(
+                    sa_update(EcosystemRepoProfileModel)
+                    .where(EcosystemRepoProfileModel.id == repo_id)
+                    .values(discovered_via_queries=json_dumps(existing))
+                )
+            return True
+
+    async def update_repo_discovered_queries_by_name(
+        self,
+        repo_full_name: str,
+        new_query: str,
+        project_id: str | None = None,
+    ) -> bool:
+        """Union-append new_query into discovered_via_queries for a repo looked up by name.
+
+        Returns True if the row was found.
+        """
+        import json as _json
+
+        from sqlalchemy import update as sa_update
+
+        effective_pid = self._effective_project_id(project_id)
+        async with get_session(self._db_url) as session:
+            stmt = select(EcosystemRepoProfileModel).where(
+                EcosystemRepoProfileModel.repo_full_name == repo_full_name
+            )
+            if effective_pid is None:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id.is_(None))
+            else:
+                stmt = stmt.where(EcosystemRepoProfileModel.project_id == effective_pid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return False
+            existing: list[str] = []
+            if row.discovered_via_queries:
+                try:
+                    existing = _json.loads(row.discovered_via_queries)
+                except Exception:
+                    existing = []
+            if new_query not in existing:
+                existing.append(new_query)
+                await session.execute(
+                    sa_update(EcosystemRepoProfileModel)
+                    .where(EcosystemRepoProfileModel.id == row.id)
+                    .values(discovered_via_queries=json_dumps(existing))
+                )
+            return True
+
+    # ================================================================
+    # v1.6.0 event sourcing: EcosystemRepoEvent CRUD
+    # ================================================================
+
+    async def create_repo_event(self, event: EcosystemRepoEvent) -> EcosystemRepoEvent:
+        """Persist a single repo event record."""
+        async with get_session(self._db_url) as session:
+            orm = EcosystemRepoEventModel.from_pydantic(event)
+            session.add(orm)
+        return event
+
+    async def bulk_create_repo_events(self, events: list[EcosystemRepoEvent]) -> int:
+        """Bulk insert repo event records; returns count inserted."""
+        if not events:
+            return 0
+        async with get_session(self._db_url) as session:
+            for ev in events:
+                session.add(EcosystemRepoEventModel.from_pydantic(ev))
+        return len(events)
+
+    async def list_repo_events(
+        self,
+        repo_id: str,
+        limit: int = 50,
+        project_id: str | None = None,
+    ) -> list[EcosystemRepoEvent]:
+        """Return events for a repo, newest first."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(EcosystemRepoEventModel)
+                .where(EcosystemRepoEventModel.repo_id == repo_id)
+                .order_by(EcosystemRepoEventModel.triggered_at.desc())
+                .limit(limit)
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def query_events_in_period(
+        self,
+        project_id: str,
+        from_dt: datetime,
+        to_dt: datetime,
+    ) -> list[EcosystemRepoEvent]:
+        """Return all events within a time window for a project."""
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(EcosystemRepoEventModel)
+                .where(EcosystemRepoEventModel.project_id == project_id)
+                .where(EcosystemRepoEventModel.triggered_at >= from_dt)
+                .where(EcosystemRepoEventModel.triggered_at <= to_dt)
+                .order_by(EcosystemRepoEventModel.triggered_at.asc())
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # I3a: Workflow observability (workflow_runs / workflow_agents)
+    #
+    # 两张表是「不可变文件 wf_<id>.json 的可重建缓存」：按自然键 UPSERT
+    # 单调推进、绝不 DELETE 行、绝不破坏 stage_history/审计事件（红线3）。
+    # upsert 按唯一自然键定位，故 *不* 套 _apply_project_filter（scoped repo 下
+    # 过滤未命中会导致对唯一 wf_id 重复 INSERT → 触发 unique 约束报错）；
+    # get/list 读端才套 _apply_project_filter 做项目隔离。
+    # ================================================================
+
+    async def upsert_workflow_run(self, run: WorkflowRun) -> WorkflowRunUpsert:
+        """Insert-or-update a workflow run by natural key ``wf_id``.
+
+        单调合并语义（幂等、支持 hook/file 交错到达）：
+        - status 只升不降（按 _WF_STATUS_RANK）；
+        - source 合并（hook + file → 'hook+file'）；
+        - 文本/整型字段仅当新值非空/非零才覆盖，避免 hook 骨架抹掉 file 遥测、
+          或 file 遥测抹掉 hook 的 planned_agent_count。
+
+        返回 :class:`WorkflowRunUpsert`(run + became_completed + became_terminal)：
+        把「本次是否首次转 completed / 首次入终态」的判定收进本事务(读旧 status →
+        写新 status 同一 session)，供调用方做一次性事件 emit。事务外读 was_completed
+        再 emit 会在三条无串行 ingest 驱动交错时重复发射(审计 WP10)。
+        """
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(WorkflowRunModel).where(WorkflowRunModel.wf_id == run.wf_id)
+            )
+            row = result.scalar_one_or_none()
+            now = utc_now()
+            if row is None:
+                orm = WorkflowRunModel.from_pydantic(run)
+                orm.updated_at = now
+                session.add(orm)
+                await session.flush()
+                # 首见即为终态：本次就是该终态的首次落库 → 报告转移。
+                became_completed = orm.status == "completed"
+                became_terminal = orm.status in _WF_TERMINAL_STATUSES
+                return WorkflowRunUpsert(
+                    orm.to_pydantic(), became_completed, became_terminal
+                )
+
+            # 记录旧状态(写入前)，用于本事务内判定终态跃迁。
+            old_status = row.status
+            old_terminal = old_status in _WF_TERMINAL_STATUSES
+
+            # status: 只升不降
+            if run.status:
+                old_rank = _WF_STATUS_RANK.get(row.status, 0)
+                new_rank = _WF_STATUS_RANK.get(run.status, 0)
+                if new_rank >= old_rank:
+                    row.status = run.status
+
+            # source: 合并去重
+            row.source = _merge_wf_source(row.source, run.source)
+
+            # 文本/关联字段：新非空值胜出
+            for fld in ("name", "summary", "script_path", "transcript_dir",
+                        "cc_task_id", "session_id", "team_id", "project_id"):
+                val = getattr(run, fld)
+                if val:
+                    setattr(row, fld, val)
+
+            # JSON 字段：新非空/非 None 胜出
+            if run.phases:
+                row.phases = run.phases
+            if run.result is not None:
+                row.result = run.result
+
+            # 整型计数：新非零胜出（保护 hook planned_* 与 file agent_count 互不覆盖）
+            for fld in ("planned_agent_count", "dynamic_nodes", "agent_count",
+                        "total_tokens", "total_tool_calls"):
+                val = getattr(run, fld)
+                if val:
+                    setattr(row, fld, val)
+
+            # 时间：新非 None 胜出
+            if run.duration_ms is not None:
+                row.duration_ms = run.duration_ms
+            if run.started_at is not None:
+                row.started_at = run.started_at
+            if run.completed_at is not None:
+                row.completed_at = run.completed_at
+
+            # Phase2 水位/live 列：调用方显式携带(非 None)才覆盖，允许显式 0/'' 复位
+            # —— 绝不套上面「新非零胜出」整型规则（否则 journal_offset 永远回不了 0、
+            # source_fingerprint 无法清空走 mtime 兜底）。
+            for fld in ("journal_offset", "source_fingerprint", "live_tokens"):
+                val = getattr(run, fld)
+                if val is not None:
+                    setattr(row, fld, val)
+            # last_activity_at 单调取 max（文件 mtime 天然单调，防乱序 tick/时钟回拨）
+            if run.last_activity_at is not None and (
+                row.last_activity_at is None or run.last_activity_at > row.last_activity_at
+            ):
+                row.last_activity_at = run.last_activity_at
+
+            row.updated_at = now
+            await session.flush()
+            # 终态跃迁判定(写入后 row.status vs 事务开头 old_status)：
+            # completed rank 3 恒 >= 任何旧秩，故 status==completed 时必已写入。
+            # completed↔killed↔failed 等秩互转也算「首次入该终态」——与旧
+            # was_completed(prev.status=='completed') 语义一致(旧 killed→completed 会 emit)。
+            became_completed = row.status == "completed" and old_status != "completed"
+            became_terminal = (
+                row.status in _WF_TERMINAL_STATUSES and not old_terminal
+            )
+            return WorkflowRunUpsert(
+                row.to_pydantic(), became_completed, became_terminal
+            )
+
+    async def upsert_workflow_agent(self, agent: WorkflowAgent) -> WorkflowAgent:
+        """Insert-or-update a workflow fan-out agent by ``(wf_id, cc_agent_id)``.
+
+        文件是遥测真相源，故新非空/非 None 值覆盖既有；None/空保留原值
+        （例如 os_agent_id 尚未关联时不抹掉先前关联）。
+        tokens 未显式提供时保留已有水位；显式 0 参与覆盖。新行仍用模型默认 0。
+        """
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(WorkflowAgentModel).where(
+                    WorkflowAgentModel.wf_id == agent.wf_id,
+                    WorkflowAgentModel.cc_agent_id == agent.cc_agent_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            now = utc_now()
+            if row is None:
+                orm = WorkflowAgentModel.from_pydantic(agent)
+                orm.updated_at = now
+                session.add(orm)
+                await session.flush()
+                return orm.to_pydantic()
+
+            for fld in (
+                "run_id", "project_id", "os_agent_id", "label", "phase_index",
+                "phase_title", "model", "state", "tokens", "tool_calls",
+                "duration_ms", "last_tool_name", "last_tool_summary",
+                "prompt_preview", "result_preview", "started_at", "queued_at",
+                "last_activity_at",
+            ):
+                if fld == "tokens" and fld not in agent.model_fields_set:
+                    continue
+                val = getattr(agent, fld)
+                if val is not None and val != "":
+                    setattr(row, fld, val)
+            row.updated_at = now
+            await session.flush()
+            return row.to_pydantic()
+
+    async def get_workflow_run(self, wf_id: str) -> WorkflowRun | None:
+        """Get a workflow run by wf_id (project-scoped when scope set)."""
+        async with get_session(self._db_url) as session:
+            stmt = select(WorkflowRunModel).where(WorkflowRunModel.wf_id == wf_id)
+            stmt = self._apply_project_filter(stmt, WorkflowRunModel)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            return row.to_pydantic() if row else None
+
+    async def list_workflow_runs_by_team(self, team_id: str) -> list[WorkflowRun]:
+        """Every run linked to a team via ``workflow_runs.team_id``.
+
+        Deliberately skips ``_apply_project_filter``: the only caller decides whether
+        a workflow team is finished, and a run hidden by project scope would read as
+        "no runs left" — i.e. it could close a team whose run is still going. Missing
+        a run must never be possible here, so scope narrowing is not applied.
+        """
+        if not team_id:
+            return []
+        async with get_session(self._db_url) as session:
+            result = await session.execute(
+                select(WorkflowRunModel).where(WorkflowRunModel.team_id == team_id)
+            )
+            return [r.to_pydantic() for r in result.scalars().all()]
+
+    async def list_workflow_runs(
+        self,
+        project_id: str = "",
+        status: str = "",
+        limit: int = 50,
+    ) -> list[WorkflowRun]:
+        """List workflow runs, newest-first, optionally filtered by project/status."""
+        async with get_session(self._db_url) as session:
+            stmt = select(WorkflowRunModel)
+            if project_id:
+                stmt = stmt.where(WorkflowRunModel.project_id == project_id)
+            if status:
+                stmt = stmt.where(WorkflowRunModel.status == status)
+            stmt = self._apply_project_filter(stmt, WorkflowRunModel)
+            # 展示序 = 实际运行时间优先（started_at 缺失回退入库时间）：历史批量
+            # 收编会让 created_at 挤在同一天，按它排序会把最新运行埋出分页外
+            #（2026-07-06 用户实测“6.29 后无记录”的根因）。
+            stmt = stmt.order_by(
+                func.coalesce(
+                    WorkflowRunModel.started_at, WorkflowRunModel.created_at
+                ).desc()
+            ).limit(limit)
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def aggregate_model_usage(self, days: int = 7) -> list[dict[str, Any]]:
+        """按模型档位聚合近 N 天 workflow agent 用量（编排宪章观测口径）。
+
+        数据源 workflow_agents（终态回填 model/tokens），按 tokens 降序。
+        """
+        # cutoff 与 workflow_agents.updated_at 同为 UTC(全库唯一时钟),直接相比即可。
+        # 史料:这里曾是双墙钟时代的事故点——cutoff 取 UTC 而该列写本地,于是在 UTC+8
+        # 上"近 N 天"实际统计 N 天 + 8 小时,不抛异常、只是数字悄悄偏大。
+        cutoff = utc_now() - timedelta(days=days)
+        async with get_session(self._db_url) as session:
+            stmt = (
+                select(
+                    WorkflowAgentModel.model,
+                    func.count().label("agents"),
+                    func.coalesce(func.sum(WorkflowAgentModel.tokens), 0).label(
+                        "tokens"
+                    ),
+                )
+                .where(WorkflowAgentModel.updated_at >= cutoff)
+                .group_by(WorkflowAgentModel.model)
+                .order_by(func.coalesce(func.sum(WorkflowAgentModel.tokens), 0).desc())
+            )
+            stmt = self._apply_project_filter(stmt, WorkflowAgentModel)
+            result = await session.execute(stmt)
+            return [
+                {"model": model or "(未记录)", "agents": agents, "tokens": tokens}
+                for model, agents, tokens in result.all()
+            ]
+
+    async def list_workflow_agents(self, wf_id: str) -> list[WorkflowAgent]:
+        """List all fan-out agents for a workflow run (ordered by phase then label)."""
+        async with get_session(self._db_url) as session:
+            stmt = select(WorkflowAgentModel).where(WorkflowAgentModel.wf_id == wf_id)
+            stmt = self._apply_project_filter(stmt, WorkflowAgentModel)
+            stmt = stmt.order_by(
+                WorkflowAgentModel.phase_index.asc(),
+                WorkflowAgentModel.label.asc(),
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def find_workflow_agents_by_cc_id(
+        self, cc_agent_id: str
+    ) -> list[WorkflowAgent]:
+        """按 cc_agent_id 反查观测行（回执迁移负排除用：判断成员真身属于哪条 run）。"""
+        async with get_session(self._db_url) as session:
+            stmt = select(WorkflowAgentModel).where(
+                WorkflowAgentModel.cc_agent_id == cc_agent_id
+            )
+            result = await session.execute(stmt)
+            rows = result.scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    # ================================================================
+    # Knowledge links（知识层 P1a — 跨域引用图谱，append-only）
+    # ================================================================
+
+    async def insert_knowledge_links(self, links: list[KnowledgeLink]) -> int:
+        """批量插入引用边，UNIQUE 冲突静默忽略（幂等，可反复回扫）。"""
+        if not links:
+            return 0
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        n = 0
+        async with get_session(self._db_url) as session:
+            for lk in links:
+                stmt = (
+                    sqlite_insert(KnowledgeLinkModel)
+                    .values(
+                        from_kind=lk.from_kind,
+                        from_id=lk.from_id,
+                        to_kind=lk.to_kind,
+                        to_id=lk.to_id,
+                        link_type=lk.link_type,
+                        context=lk.context[:500],
+                        link_source=lk.link_source,
+                        project_id=lk.project_id or "",
+                        created_at=lk.created_at,
+                    )
+                    .on_conflict_do_nothing(index_elements=[
+                        "from_kind", "from_id", "to_kind", "to_id", "link_type",
+                    ])
+                )
+                result = await session.execute(stmt)
+                n += int(result.rowcount or 0)
+        return n
+
+    async def find_knowledge_links(
+        self,
+        kind: str,
+        id_: str,
+        direction: str = "both",
+        limit: int = 100,
+    ) -> list[KnowledgeLink]:
+        """按端点查边。direction: out（此对象引用了谁）/ in（谁引用了它）/ both。"""
+        async with get_session(self._db_url) as session:
+            conds = []
+            if direction in ("out", "both"):
+                conds.append(
+                    (KnowledgeLinkModel.from_kind == kind)
+                    & (KnowledgeLinkModel.from_id == id_)
+                )
+            if direction in ("in", "both"):
+                conds.append(
+                    (KnowledgeLinkModel.to_kind == kind)
+                    & (KnowledgeLinkModel.to_id == id_)
+                )
+            from sqlalchemy import or_
+
+            stmt = (
+                select(KnowledgeLinkModel)
+                .where(or_(*conds))
+                .order_by(KnowledgeLinkModel.created_at.desc())
+                .limit(max(1, min(limit, 500)))
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [r.to_pydantic() for r in rows]
+
+    async def knowledge_link_fanout(
+        self,
+        seed_kind: str,
+        seed_id: str,
+        depth: int = 2,
+        limit: int = 50,
+    ) -> list[dict]:
+        """无向递归扇出（深度 clamp 1-2，GBrain relationalFanout 思路）。
+
+        返回可达节点 [{kind, id, hop, via_types, path}]，按 hop 升序。
+        """
+        from sqlalchemy import text as sa_text
+
+        depth = max(1, min(int(depth), 2))
+        limit = max(1, min(int(limit), 200))
+        sql = sa_text(
+            """
+            WITH RECURSIVE walk(kind, id, hop, via, path) AS (
+                SELECT :seed_kind, :seed_id, 0, '', :seed_kind || ':' || :seed_id
+                UNION
+                SELECT
+                    CASE WHEN l.from_kind = w.kind AND l.from_id = w.id
+                         THEN l.to_kind ELSE l.from_kind END,
+                    CASE WHEN l.from_kind = w.kind AND l.from_id = w.id
+                         THEN l.to_id ELSE l.from_id END,
+                    w.hop + 1,
+                    l.link_type,
+                    w.path || ' -> ' ||
+                    CASE WHEN l.from_kind = w.kind AND l.from_id = w.id
+                         THEN l.to_kind || ':' || l.to_id
+                         ELSE l.from_kind || ':' || l.from_id END
+                FROM knowledge_links l
+                JOIN walk w ON (
+                    (l.from_kind = w.kind AND l.from_id = w.id)
+                    OR (l.to_kind = w.kind AND l.to_id = w.id)
+                )
+                WHERE w.hop < :depth
+                  AND instr(w.path, CASE WHEN l.from_kind = w.kind AND l.from_id = w.id
+                        THEN l.to_kind || ':' || l.to_id
+                        ELSE l.from_kind || ':' || l.from_id END) = 0
+            )
+            SELECT kind, id, MIN(hop) AS hop,
+                   GROUP_CONCAT(DISTINCT via) AS via_types,
+                   MIN(path) AS path
+            FROM walk WHERE hop > 0
+            GROUP BY kind, id
+            ORDER BY hop ASC
+            LIMIT :lim
+            """
+        )
+        async with get_session(self._db_url) as session:
+            rows = (
+                await session.execute(
+                    sql,
+                    {"seed_kind": seed_kind, "seed_id": seed_id,
+                     "depth": depth, "lim": limit},
+                )
+            ).all()
+            return [
+                {"kind": r[0], "id": r[1], "hop": r[2],
+                 "via_types": (r[3] or "").split(","), "path": r[4]}
+                for r in rows
+            ]
+
+    # ================================================================
+    # Governance leader lease (D3 阶段C, 审计 M50)
+    # ================================================================
+
+    async def release_governance_lease(self, holder: str, *, lock_wait: float | None = None) -> bool:
+        """主动释放治理租约（仅当自己是持有者）。返回是否真的释放了。
+
+        不释放也能自愈——租约有 TTL——但那要等满 TTL（3×REAPER_CHECK_INTERVAL=180s），
+        期间治理全线静默（回收/推进/调度/唤醒/对账都不跑）。API 重启在开发中很频繁，
+        2026-07-26 实测：重启后新实例被自己刚杀掉的旧 pid 的租约挡在门外近 3 分钟，
+        矛盾态自愈等修复看起来"没生效"。优雅关闭时把租约让出来，新实例即刻接管。
+
+        ``lock_wait``（秒）给退出路径用：库被别的进程锁着时最多等这么久就放弃并抛
+        ``sqlite3.OperationalError``，由 TTL 兜底。异步引擎做不到——连接的 busy_timeout
+        固定 30s，而超时取消的收尾（关连接）排在等锁的语句后面，照样等到锁释放——
+        所以文件库走一条独立的标准库连接，busy 超时就是 ``lock_wait``，在工作线程里跑，
+        不取消任何东西。内存库没有别的进程能锁它，照常走引擎。
+        """
+        sql = (
+            "UPDATE governance_lease SET holder = '', expires_at = NULL, "
+            "updated_at = :now WHERE id = 'governance' AND holder = :holder"
+        )
+        params = {"holder": holder, "now": utc_now().isoformat()}
+        db_file = self._sqlite_file_path()
+        if lock_wait is not None and db_file is not None:
+            return await asyncio.to_thread(_release_lease_sync, db_file, sql, params, lock_wait)
+
+        from sqlalchemy import text
+
+        async with get_session(self._db_url) as session:
+            result = await session.execute(text(sql), params)
+            await session.commit()
+            return bool(result.rowcount and result.rowcount > 0)
+
+    def _sqlite_file_path(self) -> str | None:
+        """The file behind this repository's SQLite URL, or None to stay on the engine.
+
+        Parsed the way the engine parses it (``make_url``). None for anything a plain
+        ``sqlite3.connect(path)`` would open differently: not SQLite, in-memory, or a
+        ``file:`` URI (``uri=true``), which the engine opens as a URI and a plain path
+        would turn into a new file of that literal name.
+        """
+        from sqlalchemy.engine import make_url
+
+        from aiteam.storage.connection import default_db_url
+
+        url = make_url(self._db_url or default_db_url())
+        database = url.database or ""
+        if (
+            url.get_backend_name() != "sqlite" or database in ("", ":memory:")
+            or "uri" in url.query or database.startswith("file:")
+        ):
+            return None
+        return database
+
+    async def try_acquire_governance_lease(self, holder: str, ttl_seconds: int) -> bool:
+        """原子获取/续约治理 leader 租约（单行 id='governance'）。
+
+        多 API 实例并存时只有持有者运行后台治理。复用 v1.5.3 claim 范式——
+        SQLite 串行写 + rowcount 是"我是否真的抢到"的唯一真相源；绝不用文件锁
+        （四次翻车史）。胜出条件：同 holder 续约，或行无主/租约已过期。
+        时间戳为 UTC ISO 字符串，仅做字典序比较（同一格式下与时间序等价）。
+
+        A2-obs（辩论 503e07f1 议题A）：抢到之后，若被抢的是一个**还挂在行上、
+        但租约已过期**的前任，额外落一条 GOVERNANCE_LEASE_TAKEN_OVER 事件。不加列、
+        不改 schema，纯观测——先回答"治理易主到底发生过没有"，观测期内一条都没有，
+        A2-impl（epoch 列）就不必做。
+        """
+        from sqlalchemy import text
+
+        now = utc_now()
+        now_str = now.isoformat()
+        expires_str = (now + timedelta(seconds=ttl_seconds)).isoformat()
+
+        async with get_session(self._db_url) as session:
+            await session.execute(
+                text(
+                    "INSERT OR IGNORE INTO governance_lease "
+                    "(id, holder, expires_at, updated_at) "
+                    "VALUES ('governance', '', NULL, :now)"
+                ),
+                {"now": now_str},
+            )
+            # 纯观测的一次读：判定权仍然只在下面 UPDATE 的 WHERE 上，这行不参与胜负，
+            # 只用来回答"我是从谁手里接过来的"。理论上 SELECT 与 UPDATE 之间仍可能被
+            # 另一实例插进来，读到的前任因此是尽力而为——观测面容得下这点误差，
+            # 判定面容不下，所以真相源一步都没有挪。
+            prior = (
+                await session.execute(
+                    text("SELECT holder, expires_at FROM governance_lease WHERE id = 'governance'")
+                )
+            ).first()
+            result = await session.execute(
+                text(
+                    "UPDATE governance_lease "
+                    "SET holder = :holder, expires_at = :expires, updated_at = :now "
+                    "WHERE id = 'governance' "
+                    "AND (holder = :holder OR holder = '' "
+                    "OR expires_at IS NULL OR expires_at < :now)"
+                ),
+                {"holder": holder, "expires": expires_str, "now": now_str},
+            )
+            await session.commit()
+            acquired = bool(result.rowcount and result.rowcount > 0)
+
+        if acquired and prior is not None:
+            prev_holder = prior[0] or ""
+            prev_expires = prior[1]
+            # 只认"前任在位且租约到点"这一种。续约（同 holder）、无主认领（holder 空）、
+            # 以及主动 release 后的接手都不是交替。holder 非空却 expires_at IS NULL 是
+            # 手写行才造得出的畸形态（release 一定同时清两个字段），按裁决口径不计。
+            if (
+                prev_holder
+                and prev_holder != holder
+                and prev_expires
+                and str(prev_expires) < now_str
+            ):
+                # 事件写失败绝不能拖垮租约本身——治理是主流程，观测是旁路。
+                # 但也绝不静默：吞掉异常等于把"观测没在跑"伪装成"没发生过交替"。
+                try:
+                    await self.create_event(
+                        event_type=EventType.GOVERNANCE_LEASE_TAKEN_OVER.value,
+                        source="repository",
+                        data={
+                            "previous_holder": prev_holder,
+                            "new_holder": holder,
+                            "previous_expires_at": str(prev_expires),
+                            "taken_over_at": now_str,
+                        },
+                        entity_id="governance",
+                        entity_type="governance_lease",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "治理租约接管事件写入失败（租约已正常取得，不影响治理）："
+                        "%s → %s, err=%s",
+                        prev_holder,
+                        holder,
+                        exc,
+                    )
+
+        return acquired
+
+    # ================================================================
+    # agent → task 边的名字解析（§2.4）
+    # ================================================================
+
+    async def find_teams_by_owner_session(self, session_id: str) -> list[str]:
+        """归属该 CC 会话的 team id（判据与 hook_translator._team_owned_by_session 同源）。
+
+        两个信号按同样的顺序：建队时盖的 ``config.owner_session_id`` 优先；老行才退回
+        「容器队名编码了会话 id 前 8 位」。名字兜底**只在没盖章时**生效 —— 否则一支
+        已明确归属别人的队会因为名字撞了 8 位十六进制而被认成自己的。
+        """
+        if not session_id:
+            return []
+        owner = func.json_extract(TeamModel.config, "$.owner_session_id")
+        async with get_session(self._db_url) as session:
+            stmt = select(TeamModel.id).where(
+                or_(
+                    owner == session_id,
+                    and_(
+                        or_(owner.is_(None), owner == ""),
+                        TeamModel.name == f"session-{session_id[:8]}",
+                    ),
+                )
+            )
+            return [row[0] for row in (await session.execute(stmt)).all()]
+
+    async def find_latest_agent_by_name(
+        self,
+        name: str,
+        *,
+        session_id: str = "",
+        team_ids: list[str] | None = None,
+    ) -> Agent | None:
+        """同名 agent 行里、**限定域内**、``created_at`` 最新的那一行。
+
+        域（``session_id`` 或 ``team_ids``）**必须给至少一个**，两个都空直接返回 None
+        而不是全表找。这不是防御性编程，是本方法存在的全部意义：``name`` 在 agents
+        表里根本不唯一 —— 实测 ``Leader`` 一个名字对应 117 行、横跨 79 支队。全表按
+        名字取最新，等于把三周前另一个会话的 Leader 认成现在这个，边写下去还查得到、
+        不报错，只是绑错了对象。
+
+        大小写不敏感：memo 的 ``author`` 默认值是 ``"leader"``，而 Leader 行的
+        ``name`` 是 ``"Leader"``。严格比对会让占比最大的那批记账行为一条边都建不出来。
+        """
+        cleaned = (name or "").strip()
+        if not cleaned or (not session_id and not team_ids):
+            return None
+        domain = []
+        if session_id:
+            domain.append(AgentModel.session_id == session_id)
+        if team_ids:
+            domain.append(AgentModel.team_id.in_(team_ids))
+        stmt = (
+            select(AgentModel)
+            .where(func.lower(AgentModel.name) == cleaned.lower())
+            .where(or_(*domain))
+            .order_by(AgentModel.created_at.desc())
+            .limit(1)
+        )
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(stmt)).scalars().first()
+            return row.to_pydantic() if row is not None else None
+
+    # ================================================================
+    # token 用量归因（docs/token-attribution-v1-design.md 阶段 2）
+    #
+    # 只读聚合。API 端点与 MCP 工具都走这两个方法，不各写一份 SQL ——
+    # 分母一旦有第二个实现，两处就会在某次改动后悄悄给出不同的覆盖率。
+    # ================================================================
+
+    def _dispatch_population_filter(self, stmt: Any, population: DispatchPopulation) -> Any:
+        """把派工路径落成 WHERE 条件。分母的定义就在这一行，且只在这一行。
+
+        分母数的是 ``agents`` **行**，而"一行 = 一次派工"这个等式是靠登记侧维持的：
+        SubagentStart 的复用判据只认派工身份（``services.agent_identity``），同名不
+        构成复用。A-06 修复前那条判据是按名字的，同名多次派工会折叠成一行，于是历史
+        窗口的分母偏小、覆盖率偏乐观 —— 见 :meth:`usage_coverage_report` 里 SUBAGENT
+        行的口径注。
+        """
+        # 打了排除标记的行（resume 空壳、同一份 transcript 的重复行）不是一次派工/
+        # 会话，所有统计都从这里开始把它们排除；排除了多少由 usage_coverage_report
+        # 的 excluded_rows 同屏报出（按用户 2026-09-30 的裁定）。
+        counted = AgentModel.attribution_exclusion.is_(None)
+        if population is DispatchPopulation.SUBAGENT:
+            return stmt.where(AgentModel.role != LEADER_ROLE, counted)
+        if population is DispatchPopulation.LEADER_SESSION:
+            return stmt.where(AgentModel.role == LEADER_ROLE, counted)
+        msg = (
+            f"population={population.value} 不是 agents 表上的群体 —— "
+            f"workflow_self_report 走 workflow_agents 自报值、tool_call 设计上不采集，"
+            f"二者都只有覆盖率没有四层用量，见 usage_coverage_report()"
+        )
+        raise ValueError(msg)
+
+    def _attribution_scope_filter(
+        self, stmt: Any, scope: AttributionScope, scope_id: str
+    ) -> Any:
+        """把 scope 落成 WHERE 条件；``scope_id`` 为空表示不按该维度过滤（全库）。"""
+        if not scope_id:
+            return stmt
+        if scope is AttributionScope.PROJECT:
+            return stmt.where(AgentModel.project_id == scope_id)
+        if scope is AttributionScope.SESSION:
+            return stmt.where(AgentModel.session_id == scope_id)
+        if scope is AttributionScope.AGENT:
+            return stmt.where(AgentModel.id == scope_id)
+        if scope is AttributionScope.WORKFLOW_RUN:
+            return stmt.where(
+                AgentModel.id.in_(
+                    select(WorkflowAgentModel.os_agent_id).where(
+                        WorkflowAgentModel.run_id == scope_id
+                    )
+                )
+            )
+        # TASK：只有留过账的 agent 进这个 scope（边由 §2.4 的寄生写入产生）
+        return stmt.where(AgentModel.id.in_(_worked_on_agents_subquery(scope_id)))
+
+    async def aggregate_token_attribution(
+        self,
+        *,
+        metric: TokenMetric,
+        scope: AttributionScope = AttributionScope.PROJECT,
+        scope_id: str = "",
+        population: DispatchPopulation = DispatchPopulation.SUBAGENT,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        harness: str | None = ANY_HARNESS,
+    ) -> TokenAttribution:
+        """按 scope 聚合 ``usage_sum`` 四层用量，连同分子分母与未归因分类一起返回。
+
+        ``metric`` 必填且当前只接受 ``USAGE_SUM``：``ctx_last`` 的四层分解从未被保存过
+        （``workflow_agents.tokens`` 在 ingest 时已经是四字段之和），塞进这个强制四层
+        分列的结构里只能靠编数字。它的覆盖率走 :meth:`usage_coverage_report`。
+
+        窗口按 ``created_at`` 落，**不按 ``tokens_measured_at``** —— 后者会把没测过的
+        行直接从分母里抹掉，覆盖率恒等于 100%（§4.1，R2 点名的做假方式）。
+
+        ``harness`` 默认 :data:`ANY_HARNESS`（不收窄，与本参数加入之前逐字节同义）。
+        传具体 harness 或 ``None`` 时按该桶收窄，``None`` 取的是**未标注**的行——两个
+        harness 的数不可相加，所以分列是靠各查各的、不是靠事后分组（r5 §6.6）。
+        """
+        if metric is not TokenMetric.USAGE_SUM:
+            msg = (
+                f"metric={metric.value} 不支持四层归因：ctx_last 是末轮上下文水位，"
+                f"其四层分解在 ingest 时就已合并为一个数、从未落库（§1.1）。"
+                f"它的分子分母见 usage_coverage_report()，但没有可分列的四层用量。"
+            )
+            raise ValueError(msg)
+        if scope is AttributionScope.TASK and not scope_id:
+            # 空 task_id 会让"未归因"整体退化成谎话：scope 过滤被跳过后，一条 task 边
+            # 都没有的行也落进"不是单边"的补集，于是被标成 multi_task_unsplittable
+            # ——"切不开"与"根本没有边"是两回事，后者是 task 边覆盖率的问题（0.8%），
+            # 混进前者就把全链最窄的那一跳藏起来了。
+            msg = (
+                "scope=task 必须指定 scope_id：task 级归因是逐 task 的问句。"
+                "全局的 task 边覆盖率请看 usage_coverage_report() 里的 agent->task 跳。"
+            )
+            raise ValueError(msg)
+
+        measured = AgentModel.tokens_measured_at.is_not(None)
+        # TASK scope 多一道闸：跨多个 task 留过账的 agent，其四层数是整个生命周期的
+        # 一个合计，没有逐区间用量可供按边的时间序切分 —— §2.4 定死此时如实计未归因，
+        # 禁止平均分摊。所以它既不进分子，也不贡献任何 token。
+        single_task = AgentModel.id.in_(_single_worked_on_agents_subquery())
+        attributed = and_(measured, single_task) if scope is AttributionScope.TASK else measured
+
+        layer_sums = [
+            func.coalesce(func.sum(case((attributed, col), else_=0)), 0)
+            for col in (
+                AgentModel.input_tokens,
+                AgentModel.output_tokens,
+                AgentModel.cache_creation_tokens,
+                AgentModel.cache_read_tokens,
+            )
+        ]
+        stmt = select(
+            func.count().label("total"),
+            func.coalesce(func.sum(case((attributed, 1), else_=0)), 0).label("attributed"),
+            *layer_sums,
+            func.min(case((attributed, AgentModel.tokens_measured_at))).label("win_from"),
+            func.max(case((attributed, AgentModel.tokens_measured_at))).label("win_to"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(attributed, AgentModel.tokens_source == TokenSource.ALIAS_FALLBACK.value),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("alias_rows"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(attributed, AgentModel.tokens_source == TokenSource.CODEX_ROLLOUT.value),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("rollout_rows"),
+        ).select_from(AgentModel)
+        stmt = self._dispatch_population_filter(stmt, population)
+        stmt = self._attribution_scope_filter(stmt, scope, scope_id)
+        stmt = _apply_created_window(stmt, since, until)
+        stmt = _apply_harness_filter(stmt, harness)
+
+        # 未归因行的 transcript 路径 —— 拿回来逐个 probe，把"救得回"与"救不回"分开。
+        # 这是本方法唯一一次碰文件系统：分类结果无法从库里推出来，而不分类的话
+        # "未归因 22%" 就是一句没法行动的话（§3.4）。
+        detail = select(
+            AgentModel.transcript_path,
+            AgentModel.id,
+            AgentModel.harness,
+            AgentModel.status,
+            AgentModel.last_active_at,
+            AgentModel.usage_unmeasurable,
+        ).select_from(AgentModel)
+        detail = self._dispatch_population_filter(detail, population)
+        detail = self._attribution_scope_filter(detail, scope, scope_id)
+        detail = _apply_created_window(detail, since, until).where(~attributed)
+        detail = _apply_harness_filter(detail, harness)
+
+        async with get_session(self._db_url) as session:
+            row = (await session.execute(stmt)).one()
+            unattributed_rows = (await session.execute(detail)).all()
+            multi_task_ids: set[str] = set()
+            if scope is AttributionScope.TASK:
+                multi = select(AgentModel.id).select_from(AgentModel)
+                multi = self._attribution_scope_filter(multi, scope, scope_id)
+                multi = multi.where(~AgentModel.id.in_(_single_worked_on_agents_subquery()))
+                multi_task_ids = {r[0] for r in (await session.execute(multi)).all()}
+
+        reasons: dict[str, int] = {}
+        now = utc_now()
+        for transcript_path, agent_id, harness_value, status, last_active, unmeasurable in (
+            unattributed_rows
+        ):
+            if agent_id in multi_task_ids:
+                code = UnattributedReason.MULTI_TASK_UNSPLITTABLE.value
+            else:
+                code = classify_unattributed(
+                    transcript_path,
+                    harness=harness_value,
+                    status=status,
+                    last_active_at=last_active,
+                    now=now,
+                    unmeasurable=unmeasurable,
+                )
+            reasons[code] = reasons.get(code, 0) + 1
+
+        window = (row.win_from, row.win_to) if row.win_from and row.win_to else None
+        return TokenAttribution(
+            scope=scope,
+            scope_id=scope_id,
+            metric=TokenMetric.USAGE_SUM,
+            input_tokens=int(row[2] or 0),
+            output_tokens=int(row[3] or 0),
+            cache_creation_tokens=int(row[4] or 0),
+            cache_read_tokens=int(row[5] or 0),
+            dispatches_attributed=int(row.attributed or 0),
+            dispatches_total=int(row.total or 0),
+            unattributed_reasons=reasons,
+            measured_window=window,
+            method=self._attribution_method(
+                attributed=int(row.attributed or 0),
+                alias_rows=int(row.alias_rows or 0),
+                rollout_rows=int(row.rollout_rows or 0),
+                harness=harness,
+            ),
+        )
+
+    @staticmethod
+    def _attribution_method(
+        *, attributed: int, alias_rows: int, rollout_rows: int, harness: str | None
+    ) -> AttributionMethod:
+        """这一次聚合的数是怎么来的。
+
+        只要有一行是别名兜底推来的，整份答案就降级标注 —— 口径诚实优先于好看。其余按
+        已测行的来源：全是 Codex rollout 定真的标 CODEX_ROLLOUT_PARSE，两种来源都有的
+        标 MIXED，不让其中一种冒充全部；只查 Codex 桶、一行都还没测到时也标 rollout，
+        那一桶的数只可能从 rollout 来。
+        """
+        if alias_rows:
+            return AttributionMethod.ALIAS_FALLBACK
+        if rollout_rows and rollout_rows < attributed:
+            return AttributionMethod.MIXED
+        if rollout_rows or harness == HarnessId.CODEX:
+            return AttributionMethod.CODEX_ROLLOUT_PARSE
+        return AttributionMethod.TRANSCRIPT_PARSE
+
+    async def _harness_buckets(
+        self,
+        population: DispatchPopulation,
+        *,
+        since: datetime | None,
+        until: datetime | None,
+    ) -> list[str | None]:
+        """本窗口内该派工路径上出现过的 harness 取值 —— 未标注（NULL）自成一桶。
+
+        空表时返回 ``[None]`` 而不是空列表：矩阵里每条路径都必须有一行。"分母为 0"
+        与"这条路径不存在"是两回事，后者会让一整条路径从页面上无声消失，而消失的
+        东西没有人会去问它为什么是 0。
+
+        未标注桶排在最后且**不并入任何 harness**：NULL 的含义是"这些行没人回答过
+        harness 是什么"，把它并进 claude-code 桶等于给历史行编造一个当时不存在的判断。
+        """
+        stmt = select(AgentModel.harness).select_from(AgentModel).distinct()
+        stmt = self._dispatch_population_filter(stmt, population)
+        stmt = _apply_created_window(stmt, since, until)
+        async with get_session(self._db_url) as session:
+            found = {row[0] for row in (await session.execute(stmt)).all()}
+        labelled: list[str | None] = sorted(h for h in found if h is not None)
+        if None in found or not labelled:
+            labelled.append(None)
+        return labelled
+
+    async def usage_coverage_report(
+        self,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> UsageCoverageReport:
+        """覆盖率向量（§4.1）—— 矩阵各行 + 各跳 C_hop，**零 token 数值**。
+
+        这是页面第一屏第一块与 ``os_health_check`` 摘要行的共同数据源。矩阵刻意
+        不提供合计行：``usage_sum`` 与 ``ctx_last`` 实测差 5~25 倍，跨行合计就是混口径。
+        """
+        # 两条 agents 侧路径按 harness 分桶，每桶各查各的。桶集合由**数据本身**决定：
+        # 全库都没标注 harness 时恰好一个桶（未标注），矩阵形状与 harness 维度加入
+        # 之前完全一致；出现别的 harness 之后自然多出一行 —— 而不是把两个 harness
+        # 的分母悄悄加在一起（它们的源头不同层，相加即混口径，r5 §6.6 两桶禁相加）。
+        agents_rows: list[tuple[DispatchPopulation, str | None, TokenAttribution]] = []
+        for population in (DispatchPopulation.SUBAGENT, DispatchPopulation.LEADER_SESSION):
+            for bucket in await self._harness_buckets(population, since=since, until=until):
+                agents_rows.append(
+                    (
+                        population,
+                        bucket,
+                        await self.aggregate_token_attribution(
+                            metric=TokenMetric.USAGE_SUM,
+                            population=population,
+                            since=since,
+                            until=until,
+                            harness=bucket,
+                        ),
+                    )
+                )
+
+        # 各跳 C_hop。每一跳 = (边, 需要这条边的行, 可解析的行, 说明键)；"需要"为 None
+        # 表示每一行都需要。分母只数真的需要这条边的行：直派子 agent 不属于任何
+        # workflow run，把它们算进 agent->workflow 的分母，这一跳就会被低估成一个与
+        # 采集链健康无关的数（设计 §4.1；缩小这个分母已于 09-30 经用户同意）。
+        in_workflow_agents = AgentModel.id.in_(select(WorkflowAgentModel.os_agent_id))
+        workflow_dispatch = or_(
+            AgentModel.role == WORKFLOW_SUBAGENT_ROLE,
+            AgentModel.transcript_path.like("%/subagents/workflows/%"),
+            in_workflow_agents,
+        )
+        hop_specs: list[tuple[str, Any, Any, CoverageNote]] = [
+            ("agent->session", None, AgentModel.session_id.is_not(None), CoverageNote.HOP_SESSION),
+            ("agent->project", None, AgentModel.project_id.is_not(None), CoverageNote.HOP_PROJECT),
+            ("agent->workflow", workflow_dispatch, in_workflow_agents, CoverageNote.HOP_WORKFLOW),
+            (
+                "agent->transcript",
+                None,
+                AgentModel.transcript_path.is_not(None),
+                CoverageNote.HOP_TRANSCRIPT,
+            ),
+            (
+                "agent->task",
+                None,
+                AgentModel.id.in_(_worked_on_agents_subquery()),
+                CoverageNote.HOP_TASK,
+            ),
+        ]
+        # 各跳与矩阵一样按 harness 分桶算：Codex 行没有 workflow、transcript 也是另一种
+        # 文件，混进 CC 的分母两边都失真。
+        hop_buckets = await self._harness_buckets(
+            DispatchPopulation.SUBAGENT, since=since, until=until
+        )
+
+        async with get_session(self._db_url) as session:
+            wf_stmt = select(
+                func.count().label("total"),
+                func.coalesce(
+                    func.sum(case((WorkflowAgentModel.tokens > 0, 1), else_=0)), 0
+                ).label("reported"),
+            ).select_from(WorkflowAgentModel)
+            wf_stmt = _apply_created_window(wf_stmt, since, until, WorkflowAgentModel)
+            wf = (await session.execute(wf_stmt)).one()
+
+            activities_stmt = select(func.count()).select_from(AgentActivityModel)
+            if since is not None:
+                activities_stmt = activities_stmt.where(AgentActivityModel.timestamp >= since)
+            if until is not None:
+                activities_stmt = activities_stmt.where(AgentActivityModel.timestamp < until)
+            activities = int((await session.execute(activities_stmt)).scalar() or 0)
+
+            hops: list[EdgeCoverage] = []
+            for bucket in hop_buckets:
+                for edge, required, condition, note_key in hop_specs:
+                    stmt = select(
+                        func.coalesce(
+                            func.sum(case((required, 1), else_=0)) if required is not None
+                            else func.count(),
+                            0,
+                        ).label("required"),
+                        func.coalesce(
+                            func.sum(
+                                case(
+                                    (and_(required, condition) if required is not None
+                                     else condition, 1),
+                                    else_=0,
+                                )
+                            ),
+                            0,
+                        ).label("resolvable"),
+                    ).select_from(AgentModel)
+                    stmt = self._dispatch_population_filter(stmt, DispatchPopulation.SUBAGENT)
+                    stmt = _apply_created_window(stmt, since, until)
+                    stmt = _apply_harness_filter(stmt, bucket)
+                    r = (await session.execute(stmt)).one()
+                    hops.append(
+                        EdgeCoverage(
+                            edge=edge,
+                            resolvable=int(r.resolvable or 0),
+                            required=int(r.required or 0),
+                            note_key=note_key,
+                            harness=bucket,
+                        )
+                    )
+
+            excluded_stmt = (
+                select(AgentModel.attribution_exclusion, func.count())
+                .select_from(AgentModel)
+                .where(AgentModel.attribution_exclusion.is_not(None))
+                .group_by(AgentModel.attribution_exclusion)
+            )
+            excluded_stmt = _apply_created_window(excluded_stmt, since, until)
+            excluded = {
+                str(kind): int(n) for kind, n in (await session.execute(excluded_stmt)).all()
+            }
+
+        wf_total = int(wf.total or 0)
+        wf_reported = int(wf.reported or 0)
+        path_notes = {
+            DispatchPopulation.SUBAGENT: CoverageNote.SUBAGENT_DENOMINATOR,
+            DispatchPopulation.LEADER_SESSION: CoverageNote.LEADER_SEPARATE,
+        }
+        rows = [
+            UsageCoverageRow(
+                path=population,
+                metric=TokenMetric.USAGE_SUM.value,
+                dispatches_total=agg.dispatches_total,
+                dispatches_attributed=agg.dispatches_attributed,
+                unattributed_reasons=agg.unattributed_reasons,
+                harness=bucket,
+                note_key=path_notes[population],
+            )
+            for population, bucket, agg in agents_rows
+        ] + [
+            UsageCoverageRow(
+                path=DispatchPopulation.WORKFLOW_SELF_REPORT,
+                metric=TokenMetric.CTX_LAST.value,
+                dispatches_total=wf_total,
+                dispatches_attributed=wf_reported,
+                unattributed_reasons=(
+                    {UnattributedReason.SELF_REPORT_ABSENT.value: wf_total - wf_reported}
+                    if wf_total > wf_reported
+                    else {}
+                ),
+                note_key=CoverageNote.WORKFLOW_SELF_REPORT,
+            ),
+            UsageCoverageRow(
+                path=DispatchPopulation.TOOL_CALL,
+                metric="",
+                # None 而不是 0：这条路径上"测到多少"这个问题不适用，而 0 会被读成
+                # "一次都没测到"。"设计上不采集"是一个正式取值，不是空白（§3.2 / §5.2）。
+                dispatches_total=None,
+                dispatches_attributed=None,
+                note_key=CoverageNote.TOOL_CALL_NOT_COLLECTED,
+                note_params={"activities": activities},
+            ),
+        ]
+        return UsageCoverageReport(
+            rows=rows,
+            hops=hops,
+            window=(since, until) if since is not None and until is not None else None,
+            excluded_rows=excluded,
+        )
+
+    async def sample_unattributed(
+        self,
+        *,
+        population: DispatchPopulation = DispatchPopulation.SUBAGENT,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        scan_limit: int = 400,
+        per_reason: int = 5,
+        harness: str | None = ANY_HARNESS,
+    ) -> dict[str, Any]:
+        """未归因抽屉（§5.2 ②）的下钻数据 —— 每个原因码给几行真样例。
+
+        **样例是样例，不是分母**：这里只扫最近 ``scan_limit`` 行未归因派工，够凑齐每类
+        几行就停。各类的**计数**一律以 :meth:`usage_coverage_report` 的全量扫描为准，
+        两者职责不同 —— 抽屉要回答的是"这一类长什么样、救不救得回"，不是"有多少个"。
+        返回值里带上 ``scanned`` 就是为了让这个边界在页面上说得出口。
+
+        ``harness`` 与 :meth:`aggregate_token_attribution` 同义（``ANY_HARNESS`` 不收窄，
+        ``None`` 只取未标注行）。矩阵的每一行是 (path, harness) 一桶，抽屉的计数取自
+        那一桶，样例就必须取自同一桶 —— 否则计数是一个桶的、样例是另一个桶的，抽屉
+        给出的"救不救得回"对着的是别人的行（4d87eba2）。
+
+        ``by_design`` 不会出现在这里：它描述的是工具调用级（活动记录无 token 字段），
+        与派工不是同一个单位，本来就不进未归因 dict（见 ``UnattributedReason`` 文档）。
+        """
+        stmt = select(
+            AgentModel.id,
+            AgentModel.name,
+            AgentModel.project_id,
+            AgentModel.transcript_path,
+            AgentModel.created_at,
+            AgentModel.harness,
+            AgentModel.status,
+            AgentModel.last_active_at,
+            AgentModel.usage_unmeasurable,
+        ).select_from(AgentModel)
+        stmt = self._dispatch_population_filter(stmt, population)
+        stmt = _apply_created_window(stmt, since, until)
+        stmt = _apply_harness_filter(stmt, harness)
+        stmt = (
+            stmt.where(AgentModel.tokens_measured_at.is_(None))
+            .order_by(AgentModel.created_at.desc())
+            .limit(scan_limit)
+        )
+
+        async with get_session(self._db_url) as session:
+            rows = (await session.execute(stmt)).all()
+
+        samples: dict[str, list[dict[str, Any]]] = {}
+        now = utc_now()
+        for row in rows:
+            code = classify_unattributed(
+                row.transcript_path,
+                harness=row.harness,
+                status=row.status,
+                last_active_at=row.last_active_at,
+                now=now,
+                unmeasurable=row.usage_unmeasurable,
+            )
+            bucket = samples.setdefault(code, [])
+            if len(bucket) >= per_reason:
+                continue
+            bucket.append(
+                {
+                    "agent_id": row.id,
+                    "name": row.name,
+                    "project_id": row.project_id or "",
+                    "transcript_path": row.transcript_path or "",
+                    "created_at": row.created_at.isoformat() if row.created_at else None,
+                    "harness": row.harness,
+                }
+            )
+        return {"scanned": len(rows), "scan_limit": scan_limit, "samples": samples}
+
+    def _scope_group_key(self, scope: AttributionScope) -> Any:
+        """该层级用哪一列分组 —— 下钻候选清单的"一行"是什么。"""
+        if scope is AttributionScope.PROJECT:
+            return AgentModel.project_id
+        if scope is AttributionScope.SESSION:
+            return AgentModel.session_id
+        if scope is AttributionScope.AGENT:
+            return AgentModel.id
+        if scope is AttributionScope.WORKFLOW_RUN:
+            return WorkflowAgentModel.run_id
+        return KnowledgeLinkModel.to_id  # TASK
+
+    async def _scope_labels(self, scope: AttributionScope, keys: list[str]) -> dict[str, str]:
+        """给候选 id 配人看的名字。取不到就留空，由呈现面退回显示 id —— 不编名字。"""
+        if not keys:
+            return {}
+        spec: dict[AttributionScope, tuple[Any, Any, Any]] = {
+            AttributionScope.PROJECT: (ProjectModel, ProjectModel.id, ProjectModel.name),
+            AttributionScope.AGENT: (AgentModel, AgentModel.id, AgentModel.name),
+            # workflow_run 这一档的 scope_id 是 ``workflow_agents.run_id``，实测存的是
+            # **wf_id**（形如 wf_3db2273a-91b）而不是 workflow_runs 的 uuid 主键 ——
+            # 按主键去 join 会一条都匹配不上，静默退化成"全部没有名字"。
+            AttributionScope.WORKFLOW_RUN: (WorkflowRunModel, WorkflowRunModel.wf_id, WorkflowRunModel.name),
+            AttributionScope.TASK: (TaskModel, TaskModel.id, TaskModel.title),
+        }
+        if scope not in spec:
+            return {}  # SESSION：id 本身就是它的名字，没有第二个名字可查
+        model, id_col, label_col = spec[scope]
+        stmt = select(id_col, label_col).select_from(model).where(id_col.in_(keys))
+        async with get_session(self._db_url) as session:
+            return {row[0]: (row[1] or "") for row in (await session.execute(stmt)).all()}
+
+    async def list_attribution_scopes(
+        self,
+        *,
+        scope: AttributionScope,
+        parent_scope: AttributionScope | None = None,
+        parent_id: str = "",
+        population: DispatchPopulation = DispatchPopulation.SUBAGENT,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        """枚举某一层级下可下钻的候选 —— 只回派工数与已测数，**一个 token 数都不回**。
+
+        §5.2 ③ 要求 ``project → session → workflow_run → agent`` 逐级下钻，而"这一级
+        有哪些可选项"本身是一个查询。它刻意与 :meth:`aggregate_token_attribution` 拆开：
+        四层用量必须对**选中的那一个** scope_id 单独发起归因查询才拿得到。列表顺手把
+        token 带出来就会诞生一张没有分母的排行榜，而那正是 §2.5 要在结构上杜绝的东西。
+
+        分子分母与聚合查询共用同一对 filter 助手，所以点开某一行看到的卡片，其分母
+        必然等于列表里那一行的分母 —— 两处各写一份 SQL 就会在某次改动后悄悄分叉。
+
+        排序键是**派工数**（count 量纲），不是用量：这里根本没有用量。真正的用量排序
+        由卡片上的 ``output_tokens`` 承担（§1.2）。
+        """
+        if scope is AttributionScope.TASK and parent_id:
+            # task 是旁支不是第五级（§2.1）：它与前四档不构成父子关系，
+            # 硬套父级过滤会给出一个看着合理、实则无法解释的子集。
+            msg = "scope=task 是归因链的旁支，不接受 parent_id —— 它不是 project/session 的下一级"
+            raise ValueError(msg)
+
+        key = self._scope_group_key(scope)
+        measured = AgentModel.tokens_measured_at.is_not(None)
+        # TASK 的"已归因"多一道闸，与 aggregate_token_attribution 逐字同源：
+        # 跨多个 task 留过账的 agent 切不开，如实计未归因，不做平均分摊（§2.4）。
+        attributed = (
+            and_(measured, AgentModel.id.in_(_single_worked_on_agents_subquery()))
+            if scope is AttributionScope.TASK
+            else measured
+        )
+
+        stmt = select(
+            key.label("scope_id"),
+            func.count(func.distinct(AgentModel.id)).label("total"),
+            func.count(func.distinct(case((attributed, AgentModel.id)))).label("attributed"),
+        ).select_from(AgentModel)
+        # 一个 agent 可能对应多行 workflow_agents / 多条 task 边，所以计数一律 DISTINCT
+        # agent id——按 join 出来的行数计会把分母吹大，覆盖率随之被系统性压低。
+        if scope is AttributionScope.WORKFLOW_RUN:
+            stmt = stmt.join(WorkflowAgentModel, WorkflowAgentModel.os_agent_id == AgentModel.id)
+        elif scope is AttributionScope.TASK:
+            stmt = stmt.join(
+                KnowledgeLinkModel,
+                and_(
+                    KnowledgeLinkModel.from_id == AgentModel.id,
+                    KnowledgeLinkModel.from_kind == AGENT_TASK_LINK_FROM_KIND,
+                    KnowledgeLinkModel.to_kind == AGENT_TASK_LINK_TO_KIND,
+                    KnowledgeLinkModel.link_type == AGENT_TASK_LINK_TYPE,
+                ),
+            )
+        stmt = self._dispatch_population_filter(stmt, population)
+        if parent_scope is not None and parent_id:
+            stmt = self._attribution_scope_filter(stmt, parent_scope, parent_id)
+        stmt = _apply_created_window(stmt, since, until)
+        stmt = (
+            stmt.where(key.is_not(None))
+            .where(key != "")
+            .group_by(key)
+            # 次序键补一个"最近活动"兜底：agent 这一档每行派工数恒为 1，只按计数排
+            # 出来的是主键字典序 —— 一份看着有序、实则与任何人关心的东西都无关的清单。
+            .order_by(
+                func.count(func.distinct(AgentModel.id)).desc(),
+                func.max(AgentModel.created_at).desc(),
+            )
+            .limit(limit)
+        )
+
+        async with get_session(self._db_url) as session:
+            rows = (await session.execute(stmt)).all()
+
+        labels = await self._scope_labels(scope, [r.scope_id for r in rows])
+        return [
+            {
+                "scope": scope.value,
+                "scope_id": r.scope_id,
+                "label": labels.get(r.scope_id, ""),
+                "dispatches_total": int(r.total or 0),
+                "dispatches_attributed": int(r.attributed or 0),
+            }
+            for r in rows
+        ]

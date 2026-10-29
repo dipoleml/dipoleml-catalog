@@ -1,0 +1,76 @@
+---
+summary: 'How to record MCP JSON-RPC traffic to NDJSON and replay it deterministically for offline debugging.'
+read_when:
+  - 'Debugging or reproducing MCP-backed tool calls without contacting the live server.'
+---
+
+# Record and replay MCP calls
+
+`mcporter record` captures the JSON-RPC traffic between the runtime and configured MCP servers. `mcporter replay` reads the captured stream and serves the recorded responses back to the same requests without contacting the live MCP server.
+
+Recordings live under `~/.mcporter/recordings/` as newline-delimited JSON:
+
+```bash
+mcporter record demo-session -- mcporter call linear.list_issues limit:5
+mcporter replay demo-session -- mcporter call linear.list_issues limit:5
+```
+
+Recordings contain raw JSON-RPC params and responses. Review and redact them before sharing, attaching to bug reports, or committing them to a repository because tool arguments and results can include credentials, private content, or customer data.
+
+If writing a recording fails, mcporter reports the filesystem error and still closes the underlying MCP connection. The capture may be incomplete; resolve the storage error and record a new session before replaying it. Programmatic transport users receive asynchronous recording failures through `onerror`, and `close()` rejects with the write failure after cleanup.
+
+To record or replay a later command, create the session configuration and export the matching environment variable:
+
+```bash
+mcporter record demo-session
+MCPORTER_RECORD=demo-session mcporter call linear.list_issues limit:5
+
+mcporter replay demo-session
+MCPORTER_REPLAY=demo-session mcporter call linear.list_issues limit:5
+```
+
+Use `--server` when you only want one server's traffic:
+
+```bash
+mcporter record demo-session --server linear -- mcporter call linear.list_issues limit:5
+mcporter replay demo-session --server linear -- mcporter call linear.list_issues limit:5
+```
+
+## File format
+
+Each line is one JSON-RPC envelope with an added `_meta` object:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_issues","arguments":{"limit":5}},"_meta":{"dir":"send","server":"linear","ts":"2026-05-16T12:00:00.000Z"}}
+{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"..."}]},"_meta":{"dir":"recv","server":"linear","ts":"2026-05-16T12:00:00.100Z"}}
+```
+
+`_meta.dir` is `send`, `recv`, or `lifecycle`. Replay strips `_meta` before delivering responses and inbound notifications, preserving notification order around the recorded response. Lifecycle events such as transport start and close are recorded for diagnostics but ignored during replay.
+
+## Deterministic matching
+
+Replay is strict. For each server, mcporter expects requests to arrive in the same order with the same JSON-RPC method and deeply equal `params`. If the next request differs, replay fails with an error that names the incoming request and the next recorded request it expected.
+
+Numeric and string request IDs remain distinct (`1` and `"1"` identify different requests). Responses retain their original request ownership before replay rewrites IDs for the active caller.
+
+This makes recordings useful as reproducible bug fixtures: a replay either follows the captured MCP exchange exactly or fails at the first point where the workflow diverges.
+
+Recordings made against modern servers include the initial `server/discover` probe. Replay matches that probe by method because its negotiation metadata can vary between client versions. Older recordings whose first request is `initialize` are automatically replayed in legacy negotiation mode.
+
+Programmatic runtimes replay elicitation with the caller-supplied handler. When a recording accepted an elicitation request, provide a handler that makes the same decision so the strict retry request matches the capture; without one, headless replay keeps the normal non-interactive decline behavior.
+
+## Safe regression fixtures
+
+Recording is not automatic redaction. Before using a capture as a regression
+fixture, copy it to a separate working file and replace credentials, tokens,
+personal data, customer content, and sensitive paths with synthetic values.
+Preserve JSON-RPC methods, request order, IDs, and parameter shapes so strict
+replay still exercises the intended behavior.
+
+Prefer fixtures recorded from a synthetic MCP server. Never commit the raw
+capture, and review the redacted NDJSON as text before sharing it. Applications
+that use the [external policy wrapper described in the generated CLI
+guidance](./cli-generator.md#policy-boundary-for-generated-clis) can optionally
+run that application-owned wrapper against `mcporter replay`, assert the
+expected policy decision and tool result, and confirm that the fixture contains
+none of the original sensitive values.

@@ -1,0 +1,41 @@
+<% if (bundler !== 'vite') { ignoreFile() } -%>
+import { defineConfig } from 'vite'
+<% const showDevtools = !blank || integrations.some((integration) => integration.type === 'devtools') -%>
+<% if (showDevtools) { -%>
+import { devtools } from '@tanstack/devtools-vite'
+<% } -%>
+<% if (addOnEnabled.paraglide) { -%>
+import { paraglideVitePlugin } from "@inlang/paraglide-js"
+<% } -%>
+<% if (routerOnly) { %>
+import { tanstackRouter } from '@tanstack/router-plugin/vite'
+<% } else { %>
+import { tanstackStart } from '@tanstack/react-start/plugin/vite';
+<% } %>
+<% if (addOnEnabled.compiler) { -%>
+import viteReact, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
+<% } else { -%>
+import viteReact from '@vitejs/plugin-react'
+<% } -%>
+<% if (tailwind) { -%>
+import tailwindcss from "@tailwindcss/vite"
+<% } -%>
+<% for(const integration of integrations.filter(i => i.type === 'vite-plugin')) { %><%- integrationImportContent(integration) %>
+<% } %>
+
+const config = defineConfig({
+  resolve: { tsconfigPaths: true },
+  plugins: [<% if (showDevtools) { %>devtools(), <% } %><% if (addOnEnabled.paraglide) { %>paraglideVitePlugin({
+    project: './project.inlang',
+    outdir: './src/paraglide',
+    strategy: ['url', "baseLocale"],
+  }), <% } %><% for(const integration of integrations.filter(i => i.type === 'vite-plugin')) { %><%- integrationImportCode(integration) %>,<% } %>
+    <% if (tailwind) { %>tailwindcss(),<% } %>
+    <% if (routerOnly) { %>tanstackRouter({ target: 'react', autoCodeSplitting: true }),<% } else { %>tanstackStart(),<% } %>
+    viteReact(),<% if (addOnEnabled.compiler) { %>
+    babel({ presets: [reactCompilerPreset()] }),<% } %>
+  ],
+})
+
+export default config

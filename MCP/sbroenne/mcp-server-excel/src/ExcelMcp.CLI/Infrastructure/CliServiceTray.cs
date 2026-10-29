@@ -1,0 +1,572 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Service;
+
+namespace Sbroenne.ExcelMcp.CLI.Infrastructure;
+
+/// <summary>
+/// System tray icon for the ExcelMCP CLI daemon process.
+/// Shows running sessions and allows closing them or stopping the service.
+/// Ported from the old ExcelMcp.Service.ServiceTray with auto-update removed.
+/// </summary>
+internal sealed class CliServiceTray : IDisposable
+{
+    private readonly NotifyIcon _notifyIcon;
+    private readonly ContextMenuStrip _contextMenu;
+    private readonly ToolStripMenuItem _sessionsMenu;
+    private readonly Func<IReadOnlyList<SessionDescriptor>> _getSessions;
+    private readonly Func<string, bool, Task<ServiceResponse>> _closeSession;
+    private readonly Func<Task<string?>> _requestShutdown;
+    private readonly Func<string, string, MessageBoxButtons, MessageBoxIcon, DialogResult> _showExitPrompt;
+    private readonly Action<string, string, ToolTipIcon> _showExitNotification;
+    private readonly System.Windows.Forms.Timer _refreshTimer;
+    private readonly TaskbarNotificationWindow _taskbarWindow;
+    private bool _disposed;
+    private DateTime _lastBalloonShown = DateTime.MinValue;
+    private bool _actionPending;
+    private bool _exitPending;
+
+    public CliServiceTray(
+        Func<IReadOnlyList<SessionDescriptor>> getSessions,
+        Func<string, bool, Task<ServiceResponse>> closeSession,
+        Func<Task<string?>> requestShutdown,
+        Func<string, string, MessageBoxButtons, MessageBoxIcon, DialogResult>? showExitPrompt = null,
+        Action<string, string, ToolTipIcon>? showExitNotification = null)
+    {
+        _getSessions = getSessions;
+        _closeSession = closeSession;
+        _requestShutdown = requestShutdown;
+        _showExitPrompt = showExitPrompt ?? ((message, title, buttons, icon) =>
+            MessageBox.Show(message, title, buttons, icon));
+        _showExitNotification = showExitNotification ?? ShowBalloon;
+
+        _contextMenu = new ContextMenuStrip();
+
+        // Sessions submenu (Alt+S mnemonic)
+        _sessionsMenu = new ToolStripMenuItem("&Sessions (0)");
+        _sessionsMenu.AccessibleDescription = "Lists active Excel sessions";
+        _sessionsMenu.DropDownItems.Add(new ToolStripMenuItem("No active sessions") { Enabled = false });
+        _contextMenu.Items.Add(_sessionsMenu);
+
+        _contextMenu.Items.Add(new ToolStripSeparator());
+
+        // About (Alt+A mnemonic)
+        var aboutItem = new ToolStripMenuItem("&About...");
+        aboutItem.AccessibleDescription = "Show version and project information";
+        aboutItem.Click += (_, _) => ShowAbout();
+        _contextMenu.Items.Add(aboutItem);
+
+        _contextMenu.Items.Add(new ToolStripSeparator());
+
+        // Exit (Alt+X mnemonic)
+        var exitItem = new ToolStripMenuItem("E&xit");
+        exitItem.AccessibleDescription = "Stop the ExcelMCP CLI service and exit";
+        exitItem.Click += (_, _) => _ = ExitServiceAsync();
+        _contextMenu.Items.Add(exitItem);
+
+        // Load icon
+        var icon = LoadEmbeddedIcon();
+
+        _notifyIcon = new NotifyIcon
+        {
+            Icon = icon,
+            Text = "ExcelMCP CLI Service",
+            ContextMenuStrip = _contextMenu,
+            Visible = true
+        };
+
+        _notifyIcon.DoubleClick += (_, _) => ShowSessions();
+
+        // Refresh timer
+        _refreshTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+        _refreshTimer.Tick += (_, _) => RefreshSessionsMenu();
+        _refreshTimer.Start();
+
+        // Listen for explorer.exe restarts so we can re-register the tray icon
+        _taskbarWindow = new TaskbarNotificationWindow(_notifyIcon);
+
+        RefreshSessionsMenu();
+
+        // Check for updates after a short delay so the UI is responsive at startup
+        CheckForUpdateAsync();
+    }
+
+    private static Icon LoadEmbeddedIcon()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var resourceName = "Sbroenne.ExcelMcp.CLI.Resources.excelcli.ico";
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream != null)
+        {
+            return new Icon(stream);
+        }
+
+        return SystemIcons.Application;
+    }
+
+    /// <summary>
+    /// Checks NuGet for a newer version after a 5-second delay and shows a balloon tip if available.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL001",
+        Justification = "Optional tray release notifications must not terminate the service or affect workbook operations when the network or notification UI is unavailable.")]
+    private async void CheckForUpdateAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+
+            if (_disposed) return;
+
+            var currentVersion = GetCurrentVersion();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var latestVersion = await NuGetVersionChecker.GetLatestVersionAsync(cts.Token);
+
+            if (_disposed || latestVersion == null) return;
+
+            if (CompareVersions(currentVersion, latestVersion) < 0)
+            {
+                ShowBalloon(
+                    "Update Available",
+                    $"ExcelMCP CLI {latestVersion} is available (current: {currentVersion}).\n" +
+                    "Download: github.com/sbroenne/mcp-server-excel/releases/latest");
+            }
+        }
+        catch
+        {
+            // Version check should never crash the service
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL002",
+        Justification = "Tray refresh failures are logged and shown as status unavailable rather than an empty or healthy session list. This boundary does not change any workbook.")]
+    private void RefreshSessionsMenu()
+    {
+        if (_disposed) return;
+
+        try
+        {
+            var sessions = _getSessions();
+
+            _sessionsMenu.Text = $"&Sessions ({sessions.Count})";
+            _sessionsMenu.DropDownItems.Clear();
+
+            if (sessions.Count == 0)
+            {
+                _sessionsMenu.DropDownItems.Add(new ToolStripMenuItem("No active sessions") { Enabled = false });
+            }
+            else
+            {
+                foreach (var session in sessions)
+                {
+                    var fileName = session.WorkbookName ?? Path.GetFileName(session.FilePath ?? string.Empty);
+                    var location = session.FilePath ?? "No saved location";
+                    var sessionMenu = new ToolStripMenuItem(fileName);
+                    sessionMenu.AccessibleName = $"Session: {fileName}";
+                    sessionMenu.AccessibleDescription = $"Excel session for {location}";
+                    sessionMenu.ToolTipText = $"Session: {session.SessionId}\nPath: {location}";
+
+                    // Close session with save prompt
+                    var closeItem = new ToolStripMenuItem("&Close Session...");
+                    closeItem.AccessibleDescription = $"Close {fileName} with option to save";
+                    closeItem.Click += (_, _) => PromptCloseSession(session.SessionId, fileName);
+                    sessionMenu.DropDownItems.Add(closeItem);
+
+                    _sessionsMenu.DropDownItems.Add(sessionMenu);
+                }
+
+                _sessionsMenu.DropDownItems.Add(new ToolStripSeparator());
+
+                var closeAllItem = new ToolStripMenuItem("Close &All Sessions");
+                closeAllItem.AccessibleDescription = "Close all active sessions without saving";
+                closeAllItem.Click += (_, _) => CloseAllSessions();
+                _sessionsMenu.DropDownItems.Add(closeAllItem);
+            }
+
+            _notifyIcon.Text = sessions.Count > 0
+                ? $"ExcelMCP CLI - {sessions.Count} session(s)"
+                : "ExcelMCP CLI Service";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Could not refresh the tray session list: {0}", ex);
+            _sessionsMenu.Text = "&Sessions (status unavailable)";
+            _notifyIcon.Text = "ExcelMCP CLI - status unavailable";
+        }
+    }
+
+    private void PromptCloseSession(string sessionId, string fileName)
+    {
+        var result = MessageBox.Show(
+            $"Do you want to save changes to '{fileName}' before closing?",
+            "Close Session",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Question);
+
+        if (result == System.Windows.Forms.DialogResult.Cancel)
+            return;
+
+        _ = CloseSessionAsync(sessionId, save: result == System.Windows.Forms.DialogResult.Yes);
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL002",
+        Justification = "Tray action boundary presents the exact failed close/save message in an Error balloon rather than terminating the UI thread or claiming the session closed.")]
+    internal async Task CloseSessionAsync(string sessionId, bool save)
+    {
+        if (_actionPending || _exitPending) return;
+        _actionPending = true;
+        try
+        {
+            var response = await Task.Run(() => _closeSession(sessionId, save));
+            if (!response.Success)
+                throw new InvalidOperationException(response.ErrorMessage);
+            if (_disposed) return;
+            RefreshSessionsMenu();
+            ShowBalloon("Session Closed",
+                save ? "Session saved and closed." : "Session closed without saving.");
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed)
+                ShowBalloon("Error", $"Failed to close session: {ex.Message}", ToolTipIcon.Error);
+        }
+        finally
+        {
+            _actionPending = false;
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL002",
+        Justification = "Tray action boundary presents the original close failure in an Error balloon; the success balloon is not shown when any session close fails.")]
+    private async void CloseAllSessions()
+    {
+        if (_actionPending || _exitPending) return;
+        _actionPending = true;
+        try
+        {
+            var sessions = _getSessions();
+            foreach (var session in sessions)
+            {
+                var response = await Task.Run(() => _closeSession(session.SessionId, false));
+                if (!response.Success)
+                    throw new InvalidOperationException(response.ErrorMessage);
+            }
+            if (_disposed) return;
+            RefreshSessionsMenu();
+            ShowBalloon("Sessions Closed", $"Closed {sessions.Count} session(s).");
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed)
+                ShowBalloon("Error", $"Failed to close sessions: {ex.Message}", ToolTipIcon.Error);
+        }
+        finally
+        {
+            _actionPending = false;
+        }
+    }
+
+    private void ShowSessions()
+    {
+        // Debounce: prevent duplicate balloons when clicking on/near balloon tips
+        if ((DateTime.Now - _lastBalloonShown).TotalSeconds < 2)
+            return;
+
+        var sessions = _getSessions();
+        if (sessions.Count == 0)
+        {
+            ShowBalloon("ExcelMCP CLI Service", "No active sessions.");
+        }
+        else
+        {
+            var message = string.Join("\n", sessions.Select(s =>
+                $"• {s.WorkbookName ?? Path.GetFileName(s.FilePath ?? string.Empty)}"));
+            ShowBalloon($"Active Sessions ({sessions.Count})", message);
+        }
+    }
+
+    private void ShowBalloon(string title, string message, ToolTipIcon icon = ToolTipIcon.Info)
+    {
+        _lastBalloonShown = DateTime.Now;
+        _notifyIcon.ShowBalloonTip(3000, title, message, icon);
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL001",
+        Justification = "Optional version metadata in the About dialog must not terminate the daemon or affect sessions; the dialog remains accurate without release-notification information.")]
+    private static async void ShowAbout()
+    {
+        var version = GetCurrentVersion();
+
+        string? latestVersion = null;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            latestVersion = await NuGetVersionChecker.GetLatestVersionAsync(cts.Token);
+        }
+        catch
+        {
+            // Version check failed — show dialog without update info
+        }
+
+        var updateAvailable = latestVersion != null && CompareVersions(version, latestVersion) < 0;
+
+        using var form = new Form
+        {
+            Text = "About ExcelMCP CLI",
+            Size = new Size(420, updateAvailable ? 300 : 260),
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterScreen,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            KeyPreview = true
+        };
+
+        // Allow Escape to close the dialog
+        form.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape) form.Close();
+        };
+
+        var iconBox = new PictureBox
+        {
+            Image = SystemIcons.Information.ToBitmap(),
+            SizeMode = PictureBoxSizeMode.AutoSize,
+            Location = new Point(20, 20),
+            AccessibleName = "ExcelMCP CLI icon",
+            AccessibleRole = AccessibleRole.Graphic,
+            TabStop = false
+        };
+
+        var nameLabel = new Label
+        {
+            Text = "ExcelMCP CLI Service",
+            Font = new Font(Control.DefaultFont.FontFamily, 10, FontStyle.Bold),
+            AutoSize = true,
+            Location = new Point(70, 20),
+            AccessibleName = "ExcelMCP CLI Service",
+            AccessibleRole = AccessibleRole.StaticText
+        };
+
+        var versionLabel = new Label
+        {
+            Text = $"Version: {version}",
+            AutoSize = true,
+            Location = new Point(70, 45),
+            AccessibleName = $"Version {version}",
+            AccessibleRole = AccessibleRole.StaticText
+        };
+
+        var descLabel = new Label
+        {
+            Text = "Excel automation for coding agents.",
+            AutoSize = true,
+            Location = new Point(70, 75),
+            AccessibleName = "Excel automation for coding agents",
+            AccessibleRole = AccessibleRole.StaticText
+        };
+
+        const string githubUrl = "https://github.com/sbroenne/mcp-server-excel";
+        const string docsUrl = "https://excelmcpserver.dev/";
+
+        var githubLabel = new Label
+        {
+            Text = "GitHub:",
+            AutoSize = true,
+            Location = new Point(70, 105),
+            AccessibleRole = AccessibleRole.StaticText
+        };
+        var githubLink = new LinkLabel
+        {
+            Text = githubUrl,
+            AutoSize = true,
+            Location = new Point(125, 105),
+            TabIndex = 0,
+            AccessibleName = "GitHub repository link",
+            AccessibleDescription = $"Opens {githubUrl} in browser"
+        };
+        githubLink.Click += (_, _) => OpenLink(githubUrl);
+
+        var docsLabel = new Label
+        {
+            Text = "Docs:",
+            AutoSize = true,
+            Location = new Point(70, 130),
+            AccessibleRole = AccessibleRole.StaticText
+        };
+        var docsLink = new LinkLabel
+        {
+            Text = docsUrl,
+            AutoSize = true,
+            Location = new Point(125, 130),
+            TabIndex = 1,
+            AccessibleName = "Documentation link",
+            AccessibleDescription = $"Opens {docsUrl} in browser"
+        };
+        docsLink.Click += (_, _) => OpenLink(docsUrl);
+
+        var tabIndex = 2;
+        var buttonY = 165;
+        form.Controls.AddRange([iconBox, nameLabel, versionLabel, descLabel, githubLabel, githubLink, docsLabel, docsLink]);
+
+        if (updateAvailable)
+        {
+            var updateLabel = new Label
+            {
+                Text = $"Update available: {version} \u2192 {latestVersion}",
+                ForeColor = SystemColors.HotTrack,
+                Font = new Font(Control.DefaultFont, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(70, 160),
+                AccessibleName = $"Update available from version {version} to {latestVersion}",
+                AccessibleRole = AccessibleRole.StaticText
+            };
+
+            var updateCmd = new TextBox
+            {
+                Text = "https://github.com/sbroenne/mcp-server-excel/releases/latest",
+                ReadOnly = true,
+                BorderStyle = BorderStyle.None,
+                BackColor = form.BackColor,
+                Location = new Point(70, 180),
+                Size = new Size(320, 20),
+                TabIndex = tabIndex++,
+                AccessibleName = "Download URL, select to copy",
+                AccessibleDescription = "Download the latest release from this URL"
+            };
+
+            form.Controls.AddRange([updateLabel, updateCmd]);
+            buttonY = 210;
+        }
+
+        var okButton = new Button
+        {
+            Text = "&OK",
+            DialogResult = System.Windows.Forms.DialogResult.OK,
+            Size = new Size(80, 28),
+            Location = new Point(160, buttonY),
+            TabIndex = tabIndex,
+            AccessibleName = "OK, close dialog"
+        };
+        form.AcceptButton = okButton;
+        form.Controls.Add(okButton);
+
+        form.ShowDialog();
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL002",
+        Justification = "Optional About-dialog browser navigation failure is traced, not allowed to terminate the daemon or alter any workbook operation.")]
+    private static void OpenLink(string url)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning("Could not open the requested product link: {0}", ex.Message);
+        }
+    }
+
+    private static int CompareVersions(string current, string latest)
+    {
+        if (Version.TryParse(current, out var currentVer) && Version.TryParse(latest, out var latestVer))
+            return currentVer.CompareTo(latestVer);
+        return string.Compare(current, latest, StringComparison.Ordinal);
+    }
+
+    private static string GetCurrentVersion()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        return informational?.Split('+')[0] ?? assembly.GetName().Version?.ToString() ?? "0.0.0";
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("ErrorHandling", "EXL002",
+        Justification = "The asynchronous tray exit boundary reports failed requested saves and leaves the controller running for the user's next decision.")]
+    internal async Task ExitServiceAsync()
+    {
+        if (_exitPending || _disposed) return;
+        _exitPending = true;
+        try
+        {
+            var owned = _actionPending ? [] : _getSessions().Where(session => !session.IsAttached).ToArray();
+            var choice = owned.Length == 0 ? DialogResult.No : _showExitPrompt(
+                $"There are {owned.Length} sessions opened by ExcelMCP.\n\nSave and close before exiting?\n\n" +
+                "Yes: save and close. No: close saved workbooks and leave unsaved ones open and visible.\n" +
+                "Attached workbooks will remain open.",
+                "Exit ExcelMCP CLI", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+            if (choice == DialogResult.Cancel) return;
+            if (choice == DialogResult.Yes)
+            {
+                foreach (var session in owned)
+                {
+                    var response = await Task.Run(() => _closeSession(session.SessionId, true));
+                    if (!response.Success)
+                        throw new InvalidOperationException(response.ErrorMessage);
+                }
+            }
+            var report = await Task.Run(_requestShutdown);
+            if (report is not null && !_disposed)
+                _showExitNotification("Excel left open", report, ToolTipIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed)
+                _showExitNotification("Error", $"Service exit did not finish: {ex.Message}", ToolTipIcon.Error);
+        }
+        finally
+        {
+            _exitPending = false;
+        }
+    }
+
+    /// <summary>
+    /// Hidden window that listens for the TaskbarCreated message broadcast by explorer.exe
+    /// after it restarts, so the tray icon can be re-registered.
+    /// </summary>
+    private sealed class TaskbarNotificationWindow : NativeWindow
+    {
+        private readonly NotifyIcon _notifyIcon;
+        private readonly uint _wmTaskbarCreated;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint RegisterWindowMessage(string lpString);
+
+        public TaskbarNotificationWindow(NotifyIcon notifyIcon)
+        {
+            _notifyIcon = notifyIcon;
+            _wmTaskbarCreated = RegisterWindowMessage("TaskbarCreated");
+
+            // Create a message-only window to receive broadcast messages
+            CreateHandle(new CreateParams());
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (_wmTaskbarCreated != 0 && m.Msg == (int)_wmTaskbarCreated)
+            {
+                // Explorer restarted — re-register the tray icon
+                _notifyIcon.Visible = false;
+                _notifyIcon.Visible = true;
+            }
+
+            base.WndProc(ref m);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _refreshTimer.Stop();
+        _refreshTimer.Dispose();
+        _taskbarWindow.DestroyHandle();
+        _notifyIcon.Visible = false;
+        _notifyIcon.Dispose();
+        _contextMenu.Dispose();
+    }
+}

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cjo4m06.mcp-shrimp-task-manager",
+  "type": "mcp",
+  "name": "MCP Shrimp Task Manager",
+  "slug": "mcp-shrimp-task-manager",
+  "vendor": "cjo4m06",
+  "description": "Shrimp Task Manager is a task tool built for AI Agents, emphasizing chain-of-thought, reflection, and style consistency. It converts natural language into structured dev tasks with dependency tracking and iterative refinement, enabling agent-like developer behavior in reasoning AI systems.",
+  "version": "1.0.21",
+  "homepage": "https://github.com/cjo4m06/mcp-shrimp-task-manager",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "codeagent",
+    "coding-assistant",
+    "cursor-ai",
+    "cursorai",
+    "roocode",
+    "task-list",
+    "task-manager",
+    "tasks"
+  ],
+  "tags": [
+    "agent",
+    "ai",
+    "codeagent",
+    "coding-assistant",
+    "cursor-ai",
+    "cursorai",
+    "mcp",
+    "mcp-server",
+    "roocode",
+    "task-list",
+    "task-manager",
+    "tasks",
+    "thought-processes",
+    "windsurf",
+    "windsurf-ai"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cjo4m06",
+    "brandName": "cjo4m06",
+    "source": "https://github.com/cjo4m06.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cjo4m06/mcp-shrimp-task-manager",
+    "url": "https://github.com/cjo4m06/mcp-shrimp-task-manager",
+    "commit": "8a3be6bced310c7b660e5cfc3f42e4e5e45f2f61",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2148,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:10:20Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-shrimp-task-manager"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mcp-shrimp-task-manager"
+    ],
+    "env": [
+      "WEB_PORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

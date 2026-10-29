@@ -1,0 +1,14 @@
+from seleniumbase import SB
+
+with SB(uc=True, test=True) as sb:
+    sb.goto("https://google.com/ncr")
+    sb.click_if_visible('button:contains("Accept all")')
+    sb.type('[name="q"]', "SeleniumBase site:github.com")
+    sb.sleep(0.2)
+    sb.click('[value="Google Search"]')
+    sb.sleep(1)
+    sb.click_if_visible('h3:contains("seleniumbase/SeleniumBase")')
+    sb.sleep(1)
+    print(sb.get_page_title())
+    sb.save_as_pdf("seleniumbase.pdf", folder="./downloaded_files/")
+    print("* PDF saved to: ./downloaded_files/seleniumbase.pdf")

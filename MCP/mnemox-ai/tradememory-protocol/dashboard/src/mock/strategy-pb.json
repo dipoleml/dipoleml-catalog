@@ -1,0 +1,287 @@
+{
+  "_disclaimer": "⚠️ Illustrative demo dataset. Synthetic trades generated for interface preview only - not a backtest, not live trading results. Account $100,000, risk $250/trade (1R).",
+  "name": "Pullback",
+  "total_trades": 150,
+  "win_rate": 0.5,
+  "profit_factor": 1.27,
+  "avg_pnl_r": 0.15,
+  "avg_hold_seconds": 3172,
+  "best_session": "NY",
+  "worst_session": "London",
+  "baseline_pf": 1.24,
+  "baseline_wr": 0.49,
+  "trades": [
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0130",
+      "date": "2025-12-12",
+      "side": "BUY",
+      "pnl": 381.25,
+      "pnl_r": 1.53,
+      "session": "London",
+      "hold_seconds": 1304
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0131",
+      "date": "2025-12-15",
+      "side": "BUY",
+      "pnl": 245.23,
+      "pnl_r": 0.98,
+      "session": "London",
+      "hold_seconds": 2385
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0132",
+      "date": "2025-12-19",
+      "side": "BUY",
+      "pnl": -242.81,
+      "pnl_r": -0.97,
+      "session": "NY",
+      "hold_seconds": 2770
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0133",
+      "date": "2025-12-25",
+      "side": "BUY",
+      "pnl": -219.34,
+      "pnl_r": -0.88,
+      "session": "NY",
+      "hold_seconds": 2752
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0134",
+      "date": "2025-12-26",
+      "side": "BUY",
+      "pnl": -265.74,
+      "pnl_r": -1.06,
+      "session": "NY",
+      "hold_seconds": 3314
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0135",
+      "date": "2025-12-30",
+      "side": "BUY",
+      "pnl": -296.3,
+      "pnl_r": -1.19,
+      "session": "London",
+      "hold_seconds": 3311
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0136",
+      "date": "2025-12-31",
+      "side": "BUY",
+      "pnl": 409.23,
+      "pnl_r": 1.64,
+      "session": "NY",
+      "hold_seconds": 4523
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0137",
+      "date": "2026-01-02",
+      "side": "BUY",
+      "pnl": -303.37,
+      "pnl_r": -1.21,
+      "session": "Asia",
+      "hold_seconds": 785
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0138",
+      "date": "2026-01-05",
+      "side": "BUY",
+      "pnl": 277.5,
+      "pnl_r": 1.11,
+      "session": "Asia",
+      "hold_seconds": 3639
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0139",
+      "date": "2026-01-06",
+      "side": "BUY",
+      "pnl": -190.42,
+      "pnl_r": -0.76,
+      "session": "London",
+      "hold_seconds": 5077
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0140",
+      "date": "2026-01-08",
+      "side": "BUY",
+      "pnl": 204.72,
+      "pnl_r": 0.82,
+      "session": "Asia",
+      "hold_seconds": 3369
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0141",
+      "date": "2026-01-12",
+      "side": "BUY",
+      "pnl": -270.14,
+      "pnl_r": -1.08,
+      "session": "Asia",
+      "hold_seconds": 3857
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0142",
+      "date": "2026-01-13",
+      "side": "BUY",
+      "pnl": -275.73,
+      "pnl_r": -1.1,
+      "session": "NY",
+      "hold_seconds": 737
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0143",
+      "date": "2026-01-19",
+      "side": "BUY",
+      "pnl": -225.39,
+      "pnl_r": -0.9,
+      "session": "London",
+      "hold_seconds": 4104
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0144",
+      "date": "2026-01-20",
+      "side": "BUY",
+      "pnl": -340.56,
+      "pnl_r": -1.36,
+      "session": "Asia",
+      "hold_seconds": 2493
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0145",
+      "date": "2026-01-23",
+      "side": "BUY",
+      "pnl": 509.0,
+      "pnl_r": 2.04,
+      "session": "London",
+      "hold_seconds": 1750
+    },
+    {
+      "id": "DEMO-PB_GBPUSD_BUY-0146",
+      "date": "2026-01-28",
+      "side": "BUY",
+      "pnl": -321.92,
+      "pnl_r": -1.29,
+      "session": "NY",
+      "hold_seconds": 4488
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0147",
+      "date": "2026-02-03",
+      "side": "BUY",
+      "pnl": 229.67,
+      "pnl_r": 0.92,
+      "session": "London",
+      "hold_seconds": 4230
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0148",
+      "date": "2026-02-05",
+      "side": "BUY",
+      "pnl": 362.27,
+      "pnl_r": 1.45,
+      "session": "London",
+      "hold_seconds": 1808
+    },
+    {
+      "id": "DEMO-PB_XAUUSD_BUY-0149",
+      "date": "2026-02-13",
+      "side": "BUY",
+      "pnl": -207.58,
+      "pnl_r": -0.83,
+      "session": "Asia",
+      "hold_seconds": 2237
+    }
+  ],
+  "session_heatmap": [
+    {
+      "session": "Asia",
+      "day": "Fri",
+      "trades": 14,
+      "avg_pnl": -65.28
+    },
+    {
+      "session": "Asia",
+      "day": "Mon",
+      "trades": 6,
+      "avg_pnl": 18.16
+    },
+    {
+      "session": "Asia",
+      "day": "Thu",
+      "trades": 14,
+      "avg_pnl": 166.48
+    },
+    {
+      "session": "Asia",
+      "day": "Tue",
+      "trades": 11,
+      "avg_pnl": 47.31
+    },
+    {
+      "session": "Asia",
+      "day": "Wed",
+      "trades": 6,
+      "avg_pnl": -83.73
+    },
+    {
+      "session": "London",
+      "day": "Fri",
+      "trades": 16,
+      "avg_pnl": 72.12
+    },
+    {
+      "session": "London",
+      "day": "Mon",
+      "trades": 12,
+      "avg_pnl": 1.38
+    },
+    {
+      "session": "London",
+      "day": "Thu",
+      "trades": 13,
+      "avg_pnl": 67.9
+    },
+    {
+      "session": "London",
+      "day": "Tue",
+      "trades": 10,
+      "avg_pnl": -31.36
+    },
+    {
+      "session": "London",
+      "day": "Wed",
+      "trades": 11,
+      "avg_pnl": -79.61
+    },
+    {
+      "session": "NY",
+      "day": "Fri",
+      "trades": 7,
+      "avg_pnl": -44.93
+    },
+    {
+      "session": "NY",
+      "day": "Mon",
+      "trades": 7,
+      "avg_pnl": 402.53
+    },
+    {
+      "session": "NY",
+      "day": "Thu",
+      "trades": 10,
+      "avg_pnl": 143.97
+    },
+    {
+      "session": "NY",
+      "day": "Tue",
+      "trades": 6,
+      "avg_pnl": -260.27
+    },
+    {
+      "session": "NY",
+      "day": "Wed",
+      "trades": 7,
+      "avg_pnl": 114.97
+    }
+  ]
+}

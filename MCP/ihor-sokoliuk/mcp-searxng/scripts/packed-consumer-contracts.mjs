@@ -1,0 +1,522 @@
+const REQUIRED_MCP_RUNTIME = new Map([
+  ['@modelcontextprotocol/core', '2.4.0'],
+  ['@modelcontextprotocol/node', '2.1.2'],
+  ['@modelcontextprotocol/server', '2.4.0'],
+]);
+const REQUIRED_MCP_ZOD_DECLARATIONS = new Set([
+  '@modelcontextprotocol/core',
+  '@modelcontextprotocol/server',
+]);
+const EXPECTED_TOOLS = Object.freeze([
+  'searxng_web_search',
+  'web_url_read',
+  'searxng_search_suggestions',
+  'searxng_instance_info',
+]);
+const EXPECTED_RESOURCES = Object.freeze([
+  'config://server-config',
+  'help://usage-guide',
+]);
+
+export function fail(category, message) {
+  throw new Error(`${category}: ${message}`);
+}
+
+function parseStableSemver(value, label = 'runtime dependency') {
+  if (typeof value !== 'string') {
+    fail('unsafe_dependency_tree', `${label} version is missing`);
+  }
+  if (value.length > 64) {
+    fail('unsafe_dependency_tree', `${label} version is invalid`);
+  }
+  // eslint-disable-next-line security/detect-unsafe-regex -- input is capped at 64 characters above
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:\+[0-9A-Za-z.-]+)?$/.exec(value);
+  if (!match) {
+    fail('unsafe_dependency_tree', `${label} version is invalid: ${value}`);
+  }
+  return match.slice(1, 4).map(Number);
+}
+
+function compareSemver(
+  [leftMajor, leftMinor, leftPatch],
+  [rightMajor, rightMinor, rightPatch],
+) {
+  if (leftMajor !== rightMajor) return leftMajor - rightMajor;
+  if (leftMinor !== rightMinor) return leftMinor - rightMinor;
+  if (leftPatch !== rightPatch) return leftPatch - rightPatch;
+  return 0;
+}
+
+function caretUpperBound([major, minor, patch]) {
+  if (major > 0) return [major + 1, 0, 0];
+  if (minor > 0) return [0, minor + 1, 0];
+  return [0, 0, patch + 1];
+}
+
+function assertZodRangeAccepts(range, version, packageName) {
+  if (typeof range !== 'string' || range.length > 64) {
+    fail('unsafe_dependency_tree', `${packageName} zod range is missing or malformed`);
+  }
+  const actual = parseStableSemver(version, 'zod');
+  if (range.startsWith('^')) {
+    const minimum = parseStableSemver(range.slice(1), `${packageName} zod range`);
+    const maximum = caretUpperBound(minimum);
+    if (compareSemver(actual, minimum) >= 0 && compareSemver(actual, maximum) < 0) return;
+  } else if (range === version) {
+    return;
+  }
+  fail(
+    'unsafe_dependency_tree',
+    `${packageName} zod range ${range} does not accept ${version}`,
+  );
+}
+
+function declaredZodRanges(dependency, packageName) {
+  const dependencies = requireDependencyNode(
+    dependency._dependencies,
+    `${packageName} declared dependencies are missing`,
+  );
+  const ranges = [];
+  if (Object.hasOwn(dependencies, 'zod')) {
+    ranges.push({ field: 'dependencies', range: dependencies.zod });
+  }
+  if (dependency.peerDependencies !== undefined) {
+    const peers = requireDependencyNode(
+      dependency.peerDependencies,
+      `${packageName} peer dependencies are malformed`,
+    );
+    if (Object.hasOwn(peers, 'zod')) {
+      ranges.push({ field: 'peerDependencies', range: peers.zod });
+    }
+  }
+  if (dependency.optionalDependencies !== undefined) {
+    const optional = requireDependencyNode(
+      dependency.optionalDependencies,
+      `${packageName} optional dependencies are malformed`,
+    );
+    if (Object.hasOwn(optional, 'zod')) {
+      ranges.push({ field: 'optionalDependencies', range: optional.zod });
+    }
+  }
+  return ranges;
+}
+
+function requireManifestZodVersion(installedPackage) {
+  const manifest = requireDependencyNode(
+    installedPackage,
+    'installed package manifest is malformed',
+  );
+  const version = manifest.dependencies?.zod;
+  try {
+    parseStableSemver(version, 'packed manifest zod');
+  } catch {
+    fail(
+      'unsafe_dependency_tree',
+      'packed manifest zod must be one exact stable version',
+    );
+  }
+  return version;
+}
+
+function requireDependencyNode(node, message) {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    fail('unsafe_dependency_tree', message);
+  }
+  return node;
+}
+
+function assertNoNpmProblems(node) {
+  if (Array.isArray(node.problems) && node.problems.length > 0) {
+    fail('unsafe_dependency_tree', `npm problems: ${node.problems.join('; ')}`);
+  }
+}
+
+function assertDependencyFlags(name, dependency) {
+  if (dependency.invalid) {
+    fail('unsafe_dependency_tree', `${name} is marked invalid`);
+  }
+  if (dependency.extraneous) {
+    fail('unsafe_dependency_tree', `${name} is marked extraneous`);
+  }
+}
+
+function recordMcpRuntimeVersion(name, dependency, versions, zodVersion) {
+  assertDependencyFlags(name, dependency);
+  const parsed = parseStableSemver(dependency.version, name);
+  const requiredVersion = REQUIRED_MCP_RUNTIME.get(name);
+  if (requiredVersion !== undefined && dependency.version !== requiredVersion) {
+    fail(
+      'unsafe_dependency_tree',
+      `${name} version ${dependency.version} must be ${requiredVersion}`,
+    );
+  }
+  if (parsed[0] === 2) {
+    const ranges = declaredZodRanges(dependency, name);
+    if (REQUIRED_MCP_ZOD_DECLARATIONS.has(name) && ranges.length === 0) {
+      fail('unsafe_dependency_tree', `${name} required zod range is missing`);
+    }
+    for (const { field, range } of ranges) {
+      assertZodRangeAccepts(range, zodVersion, `${name} ${field}`);
+    }
+  }
+  if (requiredVersion !== undefined) {
+    versions.push({ name, version: dependency.version });
+  }
+}
+
+function recordZodVersion(dependency, versions, zodVersion, zodPaths) {
+  assertDependencyFlags('zod', dependency);
+  parseStableSemver(dependency.version, 'zod');
+  if (dependency.version !== zodVersion) {
+    fail(
+      'unsafe_dependency_tree',
+      `zod version ${dependency.version} must match packed manifest ${zodVersion}`,
+    );
+  }
+  if (typeof dependency.path !== 'string' || dependency.path.length === 0) {
+    fail('unsafe_dependency_tree', 'zod installation path is missing');
+  }
+  zodPaths.add(dependency.path);
+  versions.push({ name: 'zod', version: dependency.version });
+}
+
+function visitDependencyNode(node, versions, zodVersion, zodPaths) {
+  const dependencyNode = requireDependencyNode(
+    node,
+    'dependency node is malformed',
+  );
+  assertNoNpmProblems(dependencyNode);
+  const { dependencies } = dependencyNode;
+  if (dependencies === undefined) return;
+  requireDependencyNode(dependencies, 'dependencies map is malformed');
+  for (const [name, dependencyValue] of Object.entries(dependencies)) {
+    const dependency = requireDependencyNode(
+      dependencyValue,
+      `dependency ${name} is malformed`,
+    );
+    if (name.startsWith('@modelcontextprotocol/')) {
+      recordMcpRuntimeVersion(name, dependency, versions, zodVersion);
+    } else if (name === 'zod') {
+      recordZodVersion(dependency, versions, zodVersion, zodPaths);
+    }
+    visitDependencyNode(dependency, versions, zodVersion, zodPaths);
+  }
+}
+
+export function assertSafeDependencyTree(tree, installedPackage) {
+  requireDependencyNode(tree, 'npm ls output is not an object');
+  const zodVersion = requireManifestZodVersion(installedPackage);
+  const versions = [];
+  const zodPaths = new Set();
+  visitDependencyNode(tree, versions, zodVersion, zodPaths);
+  const uniqueVersions = new Map(versions.map((entry) => [entry.name, entry]));
+  const found = new Set(uniqueVersions.keys());
+  const missing = [...REQUIRED_MCP_RUNTIME.keys(), 'zod'].filter((name) => !found.has(name));
+  if (missing.length > 0) {
+    fail('unsafe_dependency_tree', `required runtime dependency is missing: ${missing.join(', ')}`);
+  }
+  if (zodPaths.size !== 1) {
+    fail('unsafe_dependency_tree', `exactly one installed zod is required; found ${zodPaths.size}`);
+  }
+  return [...uniqueVersions.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function assertZeroProductionAudit(report) {
+  const vulnerabilities = report?.metadata?.vulnerabilities;
+  if (!vulnerabilities || typeof vulnerabilities !== 'object') {
+    fail('audit_gate', 'vulnerability metadata is missing');
+  }
+  if (
+    typeof vulnerabilities.total !== 'number'
+    || !Number.isFinite(vulnerabilities.total)
+  ) {
+    fail('audit_gate', 'vulnerability total must be numeric');
+  }
+  if (vulnerabilities.total !== 0) {
+    fail(
+      'audit_gate',
+      `production audit reported ${vulnerabilities.total} vulnerabilities`,
+    );
+  }
+  return vulnerabilities;
+}
+
+function requirePackFiles(packReport) {
+  if (!packReport || typeof packReport !== 'object') {
+    fail('artifact_metadata', 'npm pack report is missing');
+  }
+  if (!Array.isArray(packReport.files)) {
+    fail('artifact_metadata', 'npm pack file list is missing');
+  }
+  return packReport.files;
+}
+
+function assertPackFilesSafe(files) {
+  for (const file of files) {
+    if (!file || typeof file !== 'object' || Array.isArray(file)) {
+      fail('artifact_metadata', 'npm pack file entry is malformed');
+    }
+    const { path: filePath } = file;
+    if (
+      typeof filePath === 'string'
+      && filePath.toLowerCase() === 'npm-shrinkwrap.json'
+    ) {
+      fail('artifact_metadata', 'npm shrinkwrap is forbidden');
+    }
+  }
+}
+
+function assertPdfWorkerIncluded(files) {
+  if (!files.some((file) => file?.path === 'dist/pdf-worker.js')) {
+    fail('artifact_metadata', 'dist/pdf-worker.js is missing from the packed artifact');
+  }
+}
+
+function assertInstalledPackageSafe(installedPackage) {
+  if (!installedPackage || typeof installedPackage !== 'object') {
+    fail('artifact_metadata', 'installed package manifest is missing');
+  }
+  if (installedPackage.main !== undefined) {
+    fail('artifact_metadata', 'programmatic main entrypoint is forbidden');
+  }
+  if (
+    !installedPackage.exports
+    || typeof installedPackage.exports !== 'object'
+    || Array.isArray(installedPackage.exports)
+    || Object.keys(installedPackage.exports).length !== 0
+  ) {
+    fail('artifact_metadata', 'package exports must block programmatic imports');
+  }
+  if (installedPackage.dependencies?.['@modelcontextprotocol/sdk'] !== undefined) {
+    fail('artifact_metadata', 'legacy monolithic SDK dependency is forbidden');
+  }
+}
+
+export function assertArtifactMetadata(packReport, installedPackage) {
+  const files = requirePackFiles(packReport);
+  assertPackFilesSafe(files);
+  assertInstalledPackageSafe(installedPackage);
+  assertPdfWorkerIncluded(files);
+  return true;
+}
+
+function collectJsonRpcResponses(stdout) {
+  const responses = new Map();
+  for (const line of String(stdout).split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const message = JSON.parse(line);
+      if (message && typeof message === 'object' && message.id !== undefined) {
+        responses.set(message.id, message);
+      }
+    } catch {
+      // Diagnostic lines are intentionally ignored; only JSON-RPC IDs matter.
+    }
+  }
+  return responses;
+}
+
+function requireSuccessfulResponse(responses, id, label) {
+  const response = responses.get(id);
+  if (!response) fail('mcp_smoke', `${label} response is missing`);
+  if (response.error) fail('mcp_smoke', `${label} returned an error`);
+  return response;
+}
+
+function assertInitializeResponse(responses) {
+  const initialize = requireSuccessfulResponse(responses, 1, 'initialize');
+  if (!initialize.result || typeof initialize.result !== 'object') {
+    fail('mcp_smoke', 'initialize result is malformed');
+  }
+}
+
+function requireExpectedTools(responses) {
+  const toolsList = requireSuccessfulResponse(responses, 2, 'tools/list');
+  if (!Array.isArray(toolsList.result?.tools)) {
+    fail('mcp_smoke', 'tools/list tools result is malformed');
+  }
+  const toolNames = new Set(
+    toolsList.result.tools.map((tool) => tool?.name).filter(Boolean),
+  );
+  const missingTools = EXPECTED_TOOLS.filter((name) => !toolNames.has(name));
+  if (missingTools.length > 0) {
+    fail('mcp_smoke', `expected tools are missing: ${missingTools.join(', ')}`);
+  }
+  return toolsList.result.tools;
+}
+
+function requireExpectedResources(responses) {
+  const resourcesList = requireSuccessfulResponse(responses, 3, 'resources/list');
+  if (!Array.isArray(resourcesList.result?.resources)) {
+    fail('mcp_smoke', 'resources/list resources result is malformed');
+  }
+  const resourceUris = new Set(
+    resourcesList.result.resources.map((resource) => resource?.uri).filter(Boolean),
+  );
+  const missingResources = EXPECTED_RESOURCES.filter((uri) => !resourceUris.has(uri));
+  if (
+    missingResources.length > 0
+    || resourcesList.result.resources.length !== EXPECTED_RESOURCES.length
+  ) {
+    fail('mcp_smoke', `expected resources are missing or duplicated: ${missingResources.join(', ')}`);
+  }
+  return resourcesList.result.resources;
+}
+
+function requireReadableResource(responses, id, expectedUri) {
+  const resourceRead = requireSuccessfulResponse(responses, id, `resources/read ${expectedUri}`);
+  if (!Array.isArray(resourceRead.result?.contents)) {
+    fail('mcp_smoke', `resources/read ${expectedUri} contents are malformed`);
+  }
+  const content = resourceRead.result.contents.find((entry) => entry?.uri === expectedUri);
+  if (typeof content?.text !== 'string' || content.text.length === 0) {
+    fail('mcp_smoke', `resources/read ${expectedUri} text is missing`);
+  }
+}
+
+export function assertMcpSmokeResponses(stdout) {
+  const responses = collectJsonRpcResponses(stdout);
+  assertInitializeResponse(responses);
+  const toolCount = requireExpectedTools(responses).length;
+  const resourceCount = requireExpectedResources(responses).length;
+  requireReadableResource(responses, 4, EXPECTED_RESOURCES[0]);
+  requireReadableResource(responses, 5, EXPECTED_RESOURCES[1]);
+  return { toolCount, resourceCount };
+}
+
+function isStepStart(line) {
+  return typeof line === 'string' && line.startsWith('      - ');
+}
+
+function findStepBlock(lines, commandIndex) {
+  let start = commandIndex;
+  while (start >= 0 && !isStepStart(lines.at(start))) start -= 1;
+  if (start < 0) fail('workflow_contract', 'command is not inside a step');
+  let end = commandIndex + 1;
+  while (end < lines.length && !isStepStart(lines.at(end))) end += 1;
+  return lines.slice(start, end);
+}
+
+function isTopLevelJob(line) {
+  return (
+    typeof line === 'string'
+    && line.startsWith('  ')
+    && !line.startsWith('    ')
+    && line.trimEnd().endsWith(':')
+  );
+}
+
+function findPublishJob(lines) {
+  const jobStart = lines.findIndex(
+    (line) => line.trimEnd() === '  build-and-publish:',
+  );
+  if (jobStart < 0) {
+    fail('workflow_contract', 'build-and-publish job is missing');
+  }
+  const nextJobOffset = lines
+    .slice(jobStart + 1)
+    .findIndex(isTopLevelJob);
+  const jobEnd = nextJobOffset < 0
+    ? lines.length
+    : jobStart + 1 + nextJobOffset;
+  return lines.slice(jobStart, jobEnd);
+}
+
+function findRunCommand(jobLines, command) {
+  return jobLines.findIndex((line) => (
+    line.trimStart().startsWith('run:')
+    && line.includes(command)
+  ));
+}
+
+function requireOrderedCommands(jobLines) {
+  const indexes = [
+    findRunCommand(jobLines, 'npm run test:coverage'),
+    findRunCommand(jobLines, 'npm run build'),
+    findRunCommand(jobLines, 'npm run verify:packed-consumer'),
+    findRunCommand(jobLines, 'npm publish'),
+  ];
+  if (indexes.some((index) => index < 0)) {
+    fail(
+      'workflow_contract',
+      'tests, build, verifier, and publish must share one job',
+    );
+  }
+  const [testIndex, buildIndex, verifierIndex, publishIndex] = indexes;
+  if (!(testIndex < buildIndex
+    && buildIndex < verifierIndex
+    && verifierIndex < publishIndex)) {
+    fail(
+      'workflow_contract',
+      'tests and build must run before the verifier, which must precede publish',
+    );
+  }
+  return { verifierIndex, publishIndex };
+}
+
+function assertFailClosed(jobLines, verifierIndex, publishIndex) {
+  const normalizedJobLines = jobLines.map(normalizeGuardLine);
+  if (normalizedJobLines.some((line) => line.startsWith('continue-on-error:'))) {
+    fail('workflow_contract', 'continue-on-error is forbidden');
+  }
+  const verifierStep = findStepBlock(jobLines, verifierIndex);
+  const publishStep = findStepBlock(jobLines, publishIndex);
+  const publishCondition = publishStep
+    .map(normalizeGuardLine)
+    .find((line) => line.startsWith('if:'));
+  if (publishCondition) {
+    fail('workflow_contract', 'publish conditions are forbidden');
+  }
+  const verifierText = verifierStep.join('\n');
+  const compactVerifierText = verifierText.replaceAll(/\s/g, '');
+  if (compactVerifierText.includes('||true') || compactVerifierText.includes('set+e')) {
+    fail('workflow_contract', 'verifier exit suppression is forbidden');
+  }
+  return { verifierStep, publishStep };
+}
+
+function normalizeGuardLine(line) {
+  const commentIndex = line.indexOf('#');
+  return (commentIndex < 0 ? line : line.slice(0, commentIndex)).trim();
+}
+
+function shellTokens(lines) {
+  return lines
+    .join(' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function requireExactPublishedArtifact(verifierStep, publishStep) {
+  const verifierTokens = shellTokens(verifierStep);
+  const outputIndex = verifierTokens.indexOf('--output');
+  const artifact = verifierTokens.at(outputIndex + 1);
+  if (outputIndex < 0 || !artifact) {
+    fail('workflow_contract', 'verifier output artifact is missing');
+  }
+  const publishTokens = shellTokens(publishStep);
+  const npmIndex = publishTokens.findIndex((token, index) => (
+    token === 'npm' && publishTokens.at(index + 1) === 'publish'
+  ));
+  const isExactArtifact = (
+    npmIndex >= 0
+    && publishTokens.at(npmIndex + 1) === 'publish'
+    && publishTokens.at(npmIndex + 2) === artifact
+  );
+  if (!isExactArtifact) {
+    fail('workflow_contract', 'publish must use the exact verified artifact');
+  }
+}
+
+export function assertPublishWorkflowContract(yamlText) {
+  const jobLines = findPublishJob(String(yamlText).split(/\r?\n/));
+  const { verifierIndex, publishIndex } = requireOrderedCommands(jobLines);
+  const { verifierStep, publishStep } = assertFailClosed(
+    jobLines,
+    verifierIndex,
+    publishIndex,
+  );
+  requireExactPublishedArtifact(verifierStep, publishStep);
+  return true;
+}

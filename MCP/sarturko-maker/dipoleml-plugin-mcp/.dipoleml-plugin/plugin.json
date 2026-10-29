@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-plugin-mcp",
+  "displayName": "DipoleML Plugin MCP",
+  "version": "2.0.0",
+  "description": "Agentic contract negotiation assistant -- reviews counterparty redlines with layered Track Changes across multiple negotiation rounds, or creates first-pass redlines on clean documents. Produces native Word tracked changes with correct author attribution, comparison reports, and full audit trail.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sarturko Maker"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sarturko-maker/Claude-Plugin-MCP",
+  "repository": "https://github.com/sarturko-maker/Claude-Plugin-MCP",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

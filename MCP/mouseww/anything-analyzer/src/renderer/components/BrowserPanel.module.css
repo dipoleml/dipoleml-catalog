@@ -1,0 +1,67 @@
+.panel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: relative;
+}
+
+.navBtns {
+  display: flex;
+  gap: 2px;
+}
+
+.addressBar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: var(--color-content);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-input);
+  overflow: hidden;
+  transition: border-color var(--transition-fast);
+}
+
+.addressBar:focus-within {
+  border-color: var(--color-border-hover);
+}
+
+.addressInput {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  padding: 6px 10px;
+  font-family: var(--font-sans);
+}
+
+.addressInput::placeholder {
+  color: var(--text-disabled);
+}
+
+/* Capture controls (pill buttons) */
+.captureControls {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Loading progress bar */
+.loadingBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-primary, #5865f2);
+  animation: loadingSlide 1.5s ease-in-out infinite;
+}
+
+@keyframes loadingSlide {
+  0% { width: 0; left: 0; }
+  50% { width: 60%; left: 20%; }
+  100% { width: 0; left: 100%; }
+}

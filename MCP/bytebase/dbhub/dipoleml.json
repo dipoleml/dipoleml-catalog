@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.bytebase.dbhub",
+  "type": "mcp",
+  "name": "Dbhub",
+  "slug": "dbhub",
+  "vendor": "bytebase",
+  "description": "Token conscious database MCP server for Postgres, MySQL, SQL Server, Oracle, MariaDB, SQLite.",
+  "version": "1.5.0",
+  "homepage": "https://github.com/bytebase/dbhub",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "claude-ai",
+    "codex",
+    "cursor",
+    "database",
+    "mariadb",
+    "mssql",
+    "mysql"
+  ],
+  "tags": [
+    "agents",
+    "ai",
+    "anthropic",
+    "claude",
+    "claude-ai",
+    "codex",
+    "cursor",
+    "database",
+    "llm",
+    "mariadb",
+    "mcp",
+    "mcp-server",
+    "mssql",
+    "mysql",
+    "oracle",
+    "postgres",
+    "postgresql",
+    "sql",
+    "sqlite",
+    "sqlserver"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "postgres",
+    "brandName": "postgres",
+    "source": "https://github.com/bytebase.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "bytebase/dbhub",
+    "url": "https://github.com/bytebase/dbhub",
+    "commit": "1f3fa031ed2c3f24b4f2259d3909548933fcd977",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3748,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "dbhub"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.5.0"
+    ],
+    "packages": [
+      "dbhub"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

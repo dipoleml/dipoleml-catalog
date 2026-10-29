@@ -1,0 +1,59 @@
+/* Theme: Ayu Dark 深邃橙 (L) */
+[data-theme="ayu-dark"] {
+  --color-base: #0b0e14;
+  --color-frame: #0a0d12;
+  --color-bar: #0f1219;
+  --color-content: #0b0e14;
+  --color-sidebar: #0d1017;
+  --color-surface: #131721;
+  --color-elevated: #1c2030;
+
+  --color-border: #1c2030;
+  --color-border-subtle: #232838;
+  --color-border-hover: #2d3440;
+
+  --color-hover: rgba(191, 189, 182, 0.04);
+  --color-active: #1c2030;
+  --color-selected: rgba(230, 180, 80, 0.06);
+  --color-focus-ring: rgba(230, 180, 80, 0.4);
+
+  --text-primary: #bfbdb6;
+  --text-secondary: #acb6bf;
+  --text-muted: #565b66;
+  --text-label: #454950;
+  --text-disabled: #2d3440;
+
+  --color-accent: #e6b450;
+  --color-accent-bg: rgba(230, 180, 80, 0.08);
+  --color-accent-border: rgba(230, 180, 80, 0.15);
+
+  --color-success: #7fd962;
+  --color-success-bg: rgba(127, 217, 98, 0.08);
+  --color-success-border: rgba(127, 217, 98, 0.15);
+
+  --color-info: #73b8ff;
+  --color-info-bg: rgba(115, 184, 255, 0.08);
+  --color-info-border: rgba(115, 184, 255, 0.15);
+
+  --color-warning: #ffb454;
+  --color-warning-bg: rgba(255, 180, 84, 0.08);
+  --color-warning-border: rgba(255, 180, 84, 0.15);
+
+  --color-error: #d95757;
+  --color-error-bg: rgba(217, 87, 87, 0.08);
+  --color-error-border: rgba(217, 87, 87, 0.15);
+
+  --color-primary: #e6b450;
+  --color-primary-hover: #d9a840;
+  --color-primary-text: #0b0e14;
+
+  --color-purple: #d2a6ff;
+  --color-purple-bg: rgba(210, 166, 255, 0.1);
+  --color-orange: #ffb454;
+  --color-orange-bg: rgba(255, 180, 84, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.7);
+}

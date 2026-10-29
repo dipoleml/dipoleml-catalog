@@ -1,0 +1,196 @@
+/**
+ * get_article_history Tool - 일자별 조문 개정 이력 조회
+ */
+
+import { z } from "zod"
+import { DOMParser } from "@xmldom/xmldom"
+import type { LawApiClient } from "../lib/api-client.js"
+import { truncateResponse } from "../lib/schemas.js"
+import { formatToolError } from "../lib/errors.js"
+import { normalizeAliasKey, resolveLawAlias } from "../lib/search-normalizer.js"
+import { buildJO } from "../lib/law-parser.js"
+
+/**
+ * JO 코드를 읽기 쉬운 형식으로 변환
+ * 예: 003800 → 제38조, 001002 → 제10조의2
+ */
+function formatJoCode(joCode: string): string {
+  if (!joCode || joCode.length !== 6) return joCode
+
+  const articleNum = parseInt(joCode.substring(0, 4), 10)
+  const branchNum = parseInt(joCode.substring(4, 6), 10)
+
+  if (branchNum === 0) {
+    return `제${articleNum}조`
+  } else {
+    return `제${articleNum}조의${branchNum}`
+  }
+}
+
+export const ArticleHistorySchema = z.object({
+  lawId: z.string().optional().describe("법령ID (예: '003440'). search_law 결과의 법령ID 사용. lawName과 함께 사용 불가"),
+  lawName: z.string().optional().describe("법령명 (예: '공정거래법 시행령'). 법령명으로 검색 후 자동으로 법령ID를 찾음"),
+  jo: z.string().optional().describe("조문번호 (예: '제38조', 선택)"),
+  regDt: z.string().regex(/^\d{8}$/, "YYYYMMDD 형식").optional().describe("조문 개정일 (YYYYMMDD, 선택)"),
+  fromRegDt: z.string().regex(/^\d{8}$/, "YYYYMMDD 형식").optional().describe("조회기간 시작일 (YYYYMMDD, 예: '20240101')"),
+  toRegDt: z.string().regex(/^\d{8}$/, "YYYYMMDD 형식").optional().describe("조회기간 종료일 (YYYYMMDD, 예: '20241231')"),
+  org: z.string().optional().describe("소관부처코드 (선택)"),
+  page: z.number().optional().default(1).describe("페이지 번호 (기본값: 1)"),
+  apiKey: z.string().optional().describe("법제처 Open API 인증키(OC). 사용자가 제공한 경우 전달")
+}).refine(
+  data => data.lawId || data.lawName,
+  { message: "lawId 또는 lawName 중 하나는 필수입니다" }
+)
+
+export type ArticleHistoryInput = z.infer<typeof ArticleHistorySchema>
+
+export async function getArticleHistory(
+  apiClient: LawApiClient,
+  input: ArticleHistoryInput
+): Promise<{ content: Array<{ type: string, text: string }>, isError?: boolean }> {
+  try {
+    let lawId = input.lawId
+
+    // lawName이 제공된 경우 먼저 법령 검색하여 lawId 찾기
+    if (input.lawName && !lawId) {
+      const searchResult = await apiClient.searchLaw(input.lawName, input.apiKey)
+      // 법제처 검색은 LIKE + 가나다순이라 '상법'을 넣으면 '국가배상법' 등이 앞설 수 있음.
+      // 첫 결과를 무조건 쓰지 말고 법령명/약칭이 입력과 정확히 일치하는 항목을 우선 선택.
+      const doc = new DOMParser().parseFromString(searchResult, "text/xml")
+      const nodes = doc.getElementsByTagName("law")
+      const queryKey = normalizeAliasKey(input.lawName)
+      const canonicalKey = normalizeAliasKey(resolveLawAlias(input.lawName).canonical)
+      let exactId = ""
+      for (let i = 0; i < nodes.length; i++) {
+        const id = nodes[i].getElementsByTagName("법령ID")[0]?.textContent || ""
+        if (!id) continue
+        const nameKey = normalizeAliasKey(nodes[i].getElementsByTagName("법령명한글")[0]?.textContent || "")
+        const abbrKey = normalizeAliasKey(nodes[i].getElementsByTagName("법령약칭명")[0]?.textContent || "")
+        if (nameKey === queryKey || nameKey === canonicalKey || (abbrKey && (abbrKey === queryKey || abbrKey === canonicalKey))) {
+          exactId = id
+          break
+        }
+      }
+      lawId = exactId
+      if (!lawId) {
+        return {
+          content: [{
+            type: "text",
+            text: `[NOT_FOUND] 법령 '${input.lawName}'과(와) 정확히 일치하는 법령을 찾을 수 없습니다.\n⚠️ LLM은 개정 이력을 추측하지 마세요. search_law로 법령을 확인하고 법령ID(lawId)로 다시 조회하세요.`
+          }],
+          isError: true
+        }
+      }
+    }
+
+    // lsJoHstInf는 날짜 범위가 없으면 lawId를 줘도 항상 0건 반환 → 날짜 미지정 시 전체 기간 자동 적용
+    const noDateFilter = !input.regDt && !input.fromRegDt && !input.toRegDt
+    const dateDefaults = noDateFilter ? { fromRegDt: "19480101", toRegDt: "20991231" } : {}
+
+    // 업스트림 JO는 6자리 코드만 알아듣는다. 스키마 예시 그대로 '제38조'를 보내면 조문 필터가 안 걸려
+    // 법령 버전만 오고 조문 기록은 0건이라, 실존 개정 이력에 거짓 NOT_FOUND가 났다
+    // (2026-09-23 리뷰 D5, 실측 관세법: JO=제38조 → jo 0건, JO=003800 → 6건). 이미 코드면 그대로 둔다:
+    // buildJO("003800")은 3800조로 읽어 "380000"이 된다.
+    const jo = input.jo && !/^\d{6}$/.test(input.jo) ? buildJO(input.jo) : input.jo
+
+    // 응답 행은 "법령 버전"이고, 조문이 실제로 바뀐 버전에만 <jo> 가 붙는다. 조문을 지정하면 총계가 곧 버전 수라
+    // 한 쪽(기본 20행)만 받으면 뒤쪽 버전의 변경이 통째로 빠졌다 — 소방시설법 시행령 제11조: "총 58건"에 2004 제정 1건만
+    // 보이고 2012·2015·2016·2022 변경이 2~3쪽에 묻혔다(2026-09-28). 조문 지정 시 100행 단위로 전 버전을 받는다.
+    const wholeJo = Boolean(jo) && (input.page ?? 1) === 1
+    const fetchPage = (page?: number) => apiClient.getArticleHistory({
+      ...input, ...dateDefaults, lawId, jo, apiKey: input.apiKey,
+      ...(wholeJo ? { display: 100, page } : {}),
+    })
+    const parser = new DOMParser()
+    const first = parser.parseFromString(await fetchPage(), "text/xml")
+    const totalCnt = first.getElementsByTagName("totalCnt")[0]?.textContent || "0"
+    const pageCount = wholeJo ? Math.min(5, Math.ceil((parseInt(totalCnt, 10) || 0) / 100)) : 1
+    const docs = [first, ...(await Promise.all(
+      Array.from({ length: Math.max(0, pageCount - 1) }, (_, i) => fetchPage(i + 2)),
+    )).map(x => parser.parseFromString(x, "text/xml"))]
+    const laws = docs.flatMap(d => {
+      const nodes = d.getElementsByTagName("law")
+      return Array.from({ length: nodes.length }, (_, i) => nodes[i])
+    })
+
+    if (laws.length === 0) {
+      return {
+        content: [{
+          type: "text",
+          text: "[NOT_FOUND] 조문 개정 이력이 없습니다.\n⚠️ 해당 법령은 개정 이력 데이터가 없거나, 법령ID/MST가 유효하지 않을 수 있습니다. LLM은 개정 이력을 추측/생성하지 마세요."
+        }],
+        isError: true
+      }
+    }
+
+    let resultText = ""
+    let itemNum = 0
+    const wholeRevisions: string[] = []
+
+    for (let i = 0; i < laws.length; i++) {
+      const law = laws[i]
+
+      // 법령정보 추출
+      const lawInfo = law.getElementsByTagName("법령정보")[0]
+      const lawName = lawInfo?.getElementsByTagName("법령명한글")[0]?.textContent || "알 수 없음"
+      const lawId = lawInfo?.getElementsByTagName("법령ID")[0]?.textContent || ""
+      const mst = lawInfo?.getElementsByTagName("법령일련번호")[0]?.textContent || ""
+      const promDate = lawInfo?.getElementsByTagName("공포일자")[0]?.textContent || ""
+      const changeType = lawInfo?.getElementsByTagName("제개정구분명")[0]?.textContent || ""
+      const effDate = lawInfo?.getElementsByTagName("시행일자")[0]?.textContent || ""
+
+      // 조문정보 추출
+      const joInfos = law.getElementsByTagName("jo")
+      for (let j = 0; j < joInfos.length; j++) {
+        itemNum++
+        const jo = joInfos[j]
+        const joNo = jo.getElementsByTagName("조문번호")[0]?.textContent || ""
+        const changeReason = jo.getElementsByTagName("변경사유")[0]?.textContent || ""
+        const joRegDt = jo.getElementsByTagName("조문개정일")[0]?.textContent || ""
+        const joEffDt = jo.getElementsByTagName("조문시행일")[0]?.textContent || ""
+
+        // 조문번호를 읽기 쉬운 형식으로 변환 (예: 003800 → 제38조)
+        const joDisplay = formatJoCode(joNo)
+
+        resultText += `${itemNum}. ${lawName} ${joDisplay}\n`
+        resultText += `   - 법령ID: ${lawId}, MST: ${mst}\n`
+        resultText += `   - 개정구분: ${changeType}\n`
+        resultText += `   - 변경사유: ${changeReason}\n`
+        resultText += `   - 공포일: ${promDate}, 조문개정일: ${joRegDt}\n`
+        resultText += `   - 시행일: ${effDate}, 조문시행일: ${joEffDt}\n\n`
+        if (/전부개정|폐지제정/.test(changeType)) wholeRevisions.push(effDate)
+      }
+    }
+    // 머리말은 셈이 끝난 뒤에 — 총계는 조문 변경 수가 아니라 법령 버전 수다
+    const header = wholeJo
+      ? `조문 개정 이력: ${formatJoCode(jo || "")} — 법령 버전 ${totalCnt}개 중 이 조문이 바뀐 버전 ${itemNum}건\n`
+      : `조문 개정 이력 (법령 버전 총 ${totalCnt}건 중 이 쪽${laws.length}건):\n`
+    const capNote = wholeJo && (parseInt(totalCnt, 10) || 0) > pageCount * 100
+      ? `⚠️ 법령 버전이 많아 앞 ${pageCount * 100}개만 봤습니다 — 기간(fromRegDt·toRegDt)으로 나눠 조회하세요.\n`
+      : ""
+    const wholeNote = wholeJo && wholeRevisions.length > 0
+      ? `⚠️ 전부개정(시행 ${wholeRevisions.join(", ")})은 조문 체계를 새로 짠다 — 그 전후의 같은 조번호는 다른 조문일 수 있습니다.\n`
+      : ""
+    resultText = `${header}${capNote}${wholeNote}\n${resultText}`
+
+    // 조문이 하나도 없는 경우 (법령정보만 있는 경우)
+    if (itemNum === 0) {
+      return {
+        content: [{
+          type: "text",
+          text: "[NOT_FOUND] 조문 개정 이력이 없습니다.\n⚠️ 법령정보는 존재하나 조문별 개정 기록이 비어있습니다. LLM은 추측하지 마세요."
+        }],
+        isError: true
+      }
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: truncateResponse(resultText)
+      }]
+    }
+  } catch (error) {
+    return formatToolError(error, "get_article_history")
+  }
+}

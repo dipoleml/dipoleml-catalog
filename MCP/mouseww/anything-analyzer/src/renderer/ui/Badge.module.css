@@ -1,0 +1,38 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.label {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+/* Sizes */
+.sm .dot {
+  width: 5px;
+  height: 5px;
+}
+
+.lg .dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* Pulse animation for active states */
+.pulse .dot {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

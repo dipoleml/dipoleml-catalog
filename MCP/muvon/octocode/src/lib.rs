@@ -1,0 +1,43 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Main lib.rs file that exports our modules
+pub mod config;
+pub mod constants;
+pub mod embedding;
+pub mod grep;
+pub mod indexer;
+pub mod language;
+pub mod llm;
+pub mod lock;
+#[cfg(test)]
+mod lock_tests;
+pub mod mcp;
+pub mod reasoning;
+#[cfg(test)]
+mod reasoning_tests;
+pub mod reranker;
+#[cfg(test)]
+mod reranker_tests;
+pub mod state;
+pub mod storage;
+pub mod store;
+pub mod utils;
+pub mod watcher_config;
+#[cfg(test)]
+mod watcher_config_tests;
+
+// Re-export commonly used items for convenience
+pub use config::Config;
+pub use store::Store;

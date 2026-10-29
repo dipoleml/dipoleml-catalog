@@ -1,0 +1,44 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! This module provides a modular MCP server with separate tool providers:
+//! - SemanticCodeProvider: Semantic code search functionality
+//! - GraphRagProvider: GraphRAG relationship-aware search
+//! - LspProvider: Language Server Protocol integration
+//!
+//! The server automatically enables available tools based on configuration.
+
+pub mod graphrag;
+#[cfg(test)]
+mod graphrag_tests;
+pub mod logging;
+#[cfg(test)]
+mod logging_tests;
+pub mod lsp;
+pub mod multi;
+pub mod semantic_code;
+#[cfg(test)]
+mod semantic_code_tests;
+pub mod server;
+pub mod session;
+pub mod structural;
+#[cfg(test)]
+#[path = "structural_tests.rs"]
+mod structural_tests;
+pub mod types;
+pub mod watcher;
+
+pub use multi::{has_child_repos, MultiServer};
+pub use server::McpServer;
+pub use session::Sessions;

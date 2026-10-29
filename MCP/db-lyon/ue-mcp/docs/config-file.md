@@ -1,0 +1,98 @@
+# The `ue-mcp.yml` config file
+
+`ue-mcp.yml` sits next to your `.uproject` and declares your project's ue-mcp surface: which tool categories are on, the content roots to search, the optional HTTP flow server, the context-seeding strategy, and your custom `tasks:` and `flows:`. `npx ue-mcp init` creates and maintains it, but it is plain YAML with nothing the server treats as opaque, so hand-editing is expected.
+
+It is also just one file in a deep-merged stack. This page is the reference for the file itself: its anatomy, how the layers merge, where each kind of setting belongs, and every key. For getting the server running (MCP client config, the C++ bridge, CLI subcommands), see [Configuration](configuration.md).
+
+## Anatomy
+
+Four top-level keys. Only the `ue-mcp:` block is required - `init` writes `version: 1`.
+
+```yaml
+ue-mcp:            # project-level server config (detailed below)
+  version: 1
+  contentRoots: [/Game/, /MyPlugin/]
+  disable: [gas, networking]
+  nativeTools: { enabled: true, exclude: [animation] }
+  http: { enabled: false }
+  context: { strategy: micro }  # micro (default) | lean | full
+  server: { mode: daemon }      # daemon (default) | in-process
+
+tasks: {}          # custom flow-engine task definitions
+flows: {}          # custom multi-step flows
+plugins: []        # npm packages that inject new actions
+```
+
+| Top-level key | What it holds | Detailed in |
+|---|---|---|
+| `ue-mcp:` | Project/server config block | [block reference](#ue-mcp-block-reference) below |
+| `tasks:` | Custom flow-engine task definitions | [Flows](flows.md) |
+| `flows:` | Custom multi-step flows | [Flows](flows.md) |
+| `plugins:` | npm packages injecting new actions into built-in categories | [Plugins](plugins-using.md) |
+
+## Config layering
+
+`ue-mcp.yml`, its overlays, and your user-global config are **deep-merged** into one effective config. Layers, lowest precedence first:
+
+| Layer | File | Tracked? | For |
+|-------|------|----------|-----|
+| Built-in defaults | (shipped in the package) | - | The baseline every project starts from. |
+| **User-global** | `~/.ue-mcp/config.yml` | No (per-user) | Your personal defaults for **every** project on this machine - e.g. `context.strategy`. Mirrors the project file's shape (a `ue-mcp:` block plus optional `tasks:` / `flows:`). Hand-edited. |
+| **Project** | `<project>/ue-mcp.yml` | **Yes** | The shared project surface every collaborator gets. |
+| Env overlay | `<project>/ue-mcp.{env}.yml` | Optional | Loaded when `UE_MCP_ENV` is set, or when the project names one itself with `env:` - e.g. `ue-mcp.ci.yml` with `UE_MCP_ENV=ci` or `env: ci`. The variable wins, and applies to every project the server drives. |
+| **Local** | `<project>/ue-mcp.local.yml` | No (git-ignore it) | Per-developer overrides for this one project that shouldn't be committed. |
+| Env vars | `UE_MCP_CONTEXT_STRATEGY`, … | - | Highest precedence; win over every file. |
+
+**Deep merge semantics.** Nested objects merge key-by-key, so a later layer setting `context.strategy` does not wipe sibling keys. Arrays replace by default; put `__merge: append` on an override array to concatenate onto the base instead. A `null` in a later layer explicitly clears a value.
+
+flowkit, the engine behind `tasks:` / `flows:`, uses this same layered model, and the `ue-mcp:` block rides the same cascade.
+
+## Where each setting belongs
+
+Every key is valid in **every** layer - the schema is identical at each level. So "where does this go?" is a choice of *layer*, not a restriction the schema enforces. The layer you pick decides whether a value is shared with the team, personal to you, or scoped to one machine.
+
+The rule of thumb:
+
+| Setting | Usually lives in | Because |
+|---|---|---|
+| `version`, `contentRoots`, `http`, `tasks`, `flows`, `plugins` | **Project** `ue-mcp.yml` (tracked) | The whole team needs the same value. |
+| `context.strategy` | **User-global** `~/.ue-mcp/config.yml`, or **local** `ue-mcp.local.yml` | A token-budget preference. An artist and a developer legitimately want different values. |
+| `disable`, `nativeTools` | Either | A project *may* ship a shared default (this project has no GAS, so disable it for everyone), and any developer overrides it in their user or local layer. |
+| `bridge.port` | **Project** `ue-mcp.yml` when the whole team wants a known port; **local** `ue-mcp.local.yml` when one machine needs one | A port is a machine fact as much as a project one. Both the client and the plugin read whichever layer wins, so the two agree either way. |
+| `bridge.host`, `editor.path`, `editor.buildToolPath` | **Local** `ue-mcp.local.yml` | Absolute paths and hostnames are machine facts. Committing one puts every collaborator on your engine install. |
+
+Nothing stops you putting `context.strategy` in the tracked `ue-mcp.yml` as a project default - a later user or local layer simply overrides it. What is deliberately kept out of every yml file is machine **state** the tool writes for itself (installed-hook paths, feedback mode); that lives in `~/.ue-mcp/state.json` (see the callout under the block reference).
+
+## `ue-mcp:` block reference
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `version` | `1` | `1` | Schema version; required. Set automatically by init. |
+| `contentRoots` | `string[]` | `["/Game/"]` | Content paths to search when using `asset(action="search")`. Add plugin content roots here if your project uses plugins with their own assets. |
+| `disable` | `string[]` | `[]` | Tool categories to disable. Disabled categories are not registered with the MCP server, reducing context noise for the AI. Use `"feedback"` here to opt out of the feedback tool entirely. |
+| `nativeTools` | `object` | `{ enabled: true }` | Native (Epic 5.8 ToolsetRegistry) tool surfacing. `enabled` (bool, default `true`) turns the whole feature on/off; when off, only the `epic` discovery gateway remains. `exclude` (`string[]`) names ue-mcp categories that should not be enriched with Epic tools (they stay reachable via `epic(call_tool)`). See [Native Epic tools](configuration.md#native-epic-5-8-tools). |
+| `bridge` | `object` | `undefined` (port derived from the project path) | Editor bridge WebSocket. `port` (integer `1-65535`) pins the port instead of deriving it from the project root path. Both halves read it: the client connects there, and the C++ plugin listens there. A port already in use makes the plugin walk upward, warn, and publish where it landed in `port.json`, which the client follows. `host` (string, default `127.0.0.1`) is where the client reaches this project's bridge, for a non-standard topology; it is the per-project form of `UE_MCP_HOST`. See [Pinning the port](configuration.md#pinning-the-port). |
+| `editor` | `object` | `undefined` (the engine the project's `EngineAssociation` names) | Which engine THIS project uses. `path` is the editor binary and `buildToolPath` is `Build.bat` / `Build.sh`. Per-project forms of `UE_EDITOR_PATH` and `UE_BUILD_TOOL_PATH`, which matter once one server drives two projects on two engine versions: a single environment variable puts both through one binary. Usually belongs in the untracked `ue-mcp.local.yml`, since an engine path is a machine fact. `launchArgs` is a list of extra command-line arguments `start_editor` and `restart_editor` pass to the editor; `tests/ue_mcp` uses it to keep test editors from opening an IDE. |
+| `env` | `string` | `undefined` | Which `ue-mcp.{env}.yml` overlay this project merges. The per-project form of `UE_MCP_ENV`; the variable still wins and still applies to every project at once. |
+| `http` | `object` | `undefined` (HTTP server off) | Optional REST surface for the flow engine. Object with `enabled` (bool), `port` (default `7723`), `host` (default `127.0.0.1`). When `enabled: true`, the MCP server also serves `GET /flows`, `GET /flows/<name>/plan`, `POST /flows/<name>/run`, and the Server-Sent Events stream at `GET /flows/events` (live per-step lifecycle events; see [Live Observation](flows.md#live-observation-sse)) over HTTP so external tools can drive and observe flows without an MCP client. |
+| `pie` | `object` | `{ allowIgnoreBlueprintErrors: false }` | Play In Editor policy. `allowIgnoreBlueprintErrors` (bool, default `false`) pre-authorizes `editor(action="play_in_editor_ignore_blueprint_errors")`, the one action that starts PIE with the editor's unresolved-Blueprint-error prompt suppressed. Left off, every such launch blocks on an MCP approval prompt the user has to answer. Turning it on means PIE runs whatever bytecode the errored Blueprints last compiled to, without asking, so it belongs in the untracked `ue-mcp.local.yml` unless the whole team wants it. |
+| `checkpoints` | `on`, `off` or `object` | `off` | A shadow git history of every file written through ue-mcp, with per-file restore. `on` turns it on; the object form `{ enabled, largeFileBytes }` also sets the size (default 1 GB) above which a file is kept as a plain copy. The daemon can override it per editor session. See [Checkpoints](checkpoints.md). |
+| `context` | `object` | `{ strategy: micro }` | Context-seeding strategy. `strategy: micro` (default) collapses everything behind one gateway tool (<!-- tax:micro -->~2.2k<!-- /tax --> tokens); `lean` keeps the category tools and action names with signatures on demand (<!-- tax:lean -->~20k<!-- /tax -->); `full` lists one signature per action inline (<!-- tax:full -->~55k<!-- /tax -->). See [Context strategy](configuration.md#context-strategy-full-lean-micro). |
+| `server` | `object` | `{ mode: daemon }` | How `ue-mcp <uproject>` serves. `mode: daemon` (default) relays to the project's daemon, one background process per project that owns the editor connection and survives editor restarts. `in-process` runs the whole server inside the process your MCP client launched. `UE_MCP_SERVER_MODE` wins over it. Several projects, or none, always run in process. `waitForEditorSeconds` (default 60) is how long a daemon call waits for an editor that went away; `openBrowserOnCrash` (default false) opens the client UI when the editor crashes. See [The daemon](configuration.md#the-daemon). |
+
+!!! info "Config vs. machine state - two homes under `~/.ue-mcp/`"
+    - `~/.ue-mcp/config.yml` - your per-user **config** layer (see [Config layering](#config-layering)). Hand-edited. Personal defaults applied across every project.
+    - `~/.ue-mcp/state.json` - machine **state** the tool writes and you never hand-edit: absolute paths to the Claude Code settings files where the feedback hook was installed, plus your feedback-mode and dialog-mode preferences. Maintained by `npx ue-mcp init` / `npx ue-mcp uninstall-hooks` / `npx ue-mcp feedback mode` / `npx ue-mcp dialog mode`.
+
+!!! tip "Migrating from older versions"
+    - Pre-1.0.29 used `.ue-mcp.json` for the project config. On first load it is migrated into `ue-mcp.yml` (project fields) + `~/.ue-mcp/state.json` (machine state), then removed.
+    - 1.0.29 briefly wrote machine state (`installedHooks`) into `ue-mcp.local.yml`. On first load that one key is moved to `~/.ue-mcp/state.json` and stripped from the file - **the rest of `ue-mcp.local.yml` is left in place**, because it is now a supported per-machine override layer (see [Config layering](#config-layering)). A file that held nothing but `installedHooks` is deleted once emptied.
+    - Both migrations are automatic and idempotent; you don't need to do anything.
+
+## See also
+
+- [Configuration](configuration.md) - MCP client setup, the C++ bridge, CLI subcommands, plugin deployment
+- [Flows](flows.md) - the `tasks:` and `flows:` engine in depth
+- [Plugins](plugins-using.md) - installing and using plugins declared in `plugins:`
+- [Context strategy](configuration.md#context-strategy-full-lean-micro) - the `context` key, full / lean / micro
+- [Native Epic tools](configuration.md#native-epic-5-8-tools) - the `nativeTools` key

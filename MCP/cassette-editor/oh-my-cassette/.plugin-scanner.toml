@@ -1,0 +1,17 @@
+# Configuration for the HOL AI plugin scanner, which several plugin directories run
+# against submitted repositories.
+
+[scanner]
+ignore_paths = [
+  # Test fixtures and the reference service's test token, not real secrets.
+  "tests/*",
+]
+
+[rules]
+disabled = [
+  # Both rules require every marketplace entry to be a vendored local bundle. This
+  # marketplace publishes a git source pinned to the release's `vX.Y.Z` tag, which is
+  # how Codex and Claude Code install the plugin; the runtime itself comes from PyPI.
+  "MARKETPLACE_SOURCE_INVALID",
+  "MARKETPLACE_UNSAFE_SOURCE",
+]

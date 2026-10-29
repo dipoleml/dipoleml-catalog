@@ -1,0 +1,371 @@
+/**
+ * Two-phase tool loading: {@link getActors} fetches Actor metadata (async, mode-agnostic);
+ * {@link loadToolsFromInput} runs both in sequence.
+ */
+
+import type { ApifyClient } from 'apify-client';
+
+import log from '@apify/log';
+
+import { defaults, HELPER_TOOLS, type HelperToolName, RETIRED_SELECTOR_NAMES } from '../const.js';
+import type { PaymentProvider } from '../payments/types.js';
+import { actorNameToToolName } from '../tools/actor_tool_naming.js';
+import { reportProblem } from '../tools/dev/report_problem.js';
+import { getActorsAsTools } from '../tools/index.js';
+import {
+    ALL_WIDGET_TOOLS,
+    CATEGORY_NAME_SET,
+    CATEGORY_NAMES,
+    getCategoryTools,
+    toolCategoriesEnabledByDefault,
+    UNCATEGORIZED_TOOLS,
+    WIDGET_BY_BASE_TOOL,
+} from '../tools/registry.js';
+import { abortActorRun } from '../tools/runs/abort_actor_run.js';
+import { getActorRun } from '../tools/runs/get_actor_run.js';
+import { getDatasetItems } from '../tools/storage/get_dataset_items.js';
+import { getKeyValueStoreRecord } from '../tools/storage/get_key_value_store_record.js';
+import type { ActorStore, Input, ToolCategory, ToolEntry } from '../types.js';
+import { SERVER_MODE, TOOL_TYPE } from '../types.js';
+import { compileSchema } from './ajv.js';
+
+/**
+ * Tools auto-injected alongside any actor-running tool (call-actor / direct
+ * actor tools / get-actor-run). Order matches the workflow: fetch run status →
+ * fetch items → fetch KV record → abort.
+ */
+export const AUTO_INJECTED_TOOLS: readonly ToolEntry[] = [
+    getActorRun,
+    getDatasetItems,
+    getKeyValueStoreRecord,
+    abortActorRun,
+] as const;
+
+const ACTOR_PLACEHOLDER_NAME = '__actor-placeholder__';
+
+// All internal tool names. Selectors matching these are not treated as Actor IDs.
+const ALL_INTERNAL_TOOL_NAMES: Set<string> = (() => {
+    const names = new Set<string>();
+    const categories = getCategoryTools();
+    for (const name of CATEGORY_NAMES) {
+        for (const tool of categories[name]) names.add(tool.name);
+    }
+    for (const tool of UNCATEGORIZED_TOOLS) names.add(tool.name);
+    // Widgets live in no category — ALL_WIDGET_TOOLS covers every widget, paired or not.
+    for (const widget of ALL_WIDGET_TOOLS) names.add(widget.name);
+    return names;
+})();
+
+type NormalizedInput = {
+    /**
+     * Cleaned tool selectors (trimmed, non-empty). `undefined` when `input.tools`
+     * was not provided at all. Use `selectors?.length === 0` to detect an
+     * explicitly-empty list.
+     */
+    selectors: string[] | undefined;
+    /** `true` when `input.actors` was explicitly empty (`[]` or `''`). */
+    actorsExplicitlyEmpty: boolean;
+};
+
+/**
+ * Normalize the raw {@link Input} into cleaned selectors + the explicit-empty flag.
+ * Shared by both loader phases so semantics stay consistent.
+ */
+function normalizeInput(input: Input): NormalizedInput {
+    const raw = input.tools;
+    const selectors =
+        raw === undefined
+            ? undefined
+            : (Array.isArray(raw) ? raw : [raw])
+                  .map(String)
+                  .map((s) => s.trim())
+                  .filter((s) => s !== '');
+    return {
+        selectors,
+        actorsExplicitlyEmpty: input.actors === '' || (Array.isArray(input.actors) && input.actors.length === 0),
+    };
+}
+
+/** report-problem's only category — selecting it is the same opt-in as the literal name. */
+const REPORT_PROBLEM_CATEGORY = 'dev' satisfies ToolCategory;
+
+/**
+ * True when `input` explicitly names report-problem or `dev` — lifts the client blocklist below.
+ * A `toolNamesToInput` restore counts: it can only list tools the session was already served.
+ */
+export function isReportProblemExplicitlySelected(input: Input): boolean {
+    const { selectors } = normalizeInput(input);
+    return selectors?.some((sel) => sel === HELPER_TOOLS.PROBLEM_REPORT || sel === REPORT_PROBLEM_CATEGORY) ?? false;
+}
+
+/**
+ * Resolve the list of Actor names (`username/name`) to fetch from the input.
+ *
+ * **Mode-agnostic** — the result does NOT depend on `SERVER_MODE`. An Actor tool
+ * is identified by name, and the same Actor entry is reused across modes; only
+ * the *internal* tool variants around it differ by mode.
+ *
+ * Selectors classified as "actor names":
+ *   - NOT a retired selector (`RETIRED_SELECTOR_NAMES`: `'preview'`, `'experimental'`, `'add-actor'`, `'get-actor-log'`,
+ *     `'source'`)
+ *   - NOT a category name (from `CATEGORY_NAME_SET`)
+ *   - NOT the name of an internal tool in any mode (from `ALL_INTERNAL_TOOL_NAMES`)
+ *
+ * If no selectors / no explicit actors: the defaults apply (or empty when
+ * `actors` was explicitly set to empty).
+ */
+export function resolveActorsToLoad(input: Input): string[] {
+    const { selectors, actorsExplicitlyEmpty } = normalizeInput(input);
+
+    // Selectors that aren't retired, categories, or internal tools in any mode → Actor names.
+    const actorSelectorsFromTools: string[] = [];
+    if (selectors !== undefined) {
+        for (const sel of selectors) {
+            if (RETIRED_SELECTOR_NAMES.has(sel)) continue;
+            if (CATEGORY_NAME_SET.has(sel)) continue;
+            if (ALL_INTERNAL_TOOL_NAMES.has(sel)) continue;
+            actorSelectorsFromTools.push(sel);
+        }
+    }
+
+    let actorsFromField: string[] | undefined;
+    if (input.actors === undefined) {
+        actorsFromField = undefined;
+    } else if (Array.isArray(input.actors)) {
+        actorsFromField = input.actors;
+    } else {
+        actorsFromField = [input.actors];
+    }
+
+    if (actorsFromField !== undefined) return actorsFromField;
+    if (actorSelectorsFromTools.length > 0) return actorSelectorsFromTools;
+    if (selectors === undefined) {
+        // No selectors supplied: use defaults unless actors were explicitly empty
+        return actorsExplicitlyEmpty ? [] : defaults.actors;
+    }
+    // Selectors provided but none are actors => do not load defaults
+    return [];
+}
+
+/**
+ * Fetch Actor tool entries for all Actor names in `input`.
+ *
+ * Pass `paymentProvider` for sessions authenticated via an external payment
+ * provider (x402, Skyfire) so standby/MCP-server Actors are filtered out —
+ * see `getActorsAsTools` for the full rationale.
+ */
+export async function getActors(
+    input: Input,
+    apifyClient: ApifyClient,
+    options?: { actorStore?: ActorStore; paymentProvider?: PaymentProvider },
+): Promise<ToolEntry[]> {
+    const actorNames = resolveActorsToLoad(input);
+    if (actorNames.length === 0) return [];
+    const { tools } = await getActorsAsTools(actorNames, apifyClient, options);
+    return tools;
+}
+
+/** Build a restore {@link Input} from concrete tool names: internal names → `tools`, actor names → `actors`. */
+export function toolNamesToInput(toolNames: string[]): Input {
+    const internalToolNames: string[] = [];
+    const actorToolNames: string[] = [];
+
+    for (const toolName of toolNames) {
+        // A retired name in a restored session (e.g. a pre-cutoff `add-actor`) is inert: drop it
+        // rather than misroute it to `actors`, where it would trigger a fetch for a nonexistent Actor.
+        if (RETIRED_SELECTOR_NAMES.has(toolName)) continue;
+        if (ALL_INTERNAL_TOOL_NAMES.has(toolName)) {
+            internalToolNames.push(toolName);
+        } else {
+            actorToolNames.push(toolName);
+        }
+    }
+
+    const input: Input = {
+        tools: internalToolNames,
+    };
+
+    if (actorToolNames.length > 0) {
+        input.actors = actorToolNames;
+    }
+
+    return input;
+}
+
+const WITHOUT_USE_CASE_FIELD = new WeakMap<ToolEntry, ToolEntry>();
+
+/**
+ * `tool` without its `useCase` input (the search tools' Store search context), for a client that
+ * is not offered it; a tool without the field is returned as is. Built once per tool: the served
+ * schema and a validator that strips `useCase` should such a client send it anyway.
+ */
+export function withoutUseCaseField(tool: ToolEntry): ToolEntry {
+    const { useCase, ...properties } = tool.inputSchema.properties ?? {};
+    if (!useCase) return tool;
+    let served = WITHOUT_USE_CASE_FIELD.get(tool);
+    if (!served) {
+        const inputSchema = { ...tool.inputSchema, properties };
+        served = { ...tool, inputSchema, ajvValidate: compileSchema(inputSchema) };
+        WITHOUT_USE_CASE_FIELD.set(tool, served);
+    }
+    return served;
+}
+
+/**
+ * Compose the final tool list from pre-fetched actor tools and the original input for the given mode.
+ */
+export function getToolsForServerMode(
+    input: Input,
+    actorTools: ToolEntry[],
+    mode: SERVER_MODE = SERVER_MODE.DEFAULT,
+): ToolEntry[] {
+    // Build mode-resolved categories — tools are already the correct variant for this mode
+    const categories = getCategoryTools(mode);
+
+    const { selectors, actorsExplicitlyEmpty } = normalizeInput(input);
+
+    // Build mode-specific tool-by-name map for individual tool selection
+    const toolsByName = new Map<string, ToolEntry>();
+    for (const name of CATEGORY_NAMES) {
+        for (const tool of categories[name]) {
+            toolsByName.set(tool.name, tool);
+        }
+    }
+    for (const tool of UNCATEGORIZED_TOOLS) toolsByName.set(tool.name, tool);
+    // Widgets are apps-only and not in any category; include every widget (paired or not) for
+    // direct `?tools=` selection.
+    if (mode === SERVER_MODE.APPS) {
+        for (const widget of ALL_WIDGET_TOOLS) {
+            toolsByName.set(widget.name, widget);
+        }
+    }
+
+    // Walk selectors for internal picks (mode-specific). Actor-name classification
+    // happened in `resolveActorsToLoad`; we don't need to partition again here.
+    const internalSelections: ToolEntry[] = [];
+    if (selectors !== undefined && selectors.length > 0) {
+        for (const sel of selectors) {
+            // Retired selectors (add-actor, experimental, preview, get-actor-log, source) are inert.
+            if (RETIRED_SELECTOR_NAMES.has(sel)) continue;
+
+            const categoryTools = categories[sel as ToolCategory];
+            if (categoryTools) {
+                internalSelections.push(...categoryTools);
+                continue;
+            }
+            const internalByName = toolsByName.get(sel);
+            if (internalByName) {
+                internalSelections.push(internalByName);
+                continue;
+            }
+            // Internal tool from another mode → skip silently (getActors already
+            // routed it away from actor names).
+            if (ALL_INTERNAL_TOOL_NAMES.has(sel)) {
+                log.debug(`Skipping selector "${sel}" — it is an internal tool from another mode (current: "${mode}")`);
+            }
+            // Else: selector was an Actor name; it's already in `actorTools`.
+        }
+    }
+
+    // Compose final tool list
+    const result: ToolEntry[] = [];
+
+    // Internal tools
+    if (selectors !== undefined) {
+        result.push(...internalSelections);
+    } else if (!actorsExplicitlyEmpty) {
+        // Use mode-resolved default categories
+        for (const cat of toolCategoriesEnabledByDefault) {
+            result.push(...categories[cat]);
+        }
+        // report-problem is default-served but lives in the `dev` category (not a default category),
+        // so inject it here for the default (no-selectors) case. Server-side servability gating
+        // (telemetry on + client allowed + client known) still applies downstream in
+        // composeToolsForClient; this only puts it in the default candidate set.
+        result.push(reportProblem);
+    }
+
+    // Actor tools (pre-fetched, mode-agnostic)
+    if (actorTools.length > 0) {
+        result.push(...actorTools);
+    }
+
+    /**
+     * Auto-inject run-status and storage tools when call-actor or actor tools are present.
+     * Insert them right after call-actor (or appended at the end when call-actor is absent) so the
+     * default tool list reads in workflow order: call → get-actor-run → get-dataset-items →
+     * get-key-value-store-record → abort-actor-run. If the user explicitly selected these tools
+     * via category before `actors`, the de-dup pass below preserves their selector order.
+     */
+    const resultNames = new Set(result.map((entry) => entry.name));
+    const hasActorTools = result.some((entry) => entry.type === TOOL_TYPE.ACTOR);
+    // get-actor-run's nextStep templates point at get-dataset-items/get-key-value-store-record.
+    const hasGetActorRun = resultNames.has(HELPER_TOOLS.ACTOR_RUNS_GET);
+    // call-actor-widget starts a run, same as call-actor, so it also wants the bundle.
+    const hasCallActorWidget = resultNames.has(HELPER_TOOLS.ACTOR_CALL_WIDGET);
+    // get-actor-run-widget calls get-dataset-items internally for its own preview fetch.
+    const hasGetActorRunWidget = resultNames.has(HELPER_TOOLS.ACTOR_RUNS_GET_WIDGET);
+
+    // call-actor, direct Actor tools and get-actor-run are the non-widget run tools; any of them
+    // justifies the full bundle. get-actor-run-widget alone skips get-actor-run (it polls itself);
+    // call-actor-widget alone still gets it.
+    const hasNonWidgetRunTool = resultNames.has(HELPER_TOOLS.ACTOR_CALL) || hasActorTools || hasGetActorRun;
+    let toolsToInject: readonly ToolEntry[] = [];
+    if (hasNonWidgetRunTool) {
+        toolsToInject = AUTO_INJECTED_TOOLS;
+    } else if (hasGetActorRunWidget) {
+        toolsToInject = AUTO_INJECTED_TOOLS.filter((tool) => tool.name !== HELPER_TOOLS.ACTOR_RUNS_GET);
+    } else if (hasCallActorWidget) {
+        toolsToInject = AUTO_INJECTED_TOOLS;
+    }
+
+    if (toolsToInject.length > 0) {
+        const callActorIndex = result.findIndex((entry) => entry.name === HELPER_TOOLS.ACTOR_CALL);
+        if (callActorIndex !== -1) {
+            result.splice(callActorIndex + 1, 0, ...toolsToInject);
+        } else {
+            result.push(...toolsToInject);
+        }
+    }
+
+    // Apps mode: append a widget tool for each base tool already in the result.
+    // Runs after the get-actor-run auto-inject, so an auto-injected base still
+    // brings its widget sibling.
+    if (mode === SERVER_MODE.APPS) {
+        for (const entry of [...result]) {
+            const widget = WIDGET_BY_BASE_TOOL.get(entry.name as HelperToolName);
+            // Push unconditionally; any duplicates are stripped by the de-dup pass below.
+            if (widget) result.push(widget);
+        }
+    }
+
+    // De-duplicate by tool name for safety
+    const seen = new Set<string>();
+    return result.filter((entry) => !seen.has(entry.name) && seen.add(entry.name));
+}
+
+/** Resolve the tool names composition will serve without fetching Actor metadata. */
+export function resolveToolNamesFromInput(input: Input, mode: SERVER_MODE = SERVER_MODE.DEFAULT): Set<string> {
+    const actorNames = resolveActorsToLoad(input);
+    // Composition reads only type and name from Actor entries; the placeholder triggers its shared injection rules.
+    const actorTools =
+        actorNames.length > 0 ? ([{ type: TOOL_TYPE.ACTOR, name: ACTOR_PLACEHOLDER_NAME }] as ToolEntry[]) : [];
+    const toolNames = new Set(getToolsForServerMode(input, actorTools, mode).map((tool) => tool.name));
+    toolNames.delete(ACTOR_PLACEHOLDER_NAME);
+
+    for (const actorName of actorNames) {
+        if (actorName.indexOf('/') > 0 || actorName.indexOf('~') > 0) toolNames.add(actorNameToToolName(actorName));
+    }
+    return toolNames;
+}
+
+/** Convenience wrapper: {@link getActors} + {@link getToolsForServerMode} in sequence. */
+export async function loadToolsFromInput(
+    input: Input,
+    apifyClient: ApifyClient,
+    mode: SERVER_MODE = SERVER_MODE.DEFAULT,
+    actorStore?: ActorStore,
+): Promise<ToolEntry[]> {
+    const actorTools = await getActors(input, apifyClient, { actorStore });
+    return getToolsForServerMode(input, actorTools, mode);
+}

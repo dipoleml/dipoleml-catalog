@@ -1,0 +1,104 @@
+{
+  "openGraph": {
+    "title": "Figma: The Collaborative Interface Design Tool",
+    "description": "Figma is the leading collaborative design platform for building meaningful products. Design, prototype, and build products faster—while gathering feedback all in one place.",
+    "url": "https://www.figma.com/",
+    "site_name": "Figma",
+    "image": "https://cdn.sanity.io/images/599r6htc/regionalized/342e17642c7afa81206490b0dd21c3e5724ae040-2400x1260.png?w=1200&q=70&fit=max&auto=format",
+    "image:width": "1200",
+    "image:height": "630",
+    "type": "website"
+  },
+  "twitter": {
+    "card": "summary_large_image",
+    "site": "@figma",
+    "title": "Figma: The Collaborative Interface Design Tool",
+    "description": "Figma is the leading collaborative design platform for building meaningful products. Design, prototype, and build products faster—while gathering feedback all in one place.",
+    "image": "https://cdn.sanity.io/images/599r6htc/regionalized/342e17642c7afa81206490b0dd21c3e5724ae040-2400x1260.png?w=1200&q=70&fit=max&auto=format",
+    "image:width": "1200",
+    "image:height": "630"
+  },
+  "description": "Figma is the leading collaborative design platform for building meaningful products. Design, prototype, and build products faster—while gathering feedback all in one place.",
+  "canonical": null,
+  "themeColor": "#ffffff",
+  "viewport": "width=device-width, initial-scale=1",
+  "favicons": [
+    {
+      "rel": "icon",
+      "href": "https://static.figma.com/app/icon/2/icon-128.png",
+      "sizes": "128x128",
+      "type": ""
+    },
+    {
+      "rel": "icon",
+      "href": "https://static.figma.com/app/icon/2/icon-192.png",
+      "sizes": "192x192",
+      "type": ""
+    },
+    {
+      "rel": "icon",
+      "href": "https://static.figma.com/app/icon/2/icon-256.png",
+      "sizes": "256x256",
+      "type": ""
+    },
+    {
+      "rel": "icon",
+      "href": "https://static.figma.com/app/icon/2/favicon.png",
+      "sizes": "",
+      "type": "image/png"
+    },
+    {
+      "rel": "icon",
+      "href": "https://static.figma.com/app/icon/2/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "rel": "icon",
+      "href": "https://static.figma.com/app/icon/2/favicon.ico",
+      "sizes": "",
+      "type": "image/vnd.microsoft.icon"
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://static.figma.com/app/icon/2/touch-76.png",
+      "sizes": "76x76",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://static.figma.com/app/icon/2/touch-120.png",
+      "sizes": "120x120",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://static.figma.com/app/icon/2/touch-152.png",
+      "sizes": "152x152",
+      "type": ""
+    },
+    {
+      "rel": "apple-touch-icon",
+      "href": "https://static.figma.com/app/icon/2/touch-167.png",
+      "sizes": "167x167",
+      "type": ""
+    }
+  ],
+  "manifest": "https://www.figma.com/manifest.json?v=1",
+  "structuredData": [
+    {
+      "type": "Organization",
+      "name": "Figma",
+      "sample": "{\"@context\":\"https://schema.org\",\"@type\":\"Organization\",\"name\":\"Figma\",\"url\":\"https://www.figma.com\",\"logo\":\"https://static.figma.com/app/icon/2/icon-256.png\",\"sameAs\":[\"https://x.com/figma\",\"https://www.linkedin.com/company/figma\",\"https://www.instagram.com/figma\",\"https://www.facebook.com/figmadesign\",\"https://www.youtube.com/@figma\",\"https://www.tiktok.com/@figma\"],\"contactPoint\":{\"@type\":\"Cont"
+    }
+  ],
+  "score": {
+    "hasOg": true,
+    "hasTwitter": true,
+    "hasDescription": true,
+    "hasCanonical": false,
+    "hasStructuredData": true,
+    "hasFavicon": true,
+    "hasThemeColor": true
+  }
+}

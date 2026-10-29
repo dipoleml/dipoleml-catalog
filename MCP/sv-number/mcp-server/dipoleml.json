@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.sv-number.mcp-server",
+  "type": "mcp",
+  "name": "MCP Server",
+  "slug": "mcp-server",
+  "vendor": "sv-number",
+  "description": "MCP server for AI agents that need a phone number: order a private number in 200+ countries, read the SMS verification code, hand it back. The widest country coverage in the category, and you can check it with one API call.",
+  "version": "1.0.2",
+  "homepage": "https://github.com/sv-number/mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cline",
+    "cursor",
+    "model-context-protocol",
+    "otp",
+    "phone-verification",
+    "sms",
+    "sms-verification",
+    "virtual-phone-number"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "cline",
+    "cursor",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "otp",
+    "phone-verification",
+    "sms",
+    "sms-verification",
+    "typescript",
+    "virtual-phone-number",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sv-number",
+    "brandName": "sv-number",
+    "source": "https://github.com/sv-number.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:41Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sv-number/mcp-server",
+    "url": "https://github.com/sv-number/mcp-server",
+    "commit": "a57f15fb3846287ee2ed5868c516b497919a5a3b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 534,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "sv-number-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "sv-number-mcp"
+    ],
+    "env": [
+      "SVN_API_KEY",
+      "SVN_API_BASE"
+    ],
+    "credentials": [
+      "SVN_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

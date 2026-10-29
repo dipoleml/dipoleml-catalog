@@ -1,0 +1,59 @@
+/* Theme: Nord 极光蓝 (I) */
+[data-theme="nord"] {
+  --color-base: #2e3440;
+  --color-frame: #272c36;
+  --color-bar: #3b4252;
+  --color-content: #2e3440;
+  --color-sidebar: #2e3440;
+  --color-surface: #3b4252;
+  --color-elevated: #434c5e;
+
+  --color-border: #3b4252;
+  --color-border-subtle: #434c5e;
+  --color-border-hover: #4c566a;
+
+  --color-hover: rgba(236, 239, 244, 0.04);
+  --color-active: #434c5e;
+  --color-selected: rgba(136, 192, 208, 0.08);
+  --color-focus-ring: rgba(136, 192, 208, 0.4);
+
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #81a1c1;
+  --text-label: #616e88;
+  --text-disabled: #4c566a;
+
+  --color-accent: #88c0d0;
+  --color-accent-bg: rgba(136, 192, 208, 0.1);
+  --color-accent-border: rgba(136, 192, 208, 0.2);
+
+  --color-success: #a3be8c;
+  --color-success-bg: rgba(163, 190, 140, 0.08);
+  --color-success-border: rgba(163, 190, 140, 0.15);
+
+  --color-info: #81a1c1;
+  --color-info-bg: rgba(129, 161, 193, 0.08);
+  --color-info-border: rgba(129, 161, 193, 0.15);
+
+  --color-warning: #ebcb8b;
+  --color-warning-bg: rgba(235, 203, 139, 0.08);
+  --color-warning-border: rgba(235, 203, 139, 0.15);
+
+  --color-error: #bf616a;
+  --color-error-bg: rgba(191, 97, 106, 0.08);
+  --color-error-border: rgba(191, 97, 106, 0.15);
+
+  --color-primary: #88c0d0;
+  --color-primary-hover: #7ab3c3;
+  --color-primary-text: #2e3440;
+
+  --color-purple: #b48ead;
+  --color-purple-bg: rgba(180, 142, 173, 0.1);
+  --color-orange: #d08770;
+  --color-orange-bg: rgba(208, 135, 112, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.55);
+}

@@ -1,0 +1,294 @@
+import fs from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
+import type { JSONRPCMessage, Transport, TransportSendOptions } from '@modelcontextprotocol/client';
+import type { RecordedMessage } from './record-transport.js';
+
+export interface ReplayTransportOptions {
+  readonly recordPath: string;
+  readonly server: string;
+}
+
+interface ExpectedSend {
+  readonly method: string;
+  readonly params?: unknown;
+  readonly expectsResponse: boolean;
+  response?: JSONRPCMessage;
+  notificationsBeforeResponse?: JSONRPCMessage[];
+  notificationsAfterResponse?: JSONRPCMessage[];
+}
+
+type JsonRpcRecord = Record<string, unknown>;
+
+const CLIENT_IDENTITY_META_KEYS = [
+  'io.modelcontextprotocol/clientInfo',
+  'io.modelcontextprotocol/protocolVersion',
+  'io.modelcontextprotocol/clientCapabilities',
+] as const;
+
+export class ReplayTransport implements Transport {
+  readonly hasPerRequestStream = undefined;
+  onclose?: Transport['onclose'];
+  onerror?: Transport['onerror'];
+  onmessage?: Transport['onmessage'];
+  sessionId?: string;
+
+  private readonly expectedSends: ExpectedSend[];
+  readonly requiresLegacyNegotiation: boolean;
+
+  constructor(private readonly opts: ReplayTransportOptions) {
+    this.expectedSends = buildReplayQueue(readRecordedMessages(opts.recordPath), opts.server);
+    this.requiresLegacyNegotiation = this.expectedSends[0]?.method === 'initialize';
+  }
+
+  async start(): Promise<void> {}
+
+  async send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
+    const request = requestDetails(message);
+    if (!request) {
+      return;
+    }
+
+    const expected = this.expectedSends[0];
+    if (
+      !expected ||
+      expected.method !== request.method ||
+      !paramsMatch(request.method, expected.params, request.params)
+    ) {
+      throw new Error(formatReplayMismatch(this.opts.server, request, expected));
+    }
+
+    this.expectedSends.shift();
+    if (expected.response) {
+      const response = withActiveRequestId(
+        adaptInitializeResponse(request.method, expected.response, request.params),
+        request.id
+      );
+      const inbound = [
+        ...(expected.notificationsBeforeResponse ?? []),
+        response,
+        ...(expected.notificationsAfterResponse ?? []),
+      ];
+      queueMicrotask(() => {
+        for (const inboundMessage of inbound) this.onmessage?.(inboundMessage);
+      });
+    }
+  }
+
+  async close(): Promise<void> {
+    if (this.expectedSends.length > 0) {
+      throw new Error(formatReplayRemainder(this.opts.server, this.expectedSends));
+    }
+    this.onclose?.();
+  }
+}
+
+function readRecordedMessages(recordPath: string): RecordedMessage[] {
+  try {
+    const contents = fs.readFileSync(recordPath, 'utf8');
+    return contents
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line, index) => {
+        try {
+          return JSON.parse(line) as RecordedMessage;
+        } catch (error) {
+          throw new Error(
+            `Invalid JSON on recording line ${index + 1} in ${recordPath}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            { cause: error }
+          );
+        }
+      });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Replay recording not found: ${recordPath}`, { cause: error });
+    }
+    throw error;
+  }
+}
+
+function buildReplayQueue(messages: RecordedMessage[], server: string): ExpectedSend[] {
+  const pendingRequests = new Map<string | number, ExpectedSend>();
+  const expected: ExpectedSend[] = [];
+  let bufferedNotifications: JSONRPCMessage[] = [];
+  let lastResponse: ExpectedSend | undefined;
+
+  for (const entry of messages) {
+    if (entry._meta?.server !== server) {
+      continue;
+    }
+    if (entry._meta.dir === 'lifecycle') {
+      continue;
+    }
+    const clean = stripMeta(entry);
+    if (entry._meta.dir === 'send') {
+      const request = requestDetails(clean);
+      if (!request) {
+        continue;
+      }
+      const expectedSend: ExpectedSend = {
+        method: request.method,
+        params: request.params,
+        expectsResponse: request.id !== undefined,
+      };
+      expected.push(expectedSend);
+      if (request.id !== undefined) {
+        pendingRequests.set(request.id, expectedSend);
+      }
+      continue;
+    }
+    if (entry._meta.dir === 'recv') {
+      if (isInboundNotification(clean)) {
+        bufferedNotifications.push(clean);
+        continue;
+      }
+      const responseId = responseIdOf(clean);
+      if (responseId === undefined) {
+        continue;
+      }
+      const pending = pendingRequests.get(responseId);
+      if (pending) {
+        pendingRequests.delete(responseId);
+        pending.notificationsBeforeResponse = bufferedNotifications;
+        bufferedNotifications = [];
+        pending.response = clean;
+        lastResponse = pending;
+      }
+    }
+  }
+
+  if (lastResponse && bufferedNotifications.length > 0) {
+    lastResponse.notificationsAfterResponse = bufferedNotifications;
+  }
+
+  return expected.filter((entry) => !entry.expectsResponse || entry.response);
+}
+
+function isInboundNotification(message: JSONRPCMessage): boolean {
+  const record = message as JsonRpcRecord;
+  return typeof record.method === 'string' && !('id' in record);
+}
+
+function stripMeta(message: RecordedMessage): JSONRPCMessage {
+  const { _meta, ...jsonrpc } = message;
+  return jsonrpc as JSONRPCMessage;
+}
+
+function requestDetails(message: JSONRPCMessage):
+  | {
+      readonly id?: string | number;
+      readonly method: string;
+      readonly params?: unknown;
+    }
+  | undefined {
+  const record = message as JsonRpcRecord;
+  if (typeof record.method !== 'string') {
+    return undefined;
+  }
+  if (record.method.startsWith('$transport/')) {
+    return undefined;
+  }
+  return {
+    id: typeof record.id === 'string' || typeof record.id === 'number' ? record.id : undefined,
+    method: record.method,
+    params: record.params,
+  };
+}
+
+function responseIdOf(message: JSONRPCMessage): string | number | undefined {
+  const record = message as JsonRpcRecord;
+  if (!('result' in record) && !('error' in record)) {
+    return undefined;
+  }
+  const id = record.id;
+  return typeof id === 'string' || typeof id === 'number' ? id : undefined;
+}
+
+function paramsMatch(method: string, expected: unknown, actual: unknown): boolean {
+  if (method === 'server/discover') {
+    return true;
+  }
+  const normalizedExpected = normalizeClientIdentityMeta(expected);
+  const normalizedActual = normalizeClientIdentityMeta(actual);
+  if (method !== 'initialize') {
+    return isDeepStrictEqual(normalizedExpected, normalizedActual);
+  }
+  return isDeepStrictEqual(normalizeInitializeParams(normalizedExpected), normalizeInitializeParams(normalizedActual));
+}
+
+function normalizeClientIdentityMeta(params: unknown): unknown {
+  if (!isJsonRpcRecord(params) || !isJsonRpcRecord(params._meta)) {
+    return params;
+  }
+  const meta = { ...params._meta };
+  for (const key of CLIENT_IDENTITY_META_KEYS) {
+    delete meta[key];
+  }
+  return { ...params, _meta: meta };
+}
+
+function normalizeInitializeParams(params: unknown): unknown {
+  if (!isJsonRpcRecord(params)) {
+    return params;
+  }
+  const normalized = { ...params };
+  delete normalized.protocolVersion;
+  delete normalized.capabilities;
+  delete normalized.clientInfo;
+  return normalized;
+}
+
+function adaptInitializeResponse(method: string, response: JSONRPCMessage, requestParams: unknown): JSONRPCMessage {
+  if (method !== 'initialize' || !isJsonRpcRecord(requestParams) || !('result' in response)) {
+    return response;
+  }
+  const protocolVersion = requestParams.protocolVersion;
+  if (typeof protocolVersion !== 'string' || !isJsonRpcRecord(response.result)) {
+    return response;
+  }
+
+  // SDK v1.30 accepts supported version mismatches but rejects unknown initialize-result versions.
+  return {
+    ...response,
+    result: { ...response.result, protocolVersion },
+  };
+}
+
+function isJsonRpcRecord(value: unknown): value is JsonRpcRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function withActiveRequestId(response: JSONRPCMessage, requestId: string | number | undefined): JSONRPCMessage {
+  if (requestId === undefined) {
+    return response;
+  }
+  return {
+    ...(response as JsonRpcRecord),
+    id: requestId,
+  } as JSONRPCMessage;
+}
+
+function formatReplayMismatch(
+  server: string,
+  request: { readonly method: string; readonly params?: unknown },
+  expected: ExpectedSend | undefined
+): string {
+  const expectedText = expected
+    ? `${expected.method} ${JSON.stringify(expected.params ?? {})}`
+    : 'no remaining recorded recv';
+  return `Replay mismatch for server '${server}': request ${request.method} ${JSON.stringify(
+    request.params ?? {}
+  )} did not match next expected recv ${expectedText}.`;
+}
+
+function formatReplayRemainder(server: string, expectedSends: readonly ExpectedSend[]): string {
+  const expected = expectedSends[0];
+  const count = expectedSends.length;
+  const requestText = count === 1 ? 'request' : 'requests';
+  const expectedText = expected
+    ? `${expected.method} ${JSON.stringify(expected.params ?? {})}`
+    : 'no remaining recorded recv';
+  return `Replay ended for server '${server}' with ${count} recorded ${requestText} still unused; next expected recv ${expectedText}.`;
+}

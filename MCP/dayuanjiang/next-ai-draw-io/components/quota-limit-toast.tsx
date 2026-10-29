@@ -1,0 +1,129 @@
+"use client"
+
+import { Coffee, Settings, X } from "lucide-react"
+import type React from "react"
+import { GitHubIcon } from "@/components/icons/github"
+import { useDictionary } from "@/hooks/use-dictionary"
+import { formatMessage } from "@/lib/i18n/utils"
+
+interface QuotaLimitToastProps {
+    type?: "request" | "token"
+    used: number
+    limit: number
+    onDismiss: () => void
+    onConfigModel?: () => void
+}
+
+export function QuotaLimitToast({
+    type = "request",
+    used,
+    limit,
+    onDismiss,
+    onConfigModel,
+}: QuotaLimitToastProps) {
+    const dict = useDictionary()
+    const isTokenLimit = type === "token"
+    const isSelfHosted = process.env.NEXT_PUBLIC_SELFHOSTED === "true"
+    const formatNumber = (n: number) =>
+        n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toString()
+
+    const quotaMessage = isTokenLimit
+        ? dict.quota.messageToken
+        : dict.quota.messageApi
+
+    const tipHtml = isSelfHosted ? dict.quota.tipSelfHosted : dict.quota.tip
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Escape") {
+            e.preventDefault()
+            onDismiss()
+        }
+    }
+
+    return (
+        <div
+            role="alert"
+            aria-live="polite"
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+            className="relative w-[400px] overflow-hidden rounded-xl border border-border/50 bg-card p-5 shadow-float animate-message-in"
+        >
+            {/* Close button */}
+            <button
+                onClick={onDismiss}
+                className="absolute right-3 top-3 p-1.5 rounded-full text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+                aria-label="Dismiss"
+            >
+                <X className="w-4 h-4" />
+            </button>
+            {/* Title row with icon */}
+            <div className="flex items-center gap-2.5 mb-3 pr-6">
+                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
+                    <Coffee
+                        className="w-4 h-4 text-accent-foreground"
+                        strokeWidth={2}
+                    />
+                </div>
+                <h3 className="font-semibold text-foreground text-sm">
+                    {isTokenLimit
+                        ? dict.quota.tokenLimit
+                        : dict.quota.dailyLimit}
+                </h3>
+                <span className="px-2 py-0.5 text-xs font-medium rounded-md bg-muted text-muted-foreground">
+                    {formatMessage(dict.quota.usedOf, {
+                        used: formatNumber(used),
+                        limit: formatNumber(limit),
+                    })}
+                </span>
+            </div>
+            {/* Message */}
+            <div className="text-sm text-muted-foreground leading-relaxed mb-4 space-y-2">
+                <p>{quotaMessage}</p>
+                <p
+                    dangerouslySetInnerHTML={{
+                        __html: tipHtml,
+                    }}
+                />
+                <p>{dict.quota.reset}</p>
+            </div>{" "}
+            {/* Action buttons */}
+            <div className="flex items-center gap-2">
+                {onConfigModel && (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            onConfigModel()
+                            onDismiss()
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                    >
+                        <Settings className="w-3.5 h-3.5" />
+                        {dict.quota.configModel}
+                    </button>
+                )}
+                {!isSelfHosted && (
+                    <>
+                        <a
+                            href="https://github.com/DayuanJiang/next-ai-draw-io"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-muted transition-colors"
+                        >
+                            <GitHubIcon className="w-3.5 h-3.5" />
+                            {dict.quota.selfHost}
+                        </a>
+                        <a
+                            href="https://github.com/sponsors/DayuanJiang"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-foreground hover:bg-muted transition-colors"
+                        >
+                            <Coffee className="w-3.5 h-3.5" />
+                            {dict.quota.sponsor}
+                        </a>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}

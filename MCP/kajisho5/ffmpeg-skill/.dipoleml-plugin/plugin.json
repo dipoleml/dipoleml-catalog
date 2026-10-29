@@ -1,0 +1,16 @@
+{
+  "name": "ffmpeg-skill",
+  "displayName": "Ffmpeg Skill",
+  "version": "2.17.3",
+  "description": "Local FFmpeg video/audio editing for coding agents: 42 tools with a machine-readable contract and MCP server, capability detection, probe-first / verify-last workflow. Cut, captions, reframe, loudness, platform exports. No cloud, no API keys.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kajisho5"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kajisho5/ffmpeg-skill",
+  "repository": "https://github.com/kajisho5/ffmpeg-skill",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

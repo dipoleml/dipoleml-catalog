@@ -1,0 +1,38 @@
+import { z } from 'zod';
+import { asMcpError, McpError } from './utils/toolHelpers.js';
+export const method = 'publishMock';
+export const title = 'Publish a mock server';
+export const description = 'Publishes a mock server. Publishing a mock server sets its **Access Control** configuration setting to public.';
+export const parameters = z.object({ mockId: z.string().describe("The mock's ID.") });
+export const annotations = {
+    title: 'Publish a mock server',
+    readOnlyHint: false,
+    openWorldHint: true,
+    destructiveHint: false,
+    idempotentHint: false,
+};
+export async function handler(args, extra) {
+    try {
+        const endpoint = `/mocks/${encodeURIComponent(String(args.mockId))}/publish`;
+        const query = new URLSearchParams();
+        const url = query.toString() ? `${endpoint}?${query.toString()}` : endpoint;
+        const options = {
+            headers: extra.headers,
+        };
+        const result = await extra.client.post(url, options);
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: `${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`,
+                },
+            ],
+        };
+    }
+    catch (e) {
+        if (e instanceof McpError) {
+            throw e;
+        }
+        throw asMcpError(e);
+    }
+}

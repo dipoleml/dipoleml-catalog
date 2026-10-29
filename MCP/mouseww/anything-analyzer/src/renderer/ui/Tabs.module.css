@@ -1,0 +1,76 @@
+.tabs {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.tabBar {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  background: var(--color-bar);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-lg);
+  gap: var(--space-lg);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.tabBar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition-normal);
+  white-space: nowrap;
+  position: relative;
+}
+
+.tab:hover {
+  color: var(--text-secondary);
+}
+
+.tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+
+.tabIcon {
+  display: flex;
+  align-items: center;
+  font-size: var(--font-size-md);
+  opacity: 0.7;
+}
+
+.tabBadge {
+  font-size: var(--font-size-2xs);
+  padding: 1px 5px;
+  border-radius: var(--radius-lg);
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.tabContent {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Extra content on the right side of tab bar */
+.tabBarExtra {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-shrink: 0;
+}

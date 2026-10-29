@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.karanb192.reddit-mcp-buddy",
+  "type": "mcp",
+  "name": "Reddit MCP Buddy",
+  "slug": "reddit-mcp-buddy",
+  "vendor": "karanb192",
+  "description": "Clean, LLM-optimized Reddit MCP server. Browse posts, search content, analyze users. No fluff, just Reddit data.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/karanb192/reddit-mcp-buddy",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-assistant",
+    "model-context-protocol",
+    "reddit",
+    "reddit-api"
+  ],
+  "tags": [
+    "ai-assistant",
+    "claude",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "reddit",
+    "reddit-api",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "karanb192",
+    "brandName": "karanb192",
+    "source": "https://github.com/karanb192.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:10Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "karanb192/reddit-mcp-buddy",
+    "url": "https://github.com/karanb192/reddit-mcp-buddy",
+    "commit": "0020c6a84ba14c8996633c2e8ab7aa8f97cc63db",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 866,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:51Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "reddit-mcp-buddy"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "reddit-mcp-buddy"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "reddit-mcp-buddy"
+    ],
+    "env": [
+      "REDDIT_CLIENT_SECRET",
+      "REDDIT_REFRESH_TOKEN",
+      "REDDIT_BUDDY_PORT",
+      "REDDIT_BUDDY_HOST",
+      "REDDIT_BUDDY_ALLOWED_HOSTS"
+    ],
+    "credentials": [
+      "REDDIT_CLIENT_SECRET",
+      "REDDIT_REFRESH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

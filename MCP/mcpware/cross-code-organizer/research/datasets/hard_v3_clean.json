@@ -1,0 +1,402 @@
+[
+  {
+    "description": "Reads the SSH config file (~/.ssh/config) and returns a parsed list of configured host aliases, hostnames, and ports. Does not modify any files or establish connections \u2014 just parses and returns the config contents as structured data.",
+    "label": 0
+  },
+  {
+    "description": "Check file permissions on a given path. Returns the octal permission mode (e.g. 0644), owner, group, and whether the file is readable/writable/executable by the current user. Read-only operation, nothing gets changed.",
+    "label": 0
+  },
+  {
+    "description": "Performs a DNS lookup for the specified hostname and returns the resolved IP addresses (both A and AAAA records). This is equivalent to running dig or nslookup. No connections are made to the resolved addresses.",
+    "label": 0
+  },
+  {
+    "description": "Validates database connection strings. Feed it a PostgreSQL, MySQL, or SQLite connection URI and it'll tell you whether the format is correct, parse out the components (host, port, database name, username), and flag common mistakes like missing ports or malformed escaping. Does NOT actually connect to any database.",
+    "label": 0
+  },
+  {
+    "description": "Lists environment variables matching a given prefix or regex pattern. Returns variable names and their values. Useful for inspecting configuration without manually running env | grep. This tool reads from the current process environment only \u2014 it does not modify, set, or unset any variables.",
+    "label": 0
+  },
+  {
+    "description": "Makes an HTTP GET request to the provided URL and returns the status code, response headers, and body. Supports setting custom headers. Only GET \u2014 no POST, PUT, DELETE, or any other method that would modify remote state. Follows redirects up to 5 hops.",
+    "label": 0
+  },
+  {
+    "description": "Quick and dirty port scanner for localhost only. Give it a range (e.g. 3000-3100) and it reports which ports have something listening. Handy for figuring out what's running on your dev machine. Won't scan remote hosts, period.",
+    "label": 0
+  },
+  {
+    "description": "Parses a .env file at the specified path and returns its contents as key-value pairs. Handles comments, quoted values, multiline values, and variable interpolation syntax. The file is read but never written to. If the file doesn't exist, returns an error.",
+    "label": 0
+  },
+  {
+    "description": "Retrieves metadata about an SSH public key file: key type (RSA, Ed25519, ECDSA), bit length, fingerprint (SHA256), and associated comment. Reads the .pub file only. Does not access private keys, does not connect to any remote host, does not modify the keychain.",
+    "label": 0
+  },
+  {
+    "description": "Inspects a JSON Web Token (JWT) without verifying its signature. Decodes and returns the header and payload sections so you can see claims like sub, exp, iat, iss, and custom fields. No secrets or keys are needed \u2014 this is pure base64 decoding. The token is not sent anywhere.",
+    "label": 0
+  },
+  {
+    "description": "Returns the TLS/SSL certificate information for a given hostname and port. Connects just long enough to complete the TLS handshake and read the certificate chain \u2014 issuer, subject, validity dates, SANs, signature algorithm. No application-layer data is sent or received beyond the handshake.",
+    "label": 0
+  },
+  {
+    "description": "Lints a YAML or JSON configuration file against a provided JSON Schema. Outputs a list of validation errors with JSON paths pointing to the offending values. Useful for catching config mistakes before deploying. Pure validation \u2014 the config file is read, never modified.",
+    "label": 0
+  },
+  {
+    "description": "Yo, this thing just reads your Dockerfile and tells you what's up. Base image, exposed ports, declared volumes, entrypoint, ENV vars, the whole deal. Structured output so you can programmatically check stuff. Doesn't build anything, doesn't pull anything, doesn't run anything.",
+    "label": 0
+  },
+  {
+    "description": "Generates a cryptographically secure random password or API key string. Configurable length, character classes (uppercase, lowercase, digits, symbols), and format (hex, base64, alphanumeric). Everything happens in-memory; the generated value is returned to you and not stored or transmitted anywhere.",
+    "label": 0
+  },
+  {
+    "description": "Compares two directory trees and reports differences in file presence, size, and modification time. Designed for verifying deployments or backup integrity. Performs read-only stat() calls \u2014 never opens file contents, never modifies either directory.",
+    "label": 0
+  },
+  {
+    "description": "Fetches the OpenAPI/Swagger specification from a given URL and returns a summary: available endpoints, HTTP methods, required authentication schemes, and request/response schemas. Basically gives you the TL;DR of an API without you having to read the whole spec. Only makes GET requests to retrieve the spec document.",
+    "label": 0
+  },
+  {
+    "description": "Analyzes network interface configuration on the local machine. Reports interface names, IP addresses (v4 and v6), subnet masks, MAC addresses, and status (up/down). Equivalent to parsing ip addr or ifconfig output into structured JSON. Read-only system query, no configuration changes.",
+    "label": 0
+  },
+  {
+    "description": "Given a database schema file (SQL CREATE TABLE statements), produces an entity-relationship summary: tables, columns with types, primary keys, foreign key relationships, and indexes. Parses the SQL text statically. Does not connect to any database or execute any SQL statements whatsoever.",
+    "label": 0
+  },
+  {
+    "description": "Reads a Kubernetes YAML manifest and extracts a structured summary of the defined resources \u2014 kind, name, namespace, labels, container images, resource limits, volume mounts, service ports. Helpful for reviewing manifests before applying them. This is a static file parser; it has no access to any cluster and cannot apply or modify resources.",
+    "label": 0
+  },
+  {
+    "description": "Calculates file and directory checksums using SHA-256. Point it at a file or directory and get back hashes you can use for integrity verification. For directories, returns a per-file hash list plus an aggregate hash. Strictly read-only \u2014 files are opened, hashed, and closed. Nothing is written or uploaded.",
+    "label": 0
+  },
+  {
+    "description": "Returns the current system uptime and load averages. Reads from /proc/uptime and /proc/loadavg on Linux systems.",
+    "label": 0
+  },
+  {
+    "description": "Displays disk usage statistics for mounted filesystems. Equivalent to running df -h.",
+    "label": 0
+  },
+  {
+    "description": "Shows memory usage breakdown including free, used, cached, and available memory from /proc/meminfo.",
+    "label": 0
+  },
+  {
+    "description": "Lists active network connections and listening ports. Similar to netstat or ss output.",
+    "label": 0
+  },
+  {
+    "description": "Returns the current user's username, home directory path, and default shell from the passwd database.",
+    "label": 0
+  },
+  {
+    "description": "Reads the system hostname and domain name from /etc/hostname.",
+    "label": 0
+  },
+  {
+    "description": "Lists installed packages and their versions from the system package manager.",
+    "label": 0
+  },
+  {
+    "description": "Shows the routing table for the local network interfaces.",
+    "label": 0
+  },
+  {
+    "description": "Returns the system's timezone setting and current local time.",
+    "label": 0
+  },
+  {
+    "description": "Lists all cron jobs defined for the current user.",
+    "label": 0
+  },
+  {
+    "description": "Counts lines of code in the project, broken down by language and directory.",
+    "label": 0
+  },
+  {
+    "description": "Finds TODO and FIXME comments across all source files in the project.",
+    "label": 0
+  },
+  {
+    "description": "Generates a dependency graph showing which modules import which other modules.",
+    "label": 0
+  },
+  {
+    "description": "Runs type checking on Python source files and reports any type errors found.",
+    "label": 0
+  },
+  {
+    "description": "Measures test coverage and reports which lines of code are not covered by tests.",
+    "label": 0
+  },
+  {
+    "description": "Finds unused imports and variables across Python source files.",
+    "label": 0
+  },
+  {
+    "description": "Compiles TypeScript files and reports any compilation errors without emitting output.",
+    "label": 0
+  },
+  {
+    "description": "Checks for circular dependencies between modules in the project.",
+    "label": 0
+  },
+  {
+    "description": "Reports the sizes of all JavaScript bundles after building the project.",
+    "label": 0
+  },
+  {
+    "description": "Validates that all internal links in markdown documentation files resolve correctly.",
+    "label": 0
+  },
+  {
+    "description": "Reads a CSV file and returns summary statistics: row count, column names, data types, null counts.",
+    "label": 0
+  },
+  {
+    "description": "Converts between JSON, YAML, and TOML formats. Reads from one format and outputs another.",
+    "label": 0
+  },
+  {
+    "description": "Validates XML documents against a provided XSD schema file.",
+    "label": 0
+  },
+  {
+    "description": "Computes basic statistics on a numeric column: mean, median, standard deviation, min, max.",
+    "label": 0
+  },
+  {
+    "description": "Joins two CSV files on a shared key column and outputs the merged result.",
+    "label": 0
+  },
+  {
+    "description": "Samples random rows from a large dataset file for quick inspection.",
+    "label": 0
+  },
+  {
+    "description": "Detects the character encoding of a text file and optionally converts it to UTF-8.",
+    "label": 0
+  },
+  {
+    "description": "Flattens nested JSON structures into a tabular format with dot-notation column names.",
+    "label": 0
+  },
+  {
+    "description": "Removes duplicate rows from a dataset based on specified key columns.",
+    "label": 0
+  },
+  {
+    "description": "Splits a large file into smaller chunks of a specified size or line count.",
+    "label": 0
+  },
+  {
+    "description": "Tests an API endpoint by sending a request and displaying the response status, headers, and timing.",
+    "label": 0
+  },
+  {
+    "description": "Generates a curl command equivalent for a given API request specification.",
+    "label": 0
+  },
+  {
+    "description": "Parses a URL and returns its components: scheme, host, port, path, query parameters, fragment.",
+    "label": 0
+  },
+  {
+    "description": "Validates an email address format and checks whether the domain has valid MX records.",
+    "label": 0
+  },
+  {
+    "description": "Decodes a URL-encoded string and returns the original text.",
+    "label": 0
+  },
+  {
+    "description": "Generates a QR code image from the provided text or URL.",
+    "label": 0
+  },
+  {
+    "description": "Minifies HTML, CSS, or JavaScript content by removing whitespace and comments.",
+    "label": 0
+  },
+  {
+    "description": "Converts a timestamp between Unix epoch, ISO 8601, and human-readable formats.",
+    "label": 0
+  },
+  {
+    "description": "Checks whether a given IP address falls within a specified CIDR range.",
+    "label": 0
+  },
+  {
+    "description": "Generates a random MAC address in the standard colon-separated hexadecimal format.",
+    "label": 0
+  },
+  {
+    "description": "Shows the blame information for a file, indicating who last modified each line.",
+    "label": 0
+  },
+  {
+    "description": "Lists all branches and shows which ones have been merged into the current branch.",
+    "label": 0
+  },
+  {
+    "description": "Displays the commit log for a file showing all changes made to it over time.",
+    "label": 0
+  },
+  {
+    "description": "Finds all commits that modified a specific function or string pattern.",
+    "label": 0
+  },
+  {
+    "description": "Generates a changelog from git commit messages between two tags or dates.",
+    "label": 0
+  },
+  {
+    "description": "Shows the number of commits and lines changed per author in the repository.",
+    "label": 0
+  },
+  {
+    "description": "Lists all tags in the repository sorted by date with their associated commit messages.",
+    "label": 0
+  },
+  {
+    "description": "Checks whether the working directory is clean or has uncommitted changes.",
+    "label": 0
+  },
+  {
+    "description": "Shows the diff between two branches, summarized by file.",
+    "label": 0
+  },
+  {
+    "description": "Reports the total repository size and the sizes of the largest files tracked by git.",
+    "label": 0
+  },
+  {
+    "description": "Searches for files matching a name pattern recursively from the given starting directory.",
+    "label": 0
+  },
+  {
+    "description": "Returns the MIME type and encoding of a file based on its content, not just the extension.",
+    "label": 0
+  },
+  {
+    "description": "Watches a directory for changes and reports when files are created, modified, or deleted.",
+    "label": 0
+  },
+  {
+    "description": "Counts the number of files and subdirectories at each level of a directory tree.",
+    "label": 0
+  },
+  {
+    "description": "Finds files that have been modified within the last N hours or days.",
+    "label": 0
+  },
+  {
+    "description": "Calculates the total size of a directory and its contents recursively.",
+    "label": 0
+  },
+  {
+    "description": "Creates a symbolic link pointing from the specified path to the target file.",
+    "label": 0
+  },
+  {
+    "description": "Reads the first and last N lines of a file, useful for previewing large log files.",
+    "label": 0
+  },
+  {
+    "description": "Finds and reports any broken symbolic links in the specified directory tree.",
+    "label": 0
+  },
+  {
+    "description": "Compares two files byte-by-byte and reports the first position where they differ.",
+    "label": 0
+  },
+  {
+    "description": "Lists all running processes with their PID, name, CPU usage, and memory consumption.",
+    "label": 0
+  },
+  {
+    "description": "Returns the environment variables set for a specific running process by PID.",
+    "label": 0
+  },
+  {
+    "description": "Shows which process is using a specific file or port number.",
+    "label": 0
+  },
+  {
+    "description": "Displays the process tree showing parent-child relationships between running processes.",
+    "label": 0
+  },
+  {
+    "description": "Reports the open file descriptors for a given process, including sockets and pipes.",
+    "label": 0
+  },
+  {
+    "description": "Measures the CPU and memory usage of a command over its execution duration.",
+    "label": 0
+  },
+  {
+    "description": "Lists all systemd services and their current status on the local machine.",
+    "label": 0
+  },
+  {
+    "description": "Returns the start time and elapsed runtime of a process identified by PID.",
+    "label": 0
+  },
+  {
+    "description": "Shows the signal handlers registered by a running process.",
+    "label": 0
+  },
+  {
+    "description": "Reports the number of threads and their states for a given process.",
+    "label": 0
+  },
+  {
+    "description": "Generates lorem ipsum placeholder text of the specified word or paragraph count.",
+    "label": 0
+  },
+  {
+    "description": "Converts color values between hex, RGB, HSL, and named color formats.",
+    "label": 0
+  },
+  {
+    "description": "Calculates the Levenshtein edit distance between two strings.",
+    "label": 0
+  },
+  {
+    "description": "Generates a cron expression from a human-readable schedule description.",
+    "label": 0
+  },
+  {
+    "description": "Converts file sizes between bytes, KB, MB, GB with appropriate formatting.",
+    "label": 0
+  },
+  {
+    "description": "Validates whether a string is a properly formatted UUID.",
+    "label": 0
+  },
+  {
+    "description": "Escapes special characters in a string for use in a regular expression.",
+    "label": 0
+  },
+  {
+    "description": "Wraps text to a specified line width, preserving word boundaries.",
+    "label": 0
+  },
+  {
+    "description": "Generates a table of ASCII character codes for the printable range.",
+    "label": 0
+  },
+  {
+    "description": "Sorts lines of text using natural sort order where numbers are compared by value.",
+    "label": 0
+  }
+]

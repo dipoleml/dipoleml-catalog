@@ -1,0 +1,175 @@
+{
+  "name": "database",
+  "title": "Manage database",
+  "description": "Manage database: create/update/move/delete. `update` is how you expose an existing database on a public port (`is_public` + `public_port`) or change limits/credentials. Credential fields must match the engine (postgres_* on postgresql, and so on); changing any *_user/*_password on update asks for confirmation, since every app holding the old value breaks.",
+  "annotations": {
+    "destructiveHint": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "update",
+          "move",
+          "delete"
+        ]
+      },
+      "type": {
+        "type": "string",
+        "enum": [
+          "postgresql",
+          "mysql",
+          "mariadb",
+          "mongodb",
+          "redis",
+          "keydb",
+          "clickhouse",
+          "dragonfly"
+        ]
+      },
+      "uuid": {
+        "type": "string"
+      },
+      "server_uuid": {
+        "type": "string"
+      },
+      "project_uuid": {
+        "type": "string"
+      },
+      "environment_name": {
+        "type": "string"
+      },
+      "environment_uuid": {
+        "description": "Target environment for `move`; find it with the `environments` tool.",
+        "type": "string"
+      },
+      "destination_uuid": {
+        "description": "Destination UUID. Required if the server has multiple destinations; find it with `list_destinations`.",
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "image": {
+        "type": "string"
+      },
+      "is_public": {
+        "description": "Expose on a public port. `true` asks for confirmation first, on create and update.",
+        "type": "boolean"
+      },
+      "public_port": {
+        "description": "Public port. On update, null clears the assigned port.",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "public_port_timeout": {
+        "description": "Update only",
+        "type": "number"
+      },
+      "limits_memory": {
+        "description": "Update only, e.g. \"512m\". limits_* take effect after a `control` restart.",
+        "type": "string"
+      },
+      "limits_memory_swap": {
+        "description": "Update only",
+        "type": "string"
+      },
+      "limits_memory_swappiness": {
+        "description": "Update only",
+        "type": "number"
+      },
+      "limits_memory_reservation": {
+        "description": "Update only",
+        "type": "string"
+      },
+      "limits_cpus": {
+        "description": "Update only, e.g. \"1.5\"",
+        "type": "string"
+      },
+      "limits_cpuset": {
+        "description": "Update only",
+        "type": "string"
+      },
+      "limits_cpu_shares": {
+        "description": "Update only",
+        "type": "number"
+      },
+      "instant_deploy": {
+        "type": "boolean"
+      },
+      "delete_volumes": {
+        "type": "boolean"
+      },
+      "postgres_user": {
+        "type": "string"
+      },
+      "postgres_password": {
+        "type": "string"
+      },
+      "postgres_db": {
+        "type": "string"
+      },
+      "mysql_root_password": {
+        "type": "string"
+      },
+      "mysql_user": {
+        "type": "string"
+      },
+      "mysql_password": {
+        "type": "string"
+      },
+      "mysql_database": {
+        "type": "string"
+      },
+      "mariadb_root_password": {
+        "type": "string"
+      },
+      "mariadb_user": {
+        "type": "string"
+      },
+      "mariadb_password": {
+        "type": "string"
+      },
+      "mariadb_database": {
+        "type": "string"
+      },
+      "mongo_initdb_root_username": {
+        "type": "string"
+      },
+      "mongo_initdb_root_password": {
+        "type": "string"
+      },
+      "mongo_initdb_database": {
+        "type": "string"
+      },
+      "redis_password": {
+        "type": "string"
+      },
+      "keydb_password": {
+        "type": "string"
+      },
+      "clickhouse_admin_user": {
+        "type": "string"
+      },
+      "clickhouse_admin_password": {
+        "type": "string"
+      },
+      "dragonfly_password": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": {}
+  }
+}

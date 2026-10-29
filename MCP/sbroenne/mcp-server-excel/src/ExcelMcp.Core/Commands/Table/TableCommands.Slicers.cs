@@ -1,0 +1,674 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
+
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Commands.Slicer;
+using Sbroenne.ExcelMcp.Core.Models;
+using Excel = Microsoft.Office.Interop.Excel;
+
+namespace Sbroenne.ExcelMcp.Core.Commands.Table;
+
+/// <summary>
+/// Table slicer operations (CreateTableSlicer, ListTableSlicers, SetTableSlicerSelection, DeleteTableSlicer)
+/// </summary>
+public partial class TableCommands
+{
+
+    /// <inheritdoc />
+    internal static SlicerResult CreateTableSlicer(IExcelBatch batch, string tableName,
+        string columnName, string slicerName, string destinationSheet, string position)
+    {
+        ValidateRequiredTableName(tableName);
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.ListObject? table = null;
+            Excel.SlicerCaches? slicerCaches = null;
+            Excel.SlicerCache? slicerCache = null;
+            Excel.Slicers? slicers = null;
+            Excel.Slicer? slicer = null;
+            Excel.Worksheet? destSheet = null;
+            Excel.Range? destRange = null;
+
+            try
+            {
+                table = FindTable(ctx.Book, tableName);
+                slicerCaches = ctx.Book.SlicerCaches;
+
+                // Validate the column exists in the table before creating slicer
+                if (!TableColumnExists(table, columnName))
+                {
+                    return new SlicerResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"Column '{columnName}' not found in table '{tableName}'"
+                    };
+                }
+
+                // Check everything that can fail before Excel creates a slicer cache:
+                // a cache created for a request that then fails stays in the workbook.
+                SlicerPlacement.ValidateNewControlName(slicerCaches, slicerName, ct);
+                (destSheet, destRange) = SlicerPlacement.ResolveDestination(ctx.Book, destinationSheet, position, ct);
+
+                // Get position in points from the cell reference
+                double top = Convert.ToDouble((object)destRange.Top, CultureInfo.InvariantCulture);
+                double left = Convert.ToDouble((object)destRange.Left, CultureInfo.InvariantCulture);
+
+                // Check if a SlicerCache already exists for this column on this table
+                slicerCache = FindExistingTableSlicerCache(slicerCaches, table, columnName);
+                bool createdCache = false;
+
+                if (slicerCache == null)
+                {
+                    // Create new SlicerCache for this column
+                    // Use the deprecated SlicerCaches.Add(source, sourceField) method for Table slicers
+                    // The Add method (without SlicerCacheType) accepts ListObject as source
+                    // Note: Add2 does NOT accept ListObject per Microsoft documentation
+                    slicerCache = slicerCaches.Add(table, columnName);
+                    createdCache = true;
+                }
+
+                // Add visual Slicer to the cache
+                // Slicers.Add(SlicerDestination, Level, Name, Caption, Top, Left, Width, Height)
+                // For non-OLAP sources, Level should be Type.Missing or omitted
+                slicers = slicerCache.Slicers;
+                try
+                {
+                    slicer = slicers.Add(destSheet, Type.Missing, slicerName, slicerName, top, left);
+                }
+                catch (Exception ex) when (createdCache && CreatedObjectFailure.CanReport(ex))
+                {
+                    throw SlicerPlacement.LeftoverCache(slicerCache, columnName, ex);
+                }
+
+                // Build result
+                var result = BuildTableSlicerResult(slicer, slicerCache, columnName, tableName);
+                result.Success = true;
+                result.WorkflowHint = $"Slicer '{slicerName}' created for column '{columnName}' in table '{tableName}'. Use SetTableSlicerSelection to filter data.";
+
+                return result;
+            }
+            finally
+            {
+                ComUtilities.Release(ref destRange);
+                ComUtilities.Release(ref destSheet);
+                ComUtilities.Release(ref slicer);
+                ComUtilities.Release(ref slicers);
+                ComUtilities.Release(ref slicerCache);
+                ComUtilities.Release(ref slicerCaches);
+                ComUtilities.Release(ref table);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    internal static SlicerListResult ListTableSlicers(IExcelBatch batch, string? tableName = null)
+    {
+        if (tableName != null)
+        {
+            ValidateRequiredTableName(tableName);
+        }
+
+        return batch.Execute((ctx, ct) =>
+        {
+            var result = new SlicerListResult { Success = true };
+            Excel.SlicerCaches? slicerCaches = null;
+            Excel.ListObject? targetTable = null;
+
+            try
+            {
+                slicerCaches = ctx.Book.SlicerCaches;
+
+                // If filtering by Table, find it first
+                if (!string.IsNullOrEmpty(tableName))
+                {
+                    targetTable = FindTable(ctx.Book, tableName);
+                }
+
+                for (int cacheIndex = 1; cacheIndex <= slicerCaches.Count; cacheIndex++)
+                {
+                    Excel.SlicerCache? cache = null;
+                    Excel.Slicers? slicers = null;
+
+                    try
+                    {
+                        cache = slicerCaches[cacheIndex];
+
+                        // Check if this is a Table slicer using the List boolean property
+                        // SlicerCache.List returns true if the slicer is connected to a ListObject (Table)
+                        bool isTableSlicer = false;
+                        try
+                        {
+                            isTableSlicer = cache.List;
+                        }
+                        catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+                        {
+                            // List property not available - not a Table slicer
+                            isTableSlicer = false;
+                        }
+
+                        if (!isTableSlicer)
+                        {
+                            continue; // Skip non-Table slicers (e.g., PivotTable slicers)
+                        }
+
+                        // If filtering by Table, check if this cache is connected to it
+                        if (targetTable != null && !IsSlicerCacheConnectedToTable(cache, targetTable))
+                        {
+                            continue;
+                        }
+
+                        // Get the connected table name
+                        string connectedTableName = GetSlicerCacheTableName(cache);
+
+                        slicers = cache.Slicers;
+                        if (slicers is null)
+                            throw new InvalidOperationException("Excel returned no slicers collection for the table slicer cache.");
+                        for (int slicerIndex = 1; slicerIndex <= slicers.Count; slicerIndex++)
+                        {
+                            Excel.Slicer? slicer = null;
+                            try
+                            {
+                                slicer = slicers[slicerIndex];
+                                var slicerInfo = BuildTableSlicerInfo(slicer, cache, connectedTableName);
+                                result.Slicers.Add(slicerInfo);
+                            }
+                            finally
+                            {
+                                ComUtilities.Release(ref slicer);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref slicers);
+                        ComUtilities.Release(ref cache);
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                ComUtilities.Release(ref targetTable);
+                ComUtilities.Release(ref slicerCaches);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    internal static SlicerResult SetTableSlicerSelection(IExcelBatch batch, string slicerName,
+        List<string> selectedItems, bool clearFirst = true)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.SlicerCaches? slicerCaches = null;
+            Excel.SlicerCache? targetCache = null;
+            Excel.Slicer? targetSlicer = null;
+
+            try
+            {
+                slicerCaches = ctx.Book.SlicerCaches;
+
+                // Find the slicer by name (searching Table slicers only)
+                var searchResult = FindTableSlicerByName(slicerCaches, slicerName);
+                targetCache = searchResult.Cache;
+                targetSlicer = searchResult.Slicer;
+
+                if (targetSlicer == null || targetCache == null)
+                {
+                    return new SlicerResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"Table slicer '{slicerName}' not found in workbook"
+                    };
+                }
+
+                // If no items specified, select all (clear filter)
+                bool selectAll = selectedItems.Count == 0;
+
+                SlicerSelection.SetNonOlapSelection(targetCache, selectedItems, clearFirst, ct);
+
+                // Build result with updated state
+                string columnName = GetSlicerCacheColumnName(targetCache);
+                string connectedTableName = GetSlicerCacheTableName(targetCache);
+                var result = BuildTableSlicerResult(targetSlicer, targetCache, columnName, connectedTableName);
+                result.Success = true;
+                result.WorkflowHint = selectAll
+                    ? $"Table slicer '{slicerName}' filter cleared - all items are now visible."
+                    : $"Table slicer '{slicerName}' selection updated to {selectedItems.Count} item(s).";
+
+                return result;
+            }
+            finally
+            {
+                ComUtilities.Release(ref targetSlicer);
+                ComUtilities.Release(ref targetCache);
+                ComUtilities.Release(ref slicerCaches);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    internal static OperationResult DeleteTableSlicer(IExcelBatch batch, string slicerName)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.SlicerCaches? slicerCaches = null;
+            Excel.SlicerCache? targetCache = null;
+            Excel.Slicer? targetSlicer = null;
+
+            try
+            {
+                slicerCaches = ctx.Book.SlicerCaches;
+
+                // Find the slicer by name (searching Table slicers only)
+                var searchResult = FindTableSlicerByName(slicerCaches, slicerName);
+                targetCache = searchResult.Cache;
+                targetSlicer = searchResult.Slicer;
+
+                if (targetSlicer == null)
+                {
+                    return new OperationResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"Table slicer '{slicerName}' not found in workbook"
+                    };
+                }
+
+                // Delete the visual slicer
+                targetSlicer.Delete();
+
+                // Note: The SlicerCache will be automatically deleted if this was the last slicer
+                // connected to it. Excel handles this automatically.
+
+                return new OperationResult { Success = true };
+            }
+            finally
+            {
+                ComUtilities.Release(ref targetSlicer);
+                ComUtilities.Release(ref targetCache);
+                ComUtilities.Release(ref slicerCaches);
+            }
+        });
+    }
+
+    #region Table Slicer Helper Methods
+
+    /// <summary>
+    /// Checks if a column with the given name exists in the table
+    /// </summary>
+    /// <param name="table">The table (ListObject) to check</param>
+    /// <param name="columnName">The column name to search for</param>
+    /// <returns>True if the column exists, false otherwise</returns>
+    private static bool TableColumnExists(Excel.ListObject table, string columnName)
+    {
+        Excel.ListColumns? listColumns = null;
+        try
+        {
+            listColumns = table.ListColumns;
+            for (int i = 1; i <= listColumns.Count; i++)
+            {
+                Excel.ListColumn? column = null;
+                try
+                {
+                    column = listColumns[i];
+                    string name = column.Name?.ToString() ?? string.Empty;
+                    if (string.Equals(name, columnName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                finally
+                {
+                    ComUtilities.Release(ref column);
+                }
+            }
+            return false;
+        }
+        finally
+        {
+            ComUtilities.Release(ref listColumns);
+        }
+    }
+
+    /// <summary>
+    /// Result of searching for a table slicer by name
+    /// </summary>
+    private readonly struct TableSlicerSearchResult
+    {
+        public Excel.SlicerCache? Cache { get; init; }
+        public Excel.Slicer? Slicer { get; init; }
+    }
+
+    /// <summary>
+    /// Finds an existing SlicerCache for a column on a specific Table
+    /// </summary>
+    private static Excel.SlicerCache? FindExistingTableSlicerCache(Excel.SlicerCaches slicerCaches, Excel.ListObject table, string columnName)
+    {
+        for (int i = 1; i <= slicerCaches.Count; i++)
+        {
+            Excel.SlicerCache? cache = null;
+            try
+            {
+                cache = slicerCaches[i];
+
+                // Check if this is a Table slicer using the List boolean property
+                bool isTableSlicer = false;
+                try
+                {
+                    isTableSlicer = cache.List;
+                }
+                catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+                {
+                    // List property doesn't exist on PivotTable slicer caches
+                    isTableSlicer = false;
+                }
+
+                if (!isTableSlicer)
+                {
+                    continue;
+                }
+
+                // Check if cache is for the same column
+                string cacheColumnName = GetSlicerCacheColumnName(cache);
+                if (!string.Equals(cacheColumnName, columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Check if this cache is connected to our Table
+                if (IsSlicerCacheConnectedToTable(cache, table))
+                {
+                    var result = cache;
+                    cache = null;
+                    return result;
+                }
+            }
+            catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+            {
+                continue;
+            }
+            finally
+            {
+                ComUtilities.Release(ref cache);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the source column name from a Table SlicerCache.
+    /// Precondition: cache.List == true (verified by caller)
+    /// </summary>
+    private static string GetSlicerCacheColumnName(Excel.SlicerCache cache)
+    {
+        // Per MS docs: SourceName returns the field name for table slicers
+        // https://learn.microsoft.com/en-us/office/vba/api/excel.slicercache.sourcename
+        string? sourceName = cache.SourceName?.ToString();
+        if (!string.IsNullOrEmpty(sourceName))
+            return sourceName;
+
+        // Fallback: parse from cache name (usually "Slicer_ColumnName" format)
+        string cacheName = cache.Name?.ToString() ?? string.Empty;
+        if (cacheName.StartsWith("Slicer_", StringComparison.OrdinalIgnoreCase))
+        {
+            return cacheName[7..]; // Remove "Slicer_" prefix
+        }
+        return cacheName;
+    }
+
+    /// <summary>
+    /// Gets the connected Table name from a SlicerCache.
+    /// Precondition: cache.List == true (verified by caller)
+    /// </summary>
+    private static string GetSlicerCacheTableName(Excel.SlicerCache cache)
+    {
+        // Per MS docs: ListObject returns the Table for table slicers
+        // https://learn.microsoft.com/en-us/office/vba/api/excel.slicercache.listobject
+        Excel.ListObject? listObject = null;
+        try
+        {
+            listObject = cache.ListObject;
+            return listObject?.Name?.ToString() ?? string.Empty;
+        }
+        finally
+        {
+            ComUtilities.Release(ref listObject);
+        }
+    }
+
+    /// <summary>
+    /// Checks if a SlicerCache is connected to a specific Table.
+    /// Precondition: cache.List == true (verified by caller)
+    /// </summary>
+    private static bool IsSlicerCacheConnectedToTable(Excel.SlicerCache cache, Excel.ListObject table)
+    {
+        // Per MS docs: ListObject returns the Table for table slicers
+        Excel.ListObject? cacheListObject = null;
+        try
+        {
+            cacheListObject = cache.ListObject;
+            if (cacheListObject == null)
+                return false;
+
+            string cacheTableName = cacheListObject.Name?.ToString() ?? string.Empty;
+            string targetTableName = table.Name?.ToString() ?? string.Empty;
+
+            return string.Equals(cacheTableName, targetTableName, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            ComUtilities.Release(ref cacheListObject);
+        }
+    }
+
+    /// <summary>
+    /// Finds a Table slicer by name
+    /// </summary>
+    private static TableSlicerSearchResult FindTableSlicerByName(Excel.SlicerCaches slicerCaches, string slicerName)
+    {
+        for (int cacheIndex = 1; cacheIndex <= slicerCaches.Count; cacheIndex++)
+        {
+            Excel.SlicerCache? cache = null;
+            Excel.Slicers? slicers = null;
+
+            try
+            {
+                cache = slicerCaches[cacheIndex];
+
+                // Check if this is a Table slicer using the List boolean property
+                bool isTableSlicer = false;
+                try
+                {
+                    isTableSlicer = cache.List;
+                }
+                catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+                {
+                    // List property doesn't exist on PivotTable slicer caches
+                    isTableSlicer = false;
+                }
+
+                if (!isTableSlicer)
+                {
+                    continue;
+                }
+
+                slicers = cache.Slicers;
+                for (int slicerIndex = 1; slicerIndex <= slicers!.Count; slicerIndex++)
+                {
+                    Excel.Slicer? slicer = null;
+                    try
+                    {
+                        slicer = slicers[slicerIndex];
+                        string name = slicer.Name?.ToString() ?? string.Empty;
+
+                        if (string.Equals(name, slicerName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var result = new TableSlicerSearchResult { Cache = cache, Slicer = slicer };
+                            cache = null;
+                            slicer = null;
+                            return result;
+                        }
+                    }
+                    catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+                    {
+                        continue;
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref slicer);
+                    }
+                }
+            }
+            catch (COMException ex) when (ComErrors.IsMemberUnavailable(ex))
+            {
+                continue;
+            }
+            finally
+            {
+                ComUtilities.Release(ref slicers);
+                ComUtilities.Release(ref cache);
+            }
+        }
+
+        return new TableSlicerSearchResult { Cache = null, Slicer = null };
+    }
+
+    /// <summary>
+    /// Builds a SlicerInfo object for a Table slicer
+    /// </summary>
+    private static SlicerInfo BuildTableSlicerInfo(Excel.Slicer slicer, Excel.SlicerCache cache, string tableName)
+    {
+        Excel.Worksheet? parent = null;
+        Excel.SlicerItems? slicerItems = null;
+
+        try
+        {
+            parent = (Excel.Worksheet)(object)slicer.Parent;
+            slicerItems = cache.SlicerItems;
+
+            var info = new SlicerInfo
+            {
+                Name = slicer.Name?.ToString() ?? string.Empty,
+                Caption = slicer.Caption?.ToString() ?? string.Empty,
+                FieldName = GetSlicerCacheColumnName(cache),
+                SheetName = parent?.Name?.ToString() ?? string.Empty,
+                Position = GetSlicerPosition(slicer),
+                ColumnCount = slicer.NumberOfColumns,
+                ConnectedTable = tableName,
+                SourceType = "Table"
+            };
+
+            // Collect selected and available items
+            for (int i = 1; i <= slicerItems.Count; i++)
+            {
+                Excel.SlicerItem? item = null;
+                try
+                {
+                    item = slicerItems[i];
+                    string itemName = item.Name?.ToString() ?? string.Empty;
+                    info.AvailableItems.Add(itemName);
+
+                    bool isSelected = item.Selected;
+                    if (isSelected)
+                    {
+                        info.SelectedItems.Add(itemName);
+                    }
+                }
+                finally
+                {
+                    ComUtilities.Release(ref item);
+                }
+            }
+
+            return info;
+        }
+        finally
+        {
+            ComUtilities.Release(ref slicerItems);
+            ComUtilities.Release(ref parent);
+        }
+    }
+
+    /// <summary>
+    /// Builds a SlicerResult object for a Table slicer operation
+    /// </summary>
+    private static SlicerResult BuildTableSlicerResult(Excel.Slicer slicer, Excel.SlicerCache cache, string columnName, string tableName)
+    {
+        Excel.Worksheet? parent = null;
+        Excel.SlicerItems? slicerItems = null;
+
+        try
+        {
+            parent = (Excel.Worksheet)(object)slicer.Parent;
+            slicerItems = cache.SlicerItems;
+
+            var result = new SlicerResult
+            {
+                Name = slicer.Name?.ToString() ?? string.Empty,
+                Caption = slicer.Caption?.ToString() ?? string.Empty,
+                FieldName = columnName,
+                SheetName = parent?.Name?.ToString() ?? string.Empty,
+                Position = GetSlicerPosition(slicer),
+                ConnectedTable = tableName,
+                SourceType = "Table"
+            };
+
+            // Collect selected and available items
+            for (int i = 1; i <= slicerItems.Count; i++)
+            {
+                Excel.SlicerItem? item = null;
+                try
+                {
+                    item = slicerItems[i];
+                    string itemName = item.Name?.ToString() ?? string.Empty;
+                    result.AvailableItems.Add(itemName);
+
+                    bool isSelected = item.Selected;
+                    if (isSelected)
+                    {
+                        result.SelectedItems.Add(itemName);
+                    }
+                }
+                finally
+                {
+                    ComUtilities.Release(ref item);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            ComUtilities.Release(ref slicerItems);
+            ComUtilities.Release(ref parent);
+        }
+    }
+
+    /// <summary>
+    /// Gets the position string for a slicer (e.g., "H2")
+    /// </summary>
+    private static string GetSlicerPosition(Excel.Slicer slicer)
+    {
+        // Per Microsoft docs: TopLeftCell is on Shape object, not Slicer
+        // https://learn.microsoft.com/en-us/office/vba/api/excel.shape.topleftcell
+        Excel.Shape? shape = null;
+        Excel.Range? topLeftCell = null;
+        try
+        {
+            shape = slicer.Shape;
+            topLeftCell = shape.TopLeftCell;
+            return topLeftCell?.Address?.ToString()?.Replace("$", "") ?? string.Empty;
+        }
+        finally
+        {
+            ComUtilities.Release(ref topLeftCell);
+            ComUtilities.Release(ref shape);
+        }
+    }
+
+    #endregion
+}

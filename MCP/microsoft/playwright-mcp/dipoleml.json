@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.microsoft.playwright-mcp",
+  "type": "mcp",
+  "name": "Playwright MCP",
+  "slug": "playwright-mcp",
+  "vendor": "microsoft",
+  "description": "Playwright MCP server",
+  "version": "0.0.83",
+  "homepage": "https://github.com/microsoft/playwright-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "playwright"
+  ],
+  "tags": [
+    "mcp",
+    "playwright"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "playwright",
+    "brandName": "playwright",
+    "source": "https://github.com/microsoft.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-28T23:04:25Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "microsoft/playwright-mcp",
+    "url": "https://github.com/microsoft/playwright-mcp",
+    "commit": "0c4107acbecb75472b23c05c0e42471a0011874f",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 38771,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "cli.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "@playwright/mcp"
+    ],
+    "env": [
+      "PLAYWRIGHT_MCP_ALLOWED_HOSTS",
+      "PLAYWRIGHT_MCP_CDP_HEADERS",
+      "PLAYWRIGHT_MCP_HOST",
+      "PLAYWRIGHT_MCP_PORT",
+      "PLAYWRIGHT_MCP_SECRETS_FILE",
+      "PLAYWRIGHT_MCP_VIEWPORT_SIZE",
+      "IMPORTANT"
+    ],
+    "credentials": [
+      "PLAYWRIGHT_MCP_SECRETS_FILE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

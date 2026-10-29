@@ -1,0 +1,267 @@
+{% extends "_data_processor_base.md.jinja" %}
+
+{% block how_it_works %}
+## How it works
+
+Two decisions, and they are independent. **Which rows belong together** is the
+mode — one mutually-exclusive argument. **What the merged event is called** is
+`name`, which works the same way whichever mode produced the group. Toy paths
+for each below.
+
+## Choosing the chunks
+
+Every mode below answers one question — *which rows belong together* — and
+exactly one of them may be given. `loops` and `group_col` group **adjacent rows
+sharing a value**: the same event repeating, or the same value of a column.
+`event_groups` and `bounds` cut the path into **windows** instead, `bounds`
+spelled as in [Split Sessions](/docs/data-processors/split-sessions).
+
+What the merged event is *called* is a separate question, answered by `name` —
+see [Naming the merged event](#naming-the-merged-event) below.
+
+### loops
+
+Collapses each **self-loop** — a run of the same event repeating — into one
+row, keeping the run's first timestamp. This is the `A → A` you see on a
+[Transition Graph](/docs/widgets/transition-graph).
+
+Before: `page_view → page_view → page_view → click → click → product_view`
+
+```python
+stream.collapse_events(loops=True)
+```
+
+After — every run collapses, regardless of which event it is:
+
+`page_view → click → product_view`
+
+```python
+stream.collapse_events(loops=["page_view"])
+```
+
+After — only `page_view` runs collapse; the two `click` events are left alone
+since `click` isn't in the list:
+
+`page_view → click → click → product_view`
+
+### event_groups
+
+The events that belong to one group: any run drawn from the set collapses into
+a single event, wherever it occurs — they don't need to be adjacent to *each
+other* in the parameter, just adjacent in the path. Events outside the set pass
+through unchanged and end a run.
+
+This is the difference from `loops`, which the two names now carry:
+`event_groups=["a", "b"]` merges `a, a, b, b` into one event, `loops=["a", "b"]`
+into two.
+
+Before: `home → payment_details → shipping_details → review_page → purchase`
+
+```python
+stream.collapse_events(
+    event_groups=["payment_details", "shipping_details", "review_page"],
+    name="checkout",
+)
+```
+
+After: `home → checkout → purchase`
+
+### bounds
+
+A window is every event between a `start_event` and the next `end_event`,
+inclusive of both.
+
+Before: `home → checkout_start → payment_details → checkout_complete → confirmation_page`
+
+```python
+stream.collapse_events(
+    bounds={"start_event": "checkout_start", "end_event": "checkout_complete"},
+    name="checkout",
+)
+```
+
+After: `home → checkout → confirmation_page`
+
+### group_col
+
+Collapses each run of consecutive rows sharing the same value of a column.
+A *run*, not every row carrying the value: a value that comes back later in the
+path is a second event, not one event stretched across the gap in between.
+
+Before: `home → catalog → search → add_to_cart → purchase`, with
+`screen_type` = `browse, browse, browse, action, action`
+
+```python
+stream.collapse_events(group_col="screen_type")
+```
+
+After — three `browse` rows collapse into one `browse` event, and the two
+`action` rows collapse into one `action` event:
+
+`browse → action`
+
+Sessions are the same shape, since a session id is constant for a run of rows:
+`group_col="session_id"` gives one event per session. On its own that names each
+event after the session id, which is rarely what you want — pair it with `name`
+below.
+
+### Inactivity is two steps, not a mode
+
+Breaking on a time gap is [Split Sessions](/docs/data-processors/split-sessions)'
+job. It writes the boundary into a column, and `group_col` collapses that column:
+
+```python
+stream.split_sessions(timeout="30m").collapse_events(group_col="session_id", name="burst")
+```
+
+Written this way each step says what it does, and the intermediate session
+column stays available for everything else — a funnel per session, a metric,
+a diff. A `timeout` argument on this processor would have hidden the same two
+operations behind one word.
+
+## Naming the merged event
+
+`name` is orthogonal to every mode above: the mode decides *what* is merged,
+`name` decides what the result is called. It takes three forms.
+
+{{ bullets(doc.parameters, "name") }}
+
+### A literal
+
+`name="checkout"` — every group the mode produced becomes an event with that
+name. Required for the window modes, which have no name of their own to fall
+back on. `loops` defaults to the repeated event's name, `group_col` to the
+value of the column it grouped on.
+
+### Another column's value
+
+Before: `home → catalog → add_to_cart → purchase`, with `session_id` =
+`s1, s1, s2, s2` and `session_kind` = `browsing_session, browsing_session,
+buying_session, buying_session`
+
+```python
+stream.collapse_events(group_col="session_id", name={"col": "session_kind"})
+```
+
+After — each session becomes a single event named after its type, at the
+session's first timestamp:
+
+`browsing_session → buying_session`
+
+### Conditions on what happened inside
+
+A list of cases names a group by what its own events were — each condition is a
+[Filter Paths](/docs/data-processors/filter-paths)-style condition evaluated
+against only that group's events. A plain string as the last entry is the
+fallback for groups no case matched; without one, the mode's own default name
+is used.
+
+Before — two independent checkout windows, one that reached `purchase` and one
+that didn't:
+
+- user 1: `checkout_start → payment_details → purchase → checkout_end`
+- user 2: `checkout_start → payment_details → checkout_end`
+
+```python
+stream.collapse_events(
+    bounds={"start_event": "checkout_start", "end_event": "checkout_end"},
+    name=[
+        {
+            "condition": {"op": "=", "metric": "has_event", "value": True,
+                          "metric_args": {"event": "purchase"}},
+            "name": "successful_checkout",
+        },
+        "abandoned_checkout",  # fallback for groups no case matched
+    ],
+)
+```
+
+After — the label depends on whether `purchase` occurred inside each group:
+
+- user 1: `successful_checkout`
+- user 2: `abandoned_checkout`
+
+A condition comparing a 0/1 metric with `True` can use the
+[shorthand leaf](/docs/path-metrics#shorthand-leaves) — the case above is also
+written `{"condition": {"has_event": "purchase"}, "name": "successful_checkout"}`.
+Cases support the metrics computable from a group's own events: `has_event`,
+`event_count`, `has_all_events`, `has_any_event`, `duration`, `length`,
+`time_between` and `active_days`. `matches_pattern` and `in_segment` are not
+among them, shorthand or not.
+
+Because naming is orthogonal, the same list works on any mode. On `group_col` it is
+the one-liner for "name each session by what it did", which otherwise takes an
+`add_segment` with a windowed SQL query first:
+
+```python
+stream.collapse_events(
+    group_col="session_id",
+    name=[
+        {"condition": {"op": "=", "metric": "has_event", "value": True,
+                       "metric_args": {"event": "purchase"}},
+         "name": "buying_session"},
+        "browsing_session",
+    ],
+)
+```
+
+## Collapsing more than once
+
+One call collapses one way. To apply several, chain the calls — every processor
+returns a new eventstream, and each call sees the *output* of the one before it,
+so a later collapse can match an event name an earlier one created:
+
+```python
+(
+    stream
+    .collapse_events(event_groups=["payment_details", "shipping_details"], name="checkout_details")
+    .collapse_events(event_groups=["checkout_details", "review_page"], name="checkout")
+)
+```
+
+Before: `payment_details → shipping_details → review_page → purchase`, after:
+`checkout → purchase`.
+
+## agg
+
+By default, every non-event column takes its **first** value within the
+merged rows (ordered by timestamp). `agg` overrides this per column with one
+of `"first"`, `"last"`, `"min"`, `"max"`, `"mean"`, `"mode"`, `"any"`.
+
+Before — a `price` column alongside three consecutive `add_to_cart` events:
+
+| user_id | event | timestamp | price |
+|---|---|---|---|
+| u1 | add_to_cart | 00:00:00 | 10 |
+| u1 | add_to_cart | 00:00:05 | 25 |
+| u1 | add_to_cart | 00:00:09 | 15 |
+| u1 | purchase | 00:00:20 | 50 |
+
+```python
+stream.collapse_events(loops=True)  # no agg: price takes the first value
+```
+
+| user_id | event | timestamp | price |
+|---|---|---|---|
+| u1 | add_to_cart | 00:00:00 | 10 |
+| u1 | purchase | 00:00:20 | 50 |
+
+```python
+stream.collapse_events(loops=True, agg={"price": "max"})
+```
+
+| user_id | event | timestamp | price |
+|---|---|---|---|
+| u1 | add_to_cart | 00:00:00 | 25 |
+| u1 | purchase | 00:00:20 | 50 |
+
+```python
+stream.collapse_events(loops=True, agg={"price": "mean"})
+```
+
+| user_id | event | timestamp | price |
+|---|---|---|---|
+| u1 | add_to_cart | 00:00:00 | 16.67 |
+| u1 | purchase | 00:00:20 | 50 |
+
+{% endblock %}

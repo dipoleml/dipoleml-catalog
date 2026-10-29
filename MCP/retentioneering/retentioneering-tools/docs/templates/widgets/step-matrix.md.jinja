@@ -1,0 +1,106 @@
+{% extends "_widget_base.md.jinja" %}
+
+{% block how_it_works %}
+## How it works
+
+Stack every path up, slice the stack by step, and count: what share of paths is
+sitting on each event at step 1, at step 2, and so on? That table is the Step
+Matrix — one of the three aggregated representations of trajectories described in
+[Path Analysis](/docs/path-analysis).
+
+![Five paths merged into a trajectory tree, each node carrying the number of paths passing through it](/docs-demos/img/trajectory-tree.svg "Five example paths stacked into a trajectory tree: identical beginnings share a branch, and each node carries the number of paths passing through it.")
+
+![The step matrix of those five paths: one row per event, one column per step](/docs-demos/img/step-matrix.svg "The same tree counted by step. The two cart nodes at step 3 — one reached via catalog, one via search — merge into a single cell: 2 + 1 = 3 of 5 paths.")
+
+Reading it:
+
+- **A cell is a share of paths, not of events.** Row `cart`, column 3 = 0.6 means
+  60% of all paths had `cart` as their third event.
+- **Every column sums to 1** (in diff mode, to 0), because every path is
+  somewhere at every step. Paths that have ended sit in `path_end`, which is why
+  that row fills up towards the right.
+- **Branches merge.** Two groups of users reaching `cart` at step 3 by different
+  routes land in the same cell. The matrix tells you *what* happens at each step,
+  not which route got there.
+
+Step Matrix and [Step Sankey](/docs/widgets/step-sankey) are two renderings of
+exactly the same numbers — they share one headless method. The matrix is easier
+for reading a single event across steps and for spotting rare events; the Sankey
+is easier for following volume.
+
+### Anchoring on an event
+
+By default step 1 is each path's own first event. `path_pattern` re-anchors the
+matrix on an event instead: every path is shifted until that event sits in
+column 0, and the steps before it get negative numbers.
+
+![Five paths shifted so that each path's cart event sits in column zero, with negative column numbers before it](/docs-demos/img/path-pattern.svg 'Five example paths under path_pattern="cart": every path shifted until its cart event sits in column 0. Paths that reach the anchor later stick out to the left; paths that never reach it drop out of the view.')
+
+Column −1 then answers "what leads into this event?" and column +1 "what follows
+it?" — questions the start-anchored view smears across many columns whenever the
+event happens at different steps for different users.
+
+A pattern with several anchors (`"add_to_cart->.*->purchase"`, where `.*` matches
+any run of events) draws one block of columns per anchor, side by side, so you
+can walk a funnel and still see each step's neighbourhood. When a block's edge
+isn't a real path boundary the widget draws it serrated, signalling that paths
+continue beyond the visible range.
+
+{% endblock %}
+{% block demo_examples %}
+## Examples
+
+### Basic
+Without a `path_pattern`, the matrix is anchored at `path_start`: column 0 is the first
+step of every path, and each column to the right is one step further in.
+
+<DemoWidget cmd={`stream.step_matrix()`} path="/docs-demos/widgets/step-matrix/basic.html" height={660} />
+
+### Path pattern - central event
+A single event as `path_pattern` re-centers the matrix on that event instead of
+`path_start`: column 0 is always `purchase`, negative columns are the steps leading up
+to it, positive columns are what follows.
+
+<DemoWidget cmd={`stream.step_matrix(path_pattern="purchase")`} path="/docs-demos/widgets/step-matrix/path_pattern_central.html" height={660} />
+
+### Path pattern - funnel patterns
+Chaining several anchors with `.*` renders one matrix block per anchor, side by side,
+so you can follow a multi-step funnel across blocks.
+
+<DemoWidget cmd={`stream.step_matrix(path_pattern="payment_details->.*->shipping_details->.*->purchase", step_window=2)`} path="/docs-demos/widgets/step-matrix/path_pattern_funnel.html" height={660} sidebarOpen={false} />
+
+### Path pattern - a repeated step
+Blocks follow the pattern's gaps: every run of adjacent tokens between two gaps
+is one block, whatever the gap says — `.*`, a restricted `[^cart]*` or a bounded
+`.{0,4}` all separate blocks the same way. A [repeated group](/docs/path-patterns#repeating-a-sequence)
+is unrolled first, so `(add_to_cart->.*){2}` contributes one block per copy:
+here the first and the second add to cart get a matrix block each.
+
+<DemoWidget cmd={`stream.step_matrix(path_pattern="catalog->.*->(add_to_cart->.*){2}->purchase", step_window=2)`} path="/docs-demos/widgets/step-matrix/path_pattern_repeated.html" height={660} sidebarOpen={false} />
+
+### Path pattern - drop-off points
+`path_pattern="path_end"` centers on where paths end, so the columns to the left show
+what users tend to do right before dropping off (or completing their path).
+
+<DemoWidget cmd={`stream.step_matrix(path_pattern="path_end")`} path="/docs-demos/widgets/step-matrix/path_pattern_dropoff.html" height={660} />
+
+### Anchor - which occurrence, and offsets
+`path_pattern` lays a pattern's parts out side by side, one block each, and always
+centers on the *first* match. `anchor` centers on one position instead, and takes the
+same spec as `truncate_paths`' `start_anchor` — so it reaches the two things a pattern
+cannot say: which occurrence, and an offset in events or in time.
+
+<DemoWidget cmd={`stream.step_matrix(anchor={"pattern": "cart", "occurrence": "last"})`} path="/docs-demos/widgets/step-matrix/anchor_last.html" height={660} />
+
+The two are mutually exclusive. A path where the anchor does not resolve has no center,
+so it is not in the matrix — the anchor selects as well as centers. `occurrence="all"`
+is rejected here: several centers per path would let one path count more than once,
+while every cell is a share of paths.
+
+### Diff mode
+Passing `diff` splits paths into two segments and shows the difference between them at
+each step, making it easy to spot where the segments' behavior diverges.
+
+<DemoWidget cmd={`stream.step_matrix(diff=["platform", "mobile", "desktop"])`} path="/docs-demos/widgets/step-matrix/diff.html" height={660} />
+
+{% endblock %}

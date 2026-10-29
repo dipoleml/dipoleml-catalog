@@ -1,0 +1,226 @@
+import inspect
+from collections import OrderedDict
+from collections.abc import Callable
+from enum import Enum, auto
+from functools import wraps
+from types import UnionType
+from typing import Annotated, Any, Union, cast, get_args, get_origin, get_type_hints
+
+
+class AdaptError(TypeError): ...
+
+
+class _HiddenInput(Enum):
+    HIDE = auto()
+
+
+HIDE = _HiddenInput.HIDE
+type ParameterMapper = Callable[..., Any] | _HiddenInput
+
+
+def _signature(func: Callable[..., Any]) -> inspect.Signature:
+    declaration = inspect.signature(func)
+    hints = get_type_hints(func, include_extras=True)
+    return declaration.replace(
+        parameters=[
+            p.replace(annotation=hints.get(p.name, p.annotation))
+            for p in declaration.parameters.values()
+        ],
+        return_annotation=hints.get("return", declaration.return_annotation),
+    )
+
+
+def _value_type(annotation: Any) -> Any:
+    return (
+        get_args(annotation)[0] if get_origin(annotation) is Annotated else annotation
+    )
+
+
+def _accepts(destination: Any, source: Any) -> bool:
+    """Check the value types used by injection, without interpreting metadata."""
+    destination, source = _value_type(destination), _value_type(source)
+    if destination is Any or source is Any or destination == source:
+        return True
+    if get_origin(source) in (Union, UnionType):
+        return all(_accepts(destination, member) for member in get_args(source))
+    if get_origin(destination) in (Union, UnionType):
+        return any(_accepts(member, source) for member in get_args(destination))
+    destination_origin, source_origin = get_origin(destination), get_origin(source)
+    if destination_origin or source_origin:
+        if destination_origin != source_origin:
+            return False
+        if len(get_args(destination)) != len(get_args(source)):
+            return False
+        return all(
+            _accepts(expected, actual)
+            for expected, actual in zip(
+                get_args(destination), get_args(source), strict=True
+            )
+        )
+    return (
+        isinstance(source, type)
+        and isinstance(destination, type)
+        and issubclass(source, destination)
+    )
+
+
+def adapt_with_mappers[R](
+    func: Callable[..., R], /, **parameter_mappers: ParameterMapper
+) -> Callable[..., R]:
+    """Inject named parameters from mappers, sharing their caller inputs.
+
+    Mapper inputs form the signature; existing inputs retain their declarations.
+    Each mapper runs once per invocation and uses its own omission defaults.
+    HIDE omits an input without supplying a value; dependent mappers must allow
+    its omission. Compose value injection outside context mapping when the
+    context mapper needs the selected value.
+    """
+    if not parameter_mappers:
+        return func
+
+    original = _signature(func)
+    unknown = parameter_mappers.keys() - original.parameters.keys()
+    if unknown:
+        raise AdaptError(f"Unknown mapper destinations: {', '.join(sorted(unknown))}")
+
+    hidden = {name for name, mapper in parameter_mappers.items() if mapper is HIDE}
+    for name in hidden:
+        if original.parameters[name].default is inspect.Parameter.empty:
+            raise AdaptError(f"{name}: cannot hide a required body argument")
+    mappers = {
+        name: mapper for name, mapper in parameter_mappers.items() if callable(mapper)
+    }
+    signatures = {}
+    inputs: dict[str, inspect.Parameter] = {}
+    for destination, mapper in mappers.items():
+        signature = _signature(mapper)
+        if signature.return_annotation is inspect.Parameter.empty:
+            raise AdaptError("mapper must have a return type annotation")
+        if not _accepts(
+            original.parameters[destination].annotation, signature.return_annotation
+        ):
+            raise AdaptError(
+                f"{destination}: mapper return type {signature.return_annotation!r} "
+                f"is incompatible with {original.parameters[destination].annotation!r}"
+            )
+        signatures[destination] = signature
+        for name, parameter in signature.parameters.items():
+            if name in hidden:
+                if parameter.default is inspect.Parameter.empty:
+                    raise AdaptError(f"{name}: cannot hide a required mapper input")
+                continue
+            if parameter.annotation is inspect.Parameter.empty:
+                raise AdaptError("mapper must have type-annotated parameters")
+            canonical = original.parameters.get(name)
+            if canonical is not None and not _accepts(
+                parameter.annotation, canonical.annotation
+            ):
+                raise AdaptError(
+                    f"{name}: context mapper cannot accept declared input {canonical.annotation!r}"
+                )
+            if name in inputs and inputs[name] != parameter:
+                raise AdaptError(f"Conflicting mapper input declarations for {name}")
+            inputs[name] = parameter
+
+    parameters = [
+        *inputs.values(),
+        *(
+            parameter
+            for name, parameter in original.parameters.items()
+            if name not in parameter_mappers and name not in inputs
+        ),
+    ]
+    parameters.sort(key=lambda p: (p.kind, p.default is not inspect.Parameter.empty))
+    exposed = original.replace(parameters=parameters)
+    # Mapper defaults allow internal omission. They must not weaken the tool's
+    # public types, requiredness, constraints or target annotations.
+    declared_parameters = [
+        original.parameters.get(parameter.name, parameter) for parameter in parameters
+    ]
+    declared_parameters.sort(
+        key=lambda p: (p.kind, p.default is not inspect.Parameter.empty)
+    )
+    declared = original.replace(parameters=declared_parameters)
+    is_async = inspect.iscoroutinefunction(func)
+    if not is_async and any(
+        inspect.iscoroutinefunction(mapper) for mapper in mappers.values()
+    ):
+        raise AdaptError("Async mapper used with sync function")
+
+    def caller_arguments(
+        args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
+        # Positional calls follow the published order; mapper defaults govern
+        # which inputs may be omitted internally.
+        supplied = declared.bind_partial(*args, **kwargs).arguments
+        bound = inspect.BoundArguments(
+            exposed,
+            OrderedDict(
+                (name, supplied[name])
+                for name in exposed.parameters
+                if name in supplied
+            ),
+        )
+        return dict(exposed.bind(*bound.args, **bound.kwargs).arguments)
+
+    def map_argument(destination: str, values: dict[str, Any]) -> Any:
+        signature = signatures[destination]
+        bound = inspect.BoundArguments(
+            signature,
+            OrderedDict(
+                (name, values[name]) for name in signature.parameters if name in values
+            ),
+        )
+        bound.apply_defaults()
+        return mappers[destination](*bound.args, **bound.kwargs)
+
+    def invoke(values: dict[str, Any]) -> Any:
+        bound = inspect.BoundArguments(
+            original,
+            OrderedDict(
+                (name, values[name]) for name in original.parameters if name in values
+            ),
+        )
+        return func(*bound.args, **bound.kwargs)
+
+    if is_async:
+
+        @wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            inputs = caller_arguments(args, kwargs)
+            values = dict(inputs)
+            mapped: dict[int, Any] = {}
+            for destination, mapper in mappers.items():
+                if id(mapper) not in mapped:
+                    value = map_argument(destination, inputs)
+                    mapped[id(mapper)] = (
+                        await value if inspect.isawaitable(value) else value
+                    )
+                values[destination] = mapped[id(mapper)]
+            return await invoke(values)
+
+    else:
+
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> R:
+            inputs = caller_arguments(args, kwargs)
+            values = dict(inputs)
+            mapped = {}
+            for destination, mapper in mappers.items():
+                if id(mapper) not in mapped:
+                    mapped[id(mapper)] = map_argument(destination, inputs)
+                values[destination] = mapped[id(mapper)]
+            return invoke(values)
+
+    return cast(Callable[..., R], _with_signature(wrapper, declared))
+
+
+def _with_signature(
+    func: Callable[..., Any], exposed: inspect.Signature
+) -> Callable[..., Any]:
+    func.__signature__ = exposed  # type: ignore[attr-defined]
+    func.__annotations__ = {
+        "return": exposed.return_annotation,
+        **{name: p.annotation for name, p in exposed.parameters.items()},
+    }
+    return func

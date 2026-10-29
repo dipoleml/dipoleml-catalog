@@ -1,0 +1,163 @@
+{
+  "name": "debugmcpextension",
+  "displayName": "DebugMCP — Agentic Debugging for VS Code, Cursor & More",
+  "description": "Your AI agent debugs for you — right inside VS Code, Cursor & other VS Code-based editors. Let Copilot, Cline, Cursor, Codex & any MCP agent set breakpoints, step through code, and inspect variables live instead of guessing from logs.",
+  "version": "2.4.4",
+  "publisher": "ozzafar",
+  "author": {
+    "name": "Oz Zafar",
+    "email": "ozzafar@gmail.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/microsoft/DebugMCP",
+  "bugs": {
+    "url": "https://github.com/microsoft/DebugMCP/issues"
+  },
+  "keywords": [
+    "debug",
+    "debugmcp",
+    "mcp",
+    "debugging",
+    "ai",
+    "microsoft",
+    "vscode-extension",
+    "ai debugging",
+    "copilot debugging",
+    "llm debugging",
+    "model context protocol",
+    "breakpoints",
+    "debugger",
+    "ai agent",
+    "copilot",
+    "cline",
+    "cursor",
+    "windsurf",
+    "roo code",
+    "codex",
+    "claude",
+    "autonomous debugging",
+    "agent debugging",
+    "test debugging",
+    "pytest",
+    "jest",
+    "debug adapter protocol",
+    "dap"
+  ],
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "icon": "assets/debug_mcp_icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "categories": [
+    "Debuggers",
+    "AI",
+    "Chat",
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "extensionDependencies": [],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/microsoft/DebugMCP.git"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onDebug"
+  ],
+  "main": "./dist/extension.js",
+  "bin": {
+    "debugmcp": "./dist/debugmcp.js"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "debugmcp.showAgentSelectionPopup",
+        "title": "Show Agent Selection Popup",
+        "category": "DebugMCP"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "debugmcp.showAgentSelectionPopup",
+          "when": "true"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DebugMCP",
+      "properties": {
+        "debugmcp.captureDebugOutput": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Opt in to bounded, in-memory DAP output capture for `get_debug_output`. Output may contain sensitive data; credential redaction is heuristic, not a guarantee. Changing this setting clears captured output."
+        },
+        "debugmcp.timeoutInSeconds": {
+          "type": "number",
+          "default": 300,
+          "description": "Timeout in seconds"
+        },
+        "debugmcp.serverPort": {
+          "type": "number",
+          "default": 3001,
+          "description": "Port number for the DebugMCP server"
+        },
+        "debugmcp.bindHost": {
+          "type": [
+            "string",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "127.0.0.1",
+            "::1"
+          ],
+          "markdownDescription": "Network interface(s) the DebugMCP HTTP server binds to. **Defaults to `[\"127.0.0.1\", \"::1\"]` (IPv4 + IPv6 loopback only).** Accepts a single string or an array of strings. ⚠️ **Security warning:** changing this to `0.0.0.0` or a LAN address exposes the unauthenticated MCP debugger — including arbitrary code execution via `evaluate_expression` and `start_debugging` — to every host on the network. Only change this if you fully understand the risk."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./",
+    "check-types": "tsc --noEmit -p ./",
+    "bundle": "node esbuild.js",
+    "cli": "node dist/debugmcp.js",
+    "cli:pack": "npm pack ./npm/cli",
+    "cli:publish": "npm publish ./npm/cli",
+    "package": "npm run check-types && node esbuild.js --production",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run bundle && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test",
+    "test:skill-trigger-agent": "node scripts/test-debug-skill-trigger.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "@types/express": "^5.0.3",
+    "express": "^5.2.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.3.0",
+    "@types/vscode": "^1.104.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.0.1",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "minimatch": "^10.2.1",
+    "diff": "^8.0.3"
+  }
+}

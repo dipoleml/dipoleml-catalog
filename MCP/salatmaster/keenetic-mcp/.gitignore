@@ -1,0 +1,23 @@
+node_modules/
+dist/
+server/
+coverage/
+*.tsbuildinfo
+
+# Editor and IDE state
+.idea/
+.vscode/
+.DS_Store
+
+# Working design docs and plans, not part of the published project
+docs/superpowers/
+
+# Local credentials and captured state - must never be committed
+.env
+.env.*
+config.local.toml
+*.cookies
+scratch/
+# Throwaway probes written against a live router, which is where captured
+# addresses and keys turn up before anyone means to commit them.
+scratch-*

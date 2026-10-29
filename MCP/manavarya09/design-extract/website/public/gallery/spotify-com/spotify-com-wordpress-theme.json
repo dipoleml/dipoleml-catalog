@@ -1,0 +1,203 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "color": {
+      "palette": [
+        {
+          "slug": "primary",
+          "color": "#1ed760",
+          "name": "Primary"
+        },
+        {
+          "slug": "secondary",
+          "color": "#346e4a",
+          "name": "Secondary"
+        },
+        {
+          "slug": "accent",
+          "color": "#1db954",
+          "name": "Accent"
+        },
+        {
+          "slug": "neutral-1",
+          "color": "#ffffff",
+          "name": "Neutral 1"
+        },
+        {
+          "slug": "neutral-2",
+          "color": "#b3b3b3",
+          "name": "Neutral 2"
+        },
+        {
+          "slug": "neutral-3",
+          "color": "#000000",
+          "name": "Neutral 3"
+        },
+        {
+          "slug": "neutral-4",
+          "color": "#696969",
+          "name": "Neutral 4"
+        },
+        {
+          "slug": "neutral-5",
+          "color": "#555555",
+          "name": "Neutral 5"
+        },
+        {
+          "slug": "bg-121212",
+          "color": "#121212",
+          "name": "Background #121212"
+        },
+        {
+          "slug": "bg-000000",
+          "color": "#000000",
+          "name": "Background #000000"
+        },
+        {
+          "slug": "bg-535353",
+          "color": "#535353",
+          "name": "Background #535353"
+        }
+      ],
+      "gradients": [
+        {
+          "slug": "gradient-1",
+          "gradient": "linear-gradient(to right, rgba(0, 0, 0, 0) 0px, rgb(42, 42, 42) 10%, rgb(42, 42, 42) 90%, rgba(0, 0, 0, 0) 100%)",
+          "name": "Gradient 1"
+        },
+        {
+          "slug": "gradient-2",
+          "gradient": "linear-gradient(90deg, rgb(175, 40, 150), rgb(80, 155, 245))",
+          "name": "Gradient 2"
+        },
+        {
+          "slug": "gradient-3",
+          "gradient": "linear-gradient(rgba(0, 0, 0, 0.6) 0%, rgb(18, 18, 18) 100%)",
+          "name": "Gradient 3"
+        }
+      ]
+    },
+    "typography": {
+      "fontFamilies": [
+        {
+          "fontFamily": "SpotifyMixUI",
+          "slug": "spotifymixui",
+          "name": "SpotifyMixUI"
+        },
+        {
+          "fontFamily": "Times",
+          "slug": "times",
+          "name": "Times"
+        },
+        {
+          "fontFamily": "SpotifyMixUITitle",
+          "slug": "spotifymixuititle",
+          "name": "SpotifyMixUITitle"
+        }
+      ],
+      "fontSizes": [
+        {
+          "size": "24px",
+          "slug": "size-24",
+          "name": "24px"
+        },
+        {
+          "size": "16px",
+          "slug": "size-16",
+          "name": "16px"
+        },
+        {
+          "size": "14.4px",
+          "slug": "size-14.4",
+          "name": "14.4px"
+        },
+        {
+          "size": "14px",
+          "slug": "size-14",
+          "name": "14px"
+        },
+        {
+          "size": "13.6px",
+          "slug": "size-13.6",
+          "name": "13.6px"
+        },
+        {
+          "size": "13.3333px",
+          "slug": "size-13.3333",
+          "name": "13.3333px"
+        },
+        {
+          "size": "13.008px",
+          "slug": "size-13.008",
+          "name": "13.008px"
+        },
+        {
+          "size": "12.992px",
+          "slug": "size-12.992",
+          "name": "12.992px"
+        }
+      ]
+    },
+    "spacing": {
+      "spacingSizes": [
+        {
+          "size": "1px",
+          "slug": "spacing-1",
+          "name": "1px"
+        },
+        {
+          "size": "15px",
+          "slug": "spacing-15",
+          "name": "15px"
+        },
+        {
+          "size": "20px",
+          "slug": "spacing-20",
+          "name": "20px"
+        },
+        {
+          "size": "23px",
+          "slug": "spacing-23",
+          "name": "23px"
+        },
+        {
+          "size": "28px",
+          "slug": "spacing-28",
+          "name": "28px"
+        },
+        {
+          "size": "35px",
+          "slug": "spacing-35",
+          "name": "35px"
+        },
+        {
+          "size": "40px",
+          "slug": "spacing-40",
+          "name": "40px"
+        },
+        {
+          "size": "48px",
+          "slug": "spacing-48",
+          "name": "48px"
+        }
+      ]
+    },
+    "layout": {
+      "contentSize": "1955px",
+      "wideSize": "1400px"
+    }
+  },
+  "styles": {
+    "color": {
+      "background": "#121212",
+      "text": "#000000"
+    },
+    "typography": {
+      "fontSize": "16px",
+      "lineHeight": "normal",
+      "fontFamily": "SpotifyMixUI"
+    },
+    "spacing": {}
+  }
+}

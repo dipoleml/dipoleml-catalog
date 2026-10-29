@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.tugcantopaloglu.godot-mcp",
+  "type": "mcp",
+  "name": "Godot MCP",
+  "slug": "godot-mcp",
+  "vendor": "tugcantopaloglu",
+  "description": "MCP server for full Godot 4.x engine control: 157 tools for AI-driven game development (GDScript and C#/.NET). Tested with Godot 4.7.",
+  "version": "3.1.0",
+  "homepage": "https://github.com/tugcantopaloglu/godot-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "automation",
+    "csharp",
+    "dotnet",
+    "game-development",
+    "gdscript",
+    "godot",
+    "godot-engine",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai",
+    "automation",
+    "csharp",
+    "dotnet",
+    "game-development",
+    "gdscript",
+    "godot",
+    "godot-engine",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tugcantopaloglu",
+    "brandName": "tugcantopaloglu",
+    "source": "https://github.com/tugcantopaloglu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "tugcantopaloglu/godot-mcp",
+    "url": "https://github.com/tugcantopaloglu/godot-mcp",
+    "commit": "88f0fbc69a08225d4fdec32f921209e127f52395",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 505,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:36Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@tugcantopaloglu/godot-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "@tugcantopaloglu/godot-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

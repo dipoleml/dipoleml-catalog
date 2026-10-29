@@ -1,0 +1,62 @@
+node_modules/
+.DS_Store
+*.log
+
+# Local secrets
+.env
+.env.*
+**/.env
+**/.env.*
+.claude/
+.impeccable.md
+
+# Python benchmark venv + caches (1.8G, recreate from research/requirements-bench.txt)
+research/.venv-audit/
+research/.venv-bench/
+research/_results/
+**/__pycache__/
+*.pyc
+
+# Internal — never push
+research/session-digest-*.md
+research/activation-scanner-roadmap-*.md
+marketing/
+mockup*.html
+ui-*.png
+.market-research-data.json
+*.webm
+Screenshot*.png
+docs/screenshot.png
+PLAN.md
+SHIP.md
+# Keep generated/ad-hoc test files local, while allowing maintained unit tests.
+tests/*
+!tests/unit/
+tests/unit/*
+!tests/unit/test-opencode-adapter.mjs
+!tests/unit/test-session-distiller.mjs
+!tests/unit/test-control-plane.mjs
+!tests/unit/test-metrics-worker.mjs
+!tests/unit/test-cli.mjs
+test-results/
+
+# Cloned reference datasets (too large to push, download separately)
+datasets/agentdojo/
+datasets/community-rules/
+datasets/defender/
+datasets/hf-*/
+datasets/InjecGuard/
+datasets/MasterMCP/
+datasets/mcp-exploit-demo/
+datasets/mcp-injection-experiments/
+datasets/mcpSafetyScanner/
+datasets/MCPSecBench/
+datasets/mcp_tool_poisoning_attacks/
+datasets/MCPTox-Benchmark/
+datasets/mcp-vulnerabilities/
+datasets/prompt-injection-datasets/
+
+research/datasets/MCPTox-Benchmark/
+research/datasets/external_raw/
+research/datasets/external_imports/
+research/audit_sources/

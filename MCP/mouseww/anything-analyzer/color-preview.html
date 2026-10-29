@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>配色方案预览 Round 2 — Anything Analyzer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #111; color: #fff; padding: 40px; }
+  h1 { text-align: center; margin-bottom: 10px; font-size: 28px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 40px; font-size: 14px; }
+  .schemes { display: flex; flex-direction: column; gap: 48px; max-width: 1100px; margin: 0 auto; }
+  .scheme { border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+  .scheme-label { padding: 14px 24px; font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 12px; }
+  .scheme-label .tag { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 500; }
+
+  .mock { display: flex; height: 420px; }
+  .mock-sidebar { width: 220px; display: flex; flex-direction: column; flex-shrink: 0; }
+  .mock-main { flex: 1; display: flex; flex-direction: column; }
+  .mock-titlebar { height: 44px; display: flex; align-items: center; padding: 0 16px; gap: 16px; font-size: 13px; border-bottom-width: 1px; border-bottom-style: solid; }
+  .mock-titlebar .logo { font-weight: 700; letter-spacing: 1px; }
+  .mock-titlebar .tabs { display: flex; gap: 4px; }
+  .mock-titlebar .tab { padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: default; }
+  .mock-sidebar-header { padding: 14px 16px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+  .mock-session { padding: 10px 16px; margin: 2px 10px; border-radius: 8px; cursor: default; }
+  .mock-session .name { font-size: 13px; font-weight: 600; }
+  .mock-session .meta { font-size: 11px; margin-top: 3px; display: flex; align-items: center; gap: 6px; }
+  .mock-session .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .mock-sidebar-spacer { flex: 1; }
+  .mock-new-btn { margin: 10px 14px; padding: 8px; border-radius: 8px; text-align: center; font-size: 13px; font-weight: 600; cursor: default; border-width: 1px; border-style: solid; }
+  .mock-footer { padding: 8px 16px; font-size: 11px; display: flex; justify-content: space-between; border-top-width: 1px; border-top-style: solid; }
+  .mock-browser { padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom-width: 1px; border-bottom-style: solid; }
+  .mock-browser .nav { display: flex; gap: 4px; }
+  .mock-browser .nav span { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .mock-browser .url { flex: 1; padding: 6px 12px; border-radius: 6px; font-size: 12px; border-width: 1px; border-style: solid; }
+  .mock-browser .pill { padding: 4px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .mock-content { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .mock-statusbar { height: 26px; display: flex; align-items: center; padding: 0 16px; font-size: 11px; gap: 16px; border-top-width: 1px; border-top-style: solid; }
+
+  /* ========== D. Discord / Spotify 暖灰 ========== */
+  .schemeD .scheme-label { background: #1e1f22; color: #f2f3f5; }
+  .schemeD .tag { background: rgba(88,101,242,0.2); color: #7289da; }
+
+  .schemeD .mock-sidebar {
+    background: #2b2d31;
+    border-right: 1px solid #1e1f22;
+  }
+  .schemeD .mock-sidebar-header { color: #949ba4; }
+  .schemeD .mock-session { color: #dbdee1; }
+  .schemeD .mock-session.active {
+    background: #35373c;
+    border-left: 3px solid #5865f2;
+    color: #f2f3f5;
+  }
+  .schemeD .mock-session .meta { color: #949ba4; }
+  .schemeD .mock-session .dot { background: #57f287; box-shadow: 0 0 6px rgba(87,242,135,0.3); }
+  .schemeD .mock-session .dot.stopped { background: #747f8d; box-shadow: none; }
+  .schemeD .mock-new-btn {
+    background: #5865f2;
+    border-color: transparent;
+    color: #fff;
+  }
+  .schemeD .mock-footer {
+    background: #232428;
+    border-top-color: #1e1f22;
+    color: #949ba4;
+  }
+
+  .schemeD .mock-titlebar {
+    background: #313338;
+    border-bottom-color: #1e1f22;
+    color: #b5bac1;
+  }
+  .schemeD .mock-titlebar .logo { color: #f2f3f5; }
+  .schemeD .mock-titlebar .tab { color: #949ba4; }
+  .schemeD .mock-titlebar .tab.active { background: #404249; color: #f2f3f5; }
+
+  .schemeD .mock-browser {
+    background: #383a40;
+    border-bottom-color: #2b2d31;
+  }
+  .schemeD .mock-browser .nav span { background: rgba(255,255,255,0.06); color: #b5bac1; }
+  .schemeD .mock-browser .url { background: #1e1f22; border-color: #1e1f22; color: #b5bac1; }
+  .schemeD .mock-browser .pill { background: #57f287; color: #1e1f22; }
+
+  .schemeD .mock-content { background: #313338; color: #949ba4; }
+  .schemeD .mock-statusbar { background: #232428; border-top-color: #1e1f22; color: #949ba4; }
+
+  /* ========== E. GitHub Dark 高对比 ========== */
+  .schemeE .scheme-label { background: #0d1117; color: #e6edf3; }
+  .schemeE .tag { background: rgba(56,139,253,0.15); color: #58a6ff; }
+
+  .schemeE .mock-sidebar {
+    background: #161b22;
+    border-right: 1px solid #30363d;
+  }
+  .schemeE .mock-sidebar-header { color: #8b949e; }
+  .schemeE .mock-session { color: #c9d1d9; }
+  .schemeE .mock-session.active {
+    background: rgba(56,139,253,0.1);
+    border-left: 3px solid #58a6ff;
+    color: #f0f6fc;
+  }
+  .schemeE .mock-session .meta { color: #8b949e; }
+  .schemeE .mock-session .dot { background: #3fb950; box-shadow: 0 0 6px rgba(63,185,80,0.3); }
+  .schemeE .mock-session .dot.stopped { background: #484f58; box-shadow: none; }
+  .schemeE .mock-new-btn {
+    background: rgba(56,139,253,0.1);
+    border-color: #30363d;
+    color: #58a6ff;
+  }
+  .schemeE .mock-footer {
+    background: #0d1117;
+    border-top-color: #21262d;
+    color: #8b949e;
+  }
+
+  .schemeE .mock-titlebar {
+    background: #0d1117;
+    border-bottom-color: #21262d;
+    color: #8b949e;
+  }
+  .schemeE .mock-titlebar .logo { color: #f0f6fc; }
+  .schemeE .mock-titlebar .tab { color: #8b949e; }
+  .schemeE .mock-titlebar .tab.active { background: #21262d; color: #f0f6fc; }
+
+  .schemeE .mock-browser {
+    background: #161b22;
+    border-bottom-color: #21262d;
+  }
+  .schemeE .mock-browser .nav span { background: #21262d; color: #8b949e; }
+  .schemeE .mock-browser .url { background: #0d1117; border-color: #30363d; color: #c9d1d9; }
+  .schemeE .mock-browser .pill { background: #238636; color: #fff; }
+
+  .schemeE .mock-content { background: #0d1117; color: #484f58; }
+  .schemeE .mock-statusbar { background: #0d1117; border-top-color: #21262d; color: #8b949e; }
+
+  /* ========== F. Catppuccin Mocha 奶茶色 ========== */
+  .schemeF .scheme-label { background: #1e1e2e; color: #cdd6f4; }
+  .schemeF .tag { background: rgba(203,166,247,0.15); color: #cba6f7; }
+
+  .schemeF .mock-sidebar {
+    background: #181825;
+    border-right: 1px solid #313244;
+  }
+  .schemeF .mock-sidebar-header { color: #6c7086; }
+  .schemeF .mock-session { color: #cdd6f4; }
+  .schemeF .mock-session.active {
+    background: #313244;
+    border-left: 3px solid #cba6f7;
+    color: #cdd6f4;
+  }
+  .schemeF .mock-session .meta { color: #a6adc8; }
+  .schemeF .mock-session .dot { background: #a6e3a1; box-shadow: 0 0 6px rgba(166,227,161,0.3); }
+  .schemeF .mock-session .dot.stopped { background: #585b70; box-shadow: none; }
+  .schemeF .mock-new-btn {
+    background: rgba(137,180,250,0.1);
+    border-color: #45475a;
+    color: #89b4fa;
+  }
+  .schemeF .mock-footer {
+    background: #11111b;
+    border-top-color: #313244;
+    color: #6c7086;
+  }
+
+  .schemeF .mock-titlebar {
+    background: #1e1e2e;
+    border-bottom-color: #313244;
+    color: #a6adc8;
+  }
+  .schemeF .mock-titlebar .logo { color: #cdd6f4; }
+  .schemeF .mock-titlebar .tab { color: #6c7086; }
+  .schemeF .mock-titlebar .tab.active { background: #313244; color: #cdd6f4; }
+
+  .schemeF .mock-browser {
+    background: #1e1e2e;
+    border-bottom-color: #313244;
+  }
+  .schemeF .mock-browser .nav span { background: #313244; color: #a6adc8; }
+  .schemeF .mock-browser .url { background: #11111b; border-color: #313244; color: #bac2de; }
+  .schemeF .mock-browser .pill { background: #a6e3a1; color: #1e1e2e; }
+
+  .schemeF .mock-content { background: #1e1e2e; color: #585b70; }
+  .schemeF .mock-statusbar { background: #11111b; border-top-color: #313244; color: #6c7086; }
+
+  /* ========== G. 亮色清爽 ========== */
+  .schemeG .scheme-label { background: #fff; color: #1a1a1a; border-bottom: 1px solid #e5e5e5; }
+  .schemeG .tag { background: rgba(59,130,246,0.1); color: #2563eb; }
+
+  .schemeG .mock-sidebar {
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+  }
+  .schemeG .mock-sidebar-header { color: #94a3b8; }
+  .schemeG .mock-session { color: #334155; }
+  .schemeG .mock-session.active {
+    background: #eff6ff;
+    border-left: 3px solid #3b82f6;
+    color: #1e293b;
+  }
+  .schemeG .mock-session .meta { color: #94a3b8; }
+  .schemeG .mock-session .dot { background: #22c55e; }
+  .schemeG .mock-session .dot.stopped { background: #cbd5e1; }
+  .schemeG .mock-new-btn {
+    background: #fff;
+    border-color: #e2e8f0;
+    color: #3b82f6;
+  }
+  .schemeG .mock-footer {
+    background: #f1f5f9;
+    border-top-color: #e2e8f0;
+    color: #94a3b8;
+  }
+
+  .schemeG .mock-titlebar {
+    background: #fff;
+    border-bottom-color: #e2e8f0;
+    color: #64748b;
+  }
+  .schemeG .mock-titlebar .logo { color: #0f172a; }
+  .schemeG .mock-titlebar .tab { color: #94a3b8; }
+  .schemeG .mock-titlebar .tab.active { background: #f1f5f9; color: #0f172a; }
+
+  .schemeG .mock-browser {
+    background: #fff;
+    border-bottom-color: #e2e8f0;
+  }
+  .schemeG .mock-browser .nav span { background: #f1f5f9; color: #64748b; }
+  .schemeG .mock-browser .url { background: #f8fafc; border-color: #e2e8f0; color: #334155; }
+  .schemeG .mock-browser .pill { background: #22c55e; color: #fff; }
+
+  .schemeG .mock-content { background: #fff; color: #cbd5e1; }
+  .schemeG .mock-statusbar { background: #f8fafc; border-top-color: #e2e8f0; color: #94a3b8; }
+
+  /* ========== H. Dracula 黑紫 ========== */
+  .schemeH .scheme-label { background: #282a36; color: #f8f8f2; }
+  .schemeH .tag { background: rgba(189,147,249,0.15); color: #bd93f9; }
+
+  .schemeH .mock-sidebar {
+    background: #21222c;
+    border-right: 1px solid #44475a;
+  }
+  .schemeH .mock-sidebar-header { color: #6272a4; }
+  .schemeH .mock-session { color: #f8f8f2; }
+  .schemeH .mock-session.active {
+    background: #44475a;
+    border-left: 3px solid #ff79c6;
+    color: #f8f8f2;
+  }
+  .schemeH .mock-session .meta { color: #6272a4; }
+  .schemeH .mock-session .dot { background: #50fa7b; box-shadow: 0 0 8px rgba(80,250,123,0.3); }
+  .schemeH .mock-session .dot.stopped { background: #6272a4; box-shadow: none; }
+  .schemeH .mock-new-btn {
+    background: rgba(255,121,198,0.1);
+    border-color: #44475a;
+    color: #ff79c6;
+  }
+  .schemeH .mock-footer {
+    background: #191a21;
+    border-top-color: #44475a;
+    color: #6272a4;
+  }
+
+  .schemeH .mock-titlebar {
+    background: #282a36;
+    border-bottom-color: #44475a;
+    color: #6272a4;
+  }
+  .schemeH .mock-titlebar .logo { color: #f8f8f2; }
+  .schemeH .mock-titlebar .tab { color: #6272a4; }
+  .schemeH .mock-titlebar .tab.active { background: #44475a; color: #f8f8f2; }
+
+  .schemeH .mock-browser {
+    background: #282a36;
+    border-bottom-color: #44475a;
+  }
+  .schemeH .mock-browser .nav span { background: #44475a; color: #6272a4; }
+  .schemeH .mock-browser .url { background: #21222c; border-color: #44475a; color: #f8f8f2; }
+  .schemeH .mock-browser .pill { background: #50fa7b; color: #282a36; }
+
+  .schemeH .mock-content { background: #282a36; color: #44475a; }
+  .schemeH .mock-statusbar { background: #191a21; border-top-color: #44475a; color: #6272a4; }
+
+  .compare-note { text-align: center; color: #666; font-size: 13px; margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<h1>Anything Analyzer 配色方案预览 (Round 2)</h1>
+<p class="subtitle">5 套全新风格，差异更大 — 刷新浏览器查看</p>
+
+<div class="schemes">
+
+  <!-- D -->
+  <div class="scheme schemeD">
+    <div class="scheme-label">D. Discord / Spotify 暖灰 <span class="tag">高辨识度 · 暖色调</span></div>
+    <div class="mock">
+      <div class="mock-sidebar">
+        <div class="mock-sidebar-header">SESSIONS</div>
+        <div class="mock-session active"><div class="name">test</div><div class="meta"><span class="dot stopped"></span> 已停止 · 3 reqs</div></div>
+        <div class="mock-session"><div class="name">copilot全面监听</div><div class="meta"><span class="dot"></span> 运行中</div></div>
+        <div class="mock-session"><div class="name">openai</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-session"><div class="name">Cursor</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-sidebar-spacer"></div>
+        <div class="mock-new-btn">+ 新建会话</div>
+        <div class="mock-footer"><span>⚙ 设置</span><span>v3.2.0</span></div>
+      </div>
+      <div class="mock-main">
+        <div class="mock-titlebar"><span class="logo">Anything Analyzer</span><div class="tabs"><span class="tab active">⊕ 浏览器</span><span class="tab">&lt;&gt; 检查器</span><span class="tab">☆ AI 报告</span></div></div>
+        <div class="mock-browser"><div class="nav"><span>←</span><span>→</span><span>↻</span></div><div class="url">https://stats.customs.gov.cn/</div><span class="pill">● 开始</span></div>
+        <div class="mock-content">浏览器内容区域</div>
+        <div class="mock-statusbar"><span>● 会话 已停止</span><span>请求 3</span><span>Hooks 0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- E -->
+  <div class="scheme schemeE">
+    <div class="scheme-label">E. GitHub Dark 高对比 <span class="tag">专业 · 清晰层次</span></div>
+    <div class="mock">
+      <div class="mock-sidebar">
+        <div class="mock-sidebar-header">SESSIONS</div>
+        <div class="mock-session active"><div class="name">test</div><div class="meta"><span class="dot stopped"></span> 已停止 · 3 reqs</div></div>
+        <div class="mock-session"><div class="name">copilot全面监听</div><div class="meta"><span class="dot"></span> 运行中</div></div>
+        <div class="mock-session"><div class="name">openai</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-session"><div class="name">Cursor</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-sidebar-spacer"></div>
+        <div class="mock-new-btn">+ 新建会话</div>
+        <div class="mock-footer"><span>⚙ 设置</span><span>v3.2.0</span></div>
+      </div>
+      <div class="mock-main">
+        <div class="mock-titlebar"><span class="logo">Anything Analyzer</span><div class="tabs"><span class="tab active">⊕ 浏览器</span><span class="tab">&lt;&gt; 检查器</span><span class="tab">☆ AI 报告</span></div></div>
+        <div class="mock-browser"><div class="nav"><span>←</span><span>→</span><span>↻</span></div><div class="url">https://stats.customs.gov.cn/</div><span class="pill">● 开始</span></div>
+        <div class="mock-content">浏览器内容区域</div>
+        <div class="mock-statusbar"><span>● 会话 已停止</span><span>请求 3</span><span>Hooks 0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F -->
+  <div class="scheme schemeF">
+    <div class="scheme-label">F. Catppuccin Mocha 奶茶色 <span class="tag">柔和 · 护眼 · 文艺</span></div>
+    <div class="mock">
+      <div class="mock-sidebar">
+        <div class="mock-sidebar-header">SESSIONS</div>
+        <div class="mock-session active"><div class="name">test</div><div class="meta"><span class="dot stopped"></span> 已停止 · 3 reqs</div></div>
+        <div class="mock-session"><div class="name">copilot全面监听</div><div class="meta"><span class="dot"></span> 运行中</div></div>
+        <div class="mock-session"><div class="name">openai</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-session"><div class="name">Cursor</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-sidebar-spacer"></div>
+        <div class="mock-new-btn">+ 新建会话</div>
+        <div class="mock-footer"><span>⚙ 设置</span><span>v3.2.0</span></div>
+      </div>
+      <div class="mock-main">
+        <div class="mock-titlebar"><span class="logo">Anything Analyzer</span><div class="tabs"><span class="tab active">⊕ 浏览器</span><span class="tab">&lt;&gt; 检查器</span><span class="tab">☆ AI 报告</span></div></div>
+        <div class="mock-browser"><div class="nav"><span>←</span><span>→</span><span>↻</span></div><div class="url">https://stats.customs.gov.cn/</div><span class="pill">● 开始</span></div>
+        <div class="mock-content">浏览器内容区域</div>
+        <div class="mock-statusbar"><span>● 会话 已停止</span><span>请求 3</span><span>Hooks 0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- G -->
+  <div class="scheme schemeG">
+    <div class="scheme-label">G. 亮色清爽 <span class="tag">全亮色 · 干净明快</span></div>
+    <div class="mock">
+      <div class="mock-sidebar">
+        <div class="mock-sidebar-header">SESSIONS</div>
+        <div class="mock-session active"><div class="name">test</div><div class="meta"><span class="dot stopped"></span> 已停止 · 3 reqs</div></div>
+        <div class="mock-session"><div class="name">copilot全面监听</div><div class="meta"><span class="dot"></span> 运行中</div></div>
+        <div class="mock-session"><div class="name">openai</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-session"><div class="name">Cursor</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-sidebar-spacer"></div>
+        <div class="mock-new-btn">+ 新建会话</div>
+        <div class="mock-footer"><span>⚙ 设置</span><span>v3.2.0</span></div>
+      </div>
+      <div class="mock-main">
+        <div class="mock-titlebar"><span class="logo">Anything Analyzer</span><div class="tabs"><span class="tab active">⊕ 浏览器</span><span class="tab">&lt;&gt; 检查器</span><span class="tab">☆ AI 报告</span></div></div>
+        <div class="mock-browser"><div class="nav"><span>←</span><span>→</span><span>↻</span></div><div class="url">https://stats.customs.gov.cn/</div><span class="pill">● 开始</span></div>
+        <div class="mock-content">浏览器内容区域</div>
+        <div class="mock-statusbar"><span>● 会话 已停止</span><span>请求 3</span><span>Hooks 0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- H -->
+  <div class="scheme schemeH">
+    <div class="scheme-label">H. Dracula 黑紫 <span class="tag">经典 · 鲜艳 · 极客</span></div>
+    <div class="mock">
+      <div class="mock-sidebar">
+        <div class="mock-sidebar-header">SESSIONS</div>
+        <div class="mock-session active"><div class="name">test</div><div class="meta"><span class="dot stopped"></span> 已停止 · 3 reqs</div></div>
+        <div class="mock-session"><div class="name">copilot全面监听</div><div class="meta"><span class="dot"></span> 运行中</div></div>
+        <div class="mock-session"><div class="name">openai</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-session"><div class="name">Cursor</div><div class="meta"><span class="dot stopped"></span> 已停止</div></div>
+        <div class="mock-sidebar-spacer"></div>
+        <div class="mock-new-btn">+ 新建会话</div>
+        <div class="mock-footer"><span>⚙ 设置</span><span>v3.2.0</span></div>
+      </div>
+      <div class="mock-main">
+        <div class="mock-titlebar"><span class="logo">Anything Analyzer</span><div class="tabs"><span class="tab active">⊕ 浏览器</span><span class="tab">&lt;&gt; 检查器</span><span class="tab">☆ AI 报告</span></div></div>
+        <div class="mock-browser"><div class="nav"><span>←</span><span>→</span><span>↻</span></div><div class="url">https://stats.customs.gov.cn/</div><span class="pill">● 开始</span></div>
+        <div class="mock-content">浏览器内容区域</div>
+        <div class="mock-statusbar"><span>● 会话 已停止</span><span>请求 3</span><span>Hooks 0</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="compare-note">刷新浏览器查看 · D-H 五套全新方案</p>
+
+</body>
+</html>

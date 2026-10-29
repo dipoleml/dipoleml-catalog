@@ -1,0 +1,89 @@
+"use strict";
+/** @typedef {import("../types.js").Provider} Provider */
+const { toErrorResult } = require("../provider.js");
+
+/**
+ * @param {Object} [opts]
+ * @param {Object} [opts.bridge]
+ * @param {string} [opts.model]
+ * @param {boolean} [opts.allowImplement]  construction-time lock (first of two AND-ed locks).
+ *   When false/absent, this provider is read-only no matter what `req.mode` says. Set ONLY in a
+ *   composition root that has a local workspace + a human-gated write surface (section 3).
+ * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
+ *   providers.gemini.timeout / providers.defaults.timeout. Falls through to the bridge default.
+ * @returns {Provider}
+ */
+function makeAntigravityProvider(opts = {}) {
+  // Core is transport-agnostic: the caller injects the bridge (the composition
+  // root wires it). Cast to any - the CJS bridge exports as a bare Object, and
+  // the cast also stops tsc from deep-checking the legacy bridge transitively.
+  const bridge = /** @type {any} */ (opts.bridge);
+  if (!bridge) throw new Error("makeAntigravityProvider requires opts.bridge (core is transport-agnostic; inject the gemini bridge)");
+  // agy model id (family + fused reasoning effort), not a Gemini API id. The
+  // built-in is the portable router alias so an install lacking a given concrete
+  // id still works; opts.model carries providers.gemini.model from the composition
+  // root. Prefer a concrete pin where possible - the alias can seat a non-Gemini
+  // model (agy's catalog carries Claude/GPT-OSS), breaking cross-vendor
+  // independence in ask-all / consensus. Bridge applies the same default.
+  const model = opts.model || process.env.GEMINI_DEFAULT_MODEL || "auto-gemini-3";
+  const allowImplement = opts.allowImplement === true;
+  // Construction-time ceiling. Undefined (not 0) when unset, so the bridge applies its
+  // own default rather than being handed a falsy value it would treat as "no timeout".
+  const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
+
+  return {
+    name: "gemini",
+    // canImplement reflects the construction lock so discovery (panel) is honest about THIS process.
+    capabilities: { canImplement: allowImplement, fileUpload: false, multiTurn: true, walksFilesystem: true, fixedModelEffort: true },
+    async health() {
+      if (typeof bridge.runGemini !== "function") return { ok: false, reason: "agy bridge unavailable" };
+      // Stat-only CLI presence (the bridge owns AGY_BIN resolution). A missing `agy` used to be
+      // discovered only by dispatching to it - every ask-all / consensus round paid for that.
+      if (typeof bridge.cliAvailable === "function" && !bridge.cliAvailable()) {
+        return { ok: false, reason: "agy (Antigravity CLI) not on PATH; install it or set AGY_BIN" };
+      }
+      return { ok: true };
+    },
+    async ask(req) {
+      const started = Date.now();
+      // Two-lock gate: write only when constructed write-capable AND this call explicitly asks.
+      // Anything else stays advisory (read-only). buildAgyArgs maps sandbox:"workspace-write" ->
+      // --dangerously-skip-permissions, else --sandbox; runGemini's readOnly is the explicit
+      // caller decision (never argv-inferred) and engages the OS sandbox + mutation detection.
+      // The credential env scrub runs in BOTH modes (bridge-side), so a write run still cannot
+      // read the operator's keys / SSH agent. The bridge folds developerInstructions into the
+      // prompt when present (no system channel in agy print mode).
+      const implement = allowImplement && req.mode === "implement";
+      const includeDirs = (req.files || []).filter((f) => f.dir).map((f) => f.dir);
+      const args = bridge.buildAgyArgs({
+        prompt: req.prompt,
+        model,
+        sandbox: implement ? "workspace-write" : "read-only",
+        developerInstructions: req.developerInstructions,
+        includeDirs,
+      });
+      try {
+        // runGemini(args, cwd, timeoutMs, recoveryGraceMs, opts). recovered:true => normal success.
+        const timeoutMs = typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs;
+        const out = await bridge.runGemini(args, req.cwd, timeoutMs, req.deadlineAt?0:undefined, { readOnly: !implement, includeDirs, hostBudgetRemainingMs: req.hostBudgetRemainingMs, signal:req.signal });
+        // out.response can be undefined on a degenerate clean run; coerce to ""
+        // so the DelegationSuccess.text contract (string, not string|undefined) holds.
+        // Gemini (agy CLI) has no per-call reasoning-effort knob -> null.
+        // workspaceMutated (advisory taint signal) is surfaced when the run changed the workspace.
+        // pinDropped: agy rejected the shipped alias and the bridge re-ran on agy's own
+        // settings.json default, so the pinned id would be a lie - report the effective source.
+        const effectiveModel = out.pinDropped ? "agy-settings-default" : model;
+        return { provider: "gemini", model: effectiveModel, text: out.response || "", threadId: out.threadId, isError: false, ms: Date.now() - started, reasoningEffort: null, ...(out.workspaceMutated ? { workspaceMutated: true } : {}) };
+      } catch (e) {
+        // classifyGeminiError(errMsg, errCode): the missing-cli and upstream-abort
+        // branches key off the message, so pass the real caught message - not "".
+        const err = /** @type {any} */ (e);
+        return toErrorResult("gemini", model, started, err, (_status, code) =>
+          bridge.classifyGeminiError((err && err.message) || "", code), { reasoningEffort: null }
+        );
+      }
+    },
+  };
+}
+
+module.exports = { makeAntigravityProvider };

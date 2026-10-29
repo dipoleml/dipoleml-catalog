@@ -1,0 +1,160 @@
+import { toBrowsePath } from './browsePaths.js';
+import { browsePageLinks } from './browseLinks.js';
+/** 웹 읽기 에이전트용 공개 GET 결과 표시 */
+import {
+  WEB_READ_RULE,
+  IMAGE_SOURCE_RULE,
+  EXECUTION_EVIDENCE_RULE,
+  AGENT_GUIDE_STAMP,
+  AGENT_GUIDE_PATH,
+} from './agentStart.js';
+import type { MiddlewareHandler } from 'hono';
+import type { AppBindings } from '../api/response.js';
+
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+/** 원본 HTTPS 이미지 URL만 렌더링하며 잘못된 주소는 대체하지 않습니다. */
+function productImage(value: unknown, name: string): string {
+  if (typeof value === 'string') {
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' && !url.username && !url.password) {
+        const source = escapeHtml(value);
+        const label = name.replace(/[\\[\]]/g, '\\$&').replace(/[\r\n]/g, ' ');
+        const markdown = `![${label}](<${value.replace(/[<>\r\n]/g, encodeURIComponent)}>)`;
+        return `<figure><img src="${source}" alt="${escapeHtml(name)}" loading="lazy" referrerpolicy="no-referrer"><figcaption><a href="${source}" rel="noreferrer">원본 상품 이미지</a><p>복사할 원본 이미지 Markdown: <code>${escapeHtml(markdown)}</code></p><p>이 상품에는 이 원본 주소만 사용하세요. 이미지 검색·캐러셀로 대체하지 마세요.</p></figcaption></figure>`;
+      }
+    } catch {
+      /* 잘못된 원본 URL은 아래 이미지 없음으로 표시합니다. */
+    }
+  }
+  return '<p class="image-missing">이미지 없음. 웹 검색 이미지로 대체하지 마세요.</p>';
+}
+
+/** 모든 필드와 배열 순서를 보존하고 외부 문자열을 HTML로 해석하지 않습니다. */
+function renderValue(
+  value: unknown,
+  productLinks: string | null,
+  product: boolean,
+  source: URL,
+): string {
+  if (value === null || typeof value !== 'object') return escapeHtml(value);
+  if (Array.isArray(value)) {
+    return value.length
+      ? `<ol>${value.map((item) => `<li>${renderValue(item, productLinks, product, source)}</li>`).join('')}</ol>`
+      : '<p>빈 목록</p>';
+  }
+  const fields = `<dl>${Object.entries(value)
+    .map(([key, item]) => {
+      const rendered = renderValue(
+        item,
+        productLinks,
+        key === 'products' || key === 'product' || (key === 'data' && productLinks !== null),
+        source,
+      );
+      let detail = '';
+      if (
+        productLinks &&
+        (key === 'id' || key === 'productId') &&
+        (typeof item === 'string' || typeof item === 'number')
+      ) {
+        const path = toBrowsePath(
+          new URL(`${productLinks}/${encodeURIComponent(String(item))}`, 'https://browse.local'),
+        );
+        detail = ` <a href="${escapeHtml(path)}">상품 상세</a>`;
+        if (productLinks === '/api/daiso/products' && /^[1-9][0-9]{0,19}$/.test(String(item)))
+          detail += ` <a href="/browse/compose/daiso/inventory/${String(item)}/~">매장 지역 선택</a>`;
+      }
+      if (
+        source.pathname === '/api/daiso/inventory' &&
+        key === 'storeCode' &&
+        (typeof item === 'string' || typeof item === 'number') &&
+        source.searchParams.has('productId')
+      ) {
+        const target = new URL('/api/daiso/display-location', source);
+        target.searchParams.set('productId', source.searchParams.get('productId')!);
+        target.searchParams.set('storeCode', String(item));
+        detail += ` <a href="${escapeHtml(toBrowsePath(target))}">진열 위치</a>`;
+      }
+      return `<dt>${escapeHtml(key)}</dt><dd>${rendered}${detail}</dd>`;
+    })
+    .join('')}</dl>`;
+  const record = value as Record<string, unknown>;
+  return product && typeof record.name === 'string'
+    ? `<article class="product-card"><h2>${escapeHtml(record.name)}</h2>${productImage(record.imageUrl, record.name)}${fields}</article>`
+    : fields;
+}
+
+export const apiResultHtml: MiddlewareHandler<{ Bindings: AppBindings }> = async (c, next) => {
+  await next();
+  if (
+    c.req.method !== 'GET' ||
+    c.req.query('format') !== 'html' ||
+    !c.res.headers.get('Content-Type')?.includes('application/json')
+  )
+    return;
+  let data: unknown;
+  try {
+    data = await c.res.clone().json();
+  } catch {
+    return;
+  }
+  const url = new URL(c.req.url);
+  url.searchParams.delete('format');
+  const source = escapeHtml(toBrowsePath(url) ?? url.pathname + url.search);
+  const jsonSource = escapeHtml(url.pathname + url.search);
+  const failed = c.res.status >= 400 || (data as { success?: boolean } | null)?.success === false;
+  const title = failed ? '조회 실패' : '조회 성공';
+  const japan = url.pathname.startsWith('/api/daiso-jp/');
+  const productLinks =
+    url.pathname === '/api/daiso-jp/products' || url.pathname.startsWith('/api/daiso-jp/products/')
+      ? '/api/daiso-jp/products'
+      : url.pathname === '/api/daiso/products' || url.pathname.startsWith('/api/daiso/products/')
+        ? '/api/daiso/products'
+        : null;
+  const inventoryGuide = japan
+    ? '일본 매장 재고 미지원. 온라인 판매 가능 여부를 매장 재고로 해석하지 마세요.'
+    : '매장 재고는 상품 ID와 매장명 또는 사용자 위치를 확인한 뒤 별도로 조회하세요.';
+  const generatedAt = new Date().toISOString();
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,follow"><title>${title}: DAISO MCP</title>
+<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:32px auto;padding:0 20px;line-height:1.6;overflow-wrap:anywhere}dt{font-weight:600}dd{margin-bottom:12px}li{border-bottom:1px solid #ddd;padding:12px 0}a{color:#075bb5}.product-card{border:1px solid #d8dee5;border-radius:12px;padding:20px;margin:16px 0}.product-card img{max-width:100%;width:240px;height:240px;object-fit:contain}.product-card figure{margin:0}figcaption,.image-missing{color:#485666;font-size:.9em}</style></head><body><main><h1>${title}</h1>
+<p>${escapeHtml(AGENT_GUIDE_STAMP)} · <a href="${AGENT_GUIDE_PATH}">현재 버전 안내</a> · <a href="/guide/latest">항상 최신 안내</a></p>
+<p><strong>${escapeHtml(WEB_READ_RULE)}</strong></p>
+<p>응답 생성 시각: <time datetime="${generatedAt}">${generatedAt}</time> (UTC). 원본 재고 갱신 시각을 뜻하지 않습니다.</p>
+<p>요청: <code>${source}</code> · HTTP ${c.res.status}</p><p>실제 API 조회 결과입니다. 오류를 상품 없음이나 재고 0으로 해석하지 마세요. ${inventoryGuide}</p>
+<p>${escapeHtml(IMAGE_SOURCE_RULE)}</p>
+<p>${escapeHtml(EXECUTION_EVIDENCE_RULE)}</p>
+${renderValue(data, productLinks, false, url)}
+<nav>${browsePageLinks(url, data)
+    .map((link) => `<a href="${escapeHtml(link.path)}">${escapeHtml(link.label)}</a>`)
+    .join(' · ')}</nav>
+<p><a href="/">설치 없는 조회 안내</a> · <a href="/prompt">API 경로와 필수 파라미터 안내</a></p>
+<p><a href="/browse">모든 서비스의 웹 조회 경로</a>: 조회 조건은 /browse/ 경로에 넣으세요. format이나 쿼리 문자열은 필요 없습니다. 웹 읽기만으로 MCP 연결이 생기는 것은 아닙니다.</p><details><summary>개발자용 JSON 원본 (웹 읽기용 아님)</summary><code>${jsonSource}</code></details></main></body></html>`;
+  const headers = new Headers(c.res.headers);
+  headers.set('Content-Type', 'text/html; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set(
+    'Content-Security-Policy',
+    "default-src 'none'; style-src 'unsafe-inline'; img-src https:; base-uri 'none'; frame-ancestors 'none'",
+  );
+  c.res = new Response(html, { status: c.res.status, headers });
+  c.res.headers.set('Cache-Control', 'no-store');
+  // Hono는 응답 교체 시 기존 헤더를 병합하므로 교체 후 원본 표현의 헤더를 제거합니다.
+  for (const name of [
+    'Content-Length',
+    'Content-Encoding',
+    'ETag',
+    'Last-Modified',
+    'Content-MD5',
+    'Digest',
+  ])
+    c.res.headers.delete(name);
+};

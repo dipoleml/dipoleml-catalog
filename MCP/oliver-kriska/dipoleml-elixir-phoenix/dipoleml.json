@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.oliver-kriska.dipoleml-elixir-phoenix",
+  "type": "mcp",
+  "name": "DipoleML Elixir Phoenix",
+  "slug": "dipoleml-elixir-phoenix",
+  "vendor": "oliver-kriska",
+  "description": "DipoleML plugin for Elixir/Phoenix/LiveView — 26 specialist agents, Iron Laws enforcement, and Tidewave MCP integration. Plan features with parallel research agents, execute with automatic verification, review with 4-agent parallel audits, and capture learnings as reusable knowledge.",
+  "version": "3.2.0",
+  "homepage": "https://github.com/oliver-kriska/claude-elixir-phoenix",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-coding-assistant",
+    "automation",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-skills",
+    "code-review",
+    "developer-tools",
+    "ecto"
+  ],
+  "tags": [
+    "ai-agents",
+    "ai-coding-assistant",
+    "automation",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-skills",
+    "code-review",
+    "developer-tools",
+    "ecto",
+    "elixir",
+    "elixir-lang",
+    "elixir-phoenix",
+    "liveview",
+    "oban",
+    "phoenix",
+    "phoenix-framework",
+    "tidewave",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "amazonwebservices",
+    "brandName": "amazonwebservices",
+    "source": "https://github.com/oliver-kriska.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:25Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "oliver-kriska/claude-elixir-phoenix",
+    "url": "https://github.com/oliver-kriska/claude-elixir-phoenix",
+    "commit": "f46b932fdca4e9e47e61b6af93d8ed12b40cb1ce",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 571,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Elixir Phoenix | Claude Code plugin for Elixir/Phoenix/LiveView — 26 specialist agents, Iron Laws enforcement, and Tidewave MCP integration. Plan features with parallel research agents, execute with automatic verification, review with 4-agent parallel audits, and capture learnings as reusable knowledge.",
+        "after": "DipoleML Elixir Phoenix | DipoleML plugin for Elixir/Phoenix/LiveView — 26 specialist agents, Iron Laws enforcement, and Tidewave MCP integration. Plan features with parallel research agents, execute with automatic verification, review with 4-agent parallel audits, and capture learnings as reusable knowledge.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-elixir-phoenix",
+        "after": "dipoleml-elixir-phoenix",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node",
+      "python3"
+    ],
+    "packages": [
+      "pi-elixir-phoenix"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

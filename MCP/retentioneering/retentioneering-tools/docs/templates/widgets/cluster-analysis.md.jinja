@@ -1,0 +1,153 @@
+{% extends "_widget_base.md.jinja" %}
+
+{% block how_it_works %}
+## How it works
+
+Every representation in [Path Analysis](/docs/path-analysis) summarizes paths by
+their *shape* — which events, in which order. Clustering goes the other way: it
+describes each path by a handful of numbers, then groups paths whose numbers
+look alike. Two users who never visited the same screen can still land in the
+same cluster if they were equally brief, equally repetitive, or equally unlikely
+to buy.
+
+The pipeline is three steps, and each maps to one argument:
+
+1. **Describe.** `features` turns every path into a row of numbers, using the
+   shared [path metrics](/docs/path-metrics) registry — `length`, `duration`,
+   `active_days`, a per-event count, whether a pattern matched. This choice
+   *is* the analysis: clusters can only differ along dimensions you measured.
+2. **Scale.** `scaler` puts those numbers on a comparable footing. Without it a
+   `duration` in seconds (six digits) drowns out a `length` in events (two
+   digits), and the clustering silently becomes "group by duration". Hence the
+   `"minmax"` default.
+3. **Split.** `n_clusters` fixes the number of groups, or names a range to
+   search. Given a range, the widget clusters at every size in it and keeps the
+   one with the best **silhouette score** — a measure of how much tighter paths
+   sit within their own cluster than to the nearest other one. It is a hint
+   about structure, not a verdict: a mediocre score across the whole range
+   usually means the paths form a continuum rather than distinct groups.
+
+An optional fourth knob, [NMF](#nmf), sits between steps 2 and 3.
+
+What comes back is not the clusters themselves but a way to read them: the
+overview heatmap puts `overview_metrics` in rows and clusters in columns,
+exactly like [Segment Overview](/docs/widgets/segment-overview), so you can see
+what actually distinguishes cluster 2 from cluster 3 and give it a name. Note
+that `features` and `overview_metrics` are independent on purpose — profiling
+clusters on metrics you did *not* cluster by is how you find out whether the
+split means anything beyond its own inputs.
+
+Clusters are not a special kind of object. Once a split looks right, "Save
+Clusters" (or [`add_clusters`](/docs/data-processors/add-clusters)) writes the
+labels into the eventstream as an ordinary [segment](/docs/segments) column, and
+from there every segment-aware tool — diff mode, Segment Overview, the
+`in_segment` metric — works on it unchanged.
+
+**Choosing a cluster count is a judgment call, not a computation.** Prefer the
+smallest number of clusters you can still describe in words; a split you cannot
+name is a split you cannot act on.
+
+## Reading past the winner
+
+Because it is a judgment call, the top silhouette score is a starting point
+rather than an answer. Scores across a range are often close enough that the
+winner is decided by noise, while the runner-up splits into groups you can
+actually name.
+
+The **Silhouette** tab charts every candidate the search tried. Click any bar to
+interpret that partition instead: the overview heatmap, the H-matrix, the
+copy-pasteable `add_clusters(...)` code and "Save Clusters" all follow the pick,
+so what you read is what you save. The top-scoring point keeps a ★ so you never
+lose sight of what you traded away, and the shaded band holds every candidate
+within 5% of it — those are the ones worth reading before settling.
+
+To pin that choice programmatically — in a notebook you re-run, or to open the
+widget on it — pass the [`select`](#parameters) argument instead of taking
+the winner.
+
+{% endblock %}
+
+{% block demo_examples %}
+## Examples
+
+### Basic
+<DemoWidget cmd={`stream.cluster_analysis(
+    features=[
+        {"metric": "event_count_bulk", "metric_args": {"events": ["catalog", "product_view", "add_to_cart", "purchase"]}},
+    ],
+    method_args={"n_clusters": 3},
+)`} path="/docs-demos/widgets/cluster-analysis/basic.html" height={580} />
+{% endblock %}
+
+{% block data_params_note %}
+Data parameters change the computed result. They are the arguments of the
+widget's headless twin `stream.{{ headless_name }}()` — see
+[headless mode](#headless-mode) below.
+
+`nmf_components` (see [NMF](#nmf) below) is both a constructor argument and a
+sidebar control: passing it turns the NMF toggle on and pre-fills the component
+count, so it is a starting point you can edit rather than a lock. The result
+arrives as the H-matrix / W Cluster Means tabs either way.
+
+`method` and its `method_args` are accepted here, but the sidebar only edits
+`n_clusters`: there is no control to switch the algorithm, and none for
+hdbscan's `min_cluster_size` / `cluster_selection_epsilon`. Passing them to the
+constructor is the way to run hdbscan in the widget.
+{% endblock %}
+
+{% block extra %}
+### NMF
+
+Turning on **NMF** in the sidebar (or passing `nmf_components` to the widget or
+its headless twin) inserts a dimensionality-reduction step between scaling and clustering:
+the feature matrix is factorized into the requested number of non-negative
+components, and paths are clustered on those components instead of on the raw
+metrics. It is independent of the clustering algorithm — the usual pairing is
+NMF with k-means.
+
+Reach for it when `features` is wide and correlated — a wildcard
+`event_count_bulk` over a few dozen events is the standard case. Twenty
+near-duplicate count columns let the loudest events dominate the distance
+calculation; a handful of components spreads the signal out. Like `n_clusters`,
+`nmf_components` accepts a single number or a range to grid-search. It sits
+outside `method_args` because it is a pipeline step, not a parameter of the
+clustering algorithm — the same is true of `scaler`.
+
+The payoff is interpretability, and it arrives as two extra tabs:
+
+- **H-matrix** — how each component is built out of your features. This is what
+  names a component: one loading heavily on `search` and `filter_results` is
+  "browsing intensity", whatever the algorithm called it.
+- **W Cluster Means** — how strongly each cluster expresses each component. Read
+  it together with the H-matrix and each cluster gets a description in terms of
+  behavior rather than a number.
+
+The cost is that clusters no longer sit in the space of your original metrics,
+so `overview_metrics` (which always report raw per-path values) stays the honest
+check on whether the split means anything.
+
+### From the widget to a segment column
+
+The widget explores; [`add_clusters`](/docs/data-processors/add-clusters)
+persists. The two differ in one place: `cluster_analysis` searches a range of
+cluster counts (`"3-8"` by default) and picks a winner, while `add_clusters`
+materializes one specific clustering and therefore needs an exact
+`method_args={"n_clusters": ...}`.
+
+You don't have to transcribe it. "Save Clusters" in the sidebar writes the
+matching `add_clusters(...)` call — optionally with your renamed cluster labels —
+and headlessly the same value comes back as `best_params`:
+
+```python
+features = [{"metric": "length"}, {"metric": "active_days"}]
+
+result = stream.cluster_analysis_data(features=features)
+result["best_params"]        # {"method": "kmeans", "method_args": {"n_clusters": 3}, "scaler": "minmax"}
+
+stream = stream.add_clusters("behavior", features=features, **result["best_params"])
+```
+
+`best_params` is shaped as `add_clusters` keyword arguments, but it carries only
+how the clustering was configured — pass the same `features` alongside it.
+
+{% endblock %}

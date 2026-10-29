@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.zhizhuodemao.js-reverse-mcp",
+  "type": "mcp",
+  "name": "Js Reverse MCP",
+  "slug": "js-reverse-mcp",
+  "vendor": "zhizhuodemao",
+  "description": "AI Agent-first JS 逆向 MCP Server：有头 Chrome 调试、断点、网络/WebSocket 分析、Patchright 反检测，可选 CloakBrowser。",
+  "version": "4.0.5",
+  "homepage": "https://github.com/zhizhuodemao/js-reverse-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anti-detection",
+    "browser-automation",
+    "cdp",
+    "chrome-devtools",
+    "debugging",
+    "patchright",
+    "reverse-engineering",
+    "websocket"
+  ],
+  "tags": [
+    "anti-detection",
+    "browser-automation",
+    "cdp",
+    "chrome-devtools",
+    "debugging",
+    "javascript",
+    "mcp",
+    "mcp-server",
+    "patchright",
+    "reverse-engineering",
+    "websocket"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "googlechrome",
+    "brandName": "googlechrome",
+    "source": "https://cdn.simpleicons.org/googlechrome",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:50Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "zhizhuodemao/js-reverse-mcp",
+    "url": "https://github.com/zhizhuodemao/js-reverse-mcp",
+    "commit": "bf7dc506e8743ba1ec5bd3325c91818b9192e40e",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3008,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "js-reverse-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node ^20.19.0 || ^22.12.0 || >=23"
+    ],
+    "packages": [
+      "js-reverse-mcp"
+    ],
+    "env": [
+      "MCP_ROUTING_EVAL_API_KEY"
+    ],
+    "credentials": [
+      "MCP_ROUTING_EVAL_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.openosint.openosint",
+  "type": "mcp",
+  "name": "Openosint",
+  "slug": "openosint",
+  "vendor": "openosint",
+  "description": "Open-source engine for passive OSINT checks: 21 tools as CLI, MCP server and web UI. Hosted Monitor & Diligence at app.openosint.tech.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/OpenOSINT/OpenOSINT",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "cli",
+    "cybersecurity",
+    "dmarc",
+    "holehe",
+    "model-context-protocol",
+    "osint",
+    "osint-tools"
+  ],
+  "tags": [
+    "ai-agent",
+    "anthropic",
+    "claude",
+    "cli",
+    "cybersecurity",
+    "dmarc",
+    "holehe",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "osint",
+    "osint-tools",
+    "python",
+    "reconnaissance",
+    "security",
+    "sherlock",
+    "terminal",
+    "threat-intelligence"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "openosint",
+    "brandName": "openosint",
+    "source": "https://github.com/OpenOSINT.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:27Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "OpenOSINT/OpenOSINT",
+    "url": "https://github.com/OpenOSINT/OpenOSINT",
+    "commit": "4acf13d6c27e2c10cdb0cfc7d1c732653cb3b42f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1823,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "openosint"
+    ],
+    "env": [
+      "HIBP_API_KEY",
+      "SHODAN_API_KEY",
+      "VIRUSTOTAL_API_KEY",
+      "IP2LOCATION_API_KEY",
+      "CENSYS_API_ID",
+      "CENSYS_SECRET",
+      "ABUSEIPDB_API_KEY",
+      "GITHUB_TOKEN",
+      "OPENOSINT_PROXY_URL",
+      "BRIGHTDATA_API_KEY",
+      "OPENOSINT_ALLOWED_HOSTS",
+      "OPENAI_BASE_URL"
+    ],
+    "credentials": [
+      "HIBP_API_KEY",
+      "SHODAN_API_KEY",
+      "VIRUSTOTAL_API_KEY",
+      "IP2LOCATION_API_KEY",
+      "CENSYS_SECRET",
+      "ABUSEIPDB_API_KEY",
+      "GITHUB_TOKEN",
+      "BRIGHTDATA_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

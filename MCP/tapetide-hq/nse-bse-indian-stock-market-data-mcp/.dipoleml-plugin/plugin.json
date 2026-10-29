@@ -1,0 +1,16 @@
+{
+  "name": "nse-bse-indian-stock-market-data-mcp",
+  "displayName": "Nse Bse Indian Stock Market Data MCP",
+  "version": "1.0.9",
+  "description": "Indian stock market research for NSE and BSE: live quotes, financials, technicals, a 326-ratio screener, FII/DII flows, option chains, parsed filings, IPOs, and portfolio tracking.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Tapetide Hq"
+  },
+  "license": "MIT",
+  "homepage": "https://tapetide.com/mcp",
+  "repository": "https://github.com/Tapetide-hq/nse-bse-indian-stock-market-data-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+tests
+doc
+scripts
+skills
+commands
+.claude-plugin
+.claude
+docs
+*.md
+!README.md

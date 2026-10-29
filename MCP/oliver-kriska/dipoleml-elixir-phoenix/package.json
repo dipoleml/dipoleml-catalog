@@ -1,0 +1,44 @@
+{
+  "name": "pi-elixir-phoenix",
+  "version": "3.2.0",
+  "private": true,
+  "description": "Generated Elixir, Phoenix, LiveView, Ecto, Oban, testing, and security skills for Pi",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "skills": [
+      "./targets/pi/skills"
+    ]
+  },
+  "scripts": {
+    "lint": "markdownlint \"**/*.md\" --ignore node_modules --ignore docs --ignore reports --ignore analysis --ignore scratchpad --ignore lab/findings",
+    "lint:fix": "markdownlint \"**/*.md\" --fix --ignore node_modules --ignore docs --ignore reports --ignore analysis --ignore scratchpad --ignore lab/findings",
+    "eval": "bash lab/eval/run_eval.sh --changed",
+    "eval:all": "bash lab/eval/run_eval.sh --all",
+    "eval:skills": "bash lab/eval/run_eval.sh --skills",
+    "eval:agents": "bash lab/eval/run_eval.sh --agents",
+    "eval:triggers": "bash lab/eval/run_eval.sh --triggers",
+    "eval:full": "bash lab/eval/run_eval.sh --all && bash lab/eval/run_eval.sh --triggers",
+    "eval:fix": "bash lab/eval/run_eval.sh --fix",
+    "eval:ci": "bash lab/eval/run_eval.sh --ci",
+    "test": "python3 -m pytest lab/eval/tests/ scripts/tests/ -v",
+    "prepare": "husky || true"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0",
+    "markdownlint-cli": "^0.49.1",
+    "tsx": "^4.23.15"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oliver-kriska/claude-elixir-phoenix.git"
+  },
+  "author": "Oliver Kriska",
+  "license": "MIT",
+  "overrides": {
+    "markdownlint-cli": {
+      "js-yaml": "^5.4.1"
+    }
+  }
+}

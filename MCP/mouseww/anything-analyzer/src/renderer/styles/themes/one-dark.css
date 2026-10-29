@@ -1,0 +1,59 @@
+/* Theme: One Dark 经典灰蓝 (M) */
+[data-theme="one-dark"] {
+  --color-base: #282c34;
+  --color-frame: #1b1e24;
+  --color-bar: #21252b;
+  --color-content: #282c34;
+  --color-sidebar: #21252b;
+  --color-surface: #2c313a;
+  --color-elevated: #3e4451;
+
+  --color-border: #2c313a;
+  --color-border-subtle: #3e4451;
+  --color-border-hover: #4b5263;
+
+  --color-hover: rgba(171, 178, 191, 0.04);
+  --color-active: #2c313a;
+  --color-selected: rgba(97, 175, 239, 0.08);
+  --color-focus-ring: rgba(97, 175, 239, 0.4);
+
+  --text-primary: #d7dae0;
+  --text-secondary: #abb2bf;
+  --text-muted: #636d83;
+  --text-label: #5c6370;
+  --text-disabled: #3e4451;
+
+  --color-accent: #61afef;
+  --color-accent-bg: rgba(97, 175, 239, 0.1);
+  --color-accent-border: rgba(97, 175, 239, 0.2);
+
+  --color-success: #98c379;
+  --color-success-bg: rgba(152, 195, 121, 0.08);
+  --color-success-border: rgba(152, 195, 121, 0.15);
+
+  --color-info: #61afef;
+  --color-info-bg: rgba(97, 175, 239, 0.08);
+  --color-info-border: rgba(97, 175, 239, 0.15);
+
+  --color-warning: #e5c07b;
+  --color-warning-bg: rgba(229, 192, 123, 0.08);
+  --color-warning-border: rgba(229, 192, 123, 0.15);
+
+  --color-error: #e06c75;
+  --color-error-bg: rgba(224, 108, 117, 0.08);
+  --color-error-border: rgba(224, 108, 117, 0.15);
+
+  --color-primary: #61afef;
+  --color-primary-hover: #528bcc;
+  --color-primary-text: #1b1e24;
+
+  --color-purple: #c678dd;
+  --color-purple-bg: rgba(198, 120, 221, 0.1);
+  --color-orange: #d19a66;
+  --color-orange-bg: rgba(209, 154, 102, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+}

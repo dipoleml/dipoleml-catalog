@@ -1,0 +1,299 @@
+"""ts_search — embedding-based tool routing for defer_loading clients.
+
+Returns the top-K Token Savior tools most relevant to a natural-language
+query. Lets a thin client manifest (5-7 hot tools + ts_search) defer the
+remaining ~60 schemas off the system prompt and pull only what's relevant
+to the current turn.
+
+Usage from the agent side:
+    ts_search(query="find dependents of update_user", top_k=5)
+    -> {"matched_tools": [
+         {"name": "get_dependents",      "description": "...", "inputSchema": {...}},
+         {"name": "get_change_impact",   "description": "...", "inputSchema": {...}},
+         {"name": "get_full_context",    "description": "...", "inputSchema": {...}},
+         ...
+       ]}
+
+Mirrors the Tool Attention paper (arxiv 2604.21816) and Anthropic's
+deferred-loading recipe for tool_search_20250919. Uses the existing Nomic
+768d embedding stack (memory.embeddings). Falls back to substring scoring
+if VECTOR_SEARCH_AVAILABLE is False so the tool stays usable on minimal
+installs.
+
+Design notes:
+  * Tool description embeddings are computed lazily on first call and
+    cached in process memory. ~66 tools x 768 floats x 4 bytes = ~200 KB.
+  * Query is embedded with as_query=True so the Nomic task router prepends
+    "search_query: " (matches how memory/search.py operates).
+  * If the bench-disabled tools (capture_*, memory_*) have been gated by
+    env vars, they're already missing from TOOL_SCHEMAS-derived embeddings
+    via the server's list_tools filter — ts_search only sees what's live.
+"""
+from __future__ import annotations
+
+import hashlib
+import math
+import os
+from typing import Any
+
+from token_savior import telemetry
+
+# Cached at first call; module-level to survive across tool invocations.
+_TOOL_EMBED_CACHE: dict[str, list[float]] | None = None
+_TOOL_DESCRIPTIONS: dict[str, str] | None = None
+
+# Disk persistence of tool-description embeddings. stdio clients respawn the
+# server every session; without this, warm_up re-embeds all ~66 tool
+# descriptions from scratch each time -- one of the two halves of the ~5.7s
+# ts_search cold start measured on 2026-07-04 (the other half is the Nomic
+# model load, unavoidable in-process). Keyed by a hash of (names+descriptions+
+# model), so edited descriptions or a model swap invalidate it automatically.
+# Point de surcharge : `test_tool_embed_disk_cache` le rebinde par cas. Compare
+# a sa valeur d'import pour distinguer « personne n'a rien impose, redemande a
+# l'environnement » de « quelqu'un a impose un chemin, il gagne » -- meme forme
+# que `db_core.chemin_memoire()`. Fige a l'import, `TOKEN_SAVIOR_STATS_DIR` pose
+# apres ce premier import ne comptait plus ici alors qu'il comptait dans
+# `telemetry` : le meme processus ecrivait a deux endroits (#90).
+_EMBED_CACHE_INITIAL = os.path.join(
+    os.path.expanduser(
+        os.environ.get("TOKEN_SAVIOR_STATS_DIR", "~/.local/share/token-savior")
+    ),
+    "tool_embeddings.json",
+)
+_EMBED_CACHE_FILE = _EMBED_CACHE_INITIAL
+
+
+def _embed_cache_file() -> str:
+    if _EMBED_CACHE_FILE != _EMBED_CACHE_INITIAL:
+        return _EMBED_CACHE_FILE
+    return str(telemetry.stats_dir() / "tool_embeddings.json")
+
+
+def _cache_signature(descs: dict[str, str]) -> str:
+    """Content hash of the tool descriptions + embedding model identity."""
+    h = hashlib.sha256()
+    for name in sorted(descs):
+        h.update(name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(descs[name].encode("utf-8"))
+        h.update(b"\0")
+    try:
+        from token_savior.memory.embeddings import _MODEL_NAME
+        h.update(_MODEL_NAME.encode("utf-8"))
+    except Exception:
+        pass
+    return h.hexdigest()
+
+
+def _load_disk_embeds(sig: str) -> dict[str, list[float]] | None:
+    """Return persisted embeddings iff the on-disk signature matches ``sig``."""
+    import json
+    try:
+        with open(_embed_cache_file(), encoding="utf-8") as f:
+            blob = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(blob, dict) or blob.get("signature") != sig:
+        return None
+    embeds = blob.get("embeds")
+    if not isinstance(embeds, dict):
+        return None
+    return {k: v for k, v in embeds.items() if isinstance(v, list)}
+
+
+def _save_disk_embeds(sig: str, embeds: dict[str, list[float]]) -> None:
+    """Persist embeddings atomically (best-effort, never raises into dispatch)."""
+    import json
+    try:
+        cible = _embed_cache_file()
+        os.makedirs(os.path.dirname(cible), exist_ok=True)
+        tmp = cible + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"signature": sig, "embeds": embeds}, f)
+        os.replace(tmp, cible)
+    except OSError:
+        pass
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two non-empty equal-length vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _build_embedding_cache() -> tuple[dict[str, list[float]], dict[str, str]]:
+    """Embed every TOOL_SCHEMAS entry once. Best-effort: failures yield no
+    embedding for that tool, which downgrades it to substring fallback."""
+    from token_savior.tool_schemas import TOOL_SCHEMAS
+    try:
+        from token_savior.memory.embeddings import embed
+    except Exception:
+        embed = None  # type: ignore[assignment]
+
+    descs: dict[str, str] = {}
+    for name, schema in TOOL_SCHEMAS.items():
+        desc = schema.get("description") or ""
+        if isinstance(desc, tuple):
+            desc = "".join(desc)
+        descs[name] = f"{name}: {desc}".strip()
+
+    # Fast path: reuse persisted embeddings when descriptions + model are
+    # unchanged. Skips the Nomic re-embed of every tool on cold start.
+    sig = _cache_signature(descs)
+    disk = _load_disk_embeds(sig)
+    if disk is not None:
+        return disk, descs
+
+    embeds: dict[str, list[float]] = {}
+    for name, text in descs.items():
+        if embed is not None:
+            try:
+                v = embed(text, as_query=False)
+                if v:
+                    embeds[name] = v
+            except Exception:
+                pass  # Tool stays substring-only.
+    if embeds:
+        _save_disk_embeds(sig, embeds)
+    return embeds, descs
+
+
+def _ensure_cache() -> None:
+    global _TOOL_EMBED_CACHE, _TOOL_DESCRIPTIONS
+    if _TOOL_EMBED_CACHE is None:
+        _TOOL_EMBED_CACHE, _TOOL_DESCRIPTIONS = _build_embedding_cache()
+
+
+def warm_up() -> None:
+    # Pre-build the tool-description embedding cache. Used by the server
+    # startup hook so the first ts_search call doesn't pay the ~5s cold
+    # start (Nomic load + 66 tool description embeddings). Idempotent --
+    # subsequent calls are no-ops because _ensure_cache short-circuits on
+    # the populated globals. Safe to call from any thread.
+    try:
+        _ensure_cache()
+    except Exception:
+        # Cold start can fail (no fastembed installed, model download
+        # blocked, etc.). Stay silent -- ts_search has a substring
+        # fallback for exactly this case.
+        pass
+
+
+def warm_up_async() -> None:
+    # Fire-and-forget background warm-up. Server.main() calls this before
+    # entering the stdio loop so the first ts_search call from the client
+    # sees a populated cache (avg 4.8s -> avg ~120ms in measured runs).
+    import threading
+
+    t = threading.Thread(target=warm_up, name="ts-search-warmup", daemon=True)
+    t.start()
+
+
+def _substring_score(query: str, text: str) -> float:
+    """Cheap fallback when no embeddings: count overlapping word stems."""
+    ql = {tok.lower() for tok in query.split() if len(tok) > 2}
+    tl = text.lower()
+    if not ql:
+        return 0.0
+    hits = sum(1 for tok in ql if tok in tl)
+    return hits / len(ql)
+
+
+def ts_search(
+    query: str,
+    top_k: int = 5,
+    *,
+    include_schema: bool = True,
+    visible_tools: set[str] | None = None,
+    format: str = "schema",
+) -> dict[str, Any]:
+    """Return the top-K Token Savior tools most relevant to the query.
+
+    Args:
+        query: Natural-language description of the task.
+        top_k: Maximum number of tools to return (default 5, max 12).
+        include_schema: If True, returns each tool's full inputSchema.
+            Set False to halve the payload when the agent only needs
+            the names + descriptions for routing.
+        visible_tools: Optional whitelist (tool names). When set, scoring
+            is restricted to that subset — used by server.py to honor the
+            current TOKEN_SAVIOR_PROFILE / TS_*_DISABLE filters.
+        format: 'schema' (default) returns inputSchema JSON; 'ts' returns
+            a one-line TypeScript signature suitable for Code Mode scripts.
+            The 'ts' form is roughly half the tokens of 'schema'.
+
+    Returns:
+        {
+          "query": "<echoed>",
+          "method": "embedding" | "substring" | "mixed",
+          "matched_tools": [
+            {"name": ..., "score": 0.83, "description": ..., "inputSchema": {...}},
+            ...
+          ],
+        }
+    """
+    from token_savior.tool_schemas import TOOL_SCHEMAS
+
+    _ensure_cache()
+    assert _TOOL_EMBED_CACHE is not None and _TOOL_DESCRIPTIONS is not None
+
+    top_k = max(1, min(int(top_k or 5), 12))
+
+    try:
+        from token_savior.memory.embeddings import embed
+        qv = embed(query, as_query=True) if query else None
+    except Exception:
+        qv = None
+
+    method_used = "substring" if qv is None else "embedding"
+    has_partial_substring = False
+
+    pool = visible_tools if visible_tools else set(TOOL_SCHEMAS.keys())
+    pool.discard("ts_search")  # Don't recommend ourselves.
+
+    scored: list[tuple[str, float]] = []
+    for name in pool:
+        if name not in TOOL_SCHEMAS:
+            continue
+        text = _TOOL_DESCRIPTIONS.get(name, "")
+        v = _TOOL_EMBED_CACHE.get(name)
+        if qv is not None and v is not None:
+            s = _cosine(qv, v)
+        else:
+            s = _substring_score(query, text)
+            has_partial_substring = True
+        scored.append((name, s))
+
+    if method_used == "embedding" and has_partial_substring:
+        method_used = "mixed"
+
+    scored.sort(key=lambda t: -t[1])
+    top = scored[:top_k]
+
+    use_ts = (format or "schema").lower() == "ts"
+    if use_ts:
+        from token_savior.code_mode.facade import build_tool_signature
+
+    matched = []
+    for name, score in top:
+        schema = TOOL_SCHEMAS[name]
+        entry: dict[str, Any] = {
+            "name": name,
+            "score": round(score, 3),
+            "description": schema.get("description"),
+        }
+        if use_ts:
+            entry["signature"] = build_tool_signature(name, schema).strip().rstrip(";")
+        elif include_schema:
+            entry["inputSchema"] = schema.get("inputSchema")
+        matched.append(entry)
+
+    return {
+        "query": query,
+        "method": method_used,
+        "matched_tools": matched,
+    }

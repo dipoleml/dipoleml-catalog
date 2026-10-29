@@ -1,0 +1,183 @@
+using Excel = Microsoft.Office.Interop.Excel;
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Models;
+
+namespace Sbroenne.ExcelMcp.Core.Commands.Chart;
+
+/// <summary>
+/// Result of finding a chart by name.
+/// </summary>
+internal sealed class ChartFindResult
+{
+    public Excel.Chart? Chart;
+    public Excel.Shape? Shape;
+    public string SheetName = string.Empty;
+}
+
+/// <summary>
+/// Chart data source operations - set range, add/remove series.
+/// </summary>
+public partial class ChartCommands
+{
+    /// <inheritdoc />
+    public OperationResult SetSourceRange(IExcelBatch batch, string chartName, string sourceRange)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            try
+            {
+                // Determine strategy and delegate
+                IChartStrategy strategy = _pivotStrategy.CanHandle(findResult.Chart) ? _pivotStrategy : _regularStrategy;
+                strategy.SetSourceRange(findResult.Chart, sourceRange, ct);
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public SeriesInfo AddSeries(
+        IExcelBatch batch,
+        string chartName,
+        string seriesName,
+        string valuesRange,
+        string? categoryRange = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            try
+            {
+                // Determine strategy and delegate
+                IChartStrategy strategy = _pivotStrategy.CanHandle(findResult.Chart) ? _pivotStrategy : _regularStrategy;
+                var result = strategy.AddSeries(findResult.Chart, seriesName, valuesRange, categoryRange);
+
+                return result;
+            }
+            finally
+            {
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult RemoveSeries(IExcelBatch batch, string chartName, int seriesIndex)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            try
+            {
+                // Determine strategy and delegate
+                IChartStrategy strategy = _pivotStrategy.CanHandle(findResult.Chart) ? _pivotStrategy : _regularStrategy;
+                strategy.RemoveSeries(findResult.Chart, seriesIndex);
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Finds a chart by name across all worksheets.
+    /// Returns result with chart, shape, sheetName properties. Caller must release chart and shape.
+    /// </summary>
+    private static ChartFindResult FindChart(Excel.Workbook workbook, string chartName)
+    {
+        Excel.Sheets? worksheets = null;
+        try
+        {
+            worksheets = workbook.Worksheets;
+            int wsCount = Convert.ToInt32(worksheets.Count);
+
+            for (int i = 1; i <= wsCount; i++)
+            {
+                Excel.Worksheet? worksheet = null;
+                Excel.Shapes? shapes = null;
+
+                try
+                {
+                    worksheet = (Excel.Worksheet)worksheets.Item[i];
+                    string sheetName = worksheet.Name?.ToString() ?? $"Sheet{i}";
+                    shapes = worksheet.Shapes;
+                    int shapeCount = Convert.ToInt32(shapes.Count);
+
+                    for (int j = 1; j <= shapeCount; j++)
+                    {
+                        Excel.Shape? shape = null;
+                        Excel.Chart? chart = null;
+
+                        try
+                        {
+                            shape = shapes.Item(j);
+
+                            if ((int)shape.Type != 3)
+                            {
+                                continue;
+                            }
+
+                            string shapeName = shape.Name?.ToString() ?? string.Empty;
+                            if (!shapeName.Equals(chartName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                continue;
+                            }
+
+                            chart = shape.Chart;
+                            var result = new ChartFindResult { Chart = chart, Shape = shape, SheetName = sheetName };
+                            chart = null;
+                            shape = null;
+                            return result;
+                        }
+                        finally
+                        {
+                            ComUtilities.Release(ref chart);
+                            ComUtilities.Release(ref shape);
+                        }
+                    }
+                }
+                finally
+                {
+                    ComUtilities.Release(ref shapes);
+                    ComUtilities.Release(ref worksheet);
+                }
+            }
+
+            return new ChartFindResult { Chart = null, Shape = null, SheetName = string.Empty };
+        }
+        finally
+        {
+            ComUtilities.Release(ref worksheets);
+        }
+    }
+}

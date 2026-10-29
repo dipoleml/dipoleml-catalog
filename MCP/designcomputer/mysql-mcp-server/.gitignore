@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+Lib/
+Scripts/
+
+# Development environment
+.python-version
+
+# IDE settings (optional)
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# Distribution directories
+*.dist-info/
+
+pypi_publishing_notes.md

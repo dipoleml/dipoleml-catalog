@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.jonigl.mcp-client-for-ollama",
+  "type": "mcp",
+  "name": "MCP Client for Ollama",
+  "slug": "mcp-client-for-ollama",
+  "vendor": "jonigl",
+  "description": "Harness the power of local LLMs with this TUI MCP Client for Ollama. Featuring all core MCP primitives (tools, prompts, resources), agent mode, multi-server, model switching, streaming responses, human-in-the-loop, thinking mode, model params config, system prompts, and saved preferences.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/jonigl/mcp-client-for-ollama",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-ai",
+    "command-line-tool",
+    "harness",
+    "linux",
+    "local-llm",
+    "macos",
+    "mcp-client",
+    "mcp-prompts"
+  ],
+  "tags": [
+    "agentic-ai",
+    "ai",
+    "command-line-tool",
+    "harness",
+    "linux",
+    "local-llm",
+    "macos",
+    "mcp",
+    "mcp-client",
+    "mcp-prompts",
+    "mcp-resources",
+    "mcp-server",
+    "mcp-tools",
+    "model-context-protocol",
+    "ollama",
+    "open-source",
+    "sse",
+    "stdio",
+    "streamable-http",
+    "windows"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jonigl",
+    "brandName": "jonigl",
+    "source": "https://github.com/jonigl.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jonigl/mcp-client-for-ollama",
+    "url": "https://github.com/jonigl/mcp-client-for-ollama",
+    "commit": "f4dc1fb9fb4cf3743c5119e01d41961fca87be47",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 834,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-client-for-ollama"
+    ],
+    "env": [
+      "API_KEY",
+      "YOUR_KEY",
+      "IMPORTANT",
+      "OLLMCP_API_KEY",
+      "ATLASCLOUD_API_KEY",
+      "AZURE_OPENAI_API_KEY",
+      "DASHSCOPE_API_KEY",
+      "DATABRICKS_TOKEN",
+      "DEEPINFRA_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "FIREWORKS_API_KEY",
+      "GATEWAY_API_KEY"
+    ],
+    "credentials": [
+      "API_KEY",
+      "YOUR_KEY",
+      "OLLMCP_API_KEY",
+      "ATLASCLOUD_API_KEY",
+      "AZURE_OPENAI_API_KEY",
+      "DASHSCOPE_API_KEY",
+      "DATABRICKS_TOKEN",
+      "DEEPINFRA_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

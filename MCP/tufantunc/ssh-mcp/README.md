@@ -1,0 +1,1194 @@
+# SSH MCP Server v2
+
+[![NPM Version](https://img.shields.io/npm/v/ssh-mcp)](https://www.npmjs.com/package/ssh-mcp)
+[![Downloads](https://img.shields.io/npm/dm/ssh-mcp)](https://www.npmjs.com/package/ssh-mcp)
+[![CI](https://github.com/tufantunc/ssh-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tufantunc/ssh-mcp/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tufantunc/ssh-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/tufantunc/ssh-mcp)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15082/badge)](https://www.bestpractices.dev/projects/15082)
+[![codecov](https://codecov.io/gh/tufantunc/ssh-mcp/graph/badge.svg?branch=main)](https://codecov.io/gh/tufantunc/ssh-mcp)
+[![License](https://img.shields.io/github/license/tufantunc/ssh-mcp)](./LICENSE)
+[![GitHub issues](https://img.shields.io/github/issues/tufantunc/ssh-mcp)](https://github.com/tufantunc/ssh-mcp/issues)
+
+**SSH MCP Server** is a security-first Model Context Protocol server that gives LLM agents controlled SSH access to remote hosts — with command classification, policy-based authorization, human-in-the-loop approval, and full audit logging.
+
+> **The risk this server exists to manage.** Giving an LLM shell access on a remote host puts private data, untrusted input and network egress in one place — Simon Willison's ["lethal trifecta"](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/). Prompt injection has no general fix, so ssh-mcp assumes any command may be attacker-influenced: it classifies before executing, authorizes against a role × host-group matrix, gates destructive work behind approval, and records the decision either way. That narrows the blast radius; it does not remove the risk. Two things stay yours: **never point it at a root account**, and **never set `auto` approval on a production profile**. [SECURITY.md](./SECURITY.md) has the full threat model.
+
+---
+
+## Quick Start
+
+### 1. Install
+
+```bash
+npm install -g ssh-mcp
+```
+
+### 2. Configure
+
+Without a config the server still starts, so a client or directory can complete the MCP
+handshake and read `tools/list` — but **every tool call is refused** until you configure it,
+with a message naming the path below. Nothing runs on a host until this step is done. The
+one exception is `reload-config`: write the file, then call it with `action: "reload"` (or
+restart the server) to configure a server that is already running — see
+[Reloading](#reloading).
+
+Create the config file at the path for your platform:
+
+| Platform | Path |
+|---|---|
+| Linux | `~/.config/ssh-mcp/config.toml` (or `$XDG_CONFIG_HOME/ssh-mcp/config.toml`) |
+| macOS | `~/Library/Application Support/ssh-mcp/config.toml` |
+| Windows | `%APPDATA%\ssh-mcp\config.toml` |
+
+```toml
+[defaults]
+defaultProfile = "dev"
+approvalMode = "ask-destructive"
+
+[[profiles]]
+name = "dev"
+host = "192.168.1.100"
+port = 22
+user = "deploy"           # NOT root!
+auth = "key"
+keyRef = "~/.ssh/id_ed25519"
+role = "admin"
+approvalPolicy = "auto"    # dev is permissive
+```
+
+```bash
+chmod 700 ~/.config/ssh-mcp && chmod 600 ~/.config/ssh-mcp/config.toml
+```
+
+The config decides which hosts, roles and policy rules this server honours, so it checks
+that nobody but you can read it — and treats the two platforms differently, because the
+question has a much clearer answer on one of them.
+
+**Linux and macOS: enforced.** The mode check above, on the file *and* the directory —
+which is why `chmod 700` is in that command, since `mkdir -p` under the default umask
+leaves the directory 0755. The server refuses to start otherwise. "Only the owner" is
+unambiguous here and `chmod` is a one-line fix.
+
+**Windows: split by what the ACL actually allows.** There are no mode bits, so the ACL is
+read instead — and read exposure and write exposure are not treated alike, because Windows
+is much clearer about one of them than the other.
+
+| The ACL lets another account… | Default |
+|---|---|
+| only **read** the config | reported, and the server starts |
+| **change** the config | refused |
+| nothing (no ACL at all) | refused — that is full control for everyone |
+| …and if the ACL could not be read | refused, except when `icacls` is absent or the check timed out |
+
+A config under `%APPDATA%` inherits access for you, `SYSTEM` and `Administrators` and needs
+nothing done to it. One created elsewhere does not: a file under `C:\` inherits *read* for
+every local account and *modify* for every authenticated one. The message names the two
+`icacls` commands that fix it either way.
+
+Read exposure is reported rather than refused because that is where Windows is genuinely
+muddier than POSIX, and refusing over it blocked a config at the documented location
+([#138](https://github.com/tufantunc/ssh-mcp/issues/138)). Write exposure is refused
+because it is not muddy at all: another account being able to rewrite the file that decides
+which hosts, roles and approval policy this server honours is an authorization bypass, not
+a disclosure.
+
+Two flags move the whole thing: `--strictConfigAcl` refuses everything the check objects
+to, read-only grants included; `--allowUncheckedConfigAcl` reports everything and refuses
+nothing. Neither combination leaves you without an exit, which is the lesson of #138.
+
+### Exit statuses
+
+| Status | Meaning |
+|---|---|
+| `0` | Clean shutdown |
+| `1` | A defect in the server — printed with a stack trace; please report it |
+| `2` | How it was invoked or configured — printed as a message, no stack |
+
+A supervisor that treats any non-zero status as a failure needs no change. One
+that matched on `1` to detect a startup problem should match on `2` as well.
+
+Starting with nothing configured is **not** an exit-2 condition, as of the release that
+added introspection without a config: the server starts so it can be described, and
+refuses each tool call instead, except `reload-config`. A supervisor that used a non-zero
+exit to catch an unconfigured deployment should watch for `starting unconfigured` on
+stderr, or read `configured` from `GET /health` when running the HTTP transport.
+
+### 3. Set credentials via environment variables
+
+```bash
+export SSH_MCP_PASSWORD="your-password"        # if using auth=password
+# OR use SSH agent (recommended):
+export SSH_AUTH_SOCK="$SSH_AUTH_SOCK"           # already set if agent running
+```
+
+### 4. Connect from your MCP client
+
+**Claude Code:**
+```bash
+claude mcp add --transport stdio ssh-mcp -- ssh-mcp
+```
+
+**Claude Desktop / Cursor / Windsurf:**
+```json
+{
+  "mcpServers": {
+    "ssh-mcp": {
+      "command": "ssh-mcp",
+      "env": {
+        "SSH_MCP_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+**Never pass passwords as CLI arguments** — they're visible via `ps aux`. Use env vars, config files, SSH agent, or OS keychain.
+
+---
+
+## Tools (15)
+
+| Tool | Purpose | readOnly | destructive |
+|------|---------|:--------:|:----------:|
+| `list-connections` | Discover available hosts and connection status | ✅ | — |
+| `list-sessions` | List active sessions per host | ✅ | — |
+| `open-session` | Create a named interactive (stateful) or background session | — | — |
+| `close-session` | Close a session. A background session's command is signalled (INT/TERM/KILL) before its channel is dropped | — | ✅ |
+| `read-session-output` | Read output from background sessions (e.g., `tail -f`) | ✅ | — |
+| `read-command` | Execute allowlisted read-only commands (`ls`, `cat`, `grep`, ...) | ✅ | — |
+| `run-command` | Execute arbitrary commands (destructive/privileged need approval, unless `approvalPolicy = "auto"`) | — | — |
+| `privileged-command` | Execute with sudo (needs approval, unless `approvalPolicy = "auto"`) | — | ✅ |
+| `sftp-upload` | Upload a file via SFTP (replaces the destination unconditionally) | — | ✅ |
+| `sftp-download` | Download a file via SFTP | ✅ | — |
+| `sftp-list` | List a remote directory, bounded in entries and bytes | ✅ | — |
+| `sftp-upload-file` | Stream a local file to the remote host, never through model context | — | ✅ |
+| `sftp-download-file` | Stream a remote file to local disk, never through model context | — | ✅ |
+| `signal-process` | Send INT/TERM/KILL to a remote PID | — | ✅ |
+| `reload-config` | Show the config file's status, or re-read and apply it without a restart (see [Reloading](#reloading)) | — | ✅ |
+
+### Streaming file transfer
+
+`sftp-upload`/`sftp-download` move file *contents* through the model's context:
+the text is an argument on the way out and a response on the way back. That is
+what you want for a config snippet and exactly what you do not want for a 200 MB
+tarball or anything binary.
+
+The two also differ on what they do to an existing destination, and the approved
+string now says which is which. `sftp-upload` replaces unconditionally and spells
+`--overwrite` every time, because that is what it always does; `sftp-upload-file`
+refuses unless you pass `overwrite: true`, and only then carries the flag. Since
+`sftp-upload` takes its content as an argument rather than naming a local file,
+its string also carries `--bytes=<n> --sha256=<32 hex>` — without that, two
+uploads to the same path are the same string, which means one approval covers
+both and an auditor cannot tell which set of bytes landed. The digest is 128
+bits rather than a short prefix because that claim has to hold against a caller
+who picks both payloads, not only against an accidental repeat.
+
+`[policy].denylist` patterns are tested against that whole string and, for every
+SFTP tool, against the remote path on its own — as given, lexically normalized,
+and read the way Windows reads it (see "Policy Engine"). A rule written for the
+path, such as `authorized_keys$`, therefore does not depend on where the string
+puts it or on how the file is spelled. A rule anchored on the *whole* string
+(`^sftp:upload /root/.*$`) still does: that layout is ours to change, so anchor
+on the path instead.
+
+`sftp-upload-file` and `sftp-download-file` stream between the remote host and
+local disk instead. Neither the bytes nor a base64 encoding of them ever reaches
+the model — the response is a byte count and two paths.
+
+The two transfer tools are **off until you configure `defaults.transferRoot`**,
+and refuse with an explanation until then. (`sftp-list` has no local side and
+needs none of this.) That directory is the whole of their local reach:
+
+```toml
+[defaults]
+transferRoot = "/srv/ssh-mcp-transfers"
+transferMaxBytes = 268435456        # 256MB per transfer
+transferTimeoutMs = 300000          # 5min with no bytes moving
+```
+
+Checked on every call, and refused rather than degraded if any of it fails: the
+directory must be `0700` and owned by the account running this server, with no
+group- or world-writable parent, and must not overlap the ssh-mcp installation,
+the config directory, the audit log directory, or `~/.ssh`. Caller paths are
+confined to it, symlinks are refused rather than followed, and a download is
+staged as a sibling `.part` file and published atomically, so a failed transfer
+never leaves a half-written file at the destination.
+
+`transferTimeoutMs` is an **idle** budget, not a total one: it bounds one
+metadata round-trip, or one stretch of the copy with no bytes moving, and is
+re-armed on progress. A slow but live transfer of a large file survives it; a
+stalled channel still fails within one window. That is why the byte cap above
+does not have to be divided by it — a total budget would have made a 256MB cap
+mean "only if the link sustains 900 KB/s".
+
+Not available on Windows, where the transfer root cannot yet be verified
+private; the two transfer tools refuse there rather than writing into a
+directory other accounts may be able to read.
+
+`sftp-upload-file` takes an optional `mode` (1–511; setuid, setgid and the
+sticky bit are refused). Omitted, a new remote file is published `0600`; an
+overwritten one inherits the replaced file's permission bits — its permission
+bits only, not its setuid or setgid.
+
+What a transfer is authorized for includes these arguments: the string the
+policy engine classifies, the approval prompt a human reads, and the audit
+record all name `--overwrite` and `--mode` when they are given. So approving one
+upload to a path does not approve a different one to the same path, and an
+approval grant (`approvalGrantTtlMs`) cannot be replayed with a different mode.
+
+### Interactive Sessions
+
+Sessions maintain state (CWD, environment variables) between commands:
+
+```
+Agent: open-session(name="deploy", type="interactive")
+Agent: run-command(session="deploy", command="cd /opt/myapp")
+Agent: run-command(session="deploy", command="git pull")    # runs in /opt/myapp
+Agent: run-command(session="deploy", command="npm ci")      # CWD persists
+Agent: close-session(name="deploy")
+```
+
+### Background Sessions
+
+Long-running processes (logs, builds):
+
+```
+Agent: open-session(name="logs", type="background", command="tail -f /var/log/syslog")
+Agent: read-session-output(name="logs", lines=20)   # poll
+Agent: close-session(name="logs")
+```
+
+### Remote host support
+
+Tested against Linux (Debian/bash, Alpine/busybox ash), Dropbear, and Windows
+OpenSSH on Windows 11.
+
+| | Linux / BSD / macOS | Windows OpenSSH |
+|---|:---:|:---:|
+| `read-command`, `run-command`, `privileged-command`, `signal-process` | ✅ | ✅ |
+| `sftp-upload`, `sftp-download` | ✅ | ✅ |
+| `sftp-list` | ✅ | ✅ |
+| `sftp-upload-file`, `sftp-download-file` | ✅ | ❌ (local side unverifiable) |
+| Background sessions | ✅ | ✅ |
+| **Interactive sessions** | ✅ | ❌ |
+
+**Interactive sessions require a POSIX shell** (sh, bash, ash, zsh). They work by
+bracketing each command with `printf` markers and reading `$?` and `$PWD` from a
+trailer — none of which exist in `cmd.exe`, the default shell for Windows
+OpenSSH. Opening one against such a host fails immediately with an explicit
+error rather than timing out; everything else works normally.
+
+Setting PowerShell as the OpenSSH `DefaultShell` does not help: the protocol is
+POSIX-specific, not merely non-`cmd`.
+
+---
+
+## Configuration
+
+### Profile options
+
+```toml
+[defaults]
+defaultProfile = "dev"
+sessionMaxPerConnection = 5
+sessionIdleTimeoutMs = 600000       # 10min
+sessionBackgroundMaxMs = 3600000    # 1hr
+commandTimeoutMs = 60000
+commandMaxChars = 5000              # 0 = unlimited, the config spelling of --maxChars=none
+commandMaxOutputBytes = 1048576     # 1MB
+connectionIdleReapMs = 900000       # 15min
+commandQuotaPerDay = 0              # 0 = unlimited; circuit breaker for runaway agents
+approvalGrantTtlMs = 0              # 0 = always prompt; see "Approval Grants"
+approvalMode = "ask-destructive"    # auto | ask-destructive | ask-all | deny
+# transferRoot = "/srv/ssh-mcp-transfers"   # enables the streaming file tools; see above
+transferMaxBytes = 268435456        # 256MB per streaming transfer
+transferTimeoutMs = 300000          # 5min with no bytes moving (idle, not total)
+
+[[profiles]]
+name = "prod-web-1"
+host = "10.0.1.50"
+port = 22
+user = "deploy"
+auth = "agent"                      # agent | key | password | keychain
+keyRef = "~/.ssh/id_ed25519"        # for auth=key
+keychainEntry = "ssh-mcp/prod"      # for auth=keychain (requires @napi-rs/keyring)
+via = "bastion"                     # ProxyJump — route through bastion profile
+group = "prod"                      # Policy tier: prod | staging | dev, or your own (see [policy])
+workdir = "/var/www"
+trustedHostKey = "SHA256:..."       # Pin host key (optional)
+tty = false
+role = "operator"                   # viewer | operator | admin
+readOnly = false
+approvalPolicy = "ask-all"
+cert = false                        # SSH CA cert auth — auto-detects keyRef-cert.pub
+announceAgent = true                # Send AI_AGENT=ssh-mcp to this host (see below); clear it for a host you do not control
+sessionMaxPerConnection = 3         # per-profile override
+sessionIdleTimeoutMs = 300000       # stricter for prod
+commandQuotaPerDay = 200            # per-profile override
+maxChars = 2000                     # per-profile override; stricter for prod
+transferMaxBytes = 16777216         # per-profile override; transferRoot is not per-profile
+transferTimeoutMs = 60000           # per-profile override
+
+# Optional. Merged over the built-in role matrix; see "Policy Engine" below.
+# roleBindings is keyed by role and then by tier, so the block below changes
+# operator on prod and leaves operator's other tiers, and viewer and admin,
+# on their defaults.
+[policy]
+denylist = ["^terraform\\s+destroy", "\\.ssh/authorized_keys$"]
+
+[policy.roleBindings.operator]
+prod = ["read-only", "safe", "destructive"]
+```
+
+Unknown sections and keys are a startup error, not a warning, so a typo cannot
+leave you running defaults you thought you had overridden. That extends to role
+and tier names: every one you write under `[policy.roleBindings]` has to be
+reachable by some profile, and every profile's role and tier has to resolve to
+real bindings. Both directions are checked at startup and on every reload.
+
+Every profile needs a `name` of its own. Two profiles with the same name are a startup
+error, and a reload refuses them too; the error names the two entries by index
+(`profiles[2].name repeats profiles[0].name`), not by the name. Before this release such a
+config started, and the first of the two was used.
+
+### Host-side identification
+
+Every command this server runs announces itself to the host as the environment
+variable `AI_AGENT=ssh-mcp`, so an operator can tell an agent's session from a
+person's from anything on the host that reads the session environment — a
+`/etc/profile` snippet or a `ForceCommand` wrapper, for instance. It covers all
+three channels a command can run on: one-shot commands, background sessions and
+interactive sessions. SFTP transfers do not carry it, because the SSH library
+this server uses offers no way to send an environment request on a subsystem
+channel.
+
+**The variable only lands in the session if the host opts in** with
+`AcceptEnv AI_AGENT` in `sshd_config`. Without that line sshd ignores it and the
+session environment is unchanged — measured against Dropbear, which has no
+`AcceptEnv` mechanism at all, and against Windows OpenSSH on a default
+configuration: the command runs, the exit code is unchanged, the variable is
+simply absent.
+
+**The request is nevertheless sent to every host, opted in or not.** `AcceptEnv`
+is the server's policy about what it stores; it is not a gate on what this client
+transmits. A host that has not opted in — including one that is hostile — can
+still see on the wire that an agent rather than a person is driving the session.
+That is why `announceAgent = false` exists on the profile: set it for any host you
+do not control and nothing is sent to it. It is on by default, because the
+operators who benefit are the ones running the hosts you do control.
+
+No version is sent, deliberately. A version would narrow a hostile host to one
+specific build; the tool's name alone does not. (The SSH transport already
+discloses the *library* version in its identification string, which is one
+library's version across every program that uses it.)
+
+Treat the variable as a courtesy label, not an attestation. Any SSH client can
+set it and any agent can omit it, so it is useful for attributing sessions you
+already trust and must not be used as an authorization or intrusion-detection
+input. Authoritative attribution belongs to the key or principal that
+authenticated.
+
+### ProxyJump (Bastion)
+
+Reach internal hosts behind a bastion/jump server. The `via` field specifies a profile name to tunnel through:
+
+```toml
+[[profiles]]
+name = "bastion"
+host = "bastion.example.com"
+user = "deploy"
+auth = "agent"
+
+[[profiles]]
+name = "internal-db"
+host = "10.0.1.50"                 # private IP — not directly reachable
+user = "dbadmin"
+auth = "key"
+keyRef = "~/.ssh/db_key"
+via = "bastion"                     # tunnel through bastion
+```
+
+No agent forwarding — only a TCP tunnel via `forwardOut`. The bastion stays connected and reusable for multiple internal hosts.
+
+### SSH CA Certificates
+
+For enterprise setups with a central SSH Certificate Authority:
+
+```toml
+[[profiles]]
+name = "prod-db"
+host = "db.internal"
+user = "admin"
+auth = "key"
+keyRef = "~/.ssh/id_ed25519"
+cert = true                         # enable CA cert auth
+```
+
+The certificate file is auto-detected using OpenSSH convention (`keyRef` + `-cert.pub`, e.g. `~/.ssh/id_ed25519-cert.pub`). You can override the path with `SSH_MCP_<NAME>_CERT` env var. The cert is concatenated with the private key per ssh2 convention.
+
+### Credential Resolution Order
+
+1. **SSH agent** (`SSH_AUTH_SOCK`) — no key material in process memory
+2. **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service) — requires `auth = "keychain"` and `@napi-rs/keyring`
+3. **Environment variables** — `SSH_MCP_PASSWORD`, `SSH_MCP_KEY`, `SSH_MCP_SUDO_PASSWORD`, or profile-specific `SSH_MCP_<NAME>_PASSWORD`
+4. **Key file** — `keyRef` path or `SSH_MCP_KEY` env var
+
+**Never CLI arguments.** v2 removes `--password`, `--sudoPassword`, `--suPassword` entirely.
+
+### Reloading
+
+The config file is read at startup, and again only when you ask: through the
+`reload-config` tool with `action: "reload"`, or by sending the process `SIGHUP`
+(`kill -HUP <pid>`) on every platform but Windows. On Windows `SIGHUP` means the console
+is closing, so it does not reload there; use the tool. Nothing watches the file, so a
+half-written file never becomes live policy. A reload reads the same path the server
+started with: `--config`, or the default path for your platform.
+
+`reload-config` takes one argument, `action`:
+
+- `"status"` (the default) reports the config path, where the live config came from (`file`,
+  `unconfigured` or `flags`), when it was loaded, the sha256 of the bytes it was parsed
+  from, and the result of the last reload. It never shows the file's contents.
+- `"reload"` re-reads the file, applies it if every check passes, and reports what changed:
+  profiles added, removed and changed (by name and field), whether the policy rules changed,
+  and which connections it closed, why, and with which sessions. The same report goes to
+  stderr.
+
+The tool asks for no approval and spends no command quota. A caller can only make the
+server re-read what the operator wrote; the file is the operator's consent.
+
+**All or nothing.** A reload runs the same checks as startup on the new file before anything
+changes: the permission check (mode bits on Linux and macOS, the ACL on Windows, with the
+`--strictConfigAcl` or `--allowUncheckedConfigAcl` the server started with), the TOML parse,
+the strict schema, the check that no two profiles share a name, the role and tier
+cross-check, and compiling the denylist. A file with no
+profiles fails the schema, as at startup, so a reload cannot leave a server unconfigured.
+Two more refusals belong to reloading alone:
+
+- **`defaults.transferRoot` changed or removed.** A transfer in flight holds the old root,
+  so this needs a restart. Adding a `transferRoot` where there was none is allowed: with no
+  root there can be no transfer in flight.
+- **The server was started from `--host`/`--user` flags.** Swapping the flag-built profile
+  for whatever file sits at the default path would change where the server's trust comes
+  from without the operator choosing it. Restart with a config file instead.
+
+A refused reload changes nothing: the config, the policy, connections, sessions and approval
+grants stay as they were. The refusal names the error class and the path, and for a schema
+error the field paths and issue codes; it never quotes a value from the file.
+
+**What applies when.** Once every check passes, the new config replaces the old in one step,
+so no tool call sees part of each. For each open connection, by profile name:
+
+| Changed on the profile | What happens |
+|---|---|
+| `role`, `group`, `approvalPolicy`, `readOnly`, `commandQuotaPerDay`, `maxChars`, `transferMaxBytes`, `transferTimeoutMs`, or the `[policy]` section | The connection stays open; the change applies from its next command |
+| `workdir`, `tty`, `timeout`, `maxOutputBytes`, `announceAgent`, `sessionMaxPerConnection`, `sessionIdleTimeoutMs`, `sessionBackgroundMaxMs` | The connection stays open; the new values apply to new sessions and commands, and the report names these fields |
+| `host`, `port`, `user`, `auth`, `keyRef`, `keychainEntry`, `cert`, `via`, `trustedHostKey` | The connection closes with its sessions; the next call connects with the new profile |
+| the profile was removed | The connection closes with its sessions |
+
+A connection that runs through a bastion that is closing closes too, and so does anything
+running through it in turn; dependents close before the bastion they run through. A
+`[defaults]` value reaches every profile that does not set its own, so changing it counts as
+a change to each of those profiles. `defaultProfile`, `connectionIdleReapMs` and
+`approvalGrantTtlMs` apply at once. Command quota counts are kept, so a new
+`commandQuotaPerDay` applies to what has already been spent. Host keys accepted on first use
+are kept too, because the connection registry is updated in place rather than rebuilt. A
+new connection that was still being opened when the reload landed is discarded only if the
+reload closes its profile (removed, a connection field changed, or its bastion closing); that
+call fails with "The configuration was reloaded while connecting; retry the call." Any other
+is kept, with the profile as the reload left it, so reloading an unchanged file does not fail
+other calls' connects.
+
+**Approvals.** Every applied reload, even of an unchanged file, retires every approval grant
+made before it, so the next run of a granted command asks again. An approval answered after
+a reload landed is re-checked against the new rules: the command runs only if its connection
+is still open and the new rules still allow it or ask for it, in the same command class.
+Otherwise it is refused with `CONFIG_RELOADED` and no grant is recorded; retry the call to
+be asked under the new rules. A decision that needed no prompt is re-checked the same way
+when a reload lands while it is being made (while the connection is resolved, or during an
+OPA round-trip): a command the old rules allowed, or a grant reuse, runs only if its
+connection is still open and the new rules allow it outright, in the same class; otherwise
+it is refused with `CONFIG_RELOADED`. The command quota is charged against the profile as
+the reload left it.
+
+**Already running.** A command or transfer that is running when the reload lands finishes
+under the rules it started with, unless the reload closes its connection; the next call is
+checked under the new ones. Removing a profile and reloading closes its connection, but that
+stops less than it sounds: a background session's command is signalled `INT`, then `TERM`,
+then `KILL`, while a one-shot command, or one running in an interactive session, is not
+signalled at all and may keep running on the host. Stop such a command with
+`signal-process` first, while the profile still reaches the host (see
+[SECURITY.md](./SECURITY.md#stopping-a-command)).
+
+**Never reloaded.** Command-line flags keep the values the process started with: the
+transport and its HTTP options, `--hostKeyMode`, the OPA, audit and OpenTelemetry flags, the
+ACL flags and `--config` itself. The flags that stand in for `[defaults]` (`--timeout`,
+`--maxChars`, `--sessionMax`, `--sessionTtl`, `--commandQuota`, `--approvalGrantTtl`) apply
+only while no file is loaded, as at startup, so a server that started unconfigured takes its
+defaults from the file once a reload loads one.
+
+**Audit.** Every reload that runs writes one `config:reload` record, in one of three forms:
+
+| Outcome | `decision` | `ruleId` | `error` |
+|---|---|---|---|
+| applied | `allow` | `config-reload` | unset |
+| refused: a check failed, nothing changed | `deny` | `config-reload` | the refusal |
+| failed after the swap began, so possibly partly applied | `deny` | `config-reload-partial` | the error class, and that it may be partly applied |
+
+The other fields are fixed: `command` and `binary` are `config:reload`, `commandClass` is
+`safe`, `profile` and `user` are `-`, and `mcpRequestId` is the tool call's request id, or
+`sighup` for a reload the signal triggered. Each session a reload closes also writes a
+`session:close … (reload)` record, as the `close-session` tool does. A connection that fails
+to close is reported, not rolled back: the new config is already in effect.
+
+Reloads run one at a time: one asked for while another is running waits for it and then
+reads the file afresh, and any asked for while that one is still waiting join it and share
+its report and its record, so a burst of requests or `SIGHUP`s costs at most two reloads.
+If something fails after the checks have passed (a defect, not a refusal), the report says
+the reload failed after the swap began and may be partly applied; check `reload-config`
+status, and restart if it does not show the new config.
+
+**`SIGHUP` no longer stops the server.** Before, its default action ended the process
+without flushing the audit log. Now, everywhere but Windows, it triggers a reload and the
+server keeps running. A stdio server still exits when its client closes stdin. An HTTP
+server started from a terminal is no longer stopped when that terminal closes, since the
+hangup it sends is now handled as a reload: stop it with `SIGTERM` or `SIGINT`, or run it
+under a supervisor.
+
+---
+
+## Policy Engine
+
+### Roles
+
+| Role | Dev | Staging | Prod |
+|------|-----|---------|------|
+| **viewer** | read-only | read-only | read-only |
+| **operator** | read-only, safe, destructive | read-only, safe, destructive | read-only, safe |
+| **admin** | all | all | read-only, safe, destructive |
+
+Which column applies comes from the profile's `group`. Set it explicitly —
+without it the tier is guessed from the profile name (`prod`/`staging`/`dev`,
+`local`, `test`, `sandbox`), and **an unrecognised name resolves to `prod`**,
+the strictest tier. A production host named `web-01` is therefore treated as
+production rather than silently getting dev permissions.
+
+Note what this means for `sudo`: **`admin` has no `privileged` on `prod`**, so
+`privileged-command` is refused there by design — including on a quick-start
+profile, which has no name to infer from and therefore lands on `prod`. If the
+host is not production, say so:
+
+```bash
+npx ssh-mcp --host=10.0.0.5 --user=deploy --group=dev
+```
+
+```toml
+[[profiles]]
+name = "build-box"
+group = "dev"
+```
+
+### Configuring the matrix
+
+The table above is the default, not a limit. An optional `[policy]` section is
+merged over it at startup and on every reload, so granting sudo on a host you have honestly
+labelled `prod` is a reviewable line in a config file rather than a relabelling:
+
+```toml
+[policy.roleBindings.admin]
+prod = ["read-only", "safe", "destructive", "privileged"]
+```
+
+The merge is at role *and* tier depth. That block changes `admin` on `prod` and
+nothing else: `admin` on `staging` and `dev` keep their defaults, and `viewer`
+and `operator` are untouched. Roles and tiers the defaults have never heard of
+are added rather than rejected, which is what makes a custom `group` resolve to
+real bindings instead of falling back to the strictest tier:
+
+```toml
+[[profiles]]
+name = "build-box"
+role = "admin"
+group = "tier-1"
+
+[policy.roleBindings.admin]
+"tier-1" = ["read-only", "safe", "destructive"]
+```
+
+Extra deny patterns live in the same section, and are applied on top of the
+never-allowed list rather than replacing it:
+
+```toml
+[policy]
+denylist = ["^terraform\\s+destroy", "\\.ssh/authorized_keys$"]
+```
+
+Each pattern is a regular expression tested against the command string of every
+call. For the five SFTP tools it is also tested against the remote path on its
+own, three ways: as given; in a normalized reading, where `//` and `/./`
+collapse, `..` resolves against the segment before it, a trailing `/` is
+dropped, and `\` is read as `/`; and in a **Windows reading**, tested
+case-insensitively. The refusal says which matched.
+
+The Windows reading is what Win32 resolves a path to, measured over SFTP on
+Windows 11 (build 26200): the case variants, a trailing run of dots and spaces,
+and the `::$DATA` default-stream spelling all reach the same file, so a rule
+that caught one spelling and not another was a bypass, not a distinction. On
+top of the normalized reading it strips those spellings, roots a
+drive-relative path (`C:x/…`) at its drive — where it actually resolves
+depends on process state this server cannot see, and rooting is the fail-closed
+reading — drops `\\?\` and `\\.\` device prefixes, and keeps a UNC root
+(`\\server\share\…` → `//server/share/…`). Tested case-insensitively, it also
+catches `Authorized_Keys` with a rule written for `authorized_keys`; on a POSIX
+target those are different files, but erring toward refusal is the direction
+this engine takes everywhere else too.
+
+What the readings do not do:
+
+- **resolve anything on the target.** A relative path stays relative, so a rule
+  anchored on `/root/` does not see `.ssh/authorized_keys`; symlinks are not
+  followed; and an 8.3 short name (`AUTHOR~1`) is not expanded — no lexical
+  reading can, it takes the target's own directory listing to know the long
+  name.
+- **test the local path** of `sftp-upload-file` or `sftp-download-file` on its
+  own. That side is confined by `transferRoot`. The local path does end those two
+  tools' command strings, so a pattern anchored on the end of the string can
+  still match it there, as it always could.
+
+So anchor a path rule on its trailing segments: `\.ssh/authorized_keys$` matches
+the absolute, relative and Windows spellings alike — including the case,
+trailing-dot and `::$DATA` variants of each. A pattern written for a command is
+tested against SFTP paths too — `^rm` refuses an `sftp-download` of a file
+called `rmlist.txt`.
+
+One performance note: patterns are ordinary regular expressions run against
+caller-supplied path bytes — bounded by the remote-path length limit, the same
+exposure the command string has always had. Prefer anchored, linear patterns; a
+catastrophically backtracking one stalls the tool call it matches.
+
+Because role and tier names are free strings, nothing in the merge itself can
+tell a new custom role from a misspelling of an existing one. A cross-check at
+startup does, and these all fail there rather than at the point of use:
+
+- a command class outside `read-only | safe | destructive | privileged`, so a
+  `priviledged` typo cannot parse into a grant of nothing and then read as a
+  policy decision when a command is refused;
+- any unrecognised section or key anywhere in the config, so a block the parser
+  does not understand is an error rather than a clean startup with none of the
+  behaviour you configured;
+- a role or tier under `[policy.roleBindings]` that no profile uses, so
+  `[policy.roleBindings.operater]` cannot merge in as a fourth role while the
+  profiles you meant to restrict keep running on defaults;
+- a profile whose `role` has no bindings, or whose tier has none under that
+  role, so a host cannot end up on `read-only` for a reason nobody wrote down.
+
+The last one covers the tier you did not set as well as the one you did. A
+profile with no `group` still resolves to one by name, and that inferred tier
+has to exist under the profile's role like any other.
+
+A tier with no bindings for a role grants `read-only`, and never another tier's
+classes. There is no fallback between tiers: while the matrix was compiled in,
+falling back to `prod` meant falling back to a role's strictest cell, but a
+`[policy]` block can write that cell now.
+
+An OPA sidecar is not an alternative route to the same grant. OPA is consulted
+only for commands the local policy already allows, so it can refuse more but
+never widen. Widening happens here or not at all.
+
+### Command Classification
+
+Every command is classified before execution:
+
+- **read-only**: Allowlisted commands (`ls`, `cat`, `grep`, `df`, `stat`, `systemctl status`, ...),
+  and only when every argument is provably data under a grammar declared for that binary — see
+  below
+- **safe**: Non-destructive mutations (`npm install`, `git pull`, ...)
+- **destructive**: mutations that need approval (`rm -rf /tmp/build`, ...)
+- **privileged**: `sudo`, `su`, `doas`, `pkexec`
+
+**`read-only` is granted by argument grammar, not by binary name alone.** An allowlisted
+binary's argument list is checked word by word against a grammar declared for it
+(`src/policy/reader-grammar.ts`); an option the grammar does not list, an abbreviation of one
+it does, a short-option cluster with an unlisted letter, an argument carrying an unquoted
+shell glob (`*`, `?`, `[`), or an operand shaped like something
+the binary would write to, all fall the whole command to `safe` instead. This is what a
+`readOnly` profile is confined to, what `viewer` holds on prod and staging (on dev the viewer
+holds `safe` too), and what `read-command`
+requires — all of these refuse `safe` except the viewer on dev, so a command that used to
+run under the old, name-only
+rule can now be refused. The refusal names the rejected word (for example, `` `journalctl` is
+read-only only with the options and operands its grammar lists; `--foo` is not accepted
+there. ``), so the caller can see which spelling of the same command still works. See
+[SECURITY.md](./SECURITY.md) for the residual risks this leaves open.
+
+A reader also falls to `safe` when its command carries a shell metacharacter — `;` `&` `|`
+`<` `>` `` ` `` `$` `(` `)` `{` `}`, a newline or a carriage return — quoted or not, because
+the allowlist vouches for the binary, never for what a shell might do with the rest of the
+line. The refusal names the first such character. For `sftp-list` and `sftp-download` it is
+in the remote path, so `/srv/backup(old)` is refused for a `readOnly` profile with
+`` The remote path contains `(`, which counts as a shell metacharacter here, so `sftp:list`
+is read-only only for a path without one. ``
+
+A separate **forbidden** list is never allowed, whatever the role or approval
+policy: `rm -rf /`, `mkfs`, `dd of=/dev/`, `shutdown`, `curl|sh`, fork bombs,
+writes naming `/etc/cron`, `/etc/systemd` or any user's `authorized_keys`,
+`iptables -F`, and recursive `chmod 777 /` / `chown /`. A write *names* one of
+those paths when it is the remote path of an upload tool, the target of a shell
+redirect, or a destination of `tee`, `cp`, `mv`, `install` or `dd of=` — in any
+spelling the path readings above resolve. The two `/etc` families match by
+prefix, so `/etc/crontab` is covered along with everything under `/etc/cron.d`,
+and a sibling that merely starts like the directory (say `/etc/cronography`) is
+refused too — the fail-closed direction. Writes spelled any other way (`sed -i`,
+`rsync`, cmd.exe's `copy`, `move` and `robocopy`, a program handed to an
+interpreter, a path the target computes) are not on this list; class and approval
+govern them, and the operator denylist can close them. Add your own patterns via
+the policy denylist; an invalid pattern fails at
+startup rather than degrading silently.
+
+### Approval Modes
+
+- `auto` — no prompts (dev only!)
+- `ask-destructive` — prompt for destructive/privileged (default). Narrower than it sounds:
+  outside the never-allowed list, `destructive` is one `rm -rf /path` pattern, `find` with a
+  write/exec flag, an unresolvable command word, a program handed to an interpreter this
+  server cannot read (`python3 -c`, `perl -e`, `node -e`, a program arriving on a pipe —
+  but not `awk`, whose program is not read), and `sftp-upload`/interactive `open-session` — elevation classifies `privileged`, which also
+  prompts. Ordinary writes, service control and signals do not. See
+  [SECURITY.md](./SECURITY.md) before relying on this in production.
+- `ask-all` — prompt for every command
+- `deny` — reject destructive/privileged commands outright (no prompt)
+
+### Approval Grants (just-in-time)
+
+`approvalGrantTtlMs` lets one explicit approval cover repeats of the **exact
+same** command on the same profile for a bounded time (e.g. `300000` for five
+minutes). It exists because approving `rm -rf /tmp/build` every few seconds
+during an iterative task trains you to click through prompts — which is worse
+for safety than a grant you chose deliberately.
+
+A grant is bound to the exact command text, the profile and the command class:
+approving `rm -rf /tmp/build` does not cover `rm -rf /tmp/build-prod`, the same
+command on another host, or the same command escalated to `sudo`. Runs covered
+by a grant appear in the audit log with `approver: "jit-grant"`, so they stay
+distinguishable from a fresh human answer.
+
+**Off by default** (`0` = always prompt). Auto-approval weakens the gate that
+makes destructive commands safe, so turning it on should be a decision.
+
+#### Answering the prompt
+
+Approval goes through the MCP elicitation request, so what you see is your
+client's dialog. Accepting it approves the command — there is no second field to
+fill in.
+
+You have **10 minutes** to answer. Past that the request expires and the command
+is refused rather than left pending, and the refusal says so; the prompt may
+still be open in your client, in which case run the command again once you are
+ready. If your client does not support elicitation at all, every destructive and
+privileged command is refused with `APPROVAL_UNAVAILABLE` naming that cause —
+approval fails closed by design.
+
+### Command Quota
+
+`commandQuotaPerDay` bounds how many commands a profile may run in a rolling
+24-hour window (0 = unlimited). The approval gate stops *destructive* commands
+and the HTTP rate limiter caps request rate, but neither bounds total work — a
+prompt-injected agent looping over allowed commands stays under both. The quota
+is the circuit breaker for that case.
+
+Counted after policy allows a command and before it runs, so a denied command
+does not spend budget. The window slides rather than resetting at midnight,
+which would let an agent spend a full quota just before the reset and another
+immediately after.
+
+### External Policy Engine (OPA)
+
+For organizations that standardize on Open Policy Agent / Rego:
+
+```bash
+ssh-mcp --opaUrl=http://localhost:8181
+```
+
+When `--opaUrl` is set, commands the built-in engine allows are additionally
+evaluated by OPA. **OPA can only narrow.** A command the built-in engine has
+already denied returns that denial without OPA being consulted at all, so a
+sidecar answering `allow` cannot grant a class the role bindings withhold. To
+widen, edit `[policy]`.
+
+An outage falls back to the local decision and logs one warning per minute. That is the
+default because OPA is an *additional* deny layer and stopping all work would be the worse
+failure — but an operator who deployed OPA *as* the authorization gate loses that gate
+during the outage, and the only signal is a stderr line MCP clients usually discard.
+`--opaFailClosed` makes the gate being down mean no; the refusal carries `ruleId:
+"opa-unavailable"` so the audit record says the gate was down rather than implying a policy
+refused the command.
+
+The request shape is modeled on the AuthZEN Access Evaluation contract:
+
+```json
+{
+  "input": {
+    "subject": { "role": "operator", "profile": "prod-web-1" },
+    "action": { "tool": "run-command", "commandClass": "destructive" },
+    "resource": { "command": "rm -rf /tmp/cache", "binary": "rm", "host": "10.0.1.50" },
+    "context": { "readOnly": false }
+  }
+}
+```
+
+For the five SFTP tools, `resource` also carries three path keys: `remotePath`,
+the path as given; and `remotePathNormalized` and `remotePathWindows`, the same
+two readings the local denylist tests, so a rule can match a canonical spelling
+without parsing `command` or reimplementing either reading in Rego. The two
+upload tools add `remoteWrite: true`, the fact the local policy refuses the
+never-allowed write paths on — a rule can gate writes without parsing `command`
+either. Other tools omit all four, and so does an empty path. `remotePath` is **as given** —
+`/root//.ssh/x` arrives spelled that way, so a `startswith` rule on a directory
+misses it: match trailing segments, or match the normalized keys.
+`remotePathWindows` keeps the case it was given; `lower()` both sides in the
+policy for case-insensitive rules. Match fields rather than the whole
+`resource` object — its keys vary by tool.
+
+OPA responds with `{ "result": true/false }`. If OPA denies (`result: false`), the command is blocked even if the built-in engine allows it. If OPA is unreachable, the built-in engine's decision stands by default (fail-open, to avoid locking out access); `--opaFailClosed` refuses instead. A 200 that carries no boolean `result` counts as unreachable — that is what OPA answers for an undefined document, so a misnamed package or an unactivated bundle is an outage rather than consent.
+
+Example Rego policy (`ssh-mcp.rego`):
+```rego
+package ssh.mcp
+
+default allow := false
+
+# Admins pass the OPA gate on dev hosts. The built-in policy still applies on
+# top: this widens nothing that the role bindings withhold.
+allow if {
+  input.subject.role == "admin"
+  startswith(input.subject.profile, "dev")
+}
+
+# Deny all destructive commands on prod
+deny if {
+  input.action.commandClass == "destructive"
+  startswith(input.subject.profile, "prod")
+}
+```
+
+---
+
+## Security
+
+### Threat Model
+
+See [SECURITY.md](./SECURITY.md) for the full threat model, vulnerability reporting policy, and deployment checklist.
+
+### Supply chain
+
+Releases carry signed attestations, published through [Sigstore](https://www.sigstore.dev/)
+and recorded in its public transparency log. They live in **two different stores**, which is
+what decides how each is verified:
+
+| Attestation | Predicate | Stored by | Since |
+|---|---|---|---|
+| Build provenance — [SLSA](https://slsa.dev/) Build **Level 2** | `slsa.dev/provenance/v1` | npm | every release |
+| SBOM — CycloneDX and SPDX | `cyclonedx.org/bom`, `spdx.dev/Document` | GitHub | releases after v2.4.0 |
+
+Provenance comes from npm [trusted publishing](https://docs.npmjs.com/trusted-publishers):
+the release workflow authenticates with a short-lived OIDC token and no stored credential,
+so there is no long-lived npm token to leak.
+
+```bash
+npm audit signatures        # provenance, against an installed tree
+
+npm pack ssh-mcp            # the SBOM attestation is bound to the tarball, so fetch it
+gh attestation verify ssh-mcp-*.tgz --repo tufantunc/ssh-mcp --predicate-type https://cyclonedx.org/bom
+```
+
+Both flags on the last command are load-bearing. `gh attestation verify` defaults to the
+SLSA predicate, so without `--predicate-type` it filters the SBOM out and reports nothing
+found — and the provenance it would look for instead is in npm's store, not the GitHub
+store `--repo` queries. Use `https://spdx.dev/Document` for the SPDX one.
+
+Both SBOMs are also attached to each
+[GitHub release](https://github.com/tufantunc/ssh-mcp/releases), for reading rather than
+verifying.
+
+**Level 2, not 3.** Provenance is signed by the generic GitHub-hosted runner —
+`builder.id` is `https://github.com/actions/runner/github-hosted` — which the build itself
+can influence; Build L3 requires an isolated builder it cannot. Reaching L3 is not
+currently compatible with trusted publishing: npm turns on its own provenance whenever that
+setting is left at its default, and then ignores any externally generated one. So L3 today
+would mean returning to a long-lived npm token — trading the property described above for a
+level number.
+
+### Safe Defaults
+
+- **Non-root** user in all examples
+- **TOFU** host key verification (accept on first connect, verify after — within one process; see [SECURITY.md](./SECURITY.md#host-key-trust-does-not-survive-a-restart))
+- **RFC 9142** algorithm allow-list (no SHA-1, no CBC, no ssh-rsa)
+- **exec()-only for elevation** (`privileged-command` takes no `session`, so sudo never runs in a persistent shell — fixes PTY leak. Interactive sessions exist for ordinary commands; this bullet is about elevation, not about every path being an exec channel)
+- **Sudo via stdin** (not argv — fixes process list leak)
+- **Sanitizer** strips CR/LF/NUL from all metadata
+- **3-layer redaction** (field → regex → entropy) on audit logs
+- **No CLI-arg secrets** (use env vars, keychain, or config)
+- **Agent announcement is disclosed, not hidden** — every command tells the host `AI_AGENT=ssh-mcp`, including hosts that never opted in to storing it; clear `announceAgent` on a profile pointing at a host you do not control (see [Host-side identification](#host-side-identification))
+
+### Hardening Checklist
+
+- [ ] Create dedicated low-privilege service account on target hosts
+- [ ] Use command-specific `sudoers` instead of `NOPASSWD: ALL`
+- [ ] Enable `ask-all` approval for production profiles
+- [ ] Restrict network egress on target hosts
+- [ ] Use `readOnly = true` for monitoring profiles
+- [ ] Review audit logs regularly
+- [ ] Run `chmod 700 <config dir> && chmod 600 config.toml` (Windows: the ACL under `%APPDATA%` is already restricted)
+
+---
+
+## Transports
+
+### stdio (default)
+
+For local MCP clients (Claude Code, Cursor, Windsurf). No network exposure.
+
+```bash
+ssh-mcp                          # reads config from XDG path
+ssh-mcp --config=/path/to.toml   # custom config path
+```
+
+### HTTP (optional)
+
+For remote/web clients behind a reverse proxy with TLS:
+
+```bash
+ssh-mcp --transport=http --httpPort=3000 --bearerToken=secret
+ssh-mcp --transport=http --httpPort=3000 --bearerToken=secret --rateLimit=60
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--bearerToken` | required | Bearer token for authentication (all routes except `GET /health`) |
+| `--httpPort` | 3000 | HTTP listen port |
+| `--httpHost` | 127.0.0.1 | Bind address |
+| `--rateLimit` | 0 (off) | Max authenticated requests per minute, per client (0 = unlimited) |
+| `--httpSessionTtl` | 1800000 | Idle timeout of an MCP client session over HTTP, in ms (a session with a request in flight or an open SSE stream does not expire). At the 64-session cap a new client evicts the least recently active session with no request in flight, one holding an SSE stream only when no other can go |
+| `--authFailureLimit` | 10 | Failed bearer-auth attempts allowed per client per minute (0 = off) |
+| `--trustProxy` | false | Read the client address from `X-Forwarded-For`, but only when the peer is the proxy — bare means a loopback peer |
+| `--trustedProxies` | — | Comma-separated peer addresses allowed to send `X-Forwarded-For`. Empty means loopback only |
+
+Endpoints: `POST /` (MCP Streamable HTTP), `GET /status`, `GET /health`
+
+`GET /health` answers `{"healthy": true, "configured": <bool>}`. It stays `200` either way —
+`healthy` is liveness — while `configured` is false when no profile is set, which is the
+case of a config bind mount that silently did not attach: the server binds the port and
+refuses every tool call except `reload-config`. `configured` turns true once a reload has
+loaded a file. `GET /status` carries the profile list itself and stays behind the
+bearer token.
+
+`--rateLimit` is a budget per client, keyed the same way as the failed-auth budget below,
+and every authenticated request spends from it: `POST /` and the rest of the MCP route,
+`GET /status`, and an authenticated request to a path that does not exist. `GET /health`
+never does. A wrong token never does either, so unauthenticated traffic cannot spend a
+working client's budget. When a client's budget is spent the server returns HTTP 429 with
+a JSON-RPC error body, and `Retry-After` gives the seconds until that client's next request
+will be accepted.
+
+Failed authentication is throttled separately, and on by default. `--rateLimit` never saw a
+wrong bearer token, because the auth check answers before the limiter is reached — so
+guessing ran at network speed. `--authFailureLimit` gives each client its own small budget,
+spent only on a 401; a correct token never consumes from it, so a working client never
+throttles itself. Once an address has spent its budget every request from it waits,
+including one with the right token — that is deliberate, since answering the guess would
+otherwise tell the caller which token was right. Clients are told apart by socket address,
+for this budget and for `--rateLimit` alike. **Behind a reverse proxy that means every
+client shares one of each**, so set `--trustProxy` when the proxy is yours — the server
+prints a warning the first time it sees `X-Forwarded-For` without it. `--trustProxy` takes
+the *rightmost* `X-Forwarded-For` entry, which is the hop the proxy itself appended;
+everything to its left came from the client, so reading the leftmost would let a client
+choose its own budget or spend a victim's. That only holds if a proxy actually appended
+the entry, so the header is read **only when the peer is the proxy** — bare `--trustProxy`
+means a loopback peer, which is the deployment above; name a proxy elsewhere with
+`--trustedProxies`. When the header cannot be read as an address, or the peer is not
+trusted, the server falls back to the socket address and says so once, so a flag that is
+not taking effect is not silent. One trusted hop is assumed. A malformed
+`--authFailureLimit` is refused at startup rather than silently disabling the check; only
+`0` turns it off.
+
+An IPv6 client is told apart by its /64 rather than its full address, for both budgets. A
+/64 is usually the smallest block a subscriber is handed, so hosts that share one — a home
+or office network, or customers a hosting provider places on one /64 — share a budget, the
+way hosts behind one IPv4 NAT do. An IPv6 address that carries an IPv4 address (IPv4-mapped,
+or the NAT64 prefix `64:ff9b::/96`) counts as that IPv4 client. A NAT64 or SIIT translator
+that uses a prefix of its own is not recognised: every IPv4 client it translates shares that
+prefix's /64, and so one budget.
+
+**Always terminate TLS at a reverse proxy** (Caddy/nginx). The server listens on `127.0.0.1` only.
+
+---
+
+## Docker
+
+```bash
+# Build
+docker build -t ssh-mcp .
+
+# Run (config file + env vars for credentials)
+docker run -i \
+  -v ./config.toml:/home/appuser/.config/ssh-mcp/config.toml:ro \
+  -e SSH_MCP_PASSWORD=secret \
+  ssh-mcp
+```
+
+Or with docker-compose:
+
+```bash
+docker-compose --profile app up
+```
+
+The Docker image runs as non-root UID 65532, with a minimal `node:22-slim` base.
+
+---
+
+## CLI Flags (v2)
+
+Secrets are **never** passed as CLI arguments.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | platform config dir (see [Configure](#2-configure)) | Path to TOML config file |
+| `--host` | — | Quick start: SSH host (creates single-profile config) |
+| `--user` | — | Quick start: SSH username |
+| `--port` | 22 | Quick start: SSH port |
+| `--key` | — | Quick start: Path to private key |
+| `--workdir` | — | Quick start: Working directory for commands and sessions |
+| `--group` | prod | Quick start: Policy tier — `prod`, `staging` or `dev` |
+| `--timeout` | 60000 | Command timeout in ms |
+| `--maxChars` | 5000 | Max command length (`none` or `0` disables the limit; in a config file the same setting is `commandMaxChars = 0`) |
+| `--sessionMax` | 5 | Max concurrent sessions per connection |
+| `--sessionTtl` | 600000 | Idle timeout of an SSH session in ms |
+| `--transport` | stdio | `stdio` or `http` |
+| `--httpPort` | 3000 | HTTP transport port |
+| `--httpHost` | 127.0.0.1 | HTTP bind address |
+| `--bearerToken` | — | Bearer token for HTTP transport auth (required for `--transport=http`) |
+| `--rateLimit` | 0 | Max authenticated requests per minute, per client (0 = unlimited) |
+| `--httpSessionTtl` | 1800000 | Idle timeout of an MCP client session over HTTP, in ms (a session with a request in flight or an open SSE stream does not expire). At the 64-session cap a new client evicts the least recently active session with no request in flight, one holding an SSE stream only when no other can go |
+| `--authFailureLimit` | 10 | Failed bearer-auth attempts allowed per client per minute (0 = off) |
+| `--trustProxy` | false | Read the client address from `X-Forwarded-For`, but only when the peer is the proxy — bare means a loopback peer |
+| `--trustedProxies` | — | Comma-separated peer addresses allowed to send `X-Forwarded-For`. Empty means loopback only |
+| `--allowedHosts` | bind address + localhost | Comma-separated Host headers accepted by the DNS-rebinding guard |
+| `--hostKeyMode` | `tofu` | `tofu \| strict \| insecure`. `strict` accepts only hosts pinned with `trustedHostKey`. See [SECURITY.md](./SECURITY.md#host-key-trust-does-not-survive-a-restart) |
+| `--insecureHostKey` | false | Disable host key verification for hosts with no `trustedHostKey` — a pin still refuses (test only!) |
+| `--allowUncheckedConfigAcl` | false | Windows: report every ACL finding and refuse none |
+| `--strictConfigAcl` | false | Windows: refuse on every ACL finding, including a read-only over-grant |
+| `--disableApproval` | false | Skip the approval gate (quick start profile only) |
+| `--opaUrl` | — | OPA sidecar URL for external policy |
+| `--opaFailClosed` | false | Refuse every command while OPA is unreachable, instead of falling back to local policy |
+| `--opaTimeoutMs` | 10000 | How long to wait for the OPA sidecar. Lower makes the fail-open cheaper to reach; higher makes an outage slower to notice |
+| `--commandQuota` | 0 (off) | Max commands per rolling 24h per profile |
+| `--approvalGrantTtl` | 0 (off) | Auto-approve an identical command for this many ms after approval |
+| `--auditEntropyScan` | false | Enable entropy-based secret scanning in audit |
+| `--auditTamperEvident` | false | Enable hash-chained tamper-evident audit log |
+| `--otelEndpoint` | — | OTLP/HTTP endpoint for OpenTelemetry traces |
+| `--otelServiceName` | ssh-mcp | Service name reported on trace spans |
+| `--dumpToolHashes` | — | Print SHA-256 hashes of the tool descriptions and exit |
+
+---
+
+## Migrating from v1
+
+v2 is a breaking release. Passing a removed flag now fails at startup with the
+replacement, rather than failing later as a confusing auth error.
+
+### Tools
+
+| v1 | v2 | Notes |
+|----|----|-------|
+| `exec` | `read-command` | Allowlisted read-only commands. Prefer this for reads. |
+| `exec` | `run-command` | Arbitrary commands. Destructive and privileged ones go through the approval gate, unless `approvalPolicy = "auto"`. |
+| `sudo-exec` | `privileged-command` | Requires approval unless `approvalPolicy = "auto"`. Password is piped via stdin. |
+| `description` parameter | — | Removed. It was an injection vector (#44) and never reached the host. |
+
+**Command results now carry status.** In v1 a failed command rejected with
+`Error (code N)`. In v2 a non-zero exit comes back as an error result including
+the exit code and stderr — so an empty response no longer means "it worked".
+
+### Flags
+
+| v1 flag | Replacement |
+|---------|-------------|
+| `--password` | `SSH_MCP_PASSWORD` env var (or `SSH_MCP_<PROFILE>_PASSWORD`) |
+| `--suPassword` | `SSH_MCP_SUDO_PASSWORD` env var |
+| `--sudoPassword` | `SSH_MCP_SUDO_PASSWORD` env var |
+| `--disableSudo` | Use a role/policy that disallows the `privileged` class |
+
+Credentials moved off the command line because CLI arguments are world-readable
+via `/proc/<pid>/cmdline` on Linux (CWE-214). Credentials now resolve through an
+SSH agent → OS keychain → env var → key file cascade.
+
+### Example
+
+```jsonc
+// v1
+{ "command": "npx", "args": ["ssh-mcp", "--host=1.2.3.4", "--user=root", "--password=hunter2"] }
+
+// v2 — credentials via env
+{
+  "command": "npx",
+  "args": ["ssh-mcp", "--host=1.2.3.4", "--user=root"],
+  "env": { "SSH_MCP_PASSWORD": "hunter2" }
+}
+```
+
+For more than one host, move to a TOML config file (see [Configuration](#configuration))
+and pass `--config <path>`; profiles carry per-host roles and approval policy.
+
+### Host key verification
+
+v1 did not verify host keys. v2 defaults to trust-on-first-use and records the
+key **in memory, for the life of the process**; a later mismatch in that same
+process fails the connection. Nothing is written to disk and `~/.ssh/known_hosts`
+is not consulted, so a restart accepts afresh — see
+[SECURITY.md](./SECURITY.md#host-key-trust-does-not-survive-a-restart). Pin
+explicitly with `trustedHostKey` in a profile, which is the only control here that
+survives a restart — and which no host key mode overrides, so `--insecureHostKey`
+is an opt-out only for hosts you have not pinned (test environments only).
+
+---
+
+## Testing
+
+```bash
+# Start test SSH servers. --build matters: compose reuses an existing image, and a
+# fixture change (such as the alpine target's AcceptEnv line) then never lands,
+# which shows up as a product failure in the integration suite.
+docker compose --profile test up -d --build
+
+# Run all tests
+npm test
+
+# Run only unit tests
+npm test -- test/unit/
+
+# Run with coverage
+npm run coverage
+```
+
+## MCP Inspector
+
+```bash
+npm run inspect
+```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Please follow the [security checklist](./SECURITY.md#security-checklist-for-contributors) in all PRs.
+
+## Support
+
+If you find SSH MCP Server helpful, consider starring the repository or [sponsoring](https://github.com/sponsors/tufantunc)!
+
+## Listed on
+
+[![SSH MCP Server on Glama](https://glama.ai/mcp/servers/tufantunc/ssh-mcp/badge)](https://glama.ai/mcp/servers/tufantunc/ssh-mcp)
+
+Also on the [official MCP registry](https://registry.modelcontextprotocol.io) as `io.github.tufantunc/ssh-mcp`.

@@ -1,0 +1,192 @@
+# Kaggle Code Sandbox
+
+The Jupyter MCP Server can execute code against a **Kaggle** notebook code sandbox.
+Kaggle exposes a Jupyter-compatible kernel behind an authenticating proxy, so the
+server connects through the
+[code-sandboxes](https://github.com/datalayer/code-sandboxes) `kaggle` sandbox
+variant.
+
+:::tip
+
+For the full, engine-level credential and parameter reference, see the
+[Kaggle sandbox guide](https://code-sandboxes.datalayer.tech/providers/kaggle)
+in the code-sandboxes documentation.
+
+:::
+
+## Requirements
+
+Install the Kaggle extra:
+
+```bash
+pip install "jupyter-mcp-server[kaggle]"
+```
+
+Install the sandbox extension package used by this sandbox:
+
+```bash
+pip install datalayer_mcp_sandboxes
+```
+
+## Connection modes
+
+Kaggle supports two connection modes:
+
+1. **Batch mode (default):** when no code sandbox URL/channels are configured, code
+  is executed via Kaggle's job API (`KaggleKernelExecutor`).
+2. **Interactive mode:** create or connect to a code sandbox kernel via
+  `KaggleKernelClient`.
+
+### Mode A: batch execution (default)
+
+No `CODE_SANDBOX_URL` is required. Configure Kaggle credentials (for example
+`KAGGLE_API_TOKEN`, or standard Kaggle credentials such as `kaggle.json`).
+Optionally set `SANDBOX_GPU` to request a specific accelerator.
+
+```bash
+SANDBOX_VARIANT=kaggle
+KAGGLE_API_TOKEN=...
+SANDBOX_GPU=T4
+```
+
+Supported accelerator values include:
+
+- `NvidiaTeslaP100`
+- `NvidiaTeslaT4`
+- `NvidiaTeslaT4Highmem`
+- `NvidiaL4`
+- `NvidiaL4X1`
+- `NvidiaTeslaA100`
+- `NvidiaH100`
+- `NvidiaRtxPro6000`
+
+Friendly aliases such as `P100`, `T4`, `A100`, and `H100` are accepted.
+
+> Note: Kaggle free-tier access is typically limited to `P100` and `T4`.
+
+### Mode B: interactive create kernel (token-based)
+
+| Parameter | Environment variable | Description |
+|-----------|----------------------|-------------|
+| Server URL | `CODE_SANDBOX_URL` | Kaggle proxied code sandbox URL ending in `/proxy` |
+| API token | `KAGGLE_API_TOKEN` (or `CODE_SANDBOX_TOKEN`) | Kaggle API token |
+
+```bash
+SANDBOX_VARIANT=kaggle
+CODE_SANDBOX_URL=https://kkb-production.jupyter-proxy.kaggle.net/k/12345678/eyJ.../proxy
+KAGGLE_API_TOKEN=...
+```
+
+### Mode B: connect to an existing kernel
+
+Use either:
+
+- `CODE_SANDBOX_URL` + `CODE_SANDBOX_ID`, or
+- `CODE_SANDBOX_CHANNELS_URL` (the websocket URL from the notebook session)
+
+Example channels URL:
+
+```
+wss://kkb-production.jupyter-proxy.kaggle.net/k/<n>/<jwt>/proxy/api/kernels/<kernel_id>/channels?session_id=<...>
+```
+
+## How to obtain code sandbox values
+
+The official Kaggle API (`kaggle` CLI / `kagglehub`) provides batch notebook/job
+operations, but not interactive kernel WebSocket provisioning. Interactive
+code sandbox values come from an active browser session:
+
+1. Open your notebook on [kaggle.com](https://www.kaggle.com) and run a cell.
+2. Open DevTools (`F12`) -> **Network** -> **WS**.
+3. Find the `.../proxy/api/kernels/<id>/channels?...` request and copy its URL.
+
+You can parse `CODE_SANDBOX_URL` and `CODE_SANDBOX_ID` from that URL automatically by
+setting `CODE_SANDBOX_CHANNELS_URL`.
+
+Alternatively, Kaggle's
+[external editor support](https://www.kaggle.com/product-announcements/567740)
+exposes the URL directly:
+
+1. Open your notebook on [kaggle.com](https://www.kaggle.com) and start an
+  interactive session.
+2. Open **Run** -> **Kaggle Jupyter Server**.
+3. Under **Manually Connect**, copy the **VS Code Compatible URL** — this is
+  your `CODE_SANDBOX_URL`.
+
+> The URL embeds a session JWT: treat it as a secret and don't commit it. It
+> stops working once the interactive session ends (Kaggle stops idle sessions
+> after a while).
+
+## Using it with a coding agent
+
+The interactive URL above is a standard token-authenticated Jupyter server
+endpoint, so it works as a plain `CODE_SANDBOX_URL` — no `SANDBOX_VARIANT`,
+sandbox extension, or `CODE_SANDBOX_TOKEN` required. Point `DOCUMENT_URL` at a
+local JupyterLab to keep the notebook on your machine while cells run on
+Kaggle:
+
+```json
+{
+  "mcpServers": {
+    "jupyter": {
+      "command": "uvx",
+      "args": ["jupyter-mcp-server@latest"],
+      "env": {
+        "DOCUMENT_URL": "http://localhost:8888",
+        "DOCUMENT_TOKEN": "MY_TOKEN",
+        "CODE_SANDBOX_URL": "https://kkb-production.jupyter-proxy.kaggle.net/k/12345678/eyJ.../proxy"
+      }
+    }
+  }
+}
+```
+
+The local JupyterLab needs `jupyter-collaboration` installed; without it,
+notebook tools fail with a 404 on `/api/collaboration/session/...`. The JWT
+embedded in the Kaggle URL authenticates the requests.
+
+## Configuration
+
+Default (batch mode):
+
+```bash
+SANDBOX_VARIANT=kaggle
+KAGGLE_API_TOKEN=...
+SANDBOX_GPU=T4
+```
+
+Interactive mode:
+
+```bash
+SANDBOX_VARIANT=kaggle
+CODE_SANDBOX_URL=https://kkb-production.jupyter-proxy.kaggle.net/k/12345678/eyJ.../proxy
+KAGGLE_API_TOKEN=...
+```
+
+Or via the command line:
+
+```bash
+jupyter mcp start \
+  --transport streamable-http \
+  --sandbox-variant kaggle \
+  --code-sandbox-url "https://kkb-production.jupyter-proxy.kaggle.net/k/12345678/eyJ.../proxy" \
+  --code-sandbox-token "${KAGGLE_API_TOKEN}" \
+  --port 4040
+```
+
+Existing-kernel flow:
+
+```bash
+jupyter mcp start \
+  --transport streamable-http \
+  --sandbox-variant kaggle \
+  --code-sandbox-channels-url "wss://kkb-production.jupyter-proxy.kaggle.net/k/.../proxy/api/kernels/.../channels?session_id=..." \
+  --port 4040
+```
+
+Once connected, all notebook and cell execution tools run against the Kaggle
+code sandbox transparently.
+
+When a Kaggle sandbox is active, `execute_code` prefers the sandbox streaming
+execution path when available, so batch status/progress lines and output events
+are surfaced in-order in the returned tool output.

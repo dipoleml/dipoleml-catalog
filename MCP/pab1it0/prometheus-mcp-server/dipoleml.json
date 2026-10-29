@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.pab1it0.prometheus-mcp-server",
+  "type": "mcp",
+  "name": "Prometheus MCP Server",
+  "slug": "prometheus-mcp-server",
+  "vendor": "pab1it0",
+  "description": "A Model Context Protocol (MCP) server that enables AI agents and LLMs to query and analyze Prometheus metrics through standardized interfaces.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/pab1it0/prometheus-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "devops",
+    "model-context-protocol",
+    "prometheus"
+  ],
+  "tags": [
+    "ai",
+    "devops",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "prometheus"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "pab1it0",
+    "brandName": "pab1it0",
+    "source": "https://github.com/pab1it0.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:28Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "pab1it0/prometheus-mcp-server",
+    "url": "https://github.com/pab1it0/prometheus-mcp-server",
+    "commit": "a6bc50bc486ae969b284fb03c700d95149220963",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 521,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "prometheus_mcp_server"
+    ],
+    "env": [
+      "PROMETHEUS_URL",
+      "PROMETHEUS_URL_SSL_VERIFY",
+      "PROMETHEUS_TOKEN",
+      "PROMETHEUS_CLIENT_KEY",
+      "PROMETHEUS_MCP_SERVER_TRANSPORT",
+      "PROMETHEUS_MCP_BIND_HOST",
+      "PROMETHEUS_MCP_BIND_PORT",
+      "PROMETHEUS_CUSTOM_HEADERS"
+    ],
+    "credentials": [
+      "PROMETHEUS_TOKEN",
+      "PROMETHEUS_CLIENT_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

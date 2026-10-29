@@ -1,0 +1,39 @@
+{
+  "name": "antonbabenko-deliberation",
+  "owner": {
+    "name": "Anton Babenko",
+    "url": "https://github.com/antonbabenko"
+  },
+  "plugins": [
+    {
+      "name": "deliberation",
+      "source": "./",
+      "description": "Use when you want a delegated second opinion or implementation from GPT (Codex), Gemini, Grok (xAI), or OpenRouter (config-driven, 400+ models) - eight expert subagents (Architect, Plan Reviewer, Scope Analyst, Code Reviewer, Security Analyst, Researcher, Debugger, Writing Editor) and bundled ask-gpt/ask-gemini/ask-grok/ask-openrouter/ask-all/consensus commands, advisory (read-only) or implementation (write; only Gemini can implement - GPT, Grok, and OpenRouter are advisory-only).",
+      "version": "4.0.0",
+      "author": {
+        "name": "Anton Babenko",
+        "url": "https://github.com/antonbabenko"
+      },
+      "homepage": "https://github.com/antonbabenko/deliberation",
+      "repository": "https://github.com/antonbabenko/deliberation",
+      "license": "MIT",
+      "keywords": [
+        "delegation",
+        "mcp",
+        "codex",
+        "gpt",
+        "openai",
+        "gemini",
+        "google",
+        "grok",
+        "xai",
+        "openrouter",
+        "experts",
+        "subagents",
+        "orchestration",
+        "code-review",
+        "architecture"
+      ]
+    }
+  ]
+}

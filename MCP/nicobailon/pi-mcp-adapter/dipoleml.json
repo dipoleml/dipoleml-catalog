@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.nicobailon.pi-mcp-adapter",
+  "type": "mcp",
+  "name": "Pi MCP Adapter",
+  "slug": "pi-mcp-adapter",
+  "vendor": "nicobailon",
+  "description": "Token-efficient MCP adapter for Pi coding agent",
+  "version": "7.0.0",
+  "homepage": "https://github.com/nicobailon/pi-mcp-adapter",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "coding-agent",
+    "extension",
+    "model-context-protocol",
+    "pi"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "coding-agent",
+    "extension",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "pi"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nicobailon",
+    "brandName": "nicobailon",
+    "source": "https://github.com/nicobailon.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:24Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nicobailon/pi-mcp-adapter",
+    "url": "https://github.com/nicobailon/pi-mcp-adapter",
+    "commit": "a25429cfcb5fb313ddfae2602aa1cc9f08cc4eb8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1630,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "pi-mcp-adapter"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "cli.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "pi-mcp-adapter"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

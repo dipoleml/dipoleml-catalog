@@ -1,0 +1,42 @@
+{
+  "generator": "built-in image_gen",
+  "referenceDimensions": {
+    "width": 2172,
+    "height": 724
+  },
+  "references": [
+    "https://github.com/hmmhmmhm/aligns.md/blob/main/assets/define-what-good-means.png",
+    "../daiso-mcp-services.png"
+  ],
+  "common": "Generate a SINGLE editorial illustration banner for the DAISO MCP GitHub README. Final canvas: precisely 2172 pixels wide by 724 pixels high, exactly 3:1 horizontal panorama, no vertical poster, no letterboxing. Reference image 1 (aligns section banner) is ONLY a canvas-ratio and generous breathing-space reference: do NOT copy its abstract graphic style. Reference image 2 (DAISO MCP town illustration) is the STYLE AND CHARACTER reference: retain the same adorable golden hamster and gray hamster with creamy bellies, tiny pink cheeks, rounded dark brown hand-drawn outlines, watercolor shading, warm ivory textured paper, cozy muted pastel town colors. A cohesive professional picture-book series, more restrained than the large hero. Horizontal composition with 3 small connected visual groups distributed across the width, spacious margins, unobtrusive light background, all important characters fully visible. Illustrate the section concept rather than a screenshot or detailed infographic. No readable text at all, no letters, no numbers, no slogans, no banners with writing, no watermark, no code, no em dash, no official partnership claims. Convey UI elements with simple unlabelled pictograms. No giant header title because the README already supplies its accessible text heading. Do not repeat all thirteen storefronts in each banner. ",
+  "scenes": [
+    [
+      "connect",
+      "Remote MCP quick start: golden hamster at left holds a smartphone, gray hamster at right uses an open laptop. In the middle, a small friendly cloud with a simple plug symbol connects the two through a flowing dotted path. A tiny red household-goods shop, purple convenience shop, and cinema silhouette nestle in the far background. Convey an easy connection without boxes of equipment or installation steps. Inviting and cheerful."
+    ],
+    [
+      "cli-skill",
+      "CLI and agent skills: two hamsters at a cozy desk, one using an open laptop with a dark terminal panel containing only 3 abstract horizontal bars and a triangular cursor pictogram, the other arranging small picture cards showing a shopping basket, a map pin and popcorn. A gentle chain of cards moves toward a shopping basket, expressing choosing commands for tasks. A small book and desk lamp at either end, lots of horizontal breathing space."
+    ],
+    [
+      "web",
+      "Web reading and GET lookup: golden hamster opens a friendly browser window like a storybook. The browser shows purely pictographic product cards, image thumbnails and small map markers, with a little globe icon. Gray hamster follows a curved paper trail from a magnifying glass through the browser to a real shop window and basket. Warm cream, soft sky blue and sage, legible simple visual metaphor, no terminal or source code."
+    ],
+    [
+      "examples",
+      "Example requests in everyday life: three cozy connected vignettes across a horizontal neighborhood. On the left, golden hamster with a plain empty rounded speech bubble searches for a small storage box near a household store. In the center gray hamster holds a snack bag beside a convenience shop and a map pin. At right the two hamsters meet by a small cinema with popcorn and ticket shapes, with a tiny fuel pump in the distance. All speech bubbles empty, all shop signs blank. An easy walk through daily needs."
+    ],
+    [
+      "guidance",
+      "Using results responsibly and checking status: golden hamster holds a simple checklist board made only of little square pictograms, gray hamster compares a clock and a shop shelf containing a few neatly arranged products. At center a gentle small info-desk character scene with a question-mark-shaped visual icon represented as a pictogram and three clearly distinct round unlabelled status lights in green amber and gray, never an alarming red error. A blank calendar page and small ticket emphasize information changes with time. Calm helpful atmosphere, no promise of live or guaranteed stock."
+    ],
+    [
+      "docs",
+      "Detailed documentation: a tiny cozy neighborhood library in warm ivory and sage colors. Golden hamster explores an open illustrated book with a map, gray hamster organizes three folders bearing simple pictograms for a plug, storefront and cinema reel. A curved path visually connects the open book, folder shelf and little town map. A magnifying glass and soft desk lamp finish the sides. Friendly documentation and deeper exploration, not a technical architecture diagram."
+    ],
+    [
+      "thanks",
+      "Special thanks to contributors: a cheerful collaborative scene of the two familiar hamsters and three smaller cute hamster friends gathered around a table assembling a miniature friendly town from storefront blocks, film reel, map pin and tiny fuel pump. One hamster offers a small flower, another places the last piece. A soft garland of small pastel pennants overhead with NO letters, gentle confetti, warm gratitude and teamwork, modest celebration, no trophy or money."
+    ]
+  ]
+}

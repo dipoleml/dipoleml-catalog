@@ -1,0 +1,34 @@
+node_modules/
+target/
+build/
+*.log
+coverage/
+.env*
+
+# VitePress
+docs/.vitepress/cache
+docs/.vitepress/dist
+# Generated from crates/anymd/src/money_docs.toml by scripts/build-storefront.sh
+docs/storefront/docs.toml
+
+# Test Reports
+test-report.junit.xml
+.vercel
+
+# Local page-cache artifacts from Rust text-index tests
+**/.pdf-reader-mcp/
+dist/
+
+# Native binaries the release workflow stages into the platform packages.
+packages/npm/*/anymd
+packages/npm/*/anymd.exe
+
+*.tgz
+
+# Browser playground WebAssembly (scripts/build-wasm.sh output)
+docs/public/wasm/
+benchmark-artifacts/
+__pycache__/
+
+# Local benchmark and regression corpora (bench/fetch.py, scripts/fetch-markdown-corpus.sh)
+.cache/

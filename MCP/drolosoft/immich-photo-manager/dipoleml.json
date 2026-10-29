@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.drolosoft.immich-photo-manager",
+  "type": "mcp",
+  "name": "Immich Photo Manager",
+  "slug": "immich-photo-manager",
+  "vendor": "drolosoft",
+  "description": "MCP server and DipoleML plugin for self-hosted Immich: CLIP and OCR search, geographic albums, duplicates, people and faces, metadata repair, PDF photobooks. 94 tools, tested live on Immich 2.x and 3.x.",
+  "version": "2.0.13",
+  "homepage": "https://github.com/drolosoft/immich-photo-manager",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "albums",
+    "claude-plugin",
+    "cleanup",
+    "duplicates",
+    "gallery",
+    "geolocation",
+    "immich",
+    "immich-plugin"
+  ],
+  "tags": [
+    "albums",
+    "claude",
+    "claude-plugin",
+    "cleanup",
+    "duplicates",
+    "gallery",
+    "geolocation",
+    "immich",
+    "immich-plugin",
+    "mcp",
+    "mcp-server",
+    "metadata",
+    "photo-management",
+    "photos",
+    "python",
+    "self-hosted"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "drolosoft",
+    "brandName": "drolosoft",
+    "source": "https://github.com/drolosoft.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "drolosoft/immich-photo-manager",
+    "url": "https://github.com/drolosoft/immich-photo-manager",
+    "commit": "22dd58280d1304d20bb45ae432eb8258927ef540",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 61,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Immich Photo Manager | MCP server and Claude Code plugin for self-hosted Immich: CLIP and OCR search, geographic albums, duplicates, people and faces, metadata repair, PDF photobooks. 94 tools, tested live on Immich 2.x and 3.x.",
+        "after": "Immich Photo Manager | MCP server and DipoleML plugin for self-hosted Immich: CLIP and OCR search, geographic albums, duplicates, people and faces, metadata repair, PDF photobooks. 94 tools, tested live on Immich 2.x and 3.x.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "immich-photo-manager"
+    ],
+    "env": [
+      "IMMICH_BASE_URL",
+      "IMMICH_API_KEY",
+      "MCP_TRANSPORT",
+      "MCP_ALLOWED_HOSTS"
+    ],
+    "credentials": [
+      "IMMICH_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

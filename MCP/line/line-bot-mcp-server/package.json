@@ -1,0 +1,59 @@
+{
+  "name": "@line/line-bot-mcp-server",
+  "version": "0.0.1-local",
+  "description": "MCP server for interacting with your LINE Official Account",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "module": "./dist/index.js",
+  "bin": {
+    "line-bot-mcp-server": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "richmenu-template"
+  ],
+  "scripts": {
+    "build": "npm run format:check && npm run typecheck:test && npm run clean && tsc && node scripts/chmod-bin.mjs",
+    "prettier": "prettier \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "npm run prettier -- --write",
+    "format:check": "npm run prettier -- -l",
+    "clean": "node scripts/clean.mjs",
+    "typecheck:test": "tsc --project tsconfig.test.json",
+    "release": "npm run build && npm publish --provenance --access public",
+    "check:publint": "publint",
+    "test": "npm run build && vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:line/line-bot-mcp-server.git"
+  },
+  "keywords": [
+    "line",
+    "bot",
+    "mcp"
+  ],
+  "homepage": "https://github.com/line/line-bot-mcp-server",
+  "bugs": "https://github.com/line/line-bot-mcp-server/issues",
+  "dependencies": {
+    "@line/bot-sdk": "^11.0.1",
+    "@marp-team/marp-core": "^4.1.0",
+    "puppeteer": "^25.0.0",
+    "zod": "^4.2.0",
+    "@modelcontextprotocol/server": "^2.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/node": "^26.0.0",
+    "prettier": "^3.8.3",
+    "publint": "^0.3.21",
+    "typescript": "^7.0.0",
+    "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.9.12"
+  },
+  "license": "Apache-2.0"
+}

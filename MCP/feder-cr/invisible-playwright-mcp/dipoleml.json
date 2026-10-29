@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.feder-cr.invisible-playwright-mcp",
+  "type": "mcp",
+  "name": "Invisible Playwright MCP",
+  "slug": "invisible-playwright-mcp",
+  "vendor": "feder-cr",
+  "description": "Playwright MCP server undetected by anti-bots and captchas: AI agent browses the web on anti-detect stealth Firefox, Python, undetected browser automation, scraping, computer use.",
+  "version": "1.0.1",
+  "homepage": "https://github.com/feder-cr/invisible_playwright_mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "antidetect-browser",
+    "autonomous-agents",
+    "browser-agent",
+    "browser-automation",
+    "claude-code-plugin",
+    "computer-use",
+    "gemini-cli",
+    "gemini-cli-extension"
+  ],
+  "tags": [
+    "ai-tools",
+    "antidetect-browser",
+    "autonomous-agents",
+    "browser-agent",
+    "browser-automation",
+    "claude-code-plugin",
+    "computer-use",
+    "gemini-cli",
+    "gemini-cli-extension",
+    "job-hunting",
+    "job-search",
+    "llm-agent",
+    "mcp-server",
+    "mcp-tools",
+    "model-context-protocol",
+    "playwright",
+    "stealth-browser",
+    "web-automation",
+    "web-scraping",
+    "webscraping"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "playwright",
+    "brandName": "playwright",
+    "source": "https://github.com/feder-cr.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "feder-cr/invisible_playwright_mcp",
+    "url": "https://github.com/feder-cr/invisible_playwright_mcp",
+    "commit": "0df2a15e59f9d1d6dc56adc9f29cace1cbd4650e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 885,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "uvx",
+      "args": [
+        "invisible-playwright-mcp"
+      ]
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "invisible-playwright-mcp"
+    ],
+    "env": [
+      "OPENROUTER_API_KEY"
+    ],
+    "credentials": [
+      "OPENROUTER_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,512 @@
+/**
+ * @fileoverview obsidian_get_note — read a note's content, full NoteJson,
+ * structural document map, or a single section.
+ * @module mcp-server/tools/definitions/obsidian-get-note.tool
+ */
+
+import { tool, z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode, McpError } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
+import { wikilinkCloser } from '@/services/obsidian/frontmatter-ops.js';
+import { getObsidianService } from '@/services/obsidian/obsidian-service.js';
+import {
+  computeFenceMask,
+  extractSection,
+  type SectionExtraction,
+} from '@/services/obsidian/section-extractor.js';
+import { inlineCode } from './_shared/markdown.js';
+import { SectionSchema, TargetSchema } from './_shared/schemas.js';
+import { discloseCaseSubstitution, withCaseFallback } from './_shared/suggest-paths.js';
+
+const StatSchema = z.object({
+  ctime: z.number().describe('Created time, ms since epoch.'),
+  mtime: z.number().describe('Modified time, ms since epoch.'),
+  size: z.number().describe('File size in bytes.'),
+});
+
+export const obsidianGetNote = tool('obsidian_get_note', {
+  description:
+    'Read a note from the vault — by path, the active file, or a periodic note. Choose a `format` projection: raw body, full object, structural document map, or a single section. A `path` with no exact match but a single case-insensitive match in its folder reads that file instead and reports the path as sent in `requestedPath`; write and delete tools match paths exactly.',
+  annotations: { readOnlyHint: true, idempotentHint: true },
+  input: z.object({
+    format: z
+      .enum(['content', 'full', 'document-map', 'section'])
+      .describe(
+        'Which projection to return. `content` — raw markdown body. `full` — content plus parsed frontmatter, tags, and file metadata. `document-map` — catalog of headings, block IDs, and frontmatter field names (use to discover patch targets). `section` — a single heading, block, or frontmatter section (requires `section`); heading sections include the full subtree under that heading and use `Parent::Child` syntax for nesting.',
+      ),
+    target: TargetSchema.describe('Where the note lives.'),
+    section: SectionSchema.optional().describe(
+      'Required when `format` is `"section"`. Identifies the heading/block/frontmatter to extract.',
+    ),
+    includeLinks: z
+      .boolean()
+      .default(false)
+      .describe(
+        'When true with `format: "full"`, parses outgoing wiki and markdown link references from the note body. Skipped for other formats.',
+      ),
+  }),
+  output: z.object({
+    result: z
+      .discriminatedUnion('format', [
+        z
+          .object({
+            format: z.literal('content').describe('Echoed format discriminator.'),
+            path: z.string().describe('Resolved vault-relative path of the note.'),
+            content: z.string().describe('Raw markdown body.'),
+          })
+          .describe('Content-only projection.'),
+        z
+          .object({
+            format: z.literal('full').describe('Echoed format discriminator.'),
+            path: z.string().describe('Resolved vault-relative path of the note.'),
+            content: z.string().describe('Raw markdown body.'),
+            frontmatter: z
+              .record(z.string(), z.unknown())
+              .describe(
+                'Parsed YAML frontmatter. Values are strings, numbers, booleans, arrays, or nested objects.',
+              ),
+            tags: z.array(z.string()).describe('Tags from frontmatter and inline #tag syntax.'),
+            stat: StatSchema.describe('File metadata.'),
+            outgoingLinks: z
+              .array(
+                z
+                  .object({
+                    target: z
+                      .string()
+                      .describe(
+                        'Link target — a vault path or basename. A wikilink gives it as Obsidian reads it, without its `#heading` or `|alias` (`\\|alias` in a table); a markdown link gives its URL as written. No existence check.',
+                      ),
+                    type: z.enum(['wikilink', 'markdown']).describe('Source syntax.'),
+                  })
+                  .describe('A single outgoing link reference.'),
+              )
+              .optional()
+              .describe(
+                'Outgoing link references parsed from the note body. Present when `includeLinks` is true. Vault-internal references only — external URLs (http, mailto, etc.) are filtered out.',
+              ),
+          })
+          .describe('Full projection — content plus parsed metadata.'),
+        z
+          .object({
+            format: z.literal('document-map').describe('Echoed format discriminator.'),
+            path: z.string().describe('Resolved vault-relative path of the note.'),
+            headings: z.array(z.string()).describe('All headings in document order.'),
+            blocks: z.array(z.string()).describe('All block reference IDs.'),
+            frontmatterFields: z.array(z.string()).describe('All frontmatter field keys.'),
+          })
+          .describe('Document-map projection — catalog of patch targets.'),
+        z
+          .object({
+            format: z.literal('section').describe('Echoed format discriminator.'),
+            path: z.string().describe('Resolved vault-relative path of the note.'),
+            section: SectionSchema.describe('Echoed section locator.'),
+            sectionTarget: z
+              .string()
+              .optional()
+              .describe(
+                'Section locator the read was resolved against. For headings this is the resolved locator — a bare leaf name is reported back as its full `Parent::Child` path.',
+              ),
+            candidates: z
+              .array(z.string())
+              .optional()
+              .describe(
+                'Every full heading path `section.target` could name, in document order: each heading sharing a bare leaf name, or each repeat of a full path that occurs more than once in the note (the strings are then identical). Present only when more than one heading matched; the read still returns the first. Same field the write tools carry as `ambiguous_section` error data — re-issue with a distinct path from this list to pin the section.',
+              ),
+            valueText: z
+              .string()
+              .optional()
+              .describe('Section value as raw markdown (heading/block sections).'),
+            valueJson: z
+              .unknown()
+              .optional()
+              .describe(
+                'Section value as the JSON-typed frontmatter value (frontmatter sections only).',
+              ),
+          })
+          .describe('Single-section projection.'),
+      ])
+      .describe('Mode-discriminated projection of the requested note.'),
+  }),
+  enrichment: {
+    requestedPath: z
+      .string()
+      .optional()
+      .describe(
+        'The `target.path` as sent. Present only when it had no exact match and its single case-insensitive match in the same folder, `result.path`, was read instead — write and delete tools need `result.path`.',
+      ),
+    notice: z
+      .string()
+      .optional()
+      .describe(
+        'Guidance when the read substituted a case-insensitive path match (names both paths), when a heading locator matched several headings (names the path that was read and points at `candidates` for the rest), or both.',
+      ),
+  },
+  auth: ['tool:obsidian_get_note:read'],
+  errors: [
+    {
+      reason: 'section_required',
+      code: JsonRpcErrorCode.ValidationError,
+      when: '`format` is "section" but no `section` locator was provided.',
+      recovery:
+        'Pass `section: { type, target }` (e.g. `{ type: "heading", target: "Intro" }`), or use `format: "full"` / `"document-map"` instead.',
+    },
+    {
+      reason: 'path_forbidden',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.Forbidden,
+      when: 'The target path is outside OBSIDIAN_READ_PATHS (and OBSIDIAN_WRITE_PATHS, since write paths imply read access).',
+      recovery:
+        'Use a path inside the configured read scope. The error data echoes the active scope.',
+    },
+    {
+      reason: 'note_missing',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The vault path does not resolve to an existing note.',
+      recovery:
+        'Verify the path with obsidian_list_notes or use obsidian_search_notes to locate the note.',
+    },
+    {
+      reason: 'ambiguous_path',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.Conflict,
+      when: 'The parent directory contains multiple files whose names differ only in case (case-sensitive filesystems only).',
+      recovery: 'Retry with one of the exact paths listed in `matches` on the error data.',
+    },
+    {
+      reason: 'no_active_file',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'Target was `active` but no file is currently open in Obsidian.',
+      recovery:
+        'Call obsidian_open_in_ui to focus a file, or pass an explicit path target instead.',
+    },
+    {
+      reason: 'periodic_unsupported',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'Target was `periodic` and this vault runs Local REST API v5.0.2 or later without the companion periodic-notes extension, so the `/periodic/` routes are not served at all.',
+      recovery:
+        'Install the periodic-notes extension from https://github.com/coddingtonbear/obsidian-local-rest-api-periodic-notes, or address the note by an explicit vault path.',
+    },
+    {
+      reason: 'periodic_not_found',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'Target was `periodic`, the `/periodic/` routes are served on this vault, and no note exists for the requested period.',
+      recovery: 'Create the periodic note first or pass an explicit path target.',
+    },
+    {
+      reason: 'periodic_disabled',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.ValidationError,
+      when: "Target was `periodic` but the requested period is not enabled in Obsidian's Periodic Notes plugin settings.",
+      recovery:
+        "Pass an explicit path target — the requested period is disabled in the operator's Periodic Notes plugin.",
+    },
+    {
+      reason: 'section_missing',
+      code: JsonRpcErrorCode.NotFound,
+      when: '`format` was `"section"` and the named heading, block reference, or frontmatter field does not exist in the resolved note.',
+      recovery:
+        'Call obsidian_get_note with format "document-map" to list available headings, blocks, and frontmatter fields, then retry with one of those locators.',
+    },
+    {
+      reason: 'path_is_directory',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'The supplied path names a folder rather than a note file.',
+      recovery:
+        'Call obsidian_list_notes with this path to list the folder, then retry with the full path of one of the files it returns.',
+    },
+    {
+      reason: 'path_traversal',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'The path contains a `.` or `..` segment, which is rejected to prevent vault escape.',
+      recovery:
+        'Supply a vault-relative path with no `.` or `..` segments, e.g. "Projects/Note.md". Use obsidian_list_notes to browse the vault.',
+    },
+  ],
+
+  async handler(input, ctx) {
+    const svc = getObsidianService();
+    const { target } = input;
+
+    if (input.format === 'content') {
+      if (target.type === 'path') {
+        const fallback = await withCaseFallback(ctx, svc, target, (t) =>
+          svc.getNoteContent(ctx, t),
+        );
+        discloseCaseSubstitution(ctx, fallback, 'read');
+        return {
+          result: {
+            format: 'content' as const,
+            path: fallback.resolvedPath ?? target.path,
+            content: fallback.result,
+          },
+        };
+      }
+      const note = await svc.getNoteJson(ctx, target);
+      return { result: { format: 'content' as const, path: note.path, content: note.content } };
+    }
+
+    if (input.format === 'full') {
+      const fallback = await withCaseFallback(ctx, svc, target, (t) => svc.getNoteJson(ctx, t));
+      discloseCaseSubstitution(ctx, fallback, 'read');
+      const note = fallback.result;
+      return {
+        result: {
+          format: 'full' as const,
+          path: note.path,
+          content: note.content,
+          frontmatter: note.frontmatter,
+          tags: note.tags,
+          stat: note.stat,
+          ...(input.includeLinks ? { outgoingLinks: parseOutgoingLinks(note.content) } : {}),
+        },
+      };
+    }
+
+    if (input.format === 'document-map') {
+      if (target.type === 'path') {
+        const fallback = await withCaseFallback(ctx, svc, target, (t) =>
+          svc.getDocumentMap(ctx, t),
+        );
+        discloseCaseSubstitution(ctx, fallback, 'read');
+        const map = fallback.result;
+        return {
+          result: {
+            format: 'document-map' as const,
+            path: fallback.resolvedPath ?? target.path,
+            headings: map.headings,
+            blocks: map.blocks,
+            frontmatterFields: map.frontmatterFields,
+          },
+        };
+      }
+      // Resolve once and read the map from that note, so `path` and the map always agree.
+      const pinned = await svc.resolveTarget(ctx, target);
+      const map = await svc.getDocumentMap(ctx, pinned);
+      return {
+        result: {
+          format: 'document-map' as const,
+          path: pinned.path,
+          headings: map.headings,
+          blocks: map.blocks,
+          frontmatterFields: map.frontmatterFields,
+        },
+      };
+    }
+
+    if (!input.section) {
+      throw ctx.fail('section_required', '`section` is required when `format` is "section".', {
+        format: input.format,
+      });
+    }
+    const fallback = await withCaseFallback(ctx, svc, target, (t) => svc.getNoteJson(ctx, t));
+    const caseNotice = discloseCaseSubstitution(ctx, fallback, 'read');
+    const note = fallback.result;
+    // `extractSection` throws `NotFound` for missing heading/block/frontmatter
+    // targets — those route through the contract; anything else bubbles up to
+    // the framework's default classifier.
+    let extracted: SectionExtraction;
+    try {
+      extracted = extractSection(note, input.section);
+    } catch (err) {
+      if (!(err instanceof McpError) || err.code !== JsonRpcErrorCode.NotFound) throw err;
+      throw ctx.fail(
+        'section_missing',
+        err.message,
+        { path: note.path, section: input.section },
+        { cause: err },
+      );
+    }
+    const { candidates, sectionTarget, value } = extracted;
+    if (candidates) {
+      const repeatedPath = candidates.every((c) => c === sectionTarget);
+      const headingNotice = `Heading ${inlineCode(input.section.target)} is ambiguous — ${candidates.length} headings share that name; read ${inlineCode(String(sectionTarget))}. See \`candidates\` for the rest.${repeatedPath ? ' Every one has the same full path, so the write tools reject it with `ambiguous_section`.' : ''}`;
+      ctx.enrich.notice(caseNotice ? `${caseNotice} ${headingNotice}` : headingNotice);
+    }
+    return {
+      result: {
+        format: 'section' as const,
+        path: note.path,
+        section: input.section,
+        ...(sectionTarget === undefined ? {} : { sectionTarget }),
+        ...(candidates ? { candidates } : {}),
+        ...(input.section.type === 'frontmatter'
+          ? { valueJson: value }
+          : { valueText: typeof value === 'string' ? value : String(value) }),
+      },
+    };
+  },
+
+  format: ({ result }) => {
+    const header = `**${escapeMarkdownInline(result.path)}** (format: ${result.format})`;
+    if (result.format === 'content') {
+      return [{ type: 'text', text: `${header}\n\n${result.content}` }];
+    }
+    if (result.format === 'full') {
+      const lines = [
+        header,
+        `*Tags:* ${result.tags.length > 0 ? result.tags.map(escapeMarkdownInline).join(', ') : '(none)'}`,
+        `*Stat:* ctime=${result.stat.ctime} mtime=${result.stat.mtime} size=${result.stat.size}`,
+      ];
+      const fmKeys = Object.keys(result.frontmatter);
+      if (fmKeys.length > 0) {
+        lines.push('', '**Frontmatter**');
+        for (const k of fmKeys) {
+          lines.push(`- ${inlineCode(k)}: ${inlineValue(result.frontmatter[k])}`);
+        }
+      }
+      if (result.outgoingLinks && result.outgoingLinks.length > 0) {
+        lines.push('', `**Outgoing links (${result.outgoingLinks.length})**`);
+        for (const l of result.outgoingLinks) {
+          lines.push(`- [${l.type}] ${escapeMarkdownInline(l.target)}`);
+        }
+      }
+      lines.push('', '**Content**', result.content);
+      return [{ type: 'text', text: lines.join('\n') }];
+    }
+    if (result.format === 'document-map') {
+      const lines = [
+        header,
+        '',
+        `**Headings (${result.headings.length})**`,
+        ...result.headings.map((h) => `- ${escapeMarkdownInline(h)}`),
+        '',
+        `**Blocks (${result.blocks.length})**`,
+        ...result.blocks.map((b) => `- ^${escapeMarkdownInline(b)}`),
+        '',
+        `**Frontmatter fields (${result.frontmatterFields.length})**`,
+        ...result.frontmatterFields.map((f) => `- ${escapeMarkdownInline(f)}`),
+      ];
+      return [{ type: 'text', text: lines.join('\n') }];
+    }
+    // valueText: heading/block sections (note body, raw); valueJson: frontmatter sections.
+    const value =
+      result.valueText !== undefined
+        ? result.valueText
+        : result.valueJson !== undefined
+          ? blockValue(result.valueJson)
+          : '_(empty)_';
+    const lines = [
+      header,
+      `*Section:* ${result.section.type} → ${escapeMarkdownInline(result.section.target)}`,
+    ];
+    if (result.sectionTarget !== undefined) {
+      lines.push(`*Resolved:* ${escapeMarkdownInline(result.sectionTarget)}`);
+    }
+    if (result.candidates && result.candidates.length > 0) {
+      lines.push(`*Candidates:* ${result.candidates.map(escapeMarkdownInline).join(', ')}`);
+    }
+    lines.push('', '**Value:**', value);
+    return [{ type: 'text', text: lines.join('\n') }];
+  },
+});
+
+/** A frontmatter section's value as its own block: a string as escaped text, anything else as fenced JSON. */
+function blockValue(v: unknown): string {
+  if (v === null) return '(empty)';
+  if (typeof v === 'string') return escapeMarkdownInline(v);
+  return markdown()
+    .codeBlock(JSON.stringify(v, null, 2), 'json')
+    .build();
+}
+
+/** A frontmatter value in a list item: a string as escaped text, anything else as its JSON in a code span. */
+function inlineValue(v: unknown): string {
+  if (v === null || v === undefined) return '(empty)';
+  if (typeof v === 'string') return escapeMarkdownInline(v);
+  return inlineCode(JSON.stringify(v));
+}
+
+/**
+ * The target of a wikilink body: the text before the first `|` (alias) or `#`
+ * (section). A backslash right before the alias pipe escapes it — Obsidian
+ * reads `[[Note\|A]]` as `Note` (the only way to alias inside a table cell) —
+ * while any other backslash stays: `[[Note\#H]]` and `[[Note\\|A]]` give `Note\`.
+ */
+function wikilinkTarget(body: string): string {
+  const end = body.search(/[|#]/);
+  if (end < 0) return body.trim();
+  const target = body.slice(0, end);
+  return (body[end] === '|' && target.endsWith('\\') ? target.slice(0, -1) : target).trim();
+}
+
+/**
+ * Markdown link: `[text](url)` or `[text](url "title")`. The URL is either
+ * `<bracketed text with spaces>` — the markdown spec's escape hatch for paths
+ * containing spaces — or a non-whitespace run whose parentheses come in
+ * balanced pairs (`Note(1).md`). The text may not contain `[` or `]`, and a
+ * bare URL ends at an unpaired `(`, so an unclosed `[` or `[a](` stops at the
+ * next bracket or parenthesis instead of scanning to the end of the note.
+ */
+const MARKDOWN_LINK = /\[[^[\]]*\]\((<[^<>\n]+>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+"[^"]*")?\)/g;
+
+/**
+ * Extract outgoing link references from note content. Captures Obsidian
+ * wikilinks (`[[target]]`, `![[target]]`, with optional `|alias` or
+ * `#section`) and markdown links (`[text](target)`). External URIs
+ * (any `scheme:` form) are filtered out — only vault-internal references
+ * remain. No existence checks; this is the link graph as written.
+ *
+ * A wikilink's extent is `wikilinkCloser`'s, the rule `obsidian_manage_tags`
+ * protects links by; the `!` of an embed sits before the `[[` and changes
+ * neither. An opener with no closer is passed over one character at a time,
+ * since its second `[` may open a link (`[[[[Note]]` links `[Note`).
+ * {@link wikilinkTarget} takes the target out of the body.
+ *
+ * Fenced code blocks and inline code are blanked before matching so notes
+ * documenting markdown syntax don't yield false-positive links.
+ */
+function parseOutgoingLinks(
+  content: string,
+): Array<{ target: string; type: 'wikilink' | 'markdown' }> {
+  const cleaned = stripMarkdownCode(content);
+  const links: Array<{ target: string; type: 'wikilink' | 'markdown' }> = [];
+
+  const linkEnd = wikilinkCloser(cleaned);
+  for (let open = cleaned.indexOf('[['); open >= 0; ) {
+    const end = linkEnd(open);
+    if (end === undefined) {
+      open = cleaned.indexOf('[[', open + 1);
+      continue;
+    }
+    const target = wikilinkTarget(cleaned.slice(open + 2, end - 2));
+    if (target) links.push({ target, type: 'wikilink' });
+    open = cleaned.indexOf('[[', end);
+  }
+
+  for (const m of cleaned.matchAll(MARKDOWN_LINK)) {
+    let target = m[1]?.trim();
+    if (!target) continue;
+    if (target.startsWith('<') && target.endsWith('>')) {
+      target = target.slice(1, -1).trim();
+    }
+    if (target && !/^[a-z][a-z0-9+\-.]*:/i.test(target)) {
+      links.push({ target, type: 'markdown' });
+    }
+  }
+
+  return links;
+}
+
+/**
+ * Return `content` with fenced code blocks and inline code spans replaced by
+ * spaces of equal length so downstream regex offsets remain coherent. Inline-
+ * code stripping is line-bounded — covers the common `` `[[example]]` `` case
+ * but not the rare multi-line backtick spans permitted by CommonMark.
+ */
+function stripMarkdownCode(content: string): string {
+  const lines = content.split('\n');
+  const inFence = computeFenceMask(lines);
+  return lines
+    .map((line, i) =>
+      inFence[i]
+        ? ' '.repeat(line.length)
+        : line.replace(/`[^`\n]+`/g, (s) => ' '.repeat(s.length)),
+    )
+    .join('\n');
+}

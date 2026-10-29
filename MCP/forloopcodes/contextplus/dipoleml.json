@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.forloopcodes.contextplus",
+  "type": "mcp",
+  "name": "Contextplus",
+  "slug": "contextplus",
+  "vendor": "forloopcodes",
+  "description": "Semantic Intelligence for Large-Scale Engineering. Context+ is an MCP server designed for developers who demand 99% accuracy. By combining RAG, Tree-sitter AST, Spectral Clustering, and Obsidian-style linking, Context+ turns a massive codebase into a searchable, hierarchical feature graph.",
+  "version": "1.0.9",
+  "homepage": "https://github.com/forloopcodes/contextplus",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "forloopcodes",
+    "brandName": "forloopcodes",
+    "source": "https://github.com/forloopcodes.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:00Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "forloopcodes/contextplus",
+    "url": "https://github.com/forloopcodes/contextplus",
+    "commit": "1b59b37f313047bd99d95e50ad8e5f0e2e38467f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1986,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "contextplus"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "contextplus"
+    ],
+    "env": [
+      "OLLAMA_API_KEY",
+      "YOUR_OLLAMA_API_KEY",
+      "CONTEXTPLUS_OPENAI_API_KEY",
+      "YOUR_GEMINI_API_KEY",
+      "CONTEXTPLUS_OPENAI_BASE_URL",
+      "OPENAI_API_KEY",
+      "YOUR_KEY",
+      "OPENAI_BASE_URL"
+    ],
+    "credentials": [
+      "OLLAMA_API_KEY",
+      "YOUR_OLLAMA_API_KEY",
+      "CONTEXTPLUS_OPENAI_API_KEY",
+      "YOUR_GEMINI_API_KEY",
+      "OPENAI_API_KEY",
+      "YOUR_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

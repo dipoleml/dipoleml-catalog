@@ -1,0 +1,13 @@
+Clone the design language of this landing page and build a fresh equivalent.
+Visual feel: flat. Tone: friendly · Headings: Title Case · CTA verbs: [object Object]
+Primary palette: #000000, #3139fb, #fffcec, #ffffff, #fffadd.
+Typography: [object Object], [object Object], [object Object], [object Object].
+Corner radius vocabulary: 4, 8, 22.
+Shadow vocabulary: rgba(0, 0, 0, 0.25) 0px 2px 8px 0px | rgba(0, 0, 0, 0.1) 0px 5px 5px 0px.
+Page structure:
+- testimonial — heading: "Arc is the Chrome  replacement I've been  waiting for."
+- sidebar
+- testimonial
+- testimonial
+- footer
+- sidebar

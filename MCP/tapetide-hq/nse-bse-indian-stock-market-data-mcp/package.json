@@ -1,0 +1,92 @@
+{
+  "name": "tapetide-mcp",
+  "version": "1.0.9",
+  "mcpName": "com.tapetide/stock-research-mcp",
+  "description": "NSE BSE Indian stock market MCP server — 48 tools for Indian stock market data & research: live NSE/BSE quotes, financials, technicals, stock screener (326 ratios), analyst ratings, FII/DII flows, option chains & IV, index performance, parsed filings (annual reports, concall transcripts), IPOs, portfolio tracking & watchlist. Works with Claude, ChatGPT, Cursor, Kiro, Codex & any MCP client.",
+  "type": "module",
+  "bin": {
+    "tapetide-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "check:catalog": "node scripts/check-catalog-parity.mjs",
+    "prepublishOnly": "tsc"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "nse-mcp",
+    "bse-mcp",
+    "indian-stock-market-mcp",
+    "stock-market-mcp",
+    "nifty-mcp",
+    "model-context-protocol",
+    "indian-stock-market",
+    "stock-market",
+    "stock-market-data",
+    "stock-research",
+    "stock-analysis",
+    "stock-screener",
+    "nse",
+    "bse",
+    "nifty",
+    "sensex",
+    "nifty-50",
+    "bank-nifty",
+    "finance",
+    "financial-data",
+    "market-data",
+    "technical-analysis",
+    "fundamental-analysis",
+    "fii-dii",
+    "institutional-flows",
+    "option-chain",
+    "implied-volatility",
+    "options-analytics",
+    "backtesting",
+    "ipo",
+    "mutual-funds",
+    "portfolio-tracker",
+    "watchlist",
+    "stock-quotes",
+    "ohlcv",
+    "analyst-ratings",
+    "earnings",
+    "dividends",
+    "shareholding",
+    "ai",
+    "llm",
+    "llm-tools",
+    "claude",
+    "chatgpt",
+    "cursor",
+    "kiro",
+    "codex",
+    "ai-assistant",
+    "ai-agent",
+    "tapetide"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tapetide-hq/nse-bse-indian-stock-market-data-mcp.git"
+  },
+  "homepage": "https://tapetide.com/mcp",
+  "bugs": {
+    "url": "https://github.com/Tapetide-hq/nse-bse-indian-stock-market-data-mcp/issues"
+  },
+  "author": "Tapetide <hello@tapetide.com> (https://tapetide.com)",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0 || ^25.0.0",
+    "typescript": "^5.7.0"
+  }
+}

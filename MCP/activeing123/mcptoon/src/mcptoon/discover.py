@@ -1,0 +1,881 @@
+# Copyright 2025-2026 activeing123
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""
+mcptoon discover — Auto-discovery of MCP servers
+
+Four-layer discovery strategy (all zero-dependency, pure stdlib):
+
+  1. Scan existing MCP client configs (Claude Desktop, Cursor, Cline, Windsurf, etc.)
+  2. Detect from environment variables (GITHUB_TOKEN → github server, etc.)
+  3. Detect local tools (npx in PATH → zero-config servers, docker, sqlite, git repo)
+  4. Check env vars for HTTP MCP endpoints (MCP_HTTP_URL, etc.)
+
+Usage:
+    from mcptoon.discover import auto_discover
+    results = auto_discover()
+    # results.servers → {name: config}
+    # results.sources → {name: [source_labels]}
+    # results.summary → human-readable report
+
+CLI:
+    mcptoon init --auto         # discover + write config
+    mcptoon init --auto --dry   # discover + print, don't write
+    mcptoon discover            # show discovered servers (alias for --dry)
+"""
+import importlib.util
+import json
+import os
+import shutil
+import sys
+import urllib.request
+import urllib.error
+from pathlib import Path
+from dataclasses import dataclass, field
+
+
+# ═══════════════════════════════════════════════════════════════
+# Data structures
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class DiscoveryResult:
+    """Result of auto-discovery."""
+    servers: dict = field(default_factory=dict)          # {name: config}
+    sources: dict = field(default_factory=dict)           # {name: [source labels]}
+    reasons: dict = field(default_factory=dict)           # {name: reason string}
+    skipped: list = field(default_factory=list)           # [names skipped due to missing env]
+
+    @property
+    def count(self) -> int:
+        return len(self.servers)
+
+    def summary(self) -> str:
+        """Human-readable summary report."""
+        lines = []
+        lines.append(f"Discovered {self.count} MCP server(s):")
+        lines.append("")
+
+        # Group by source
+        by_source = {}
+        for name, srcs in self.sources.items():
+            for s in srcs:
+                by_source.setdefault(s, []).append(name)
+
+        source_labels = {
+            "claude-desktop": "Claude Desktop config",
+            "cursor": "Cursor config",
+            "cline": "Cline config",
+            "windsurf": "Windsurf config",
+            "env": "Environment variables",
+            "local": "Local tools",
+            "network": "HTTP endpoint (env var)",
+            "manual": "Manual (--http)",
+        }
+
+        for src_key in ["claude-desktop", "cursor", "cline", "windsurf", "env", "local", "network", "manual"]:
+            names = by_source.get(src_key, [])
+            if not names:
+                continue
+            label = source_labels.get(src_key, src_key)
+            lines.append(f"  [{label}]")
+            for name in names:
+                reason = self.reasons.get(name, "")
+                lines.append(f"    + {name}: {reason}")
+            lines.append("")
+
+        if self.skipped:
+            lines.append(f"  Skipped {len(self.skipped)} server(s) (missing env vars or tools):")
+            for s in self.skipped:
+                lines.append(f"    - {s}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Layer 1: Scan existing MCP client configs
+# ═══════════════════════════════════════════════════════════════
+
+def _home() -> Path:
+    """Get home directory, Windows-compatible."""
+    return Path(os.environ.get("USERPROFILE", os.path.expanduser("~")))
+
+
+def _appdata() -> Path:
+    """Get Windows AppData path, or fallback to home."""
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", str(_home() / "AppData" / "Roaming")))
+    return _home()
+
+
+def _scan_claude_desktop() -> list[dict]:
+    """Scan Claude Desktop config for MCP servers."""
+    found = []
+    candidates = []
+
+    if sys.platform == "win32":
+        candidates.append(_appdata() / "Claude" / "claude_desktop_config.json")
+    elif sys.platform == "darwin":
+        candidates.append(_home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json")
+    else:
+        # Linux: ~/.config/Claude/claude_desktop_config.json
+        candidates.append(_home() / ".config" / "Claude" / "claude_desktop_config.json")
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            mcp_servers = data.get("mcpServers", {})
+            for name, cfg in mcp_servers.items():
+                server_cfg = _normalize_imported_config(cfg)
+                if server_cfg:
+                    found.append({
+                        "name": name,
+                        "config": server_cfg,
+                        "source": "claude-desktop",
+                        "reason": f"Imported from {path.name}",
+                    })
+        except (json.JSONDecodeError, OSError, KeyError):
+            continue
+
+    return found
+
+
+def _scan_cursor() -> list[dict]:
+    """Scan Cursor config for MCP servers."""
+    found = []
+    candidates = [
+        _home() / ".cursor" / "mcp.json",
+        Path.cwd() / ".cursor" / "mcp.json",
+    ]
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            mcp_servers = data.get("mcpServers", {})
+            for name, cfg in mcp_servers.items():
+                server_cfg = _normalize_imported_config(cfg)
+                if server_cfg:
+                    found.append({
+                        "name": name,
+                        "config": server_cfg,
+                        "source": "cursor",
+                        "reason": f"Imported from {path}",
+                    })
+        except (json.JSONDecodeError, OSError, KeyError):
+            continue
+
+    return found
+
+
+def _scan_cline() -> list[dict]:
+    """Scan Cline (VS Code extension) config."""
+    found = []
+    candidates = [
+        _home() / ".cline" / "mcp_settings.json",
+        _appdata() / "Code" / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "settings" / "cline_mcp_settings.json",
+    ]
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            mcp_servers = data.get("mcpServers", {})
+            for name, cfg in mcp_servers.items():
+                server_cfg = _normalize_imported_config(cfg)
+                if server_cfg:
+                    found.append({
+                        "name": name,
+                        "config": server_cfg,
+                        "source": "cline",
+                        "reason": "Imported from Cline config",
+                    })
+        except (json.JSONDecodeError, OSError, KeyError):
+            continue
+
+    return found
+
+
+def _scan_windsurf() -> list[dict]:
+    """Scan Windsurf config for MCP servers."""
+    found = []
+    candidates = [
+        _home() / ".codeium" / "windsurf" / "mcp_config.json",
+    ]
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            mcp_servers = data.get("mcpServers", {})
+            for name, cfg in mcp_servers.items():
+                server_cfg = _normalize_imported_config(cfg)
+                if server_cfg:
+                    found.append({
+                        "name": name,
+                        "config": server_cfg,
+                        "source": "windsurf",
+                        "reason": "Imported from Windsurf config",
+                    })
+        except (json.JSONDecodeError, OSError, KeyError):
+            continue
+
+    return found
+
+
+def _normalize_imported_config(cfg: dict) -> dict | None:
+    """Normalize a config from external MCP client to mcptoon format.
+
+    Different clients use slightly different config formats:
+    - Claude Desktop: {"command": "npx", "args": ["-y", "@mcp/server"]}
+    - Cursor: same as Claude Desktop
+    - Some use "transport" key, some don't
+    """
+    if not isinstance(cfg, dict):
+        return None
+
+    # Already in mcptoon format
+    transport = cfg.get("transport", "")
+
+    if transport == "http" and "url" in cfg:
+        return {
+            "transport": "http",
+            "url": cfg["url"],
+            "headers": cfg.get("headers", {}),
+        }
+
+    # stdio: command + args
+    command = cfg.get("command", [])
+    args = cfg.get("args", [])
+    env = cfg.get("env", {})
+
+    if not command and not args:
+        return None
+
+    # Normalize: command might be a string or list
+    if isinstance(command, str):
+        cmd_list = [command]
+    else:
+        cmd_list = list(command)
+
+    # On Windows, npx needs .cmd resolution — but we let client.py handle that
+    result = {
+        "transport": "stdio",
+        "command": cmd_list[:2] if len(cmd_list) >= 2 else cmd_list,
+        "args": cmd_list[2:] if len(cmd_list) > 2 else args,
+    }
+
+    # If command is just ["npx"] and args has the package
+    if len(cmd_list) == 1 and args:
+        result["command"] = cmd_list
+        result["args"] = list(args)
+
+    # Merge: command might be ["npx", "-y"] and args is ["@mcp/server"]
+    if len(cmd_list) >= 2 and not args:
+        result["command"] = [cmd_list[0]]
+        result["args"] = cmd_list[1:]
+
+    if env:
+        result["env"] = env
+
+    # A `uvx <pkg>` row imported from another client becomes `python -m <module>`
+    # when that package is already installed here — see `_resolve_local_module`.
+    # This is the path the 2026-10-06 incident used: `mcptoon import --write` read
+    # the uvx rows out of Claude Desktop / Cline and merged them verbatim into
+    # mcptoon's own config, and the next `sync` pushed them to all six hosts. Doing
+    # it here means the fetch runner never enters mcptoon's config in the first place.
+    from .config import prefer_installed_runners
+    if prefer_installed_runners() and result.get("command") == ["uvx"]:
+        pkg = result.get("args") or []
+        if pkg:
+            local = _resolve_local_module(str(pkg[0]).strip().replace("-", "_"))
+            if local is not None:
+                result["command"] = local[:1]
+                result["args"] = local[1:] + [str(a) for a in pkg[1:]]
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# Layer 1b: Import from an explicit config file (mcptoon import)
+# ═══════════════════════════════════════════════════════════════
+
+# Friendly aliases → the built-in scanner for that client. Kept here (not in
+# the CLI) so `mcptoon import --from <alias>` and any future caller agree.
+IMPORT_CLIENT_ALIASES = {
+    "claude": "claude-desktop",
+    "claude-desktop": "claude-desktop",
+    "cursor": "cursor",
+    "cline": "cline",
+    "windsurf": "windsurf",
+}
+
+_CLIENT_SCANNERS = {
+    "claude-desktop": "_scan_claude_desktop",
+    "cursor": "_scan_cursor",
+    "cline": "_scan_cline",
+    "windsurf": "_scan_windsurf",
+}
+
+
+def _extract_servers_map(data: object) -> dict:
+    """Pull the {name: config} map out of a client config document.
+
+    Accepts the two shapes seen in the wild:
+      - Claude Desktop / Cursor / Cline / Windsurf: {"mcpServers": {...}}
+      - mcptoon's own config:                        {"servers": {...}}
+    Returns {} for anything else (caller reports "no servers found").
+    """
+    if not isinstance(data, dict):
+        return {}
+    for key in ("mcpServers", "servers"):
+        block = data.get(key)
+        if isinstance(block, dict):
+            return block
+    return {}
+
+
+def scan_import_file(path) -> list[dict]:
+    """Read an explicit config file and return normalized server entries.
+
+    Unlike the built-in scanners this takes any path, so it also covers
+    configs exported by other managers (e.g. `mcpm export > servers.json`).
+    """
+    p = Path(path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    servers = _extract_servers_map(data)
+    found = []
+    for name, cfg in servers.items():
+        server_cfg = _normalize_imported_config(cfg)
+        if server_cfg:
+            found.append({
+                "name": name,
+                "config": server_cfg,
+                "source": "file",
+                "reason": f"Imported from {p.name}",
+            })
+    return _drop_self_entries(found)
+
+
+def scan_import_client(client: str) -> list[dict]:
+    """Scan one named client's config. `client` is an alias or canonical id."""
+    canonical = IMPORT_CLIENT_ALIASES.get(client, client)
+    fn_name = _CLIENT_SCANNERS.get(canonical)
+    if fn_name is None:
+        return []
+    return _drop_self_entries(globals()[fn_name]())
+
+
+def _drop_self_entries(findings: list[dict]) -> list[dict]:
+    """Remove any finding that would make the gateway launch itself.
+
+    An agent's config legitimately carries a `mcptoon` entry (that is what
+    `mcptoon sync --self` writes). Importing it back into mcptoon's own server
+    list turns `serve` into a fork bomb — measured 2026-10-12, 294 processes
+    and 10.4 GB. Every import path funnels through here, so the self-entry is
+    dropped before it can ever be merged or written.
+    """
+    from .config import _is_self_entry
+    kept = []
+    for item in findings:
+        if _is_self_entry(item.get("name", ""), item.get("config")):
+            continue
+        kept.append(item)
+    return kept
+
+
+# ═══════════════════════════════════════════════════════════════
+# Layer 2: Environment variable detection
+# ═══════════════════════════════════════════════════════════════
+
+# Map: env var → (server_name, command_list, env_key_to_set)
+_ENV_MAP = [
+    # (env_var, server_name, command, args, env_key_for_config)
+    ("GITHUB_PERSONAL_ACCESS_TOKEN", "github",
+     ["npx", "-y"], ["@modelcontextprotocol/server-github"],
+     "GITHUB_PERSONAL_ACCESS_TOKEN"),
+    ("GITHUB_TOKEN", "github",
+     ["npx", "-y"], ["@modelcontextprotocol/server-github"],
+     "GITHUB_TOKEN"),
+    ("BRAVE_API_KEY", "brave-search",
+     ["npx", "-y"], ["@modelcontextprotocol/server-brave-search"],
+     "BRAVE_API_KEY"),
+    ("EXA_API_KEY", "exa",
+     ["npx", "-y"], ["exa-mcp-server"],
+     "EXA_API_KEY"),
+    ("TAVILY_API_KEY", "tavily",
+     ["npx", "-y"], ["tavily-mcp"],
+     "TAVILY_API_KEY"),
+    ("FIRECRAWL_API_KEY", "firecrawl",
+     ["npx", "-y"], ["firecrawl-mcp"],
+     "FIRECRAWL_API_KEY"),
+    ("SLACK_BOT_TOKEN", "slack",
+     ["npx", "-y"], ["@modelcontextprotocol/server-slack"],
+     "SLACK_BOT_TOKEN"),
+    ("SLACK_TOKEN", "slack",
+     ["npx", "-y"], ["@modelcontextprotocol/server-slack"],
+     "SLACK_TOKEN"),
+    ("NOTION_API_KEY", "notion",
+     ["npx", "-y"], ["@modelcontextprotocol/server-notion"],
+     "NOTION_API_KEY"),
+    ("NOTION_TOKEN", "notion",
+     ["npx", "-y"], ["@modelcontextprotocol/server-notion"],
+     "NOTION_TOKEN"),
+    # Memory server uses MCP memory, no API key needed but we check for MEMORY_DIR
+    # Postgres
+    ("DATABASE_URL", "postgres",
+     ["npx", "-y"], ["@modelcontextprotocol/server-postgres"],
+     None),  # DATABASE_URL is passed as arg, not env
+]
+
+
+def _detect_from_env() -> list[dict]:
+    """Detect MCP servers from environment variables."""
+    found = []
+
+    for env_var, name, command, args, env_key in _ENV_MAP:
+        val = os.environ.get(env_var, "")
+        if not val:
+            continue
+
+        # Skip placeholder values
+        if val.startswith("<") and val.endswith(">"):
+            continue
+
+        config = {
+            "transport": "stdio",
+            "command": command,
+            "args": args,
+        }
+
+        # Set env for the subprocess
+        if env_key:
+            config["env"] = {env_key: val}
+
+        # Special case: postgres uses DATABASE_URL as arg
+        if name == "postgres" and env_var == "DATABASE_URL":
+            config["args"] = ["@modelcontextprotocol/server-postgres", val]
+            config.pop("env", None)
+
+        found.append({
+            "name": name,
+            "config": config,
+            "source": "env",
+            "reason": f"Found {env_var} in environment",
+        })
+
+    return found
+
+
+# ═══════════════════════════════════════════════════════════════
+# Layer 3: Local tool detection
+# ═══════════════════════════════════════════════════════════════
+
+# Zero-config servers shipped on npm — only need `npx`, no API key.
+#
+# Only packages that ACTUALLY EXIST on the npm registry belong here. The
+# official reference servers are split by ecosystem: filesystem, memory and
+# sequential-thinking are published to npm, while fetch, time, git and sqlite
+# are Python packages on PyPI (see `_UVX_ZERO_CONFIG_SERVERS`). The old list
+# mixed the two and told `npx` to fetch Python-only names — every one 404'd
+# (`npm error 404 ... server-fetch`) on a fresh machine, so `quickstart`
+# advertised five dead servers. Verified against the registries 2026-09-18.
+_NPX_ZERO_CONFIG_SERVERS = [
+    ("filesystem", ["npx", "-y"], ["@modelcontextprotocol/server-filesystem", "."],
+     "Zero-config — current directory as allowed path"),
+    ("memory", ["npx", "-y"], ["@modelcontextprotocol/server-memory"],
+     "Zero-config (knowledge graph in memory)"),
+    ("sequential-thinking", ["npx", "-y"], ["@modelcontextprotocol/server-sequential-thinking"],
+     "Zero-config (thinking tool for reasoning)"),
+]
+
+# Python reference servers, run through `uvx` (no global install).
+# Each entry is (name, command, args, reason, requires, local_module).
+#   `requires` = an extra executable that must exist *besides* the runner, or None.
+#   `local_module` = the importable module that runs the same server, or None.
+#   `git` is why the `requires` field exists: `mcp-server-git` starts fine without
+#   the git binary but every one of its tools then errors with "h-to-git-executable",
+#   and quickstart still counted it as a working server. Offering it on a machine
+#   that has no git is worse than not offering it (measured 2026-10-02 on a clean
+#   Windows box: `[PROCESS_DIED] … All git commands will error until this is
+#   rectified`). `uvx` cannot stand in for `git`.
+#
+# `local_module` is why the whole table has a second column at all (2026-10-06):
+# every one of these is a plain PyPI package that is often *already installed*, and
+# `python -m <module>` runs it with no download, no second interpreter, and no
+# temp environment — see `_resolve_local_module` for the freeze this prevents.
+_UVX_ZERO_CONFIG_SERVERS = [
+    ("fetch", ["uvx"], ["mcp-server-fetch"],
+     "Zero-config (no API key needed)", None, "mcp_server_fetch"),
+    ("time", ["uvx"], ["mcp-server-time"],
+     "Zero-config (time and timezone)", None, "mcp_server_time"),
+    ("git", ["uvx"], ["mcp-server-git"],
+     "Zero-config (git operations on current repo)", "git", "mcp_server_git"),
+]
+
+
+def _resolve_local_module(module: str) -> list[str] | None:
+    """Return ``[python, "-m", module]`` when *module* is installed and runnable.
+
+    "Runnable" means two things, and both are checked because a package can
+    satisfy one and not the other:
+
+    * the module resolves at all — ``find_spec(module) is not None``;
+    * it exposes a ``__main__`` — ``find_spec(module + ".__main__") is not None``,
+      which is what ``python -m <module>`` actually executes. A library with no
+      ``__main__`` (``json``, ``requests``, ``yaml``) imports fine but exits with
+      "No module named X.__main__", so without this second check mcptoon would
+      write a server entry that dies on first launch.
+
+    Uses ``sys.executable`` rather than a bare ``python``: the interpreter running
+    mcptoon is the one whose site-packages we just proved contains the module, and
+    a bare ``python`` on Windows frequently is not on the PATH a host inherits.
+
+    Returns ``None`` when the module is absent, so the caller falls back to the
+    fetch runner. Never raises: a broken ``find_spec`` (a malformed installed
+    package raising on import) must not take discovery down with it.
+    """
+    try:
+        if importlib.util.find_spec(module) is None:
+            return None
+        if importlib.util.find_spec(module + ".__main__") is None:
+            return None
+    except (ImportError, ValueError, AttributeError, ModuleNotFoundError):
+        return None
+    return [sys.executable, "-m", module]
+
+
+def _detect_local_tools() -> list[dict]:
+    """Detect local tools and recommend zero-config MCP servers.
+
+    Each candidate is gated on the runner it actually needs: npm-only servers
+    are offered only when `npx` exists, PyPI servers only when `uvx` exists.
+    Recommending a runner that is not installed (or a package that is not on
+    the registry) is what made `quickstart` show a wall of `npm error 404`.
+
+    A candidate may also need a second executable *besides* its runner — see
+    `_UVX_ZERO_CONFIG_SERVERS` for why `git` is gated on the git binary too.
+
+    When the PyPI package is already importable, the entry is written as
+    ``python -m <module>`` instead of ``uvx <pkg>`` (unless the user set
+    ``runners=allow-fetch``). That is the difference between a server entry that
+    launches instantly and one that unpacks a package into a fresh temp
+    environment on every cold start — see `_resolve_local_module`.
+    """
+    from .config import prefer_installed_runners
+
+    found = []
+    has_npx = _which("npx") is not None
+    has_uvx = _which("uvx") is not None
+    prefer_local = prefer_installed_runners()
+
+    if has_npx:
+        for name, command, args, reason in _NPX_ZERO_CONFIG_SERVERS:
+            found.append({
+                "name": name,
+                "config": {
+                    "transport": "stdio",
+                    "command": command,
+                    "args": args,
+                },
+                "source": "local",
+                "reason": reason,
+            })
+
+    if has_uvx:
+        for name, command, args, reason, requires, local_module in _UVX_ZERO_CONFIG_SERVERS:
+            if requires and _which(requires) is None:
+                continue
+            command, args = list(command), list(args)
+            if prefer_local and local_module:
+                local = _resolve_local_module(local_module)
+                if local is not None:
+                    command, args = local[:1], local[1:]
+            found.append({
+                "name": name,
+                "config": {
+                    "transport": "stdio",
+                    "command": command,
+                    "args": args,
+                },
+                "source": "local",
+                "reason": reason,
+            })
+
+    return found
+
+
+def _which(cmd: str) -> str | None:
+    """Check if a command is in PATH. Returns path or None."""
+    return shutil.which(cmd)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Layer 4: HTTP MCP endpoint detection (env var only, no port scanning)
+# ═══════════════════════════════════════════════════════════════
+
+# Env vars that users can set to point to an HTTP MCP endpoint
+_MCP_HTTP_ENV_VARS = ["MCP_HTTP_URL", "MCP_SERVER_URL"]
+
+
+def _probe_http_mcp() -> list[dict]:
+    """Check for HTTP MCP endpoints via environment variables.
+
+    This does NOT scan ports or probe LAN hosts — that would be invasive
+    and trigger firewall alerts. Users who want an HTTP endpoint set an
+    env var or use --http explicitly.
+    """
+    found = []
+
+    for env_var in _MCP_HTTP_ENV_VARS:
+        url = os.environ.get(env_var, "")
+        if url and not url.startswith("<"):
+            if _probe_endpoint(url, timeout=2.0):
+                found.append({
+                    "name": "http-endpoint",
+                    "config": {
+                        "transport": "http",
+                        "url": url,
+                    },
+                    "source": "network",
+                    "reason": f"HTTP MCP endpoint detected via {env_var}",
+                })
+
+    return found
+
+
+def _probe_endpoint(url: str, timeout: float = 0.5) -> bool:
+    """Check if a URL is a responding MCP endpoint.
+
+    Tries a lightweight MCP initialize request.
+    """
+    try:
+        msg = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "mcptoon-discover", "version": "0.1"},
+            },
+        }
+        payload = json.dumps(msg).encode()
+        req = urllib.request.Request(url, data=payload, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json, text/event-stream")
+
+        # Disable proxy
+        handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(handler)
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+
+        # Check if response looks like MCP (JSON-RPC or SSE)
+        if "jsonrpc" in body or "result" in body or "data: " in body:
+            return True
+
+        # Some endpoints return 200 with non-JSON for non-MCP requests
+        return False
+
+    except (TimeoutError, urllib.error.HTTPError, urllib.error.URLError, ConnectionError, OSError):
+        return False
+    except Exception:
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# Main: auto_discover
+# ═══════════════════════════════════════════════════════════════
+
+def auto_discover(
+    scan_configs: bool = True,
+    detect_env: bool = True,
+    detect_local: bool = True,
+    probe_network: bool = True,
+    network_timeout: float = 0.5,
+) -> DiscoveryResult:
+    """Run all discovery layers and return merged result.
+
+    Args:
+        scan_configs: Scan existing MCP client configs (Claude Desktop, etc.)
+        detect_env: Detect from environment variables
+        detect_local: Detect local tools (npx, docker, sqlite)
+        probe_network: Check env vars for HTTP MCP endpoints
+    Returns:
+        DiscoveryResult with merged, deduplicated servers.
+    """
+    result = DiscoveryResult()
+
+    all_findings = []
+
+    if scan_configs:
+        all_findings.extend(_scan_claude_desktop())
+        all_findings.extend(_scan_cursor())
+        all_findings.extend(_scan_cline())
+        all_findings.extend(_scan_windsurf())
+
+    if detect_env:
+        all_findings.extend(_detect_from_env())
+
+    if detect_local:
+        all_findings.extend(_detect_local_tools())
+
+    if probe_network:
+        all_findings.extend(_probe_http_mcp())
+
+    # A self-entry in an agent's config must not be imported into mcptoon's own
+    # list (fork bomb, measured 2026-10-12). Drop it before the merge below.
+    all_findings = _drop_self_entries(all_findings)
+
+    # Merge and deduplicate
+    # Priority: existing config > claude-desktop > cursor > cline > windsurf > env > local > network > manual
+    source_priority = {
+        "claude-desktop": 0,
+        "cursor": 1,
+        "cline": 2,
+        "windsurf": 3,
+        "env": 4,
+        "local": 5,
+        "network": 6,
+        "manual": 8,
+    }
+
+    # Sort by source priority (lowest = highest priority)
+    all_findings.sort(key=lambda x: source_priority.get(x["source"], 99))
+
+    for item in all_findings:
+        name = item["name"]
+        config = item["config"]
+        source = item["source"]
+        reason = item["reason"]
+
+        if name in result.servers:
+            # Already found — just add the source
+            result.sources[name].append(source)
+            # Don't overwrite config (first source wins)
+        else:
+            result.servers[name] = config
+            result.sources[name] = [source]
+            result.reasons[name] = reason
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# HTTP MCP endpoint helpers
+# ═══════════════════════════════════════════════════════════════
+
+def probe_http_endpoint(url: str, timeout: float = 2.0) -> dict | None:
+    """Probe an HTTP MCP endpoint and return info if it is reachable.
+
+    Returns:
+        {"url": ..., "alive": True, "tools_count": N | None, "tools_known": bool}
+        or None when the endpoint does not answer an MCP `initialize` at all.
+
+    ``tools_count`` is ``None`` (not ``0``) when the endpoint answered
+    `initialize` but the follow-up `tools/list` failed or returned something that
+    is not a JSON-RPC result. A failed tool-list request used to come back as
+    ``{"alive": True, "tools_count": 0}`` — indistinguishable from a real answer
+    of "zero tools", so an endpoint that cannot list tools was reported as a
+    working one with 0 tools (2026-10-02). Reachability and a readable tool list
+    are two different facts; report both.
+    """
+    if not url.startswith("http"):
+        url = f"http://{url}"
+
+    # Ensure /mcp path
+    if not url.rstrip("/").endswith("/mcp"):
+        url = url.rstrip("/") + "/mcp"
+
+    if not _probe_endpoint(url, timeout=timeout):
+        return None
+
+    # Try to get tool count
+    try:
+        msg = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {},
+        }
+        payload = json.dumps(msg).encode()
+        req = urllib.request.Request(url, data=payload, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json, text/event-stream")
+
+        handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(handler)
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+
+        # Parse response
+        data = None
+        for line in body.split("\n"):
+            s = line.strip()
+            if s.startswith("data: "):
+                try:
+                    data = json.loads(s[6:])
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+        if data is None:
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                pass
+
+        if isinstance(data, dict) and "result" in data:
+            tools = data["result"].get("tools", [])
+            return {
+                "url": url,
+                "tools_count": len(tools),
+                "tools_known": True,
+                "alive": True,
+            }
+
+        return {"url": url, "tools_count": None, "tools_known": False,
+                "alive": True, "error": "endpoint answered, but not with a tool list"}
+
+    except Exception as e:
+        return {"url": url, "tools_count": None, "tools_known": False,
+                "alive": True, "error": str(e)[:120]}
+
+
+def make_http_config(url: str, name: str = "http-endpoint") -> dict:
+    """Create a config entry for an HTTP MCP endpoint.
+
+    Args:
+        url: HTTP MCP endpoint URL (e.g. "http://localhost:8080/mcp")
+        name: Server name in config
+
+    Returns:
+        Config dict ready for add_server()
+    """
+    if not url.startswith("http"):
+        url = f"http://{url}"
+    if not url.rstrip("/").endswith("/mcp"):
+        url = url.rstrip("/") + "/mcp"
+
+    return {
+        "transport": "http",
+        "url": url,
+    }

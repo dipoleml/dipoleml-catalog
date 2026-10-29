@@ -1,0 +1,126 @@
+{
+  "tone": "friendly",
+  "pronoun": "you-only",
+  "headingStyle": "Sentence case",
+  "headingLengthClass": "balanced",
+  "ctaVerbs": [
+    {
+      "value": "download",
+      "count": 3
+    },
+    {
+      "value": "get",
+      "count": 2
+    },
+    {
+      "value": "english",
+      "count": 2
+    },
+    {
+      "value": "product",
+      "count": 1
+    },
+    {
+      "value": "ai",
+      "count": 1
+    },
+    {
+      "value": "solutions",
+      "count": 1
+    },
+    {
+      "value": "resources",
+      "count": 1
+    },
+    {
+      "value": "request",
+      "count": 1
+    },
+    {
+      "value": "pause",
+      "count": 1
+    },
+    {
+      "value": "q",
+      "count": 1
+    }
+  ],
+  "buttonPatterns": [
+    {
+      "value": "get notion free",
+      "count": 2
+    },
+    {
+      "value": "download",
+      "count": 2
+    },
+    {
+      "value": "english (us)",
+      "count": 2
+    },
+    {
+      "value": "product",
+      "count": 1
+    },
+    {
+      "value": "ai",
+      "count": 1
+    },
+    {
+      "value": "solutions",
+      "count": 1
+    },
+    {
+      "value": "resources",
+      "count": 1
+    },
+    {
+      "value": "request a demo",
+      "count": 1
+    },
+    {
+      "value": "pause",
+      "count": 1
+    },
+    {
+      "value": "q&a agents\n\nanswers questions instantly using knowledge you already have.",
+      "count": 1
+    },
+    {
+      "value": "task routing agents\n\nassigns, prioritizes, and routes tasks on its own.",
+      "count": 1
+    },
+    {
+      "value": "reporting agents\n\nsummarizes, writes, and sends reports for you.",
+      "count": 1
+    },
+    {
+      "value": "create your own\n\nmake a custom agent for any work that repeats.",
+      "count": 1
+    },
+    {
+      "value": "view the video",
+      "count": 1
+    },
+    {
+      "value": "download for mac",
+      "count": 1
+    }
+  ],
+  "sampleHeadings": [
+    "Meet the night shift.",
+    "Keep work moving 24/7.",
+    "Automate repetitive work for your team.",
+    "See what Custom Agents can do",
+    "Triage product feedback→",
+    "Meet the night shift.",
+    "Keep work moving 24/7.",
+    "Automate repetitive work for your team.",
+    "Automate repetitive work for your team.",
+    "Automate repetitive work for your team."
+  ],
+  "stats": {
+    "buttons": 19,
+    "headings": 34
+  }
+}

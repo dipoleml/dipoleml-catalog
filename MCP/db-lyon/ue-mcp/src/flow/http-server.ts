@@ -1,0 +1,329 @@
+import * as http from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import type { createFlowTool } from "./flow-tool.js";
+import type { ToolContext } from "../core/types.js";
+import { sessionContext } from "../surface/target-params.js";
+import { EDITOR_TARGET_PARAM } from "../surface/routing-params.js";
+import { refuseUntargetedCall } from "../dispatch/editor-gate.js";
+import { info, warn, error as logError } from "../core/log.js";
+import { subscribeFlowEvents, type FlowEvent } from "./events.js";
+import { existingGuard } from "../editor/dialog-guard.js";
+import { readEnv } from "../core/env.js";
+
+type FlowTool = ReturnType<typeof createFlowTool>;
+
+export interface HttpServerOptions {
+  host?: string;
+  port?: number;
+  token?: string;
+}
+
+const ALLOWED_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+]);
+
+function constantTimeEq(a: string, b: string): boolean {
+  const ab = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
+function extractToken(req: http.IncomingMessage): string | null {
+  const header = req.headers["x-ue-mcp-token"];
+  if (typeof header === "string" && header.length > 0) return header;
+  const auth = req.headers["authorization"];
+  if (typeof auth === "string" && auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim();
+  }
+  return null;
+}
+
+export function hostIsAllowed(req: http.IncomingMessage): boolean {
+  const host = req.headers.host;
+  if (typeof host !== "string" || host.length === 0) return false;
+  // strip optional :port (handle bracketed IPv6 too)
+  const bare = host.startsWith("[")
+    ? host.slice(0, host.indexOf("]") + 1)
+    : host.replace(/:\d+$/, "");
+  return ALLOWED_HOSTS.has(bare.toLowerCase());
+}
+
+// #144 - expose flow.run, flow.plan, flow.list over loopback HTTP so non-MCP
+// clients (editor plugins, CI, curl) can invoke flows without speaking stdio
+// MCP. Intentionally tiny: routes mirror the three flow actions, responses
+// mirror the existing flow result shape.
+export function startFlowHttpServer(
+  flowTool: FlowTool,
+  ctx: ToolContext,
+  options: HttpServerOptions = {},
+): { server: http.Server; port: number; host: string; token: string } {
+  const host = options.host ?? "127.0.0.1";
+  const port = options.port ?? 7723;
+  // Token precedence: explicit option > env override > freshly generated.
+  // Env override lets CI scripts pin a known value without parsing stderr.
+  const token =
+    options.token ??
+    readEnv("httpToken") ??
+    randomBytes(32).toString("hex");
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", `http://${host}:${port}`);
+      const method = req.method ?? "GET";
+      const pathname = url.pathname.replace(/\/+$/, "") || "/";
+
+      const send = (status: number, body: unknown) => {
+        const text = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+        res.statusCode = status;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(text);
+      };
+
+      // Defeat DNS rebinding: a malicious page can resolve attacker.example
+      // to 127.0.0.1, but the browser still sends the original Host header.
+      if (!hostIsAllowed(req)) {
+        warn("http", `rejected request with disallowed Host: ${req.headers.host ?? "<none>"}`);
+        return send(403, { error: "Host not allowed" });
+      }
+
+      // Bearer token: every route requires it, including /health (otherwise
+      // any local process can probe whether the server is up).
+      const presented = extractToken(req);
+      if (presented === null || !constantTimeEq(presented, token)) {
+        return send(401, { error: "Missing or invalid token" });
+      }
+
+      const handled = await handleFlowRoute(flowTool, ctx, req, res, pathname, url);
+      if (handled) return;
+
+      if (method === "GET" && pathname === "/health") {
+        return send(200, { ok: true, port, host });
+      }
+
+      send(404, { error: `No route for ${method} ${pathname}` });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ error: msg }));
+    }
+  });
+
+  // Attach the error handler BEFORE listen so that synchronous bind failures
+  // (EADDRINUSE / EACCES) surface via the handler rather than throwing out of
+  // the caller's try/catch after the fact.
+  server.on("error", (err) => {
+    logError("http", `flow HTTP server error on ${host}:${port}`, err);
+  });
+
+  server.listen(port, host, () => {
+    info("http", `flow HTTP server listening on http://${host}:${port}`);
+    // Print the token to stderr (where MCP servers' diagnostic output lives)
+    // so the operator can copy it without parsing tool output. Env-supplied
+    // tokens are still echoed; the value is already known to whoever set it.
+    info("http", `flow HTTP token: ${token} (send as 'Authorization: Bearer ...' or 'X-UE-MCP-Token: ...')`);
+  });
+
+  return { server, port, host, token };
+}
+
+/**
+ * The flow routes, without transport, auth or host checks: the caller has done
+ * those. Mounted by the standalone flow server at / and by the daemon at /v1.
+ * Resolves true when the request matched a route and was answered.
+ */
+export async function handleFlowRoute(
+  flowTool: FlowTool,
+  ctx: ToolContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  pathname: string,
+  url: URL,
+): Promise<boolean> {
+  const method = req.method ?? "GET";
+  const send = (status: number, body: unknown): true => {
+    const text = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+    res.statusCode = status;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(text);
+    return true;
+  };
+
+  const activeContext = (): ToolContext =>
+    ctx.sessions ? sessionContext(ctx, ctx.sessions.active) : ctx;
+
+  /**
+   * The HTTP routes are a third way into the editor and use the same
+   * guard object as the MCP surface. Steps are refused at the guarded
+   * bridge; this covers a run STARTED while a modal is up, and list/plan,
+   * which never touch the bridge.
+   *
+   * There is no person on an HTTP request, so interactive cannot elicit
+   * and degrades to reporting the dialog, which is what defer does.
+   */
+  const gatedFlow = async (
+    toolCtx: ToolContext,
+    params: Record<string, unknown>,
+    taskName: string,
+  ): Promise<{ refused: Record<string, unknown> } | { value: unknown }> => {
+    const session = toolCtx.session ?? ctx.session;
+    const guard = session ? existingGuard(session) : undefined;
+    if (!guard) {
+      // No guard means no way to know whether a modal is up, and running
+      // anyway is the exception this design does not have. Refuse instead
+      // of falling through: a route that cannot be checked is closed.
+      return {
+        refused: {
+          success: false,
+          dialogBlocking: true,
+          refusedMethod: taskName,
+          error:
+            `'${taskName}' was refused because no editor session is attached to this request, `
+            + "so whether a modal is blocking the editor cannot be established.",
+        },
+      };
+    }
+    // No person on an HTTP request, so this route never elicits. Without
+    // saying so it used the shared guard's deps, which were last set by an
+    // MCP client, and a curl raised a form in that client's UI.
+    const decision = await guard.check(taskName, "action", { canElicit: false });
+    if (!decision.allow) return { refused: decision.refusal };
+    return { value: await flowTool.handler(toolCtx, params) };
+  };
+
+  if (method === "GET" && (pathname === "/" || pathname === "/flows")) {
+    const listed = await gatedFlow(activeContext(), { action: "list" }, "flow.list");
+    if ("refused" in listed) return send(409, listed.refused);
+    return send(200, listed.value);
+  }
+
+  const planMatch = pathname.match(/^\/flows\/([^/]+)\/plan$/);
+  if (method === "GET" && planMatch) {
+    const flowName = decodeURIComponent(planMatch[1]);
+    const planned = await gatedFlow(activeContext(), { action: "plan", flowName }, "flow.plan");
+    if ("refused" in planned) return send(409, planned.refused);
+    const result = planned.value;
+    return send(200, result);
+  }
+
+  const runMatch = pathname.match(/^\/flows\/([^/]+)\/run$/);
+  if (method === "POST" && runMatch) {
+    const flowName = decodeURIComponent(runMatch[1]);
+    const body = await readJsonBody(req);
+    const params: Record<string, unknown> = {
+      action: "run",
+      flowName,
+    };
+    // Untargeted runs follow the active session, the same as the MCP
+    // surface, rather than staying pinned to whichever session was
+    // active when this server started.
+    let runCtx = activeContext();
+    let targeted = false;
+    if (body && typeof body === "object") {
+      const b = body as Record<string, unknown>;
+      if (b.params !== undefined) params.params = b.params;
+      if (b.skip !== undefined) params.skip = b.skip;
+      if (b.rollback_on_failure !== undefined) params.rollback_on_failure = b.rollback_on_failure;
+      // #817: the HTTP surface addresses an editor the same way the MCP
+      // surface does. Resolving here (rather than forwarding `editor` into
+      // the flow) keeps the routing instruction off every step's options.
+      if (typeof b.editor === "string" && b.editor && ctx.sessions) {
+        try {
+          runCtx = sessionContext(ctx, ctx.sessions.resolve(b.editor));
+        } catch (e) {
+          return send(404, { error: e instanceof Error ? e.message : String(e) });
+        }
+        targeted = true;
+      }
+    }
+    // Same gate as the MCP surface (#817): beyond one editor a run has to
+    // say which one it means, because a flow is whatever its steps are and
+    // the fall-through would edit a project nobody named. Inert at one
+    // editor, where this returns null without classifying anything.
+    if (!targeted && ctx.sessions && ctx.sessions.size > 1) {
+      const refusal = refuseUntargetedCall({
+        taskName: "flow.run",
+        editors: ctx.sessions.list().map((s) => s.name),
+        activeEditor: ctx.sessions.active.name,
+        targetParam: EDITOR_TARGET_PARAM,
+      });
+      if (refusal) return send(400, { error: refusal });
+    }
+    const ran = await gatedFlow(runCtx, params, "flow.run");
+    if ("refused" in ran) return send(409, ran.refused);
+    const result = ran.value;
+    return send(200, result);
+  }
+
+
+  // Server-Sent Events: live per-step + per-run events from the flow
+  // runner. Optional `?runId=...` query filter for clients that only
+  // care about a specific run (the runId is returned in the flow.run
+  // response). Otherwise every event from every concurrent run flows
+  // through.
+  if (method === "GET" && pathname === "/flows/events") {
+    const runIdFilter = url.searchParams.get("runId");
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    // Disable proxy buffering (nginx, etc.) so events flush immediately.
+    res.setHeader("X-Accel-Buffering", "no");
+
+    // Tell the client what id (if any) we're filtering on, then a
+    // ready marker so curl --no-buffer users see something land
+    // even before any flow fires.
+    res.write(`: connected runIdFilter=${runIdFilter ?? "*"}\n\n`);
+
+    const unsubscribe = subscribeFlowEvents((event: FlowEvent) => {
+      if (runIdFilter && event.runId !== runIdFilter) return;
+      try {
+        res.write(`event: ${event.type}\n`);
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // Write failed: connection is dead. Drop the subscription
+        // so we don't keep buffering events for a gone client.
+        unsubscribe();
+      }
+    });
+
+    // Periodic comment lines keep proxies and load balancers from
+    // killing the connection during quiet periods.
+    const keepalive = setInterval(() => {
+      try {
+        res.write(`: keepalive ${Date.now()}\n\n`);
+      } catch {
+        clearInterval(keepalive);
+        unsubscribe();
+      }
+    }, 30_000);
+
+    req.on("close", () => {
+      clearInterval(keepalive);
+      unsubscribe();
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf-8").trim();
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch (e) {
+        reject(new Error(`Invalid JSON body: ${e instanceof Error ? e.message : e}`));
+      }
+    });
+    req.on("error", reject);
+  });
+}

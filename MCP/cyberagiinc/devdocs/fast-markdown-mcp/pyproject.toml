@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fast-markdown-mcp"
+version = "0.1.0"
+description = "Fast MCP server for markdown content management with automatic file monitoring"
+authors = [
+    { name = "CyberAGI Team" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "watchdog>=3.0.0",
+    "markdown>=3.4.0",
+    "anyio>=4.0.0",
+    "typing-extensions>=4.0.0",
+    "uvicorn>=0.30.0",
+    "fastapi>=0.100.0"
+]
+
+[project.scripts]
+fast-markdown-mcp = "fast_markdown_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fast_markdown_mcp"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+allow-missing-readme = true
+
+[project.urls]
+Documentation = "https://github.com/yourusername/fast-markdown-mcp#readme"
+Source = "https://github.com/yourusername/fast-markdown-mcp"
+
+[tool.pylance]
+reportMissingImports = "warning"

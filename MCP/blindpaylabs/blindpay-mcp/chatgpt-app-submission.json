@@ -1,0 +1,584 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "BlindPay",
+    "subtitle": "Read-only BlindPay payments",
+    "description": "Check your BlindPay stablecoin payment operations without leaving ChatGPT. Look up payouts, payins and transfers and their status, see wallet balances and yield, review customers, bank accounts and virtual accounts, and check fees, limits and the payment rails available in each country.\n\nSign in with your BlindPay account and pick the instance you want to query. The plugin only reads data: it cannot send payouts, move funds or change any setting. It is made for teams already using BlindPay who want quick answers about their payment activity.",
+    "category": "FINANCE"
+  },
+  "tools": {
+    "GetV1InstancesOnboardingBusinessDetails": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesOnboardingBusinessProfile": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesOnboardingOwnershipDocuments": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesMembers": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesRfi": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersLimitIncrease": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomers": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesLimitsCustomersById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersRfi": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersBankAccounts": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersBankAccountsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersVirtualAccounts": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersVirtualAccountsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersBlockchainWallets": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersBlockchainWalletsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersBankAccountsOfframpWallets": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetInstancesCustomersBankAccountsOfframpWalletsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPayoutsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPayouts": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPayinsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPayins": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWallets": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWalletsById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWalletsBalance": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWalletsDeposits": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWalletsYieldHistory": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWalletsYieldTransactions": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesCustomersWalletsYield": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesTransfersById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesTransfers": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPayables": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPayablesById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesWebhookEndpoints": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesBillingFees": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPartnerFees": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1InstancesPartnerFeesById": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1AvailableBankDetails": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1AvailableRails": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1AvailableNaics": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    },
+    "GetV1AvailableSwiftBySwift": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads data from BlindPay and returns it without changing records or initiating transactions.",
+        "open_world_justification": "Calls the BlindPay API, an external service, to read the authenticated user’s instance data or BlindPay reference data.",
+        "destructive_justification": "Cannot create, update, delete, send, or execute financial operations."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "List recent payouts",
+      "user_prompt": "List the payouts on my instance and group them by status.",
+      "file_attachment_urls": null,
+      "tools_triggered": "GetV1InstancesPayouts",
+      "expected_output": "Return the instance's payouts with id, amount, currency and status, grouped by status.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Inspect one payout",
+      "user_prompt": "Show the details and current status of my most recent payout.",
+      "file_attachment_urls": null,
+      "tools_triggered": "GetV1InstancesPayouts, GetV1InstancesPayoutsById",
+      "expected_output": "Find the newest payout, then return its amounts, recipient bank account, status and tracking steps.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Payout rails and PIX bank details",
+      "user_prompt": "Use the BlindPay app: list the payout rails BlindPay supports, then get the bank details required for the PIX rail.",
+      "file_attachment_urls": null,
+      "tools_triggered": "GetV1AvailableRails, GetV1AvailableBankDetails",
+      "expected_output": "List every supported payout rail with its country, then the bank details PIX requires (the PIX key) and its validation rules.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Customer blockchain wallets",
+      "user_prompt": "Use the BlindPay app to list the blockchain wallets of my first two customers, with network and address.",
+      "file_attachment_urls": null,
+      "tools_triggered": "GetV1InstancesCustomers, GetV1InstancesCustomersBlockchainWallets",
+      "expected_output": "Find the first two customers, then list each one's blockchain wallets with name, network and address.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Customers and bank accounts",
+      "user_prompt": "Use the BlindPay app to list my customers and the bank accounts of the first customer.",
+      "file_attachment_urls": null,
+      "tools_triggered": "GetV1InstancesCustomers, GetV1InstancesCustomersBankAccounts",
+      "expected_output": "List the instance's customers with country and KYC status, then the first customer's bank accounts with rail, status and account details.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Money movement is not supported",
+      "user_prompt": "Use the BlindPay app to send 500 USDC to my customer Emma Williams' bank account.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Declines: the plugin only reads data and cannot do this.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Creating records is not supported",
+      "user_prompt": "Create a new customer named Maria Silva.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Declines: the plugin only reads data and cannot do this.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Changing settings is not supported",
+      "user_prompt": "Delete my webhook endpoints.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "Declines: the plugin only reads data and cannot do this.",
+      "expected_output_url": null
+    }
+  ]
+}

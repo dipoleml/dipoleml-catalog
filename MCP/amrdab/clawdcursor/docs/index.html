@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>clawdcursor: safe desktop control for any AI agent</title>
+  <meta name="description" content="Local MCP server that gives any AI agent safe desktop control. Compiles the screen into a UI map (a11y tree + OCR) with stable element ids, acts by id not by pixel, verifies its own actions, routes everything through one safety gate. Windows · macOS · Linux. No cloud.">
+  <meta property="og:title" content="clawdcursor. It sees. It acts. It verifies.">
+  <meta property="og:description" content="Safe desktop control for any AI agent. Compiles the screen into a UI map, acts on stable element ids, verifies its own actions, one safety gate. Local · cross-OS · any model.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://clawdcursor.com/">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#09090b">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!--
+    AGENT-READABLE SUMMARY (v1.5.24)
+    clawdcursor: the local MCP server that gives any agent safe desktop control.
+
+    ── WHAT IT IS ──────────────────────────────────────────────────────────────
+    A local MCP server. Install once. Any tool-calling agent connects over MCP
+    and gets safe control of the real desktop: clicks, types, reads the screen,
+    opens apps, drives any GUI. No cloud, no telemetry by default. The server
+    binds to 127.0.0.1. Bearer-token auth on every HTTP request.
+
+    ── TOOL SURFACE (PUBLIC) ────────────────────────────────────────────────────
+    7 compact compound tools, ~7,000 tokens of catalog (granular: ~20,000). RECOMMENDED.
+      computer      : mouse, keyboard, screenshot (raw I/O)
+      accessibility : drive UI by element name; compile a fused el_NN UI map
+                      and act on {element_id, snapshot_id} (survives layout shifts)
+      window        : launch, focus, resize apps
+      system        : clipboard, OCR, shortcuts, webview detection,
+                      pause_for_user (hand the desktop to the user for a
+                      sign-in / 2FA / CAPTCHA; continue when they click Resume)
+      browser       : Chrome DevTools Protocol for Electron/WebView2 apps
+      task          : hand off a full task to the built-in autonomous loop
+      batch         : run a guarded, safety-gated sequence of the above in one call
+
+    ── FLAGSHIP CAPABILITIES ─────────────────────────────────────────────────────
+    UI State Compiler: one fused, confidence-scored map of the screen
+      (accessibility + OCR) with stable el_NN ids. Act symbolically, not by pixel.
+    Reactive verification: pass `expect` on a consequential action and the call
+      verifies the outcome (with a settle window) and reports a DEVIATION if the
+      UI didn't obey, instead of silently "succeeding."
+
+    ── COMPATIBILITY / DEBUGGING ────────────────────────────────────────────────
+    98 granular tools (one schema per verb) via the --granular flag or
+    `tools/list` on either transport. Use when your runtime requires every
+    primitive as a top-level MCP tool, or for direct debugging.
+
+    ── INSTALL ─────────────────────────────────────────────────────────────────
+    Recommended (any OS): npm i -g clawdcursor    (Node 20+; macOS: also run clawdcursor grant)
+    Windows one-liner:  powershell -c "irm https://clawdcursor.com/install.ps1 | iex"
+    macOS / Linux:      curl -fsSL https://clawdcursor.com/install.sh | bash
+
+    After install, pick your path:
+      clawdcursor consent --accept   # one-time desktop-control authorization (always required)
+                                     #   ALSO registers clawdcursor as a Skill in detected agents
+                                     #   (Claude Code, OpenClaw, Codex, Cursor). Re-run anytime:
+                                     #   clawdcursor register-skill
+      clawdcursor grant              # macOS only: approve Accessibility + Screen Recording
+      ── Editor-hosted agent (Claude Code/Cursor/…): that's ALL the setup.
+         Add the MCP entry below; your editor spawns `clawdcursor mcp` itself.
+      ── Autonomous daemon ONLY: also run `clawdcursor doctor` (configures the
+         daemon's built-in LLM), then `clawdcursor agent`. `doctor` is NOT
+         needed to drive clawdcursor over MCP from your own agent.
+
+    ── PICK A MODE ─────────────────────────────────────────────────────────────
+    `clawdcursor mcp`   : stdio MCP server. Use when AI lives in your editor
+                          (Claude Code, Cursor, Windsurf, Zed). Editor spawns it
+                          on demand. Add this JSON to the editor's MCP config:
+                            { "mcpServers": { "clawdcursor":
+                              { "command": "clawdcursor", "args": ["mcp", "--compact"] } } }
+                          No global install? Swap "command" to "npx" with args
+                          ["-y","clawdcursor","mcp","--compact"] to fetch on demand.
+                          Claude Code: skip the JSON. Install the plugin
+                          (.claude-plugin/plugin.json); it registers this server via
+                          npx and bundles the usage skill. One step, no config.
+
+    `clawdcursor agent` : HTTP MCP daemon on 127.0.0.1:3847/mcp. Use when
+                          clawdcursor brings its own LLM brain (configured via
+                          doctor) for unattended/scheduled autonomous runs.
+
+    `clawdcursor agent --no-llm` : same daemon, tool surface only (no built-in
+                          brain). Use when your agent has its own brain and
+                          just wants HTTP tools.
+
+    ── SAFETY ──────────────────────────────────────────────────────────────────
+    Single safety.evaluate() chokepoint: every tool call routes through it
+    regardless of transport. Sensitive actions auto-elevate to
+    Confirm. Bearer token required on HTTP. Local-only by default.
+    While an agent drives, a banner and an amber screen-edge glow show it on
+    every OS (double-click to stop). At a roadblock the agent pauses: the glow
+    turns blue and the banner shows what to do, with Resume / End task.
+
+    ── PLATFORMS ───────────────────────────────────────────────────────────────
+    Windows 10/11 (x64 + ARM64), macOS 12+ (Intel + Apple Silicon),
+    Linux X11, Linux Wayland.
+
+    ── MODEL ───────────────────────────────────────────────────────────────────
+    Any LLM with tool calling. Claude, GPT, Gemini, Llama, Kimi, Ollama, …
+    13 providers configured out of the box.
+
+    Source:  https://github.com/AmrDab/clawdcursor
+    Docs:    https://github.com/AmrDab/clawdcursor/tree/main/docs
+    License: MIT
+  -->
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #09090b;
+      --bg2: #111113;
+      --surface: #18181b;
+      --text: #fafafa;
+      --text2: #a1a1aa;
+      --text3: #52525b;
+      --accent: #22c55e;
+      --accent2: #4ade80;
+      --blue: #3b82f6;
+      --purple: #a855f7;
+      --red: #ef4444;
+      --orange: #f97316;
+      --yellow: #eab308;
+      --border: rgba(255,255,255,0.06);
+      --border2: rgba(255,255,255,0.12);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent2); }
+
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero */
+    .hero { padding: 64px 0 48px; text-align: center; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2);
+      color: var(--accent2); padding: 5px 14px; border-radius: 100px;
+      font-size: 0.75rem; font-weight: 600; margin-bottom: 20px;
+    }
+    .hero-badge .pulse {
+      width: 6px; height: 6px; background: var(--accent); border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 5.5vw, 4rem); font-weight: 800;
+      line-height: 1.08; letter-spacing: -0.035em; margin-bottom: 16px;
+    }
+    .hero h1 .gr {
+      background: linear-gradient(135deg, var(--accent), #06b6d4, var(--purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-size: 200% auto; animation: grad 4s ease-in-out infinite;
+    }
+    @keyframes grad { 0%,100% { background-position:0% center; } 50% { background-position:100% center; } }
+
+    .hero p { font-size: 1.05rem; color: var(--text2); max-width: 540px; margin: 0 auto 28px; line-height: 1.6; }
+
+    .hero-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .btn-p {
+      background: var(--accent); color: #000; padding: 10px 24px; border-radius: 8px;
+      font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center;
+      gap: 8px; transition: all 0.2s;
+    }
+    .btn-p:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(34,197,94,0.3); color: #000; }
+    .btn-s {
+      background: var(--surface); color: var(--text); padding: 10px 24px; border-radius: 8px;
+      font-weight: 600; font-size: 0.85rem; border: 1px solid var(--border2);
+      display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s;
+    }
+    .btn-s:hover { border-color: var(--accent); color: var(--text); }
+
+    /* Star count chip inside the GitHub button */
+    .star-count {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 100px; margin-left: 2px;
+      background: rgba(0,0,0,0.18); color: #000;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .star-count[hidden] { display: none; }
+
+    /* How-it-works flow: Accessibility, Escalate, Safety */
+    .pipe-flow {
+      display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: stretch;
+      gap: 10px; margin-bottom: 16px;
+    }
+    .pipe-step {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px 18px; position: relative; overflow: hidden;
+    }
+    .pipe-step::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--step-color, var(--accent));
+    }
+    .pipe-step.router   { --step-color: #22c55e; }
+    .pipe-step.agent    { --step-color: #3b82f6; }
+    .pipe-step.verifier { --step-color: #a855f7; }
+    .pipe-step h4 {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;
+    }
+    .pipe-step h4 .pipe-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 6px;
+      background: var(--step-color); color: #000;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; font-weight: 800;
+    }
+    .pipe-step .pipe-tag {
+      font-size: 0.68rem; font-family: 'JetBrains Mono', monospace; font-weight: 600;
+      color: var(--step-color); letter-spacing: 0.04em; text-transform: uppercase;
+      margin-bottom: 8px; display: block;
+    }
+    .pipe-step p {
+      font-size: 0.8rem; color: var(--text2); line-height: 1.6;
+    }
+    .pipe-arrow {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text3); font-family: 'JetBrains Mono', monospace; font-size: 1.2rem;
+      user-select: none;
+    }
+    @media (max-width: 768px) {
+      .pipe-flow { grid-template-columns: 1fr; }
+      .pipe-arrow { transform: rotate(90deg); padding: 4px 0; }
+    }
+
+    .pipe-legacy {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 18px; margin-top: 16px;
+      font-size: 0.82rem; color: var(--text2); line-height: 1.6;
+    }
+    .pipe-legacy code { color: var(--accent2); font-size: 0.95em; }
+
+    /* Stats */
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: 0 auto 48px;
+    }
+    .stat { text-align: center; padding: 20px 12px; background: var(--bg2); border-right: 1px solid var(--border); }
+    .stat:last-child { border-right: none; }
+    .stat-val { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+    .stat-lbl { font-size: 0.7rem; color: var(--text3); margin-top: 2px; font-weight: 500; }
+
+    /* Sections */
+    .sect { padding: 48px 0; border-top: 1px solid var(--border); }
+    .sect-label { color: var(--accent); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+    .sect h2 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+    .sect .sub { color: var(--text2); font-size: 0.9rem; margin-bottom: 24px; max-width: 560px; line-height: 1.6; }
+
+    /* Editor tags */
+    .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      font-size: 0.68rem; font-family: 'JetBrains Mono', monospace; font-weight: 600;
+      padding: 2px 8px; border-radius: 4px; background: var(--surface);
+      border: 1px solid var(--border2); color: var(--text2);
+    }
+    .tag.b { color: var(--blue); border-color: rgba(59,130,246,0.2); background: rgba(59,130,246,0.05); }
+
+    /* Mode cards */
+    .modes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mode-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 24px; position: relative; overflow: hidden;
+    }
+    .mode-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+    .mode-card.a::before { background: linear-gradient(90deg, var(--accent), #06b6d4); }
+    .mode-card.b::before { background: linear-gradient(90deg, var(--blue), var(--purple)); }
+    .mode-card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 10px; }
+    .mode-card ol { padding-left: 18px; color: var(--text2); font-size: 0.825rem; line-height: 1.65; }
+    .mode-card li { margin-bottom: 2px; }
+    .mode-stats { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; gap: 24px; }
+    .mode-stat-val { font-size: 1.3rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--accent); }
+    .mode-card.b .mode-stat-val { color: var(--blue); }
+    .mode-stat-lbl { font-size: 0.7rem; color: var(--text3); }
+
+    /* Features grid */
+    .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .feat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 20px; transition: border-color 0.2s; }
+    .feat-card:hover { border-color: var(--border2); }
+    .feat-icon { font-size: 1.2rem; margin-bottom: 10px; }
+    .feat-card h4 { font-size: 0.85rem; font-weight: 700; margin-bottom: 4px; }
+    .feat-card p { font-size: 0.78rem; color: var(--text2); line-height: 1.55; }
+
+    /* Code box */
+    .code-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .code-hd {
+      background: var(--surface); padding: 8px 16px; display: flex; align-items: center;
+      gap: 6px; border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.r { background: #ff5f57; } .dot.y { background: #ffbd2e; } .dot.g { background: #28c840; }
+    .code-hd span { margin-left: 10px; color: var(--text3); font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
+    pre { padding: 18px; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; line-height: 1.7; }
+    .c-comment { color: #3f3f50; -webkit-user-select: none; user-select: none; }
+    .c-string { color: var(--accent2); }
+    .c-cmd { color: var(--blue); }
+    .c-flag { color: var(--purple); }
+    .c-warn { color: var(--yellow); }
+
+    /* OS tabs */
+    .os-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .os-tab {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text2);
+      padding: 6px 16px; border-radius: 6px; font-size: 0.78rem; font-family: inherit;
+      cursor: pointer; font-weight: 500; transition: all 0.15s;
+    }
+    .os-tab.active { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); color: var(--accent2); }
+    .os-tab:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+
+    /* Install card (Quick Start): method tabs left, OS toggle right */
+    .install-hd { flex-wrap: wrap; }
+    .code-body { position: relative; }
+    .inst-methods { display: flex; gap: 4px; margin-left: 10px; }
+    .inst-os { display: flex; gap: 4px; margin-left: auto; }
+    .inst-tab, .inst-os-tab {
+      padding: 3px 12px; border-radius: 6px; font-size: 0.72rem; font-weight: 600;
+      font-family: 'JetBrains Mono', monospace; background: transparent;
+      border: 1px solid transparent; color: var(--text3); cursor: pointer; transition: all 0.15s;
+    }
+    .inst-tab:hover, .inst-os-tab:hover { color: var(--text); }
+    .inst-tab.active { background: var(--accent2); color: #06281a; }
+    .inst-os-tab { border-color: var(--border2); color: var(--text2); }
+    .inst-os-tab.active { background: var(--red); border-color: var(--red); color: #fff; }
+    .c-prompt { color: var(--red); font-weight: 700; -webkit-user-select: none; user-select: none; }
+    .copy-btn {
+      position: absolute; top: 10px; right: 10px; z-index: 2;
+      width: 30px; height: 28px; background: var(--surface); color: var(--text3);
+      border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+      font-size: 0.95rem; line-height: 1; transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .copy-btn:hover { color: var(--text); border-color: var(--border2); }
+
+    /* CTA */
+    .cta { text-align: center; padding: 64px 0; border-top: 1px solid var(--border); }
+    .cta h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em; }
+    .cta p { color: var(--text2); font-size: 0.9rem; margin-bottom: 24px; }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--border); padding: 24px; text-align: center; }
+    footer p { color: var(--text3); font-size: 0.75rem; }
+    footer a { color: var(--text2); }
+
+    /* AI cursor */
+    .ai-cursor-container { position: fixed; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+    .ai-cursor { position: absolute; width: 28px; height: 28px; opacity: 0; transition: opacity 0.3s; will-change: transform; }
+    .ai-cursor svg { width: 100%; height: 100%; filter: drop-shadow(0 0 8px rgba(34,197,94,0.6)); }
+    .ai-trail {
+      position: absolute; width: 6px; height: 6px; background: var(--accent); border-radius: 50%;
+      opacity: 0; transform: translate(-50%,-50%); will-change: transform,opacity;
+    }
+    .ai-ripple {
+      position: absolute; width: 40px; height: 40px; border: 2px solid var(--accent);
+      border-radius: 50%; opacity: 0; transform: translate(-50%,-50%); pointer-events: none;
+    }
+
+    /* Collapsible CLI section */
+    .cli-details { width: 100%; }
+    .cli-details > summary {
+      list-style: none;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-column-gap: 16px;
+      grid-row-gap: 4px;
+      align-items: center;
+      padding: 18px 22px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .cli-details > summary::-webkit-details-marker { display: none; }
+    .cli-details > summary:hover { border-color: var(--accent); }
+    .cli-details > summary .sect-label { grid-column: 1; grid-row: 1; }
+    .cli-summary-title {
+      grid-column: 1; grid-row: 2;
+      font-size: clamp(1.4rem, 2.5vw, 1.75rem);
+      font-weight: 700; letter-spacing: -0.02em; color: var(--text);
+      display: inline-flex; align-items: center; gap: 10px;
+    }
+    .cli-summary-sub {
+      grid-column: 1 / -1; grid-row: 3;
+      color: var(--text2); font-size: 0.88rem; line-height: 1.5;
+    }
+    .cli-summary-chev {
+      display: inline-block;
+      color: var(--text3);
+      font-size: 1.6rem; font-weight: 400;
+      line-height: 1;
+      transition: transform 0.2s;
+    }
+    .cli-details[open] > summary { border-color: var(--accent); }
+    .cli-details[open] > summary .cli-summary-chev { transform: rotate(90deg); color: var(--accent); }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .stat { padding: 16px 8px; }
+      .stat-val { font-size: 1.15rem; }
+      .stat-lbl { font-size: 0.62rem; }
+      .hero h1 { font-size: 2rem; }
+      .modes-grid, .feat-grid { grid-template-columns: 1fr !important; }
+      .sect { padding: 36px 0; }
+    }
+
+    /* No wandering cursor on touch devices or for reduced-motion users */
+    @media (hover: none), (prefers-reduced-motion: reduce) {
+      .ai-cursor-container { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- AI Cursor -->
+<div class="ai-cursor-container">
+  <div class="ai-cursor">
+    <svg viewBox="0 0 32 32" fill="none">
+      <path d="M4 4L14 28L17 18L28 14L4 4Z" fill="url(#cg)" stroke="#22c55e" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M20 8L26 2" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+      <path d="M22 12L30 6" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+      <path d="M18 6L22 0" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+      <defs><linearGradient id="cg" x1="4" y1="4" x2="28" y2="28"><stop stop-color="#22c55e"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs>
+    </svg>
+  </div>
+  <div class="ai-trail"></div>
+  <div class="ai-trail"></div>
+  <div class="ai-trail"></div>
+  <div class="ai-ripple"></div>
+</div>
+
+<div class="wrap">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-badge"><div class="pulse"></div> v1.5.24 &middot; answer the agent right from its pause prompt</div>
+    <h1>It sees. It acts. It verifies.<br><span class="gr">Desktop control for any AI agent</span></h1>
+    <p>Your agent reads the screen as stable element ids, not pixels, verifies every action, and routes it through one safety gate. Local, any model.</p>
+    <div class="hero-btns">
+      <a href="https://github.com/AmrDab/clawdcursor" class="btn-p" id="star-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        <span id="star-btn-label">View on GitHub</span>
+        <span class="star-count" id="star-count" aria-label="GitHub stars" hidden>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/></svg>
+          <span id="star-count-num">&middot;&middot;&middot;</span>
+        </span>
+      </a>
+      <a href="#install" class="btn-s">Quick Start</a>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat"><div class="stat-val">7</div><div class="stat-lbl">Compound tools (recommended)</div></div>
+    <div class="stat"><div class="stat-val">98</div><div class="stat-lbl">Granular tools (compat / debug)</div></div>
+    <div class="stat"><div class="stat-val">3</div><div class="stat-lbl">Operating Systems</div></div>
+  </div>
+
+  <!-- Install -->
+  <section id="install" class="sect">
+    <div class="sect-label">Quick Start</div>
+    <h2>Install in seconds.</h2>
+
+    <div class="code-box install-card">
+      <div class="code-hd install-hd">
+        <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+        <div class="inst-methods">
+          <button class="inst-tab" data-m="oneliner" onclick="pickMethod('oneliner')">One-liner</button>
+          <button class="inst-tab active" data-m="npm" onclick="pickMethod('npm')">npm</button>
+          <button class="inst-tab" data-m="source" onclick="pickMethod('source')">Source</button>
+        </div>
+        <div class="inst-os">
+          <button class="inst-os-tab" data-o="unix" onclick="pickOS('unix')">macOS &amp; Linux</button>
+          <button class="inst-os-tab active" data-o="win" onclick="pickOS('win')">Windows</button>
+        </div>
+      </div>
+      <div class="code-body">
+        <button class="copy-btn" onclick="copyInstall(this)" aria-label="Copy command" title="Copy command"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+        <pre><code><span class="c-comment" id="inst-comment"></span>
+<span class="c-prompt">$ </span><span id="inst-cmd"></span></code></pre>
+      </div>
+    </div>
+
+    <p class="sub" style="text-align:center;max-width:640px;margin:14px auto 0;">Then run <code style="font-size:0.95em">clawdcursor consent --accept</code>. On macOS also run <code style="font-size:0.95em">clawdcursor grant</code>. Done.</p>
+  </section>
+
+  <!-- Three modes -->
+  <section class="sect" id="modes">
+    <div class="sect-label">Pick a mode</div>
+    <h2>How will your AI talk to it?</h2>
+    <p class="sub">Same tools, two entry shapes. Pick once at install.</p>
+    <div class="modes-grid">
+      <div class="mode-card b">
+        <h3>clawdcursor mcp <span style="font-size:0.7rem;font-weight:500;color:var(--accent2);letter-spacing:0.04em;">recommended</span></h3>
+        <p style="margin:8px 0 12px;color:var(--text2);font-size:0.85rem;line-height:1.5;">AI lives in your editor. It spawns clawdcursor over stdio. No daemon, no port.</p>
+        <pre style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:0.72rem;color:var(--accent2);overflow-x:auto;margin-bottom:12px;"><code>{
+  "mcpServers": {
+    "clawdcursor": {
+      "command": "clawdcursor",
+      "args": ["mcp", "--compact"]
+    }
+  }
+}</code></pre>
+        <div class="tag-row">
+          <span class="tag b">Claude Code</span>
+          <span class="tag b">Cursor</span>
+          <span class="tag b">Windsurf</span>
+          <span class="tag b">OpenClaw</span>
+          <span class="tag">Zed</span>
+        </div>
+        <div class="mode-stats">
+          <div><div class="mode-stat-val">7 / 98</div><div class="mode-stat-lbl">Compact / Granular tools</div></div>
+          <div><div class="mode-stat-val">stdio</div><div class="mode-stat-lbl">Transport</div></div>
+        </div>
+      </div>
+      <div class="mode-card a">
+        <h3>clawdcursor agent <span style="font-size:0.7rem;font-weight:500;color:var(--text3);letter-spacing:0.04em;">HTTP daemon</span></h3>
+        <p style="margin:8px 0 12px;color:var(--text2);font-size:0.85rem;line-height:1.5;">HTTP MCP on <code style="font-size:0.85em">127.0.0.1:3847/mcp</code>. <code style="font-size:0.85em;color:var(--accent2)">doctor</code> then <code style="font-size:0.85em;color:var(--accent2)">agent</code> runs the built-in autonomous loop; <code style="font-size:0.85em;color:var(--accent2)">agent --no-llm</code> serves tools only when your agent has its own brain.</p>
+        <div class="mode-stats">
+          <div><div class="mode-stat-val">:3847</div><div class="mode-stat-lbl">HTTP MCP</div></div>
+          <div><div class="mode-stat-val">13+</div><div class="mode-stat-lbl">Providers</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works: cheap paths first -->
+  <section class="sect" id="pipeline">
+    <div class="sect-label">How it works</div>
+    <h2>Cheap paths first.</h2>
+    <p class="sub">A11y tree before pixels. Vision only when needed.</p>
+
+    <div class="pipe-flow">
+      <div class="pipe-step router">
+        <h4><span class="pipe-num">1</span> Compile the screen</h4>
+        <span class="pipe-tag">No vision model</span>
+        <p>Fuse the a11y tree + OCR into one confidence-scored el_NN map. Act on an element by stable id. No image bytes to the model. Vision is last resort.</p>
+      </div>
+      <div class="pipe-arrow" aria-hidden="true">→</div>
+      <div class="pipe-step agent">
+        <h4><span class="pipe-num">2</span> Escalate as needed</h4>
+        <span class="pipe-tag">Cheapest rung that works</span>
+        <p>OCR when the tree is sparse. A screenshot only when you truly need pixels: canvas-only apps or spatial reasoning.</p>
+      </div>
+      <div class="pipe-arrow" aria-hidden="true">→</div>
+      <div class="pipe-step verifier">
+        <h4><span class="pipe-num">3</span> Verify &amp; gate</h4>
+        <span class="pipe-tag">Reactive + one chokepoint</span>
+        <p>Pass <code style="font-size:0.82em">expect</code> and the action confirms its outcome, reporting a DEVIATION if the UI didn't obey. Every call routes through one safety layer.</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- vs computer use -->
+  <section class="sect" id="vs-computer-use">
+    <div class="sect-label">Efficiency</div>
+    <h2>Leaner than computer use.</h2>
+    <p class="sub">Screenshot-based computer use sends the model a picture of the screen every time it looks. clawdcursor sends text the model can act on by name.</p>
+
+    <div class="stats">
+      <div class="stat"><div class="stat-val">38</div><div class="stat-lbl">Tokens to find a button by name</div></div>
+      <div class="stat"><div class="stat-val">~1,000+</div><div class="stat-lbl">Tokens for one screenshot</div></div>
+      <div class="stat"><div class="stat-val">12&ndash;47&times;</div><div class="stat-lbl">Fewer tokens on a measured task</div></div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+      <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        <thead>
+          <tr style="background:rgba(255,255,255,0.03);">
+            <th style="text-align:left;padding:12px 16px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:600;border-bottom:1px solid var(--border);"></th>
+            <th style="text-align:left;padding:12px 16px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:600;border-bottom:1px solid var(--border);">Screenshot-based computer use</th>
+            <th style="text-align:left;padding:12px 16px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);font-weight:600;border-bottom:1px solid var(--border);">clawdcursor</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text);font-weight:600;">What the model reads per look</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text3);">A screenshot: ~1,000&ndash;1,800 tokens</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Text: 38 tokens to find a button, 50 to read a field</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text);font-weight:600;">How it clicks</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text3);">x, y coordinates guessed from the picture</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">By name: <code>invoke "Equals"</code>. Coordinates are the fallback</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text);font-weight:600;">Did the click work?</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text3);">Take another screenshot</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);"><code>expect</code> checks it in the same call and reports a DEVIATION</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text);font-weight:600;">Known steps in a row</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text3);">A model turn + a screenshot per step</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">One <code>batch</code> call, every step still safety-checked</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text);font-weight:600;">Reading text</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text3);">Read off the pixels</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">The app's own text: tree values, <code>copy_all_text</code>, OCR</td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text);font-weight:600;">Which model</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text3);">One that can read screenshots and point at pixels</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Any model with tool calling, 13+ providers</td>
+            </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="color:var(--text3);font-size:0.78rem;margin-top:14px;line-height:1.6;">
+      Measured on Windows 11 (October 2026): 127 &times; 49 in Calculator took clawdcursor 3 tool calls and ~176 tokens of screen input, with 0 screenshots. A screenshot loop needs 2 to 8 screenshots for the same task (2,072&ndash;8,288 tokens at 1024&times;768). Screenshot cost from
+      <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool" target="_blank" rel="noopener" style="color:var(--accent2);">Anthropic's computer use docs</a>; clawdcursor tokens estimated as characters &divide; 3.5.
+    </p>
+  </section>
+
+  <!-- Features -->
+  <section class="sect">
+    <div class="sect-label">Features</div>
+    <h2>Any OS. Any model.</h2>
+    <div class="feat-grid">
+      <div class="feat-card">
+        <div class="feat-icon">💻</div>
+        <h4>Cross-platform</h4>
+        <p>Windows x64/ARM64 &middot; macOS 12+ &middot; Linux X11/Wayland</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">⌨️</div>
+        <h4>Shortcuts engine</h4>
+        <p>Platform-aware key combos. Cmd on macOS, Ctrl elsewhere. No LLM cost.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">📦</div>
+        <h4>batch: one round-trip</h4>
+        <p>Collapse N deterministic tool calls into a single guarded, safety-gated batch. N calls &rarr; 1.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">⏸️</div>
+        <h4>Pauses for you</h4>
+        <p>At a sign-in, 2FA code or CAPTCHA the agent pauses instead of guessing. The glow turns blue; click Resume and it carries on, or "Something else" to type it an answer.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">🟠</div>
+        <h4>Always visible</h4>
+        <p>A banner and an amber screen-edge glow on Windows, macOS and Linux while an agent drives. Double-click to stop.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon">🍎</div>
+        <h4>Fast on macOS</h4>
+        <p>A native accessibility helper: 20 windows listed in 0.3 s, a window's tree read in 0.06&ndash;0.2 s.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tools catalog (collapsed by default) -->
+  <section class="sect" id="tools-list">
+    <details class="cli-details">
+      <summary class="cli-summary">
+        <span class="sect-label" style="margin-bottom:0;">Tools</span>
+        <span class="cli-summary-title">7 compact tools + 98 granular <span class="cli-summary-chev" aria-hidden="true">›</span></span>
+        <span class="cli-summary-sub">The 7 compounds are the recommended surface. The 98 granular tools cover compatibility and debugging.</span>
+      </summary>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;margin-top:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead>
+            <tr style="background:rgba(255,255,255,0.03);">
+              <th style="text-align:left;padding:12px 16px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:600;border-bottom:1px solid var(--border);">Compound</th>
+              <th style="text-align:left;padding:12px 16px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:600;border-bottom:1px solid var(--border);">Purpose</th>
+              <th style="text-align:left;padding:12px 16px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);font-weight:600;border-bottom:1px solid var(--border);">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;"><code style="color:var(--accent2);font-weight:600;">computer</code></td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Mouse, keyboard, screenshots. Raw I/O.</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;"><code>screenshot</code> · <code>click</code> · <code>double_click</code> · <code>right_click</code> · <code>triple_click</code> · <code>hover</code> · <code>scroll</code> · <code>scroll_horizontal</code> · <code>drag</code> · <code>drag_path</code> · <code>type</code> · <code>key</code> · <code>wait</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;"><code style="color:var(--accent2);font-weight:600;">accessibility</code></td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Drive UI by element name, not pixel. Survives DPI, resize, layout shifts.</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;"><code>read_tree</code> · <code>find</code> · <code>get_element</code> · <code>focused</code> · <code>invoke</code> · <code>focus</code> · <code>set_value</code> · <code>get_value</code> · <code>expand</code> · <code>collapse</code> · <code>toggle</code> · <code>select</code> · <code>state</code> · <code>list_children</code> · <code>wait_for</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;"><code style="color:var(--accent2);font-weight:600;">window</code></td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Launch, focus, resize. App-level state.</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;"><code>list</code> · <code>active</code> · <code>focus</code> · <code>maximize</code> · <code>minimize</code> · <code>restore</code> · <code>close</code> · <code>resize</code> · <code>list_displays</code> · <code>screen_size</code> · <code>open_app</code> · <code>open_file</code> · <code>open_url</code> · <code>switch_tab</code> · <code>navigate</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;"><code style="color:var(--accent2);font-weight:600;">system</code></td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Clipboard, OCR, shortcuts, undo, webview detection, CDP relaunch, task delegation. The meta surface for an external brain.</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;"><code>clipboard_read</code> · <code>clipboard_write</code> · <code>system_time</code> · <code>ocr</code> · <code>undo</code> · <code>shortcuts_list</code> · <code>shortcuts_run</code> · <code>delegate</code> · <code>detect_webview</code> · <code>relaunch_with_cdp</code> · <code>system_prompt</code> · <code>pause_for_user</code></td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:12px 16px;vertical-align:top;"><code style="color:var(--accent2);font-weight:600;">browser</code></td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Chrome DevTools Protocol: real DOM access for Electron / WebView2 apps whose a11y tree is sparse.</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;"><code>connect</code> · <code>page_context</code> · <code>read_text</code> · <code>click</code> · <code>type</code> · <code>select_option</code> · <code>evaluate</code> · <code>wait_for</code> · <code>list_tabs</code> · <code>switch_tab</code> · <code>scroll</code></td>
+            </tr>
+            <tr>
+              <td style="padding:12px 16px;vertical-align:top;"><code style="color:var(--accent2);font-weight:600;">task</code></td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);">Hand the whole task to the autonomous loop. <strong>Daemon mode only</strong>: needs <code>clawdcursor agent</code> with an LLM configured.</td>
+              <td style="padding:12px 16px;vertical-align:top;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;"><code>run</code> · <code>status</code> · <code>abort</code> · <code>resume</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="color:var(--text3);font-size:0.78rem;margin-top:14px;line-height:1.6;">
+        <strong style="color:var(--text2);">Compact</strong> (~7,000 tokens of catalog, a third of granular): <code style="font-size:0.9em;color:var(--accent2);">computer({ "action": "key", "combo": "mod+s" })</code>.
+        <strong style="color:var(--text2);">Granular:</strong> <code style="font-size:0.9em;color:var(--accent2);">key_press({ "key": "mod+s" })</code>.
+        Both hit the same <code>safety.evaluate()</code> chokepoint. Pass <code style="color:var(--accent2);">--granular</code> for the granular surface.
+        See <a href="https://github.com/AmrDab/clawdcursor/blob/main/schema.snapshot.json" target="_blank" rel="noopener" style="color:var(--accent2);">schema.snapshot.json</a> for every parameter.
+      </p>
+    </details>
+  </section>
+
+  <!-- CLI reference (collapsed by default) -->
+  <section class="sect" id="cli">
+    <details class="cli-details">
+      <summary class="cli-summary">
+        <span class="sect-label" style="margin-bottom:0;">CLI</span>
+        <span class="cli-summary-title">Every command <span class="cli-summary-chev" aria-hidden="true">›</span></span>
+        <span class="cli-summary-sub">For humans diagnosing an install. Agents connect via MCP.</span>
+      </summary>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-top:18px;">
+        <pre style="background:transparent;font-size:0.82rem;line-height:1.55;color:var(--text);overflow-x:auto;"><code><span style="color:var(--text3)"># Install &amp; setup</span>
+clawdcursor consent          <span style="color:var(--text3)"># one-time desktop-control authorization (always required)</span>
+clawdcursor grant            <span style="color:var(--text3)"># macOS only: Accessibility + Screen Recording prompts. MCP setup ends here.</span>
+clawdcursor doctor           <span style="color:var(--text3)"># ONLY for `agent` mode: configures the daemon's built-in LLM (+ diagnostics)</span>
+clawdcursor status           <span style="color:var(--text3)"># readiness check (consent, permissions, AI config)</span>
+clawdcursor versions         <span style="color:var(--text3)"># every installed copy and its version</span>
+
+<span style="color:var(--text3)"># Run</span>
+clawdcursor mcp              <span style="color:var(--text3)"># stdio MCP server for editor hosts</span>
+clawdcursor mcp --compact    <span style="color:var(--text3)"># same, with 7 compound tools (recommended)</span>
+clawdcursor agent            <span style="color:var(--text3)"># HTTP MCP daemon at :3847/mcp, optional built-in LLM</span>
+clawdcursor agent --no-llm   <span style="color:var(--text3)"># tool surface only: your agent brings its own brain</span>
+clawdcursor resume           <span style="color:var(--text3)"># continue a task paused for you (--end to stop it)</span>
+clawdcursor stop             <span style="color:var(--text3)"># stop every running mode</span>
+clawdcursor uninstall        <span style="color:var(--text3)"># remove all clawdcursor config and data</span></code></pre>
+      </div>
+    </details>
+  </section>
+
+</div>
+
+<!-- CTA -->
+<div class="wrap">
+  <div class="cta">
+    <h2>Give your agent safe desktop control.</h2>
+    <p>Open source. Any model. Localhost-only by default, enforced. No telemetry.</p>
+    <a href="https://github.com/AmrDab/clawdcursor" class="btn-p">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      Star on GitHub
+    </a>
+  </div>
+</div>
+
+<footer>
+  <p>clawd<strong>cursor</strong> v1.5.24 · localhost only · MIT ·
+    <a href="https://clawdcursor.com">Home</a> ·
+    <a href="https://github.com/AmrDab/clawdcursor">GitHub</a> ·
+    <a href="https://github.com/AmrDab/clawdcursor/blob/main/CHANGELOG.md">Changelog</a> ·
+    <a href="https://discord.gg/hW29nrEZ8G">Discord</a>
+  </p>
+</footer>
+
+<script>
+  // Live GitHub star count. One fetch, 10-minute sessionStorage cache to stay under
+  // the unauthenticated rate limit when users reload. Fails silently on CORS / offline /
+  // rate-limit so the button still reads "View on GitHub".
+  (function () {
+    const chip = document.getElementById('star-count');
+    const num  = document.getElementById('star-count-num');
+    if (!chip || !num) return;
+    const format = n =>
+      n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k'
+                : n.toLocaleString();
+    const render = n => {
+      num.textContent = format(n);
+      chip.hidden = false;
+    };
+    try {
+      const cached = sessionStorage.getItem('cc-stars');
+      if (cached) {
+        const { n, t } = JSON.parse(cached);
+        if (Date.now() - t < 10 * 60 * 1000) { render(n); return; }
+      }
+    } catch (_) { /* sessionStorage disabled: just skip the cache */ }
+    fetch('https://api.github.com/repos/AmrDab/clawdcursor', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(r => {
+        const n = r.stargazers_count;
+        if (typeof n !== 'number') return;
+        render(n);
+        try { sessionStorage.setItem('cc-stars', JSON.stringify({ n, t: Date.now() })); }
+        catch (_) {}
+      })
+      .catch(() => { /* keep button clean */ });
+  })();
+
+  // AI cursor: autonomous wander. The green pointer drifts to a random
+  // viewport target, eases into it with a small jitter, occasionally clicks
+  // (firing a ripple), then picks a new target. Trails follow with the same
+  // exponential-smoothing pattern as before. Pure cosmetic; pointer-events
+  // are disabled in CSS so it never intercepts a real click. Pauses while
+  // the tab is hidden so it doesn't churn the GPU in background tabs.
+  // Skipped entirely on touch devices and for reduced-motion users (the CSS
+  // hides the element too).
+  (function () {
+  if (window.matchMedia('(hover: none)').matches ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const cursor = document.querySelector('.ai-cursor');
+  const trails = document.querySelectorAll('.ai-trail');
+  const ripple = document.querySelector('.ai-ripple');
+
+  let cx = 0, cy = 0;          // current cursor position
+  let tx = 0, ty = 0;          // current target
+  let nextHopAt = 0;           // when to pick a new target
+  let nextClickAt = 0;         // when to fire the next ripple
+  const trailPositions = Array(trails.length).fill().map(() => ({ x: 0, y: 0 }));
+
+  function viewportPad() {
+    return { w: Math.max(window.innerWidth - 80, 200), h: Math.max(window.innerHeight - 80, 200) };
+  }
+
+  function pickTarget() {
+    const v = viewportPad();
+    tx = 40 + Math.random() * v.w;
+    ty = 40 + Math.random() * v.h;
+    // Hop interval: 1.5 to 4.5s of drift to next target.
+    nextHopAt = performance.now() + 1500 + Math.random() * 3000;
+  }
+
+  function fireRipple() {
+    ripple.style.left = cx + 'px';
+    ripple.style.top = cy + 'px';
+    ripple.style.opacity = '0.6';
+    ripple.style.transform = 'translate(-50%, -50%) scale(0)';
+    ripple.style.transition = 'none';
+    requestAnimationFrame(() => {
+      ripple.style.transition = 'all 0.5s ease-out';
+      ripple.style.opacity = '0';
+      ripple.style.transform = 'translate(-50%, -50%) scale(2)';
+    });
+    // Next click in 4 to 10s.
+    nextClickAt = performance.now() + 4000 + Math.random() * 6000;
+  }
+
+  // Start near the centre, ease in.
+  cx = window.innerWidth / 2;
+  cy = window.innerHeight / 2;
+  pickTarget();
+  nextClickAt = performance.now() + 3000 + Math.random() * 4000;
+  cursor.style.opacity = '1';
+
+  function tick(now) {
+    if (now >= nextHopAt) pickTarget();
+    if (now >= nextClickAt) fireRipple();
+
+    // Ease toward target with a tiny jitter so motion isn't perfectly linear.
+    cx += (tx - cx) * 0.025 + (Math.random() - 0.5) * 0.4;
+    cy += (ty - cy) * 0.025 + (Math.random() - 0.5) * 0.4;
+    cursor.style.transform = `translate(${cx - 4}px, ${cy - 4}px)`;
+
+    // Trails: each dot eases toward the dot in front of it.
+    trailPositions.forEach((pos, i) => {
+      const target = i === 0 ? { x: cx, y: cy } : trailPositions[i - 1];
+      pos.x += (target.x - pos.x) * (0.15 + i * 0.05);
+      pos.y += (target.y - pos.y) * (0.15 + i * 0.05);
+      trails[i].style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+      trails[i].style.opacity = String(0.35 - i * 0.1);
+    });
+
+    requestAnimationFrame(tick);
+  }
+  // Pause while the tab is hidden: saves GPU and avoids accumulated drift.
+  let rafHandle = requestAnimationFrame(tick);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      cancelAnimationFrame(rafHandle);
+    } else {
+      // Re-anchor target so the cursor doesn't snap unexpectedly.
+      pickTarget();
+      rafHandle = requestAnimationFrame(tick);
+    }
+  });
+  })();
+
+  // Install card: method (oneliner/npm/source) × OS (win/unix)
+  const INSTALL_CMDS = {
+    'oneliner|win':  'powershell -c "irm https://clawdcursor.com/install.ps1 | iex"',
+    'oneliner|unix': 'curl -fsSL https://clawdcursor.com/install.sh | bash',
+    'npm|win':  'npm i -g clawdcursor',
+    'npm|unix': 'npm i -g clawdcursor',
+    'source|win':  'git clone https://github.com/AmrDab/clawdcursor.git && cd clawdcursor && npm i && npm run build && npm link',
+    'source|unix': 'git clone https://github.com/AmrDab/clawdcursor.git && cd clawdcursor && npm i && npm run build && npm link',
+  };
+  const INSTALL_COMMENTS = {
+    oneliner: '# Works everywhere. Installs Node if needed, builds, links the global shim.',
+    npm: '# Simplest, any OS. (macOS: also run `clawdcursor grant` for the native helper.)',
+    source: '# Clone, build, link. For hacking on clawdcursor itself.',
+  };
+  let _instM = 'npm', _instO = 'win';
+  function renderInstall() {
+    const cmd = document.getElementById('inst-cmd');
+    const comment = document.getElementById('inst-comment');
+    if (!cmd || !comment) return;
+    cmd.textContent = INSTALL_CMDS[_instM + '|' + _instO];
+    comment.textContent = INSTALL_COMMENTS[_instM];
+    document.querySelectorAll('.inst-tab').forEach(t => t.classList.toggle('active', t.dataset.m === _instM));
+    document.querySelectorAll('.inst-os-tab').forEach(t => t.classList.toggle('active', t.dataset.o === _instO));
+    // The OS toggle only changes the one-liner; dim + disable it otherwise.
+    const osEl = document.querySelector('.inst-os');
+    if (osEl) {
+      const matters = _instM === 'oneliner';
+      osEl.style.opacity = matters ? '1' : '0.4';
+      osEl.style.pointerEvents = matters ? 'auto' : 'none';
+    }
+  }
+  function pickMethod(m) { _instM = m; renderInstall(); }
+  function pickOS(o) { _instO = o; renderInstall(); }
+  function copyInstall(btn) {
+    const txt = document.getElementById('inst-cmd').textContent;
+    navigator.clipboard.writeText(txt).then(() => {
+      const orig = btn.innerHTML; btn.innerHTML = '<span style="color:var(--accent);font-weight:700">✓</span>';
+      setTimeout(() => { btn.innerHTML = orig; }, 1200);
+    }).catch(() => {});
+  }
+  renderInstall();
+
+</script>
+</body>
+</html>

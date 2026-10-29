@@ -1,0 +1,1091 @@
+{
+ "meta": {
+  "benchmark": "AgentDocBench",
+  "benchmark_version": "1",
+  "tool": "anymd",
+  "tool_version": "anymd 8.2.0",
+  "tool_url": "https://github.com/SylphxAI/anymd",
+  "date": "2026-10-01",
+  "runs": 3,
+  "timeout": 900,
+  "shard": "1/1",
+  "machine": "Linux x86_64, 4 CPUs",
+  "runner": "github-hosted",
+  "run_url": "https://github.com/SylphxAI/anymd/actions/runs/36794302607",
+  "commit": "50513326503f2aa98a0b9b6c931bf3bb576d86a6",
+  "python": "3.12.14"
+ },
+ "results": [
+  {
+   "doc": "paper-evsched",
+   "category": "paper",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.073,
+   "tokens": 14258,
+   "bytes": 56839,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9841,
+     "recall": 0.9954,
+     "f1": 0.9897
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 6,
+     "rows_total": 12,
+     "cells_hit": 53,
+     "cells_total": 59,
+     "cell_recall": 0.8983,
+     "cell_precision": 1.0,
+     "cell_f1": 0.9464
+    },
+    "score": 0.984
+   }
+  },
+  {
+   "doc": "paper-rankone",
+   "category": "paper",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.064,
+   "tokens": 25440,
+   "bytes": 61252,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.8135,
+     "recall": 0.8752,
+     "f1": 0.8432
+    },
+    "order": 1.0,
+    "score": 0.9477
+   }
+  },
+  {
+   "doc": "paper-ulam",
+   "category": "paper",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.022,
+   "tokens": 8716,
+   "bytes": 29255,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.945,
+     "recall": 0.9696,
+     "f1": 0.9571
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 3,
+     "rows_total": 5,
+     "cells_hit": 22,
+     "cells_total": 24,
+     "cell_recall": 0.9167,
+     "cell_precision": 0.9167,
+     "cell_f1": 0.9167
+    },
+    "score": 0.9685
+   }
+  },
+  {
+   "doc": "twocol-bygpt5",
+   "category": "two-column",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.096,
+   "tokens": 16303,
+   "bytes": 66998,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9853,
+     "recall": 0.9719,
+     "f1": 0.9785
+    },
+    "order": 0.8889,
+    "tables": {
+     "rows_found": 7,
+     "rows_total": 7,
+     "cells_hit": 27,
+     "cells_total": 27,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9669
+   }
+  },
+  {
+   "doc": "twocol-smile",
+   "category": "two-column",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.079,
+   "tokens": 14655,
+   "bytes": 56008,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9537,
+     "recall": 0.9779,
+     "f1": 0.9657
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 10,
+     "rows_total": 10,
+     "cells_hit": 38,
+     "cells_total": 38,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9914
+   }
+  },
+  {
+   "doc": "twocol-uscore",
+   "category": "two-column",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.081,
+   "tokens": 19195,
+   "bytes": 70676,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9748,
+     "recall": 0.9726,
+     "f1": 0.9737
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 6,
+     "rows_total": 9,
+     "cells_hit": 48,
+     "cells_total": 51,
+     "cell_recall": 0.9412,
+     "cell_precision": 1.0,
+     "cell_f1": 0.9697
+    },
+    "score": 0.9858
+   }
+  },
+  {
+   "doc": "report-crs-dod-approps",
+   "category": "report",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.04,
+   "tokens": 8151,
+   "bytes": 32300,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9793,
+     "recall": 0.9702,
+     "f1": 0.9747
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 7,
+     "rows_total": 17,
+     "cells_hit": 102,
+     "cells_total": 119,
+     "cell_recall": 0.8571,
+     "cell_precision": 0.7786,
+     "cell_f1": 0.816
+    },
+    "score": 0.9477
+   }
+  },
+  {
+   "doc": "report-plz",
+   "category": "report",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.014,
+   "tokens": 1689,
+   "bytes": 8726,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9903,
+     "recall": 0.9522,
+     "f1": 0.9709
+    },
+    "order": 1.0,
+    "score": 0.9903
+   }
+  },
+  {
+   "doc": "fed-h8",
+   "category": "financial",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.064,
+   "tokens": 34952,
+   "bytes": 68041,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9735,
+     "recall": 0.9884,
+     "f1": 0.9809
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 24,
+     "rows_total": 35,
+     "cells_hit": 495,
+     "cells_total": 515,
+     "cell_recall": 0.9612,
+     "cell_precision": 0.9199,
+     "cell_f1": 0.9401
+    },
+    "score": 0.9802
+   }
+  },
+  {
+   "doc": "fin-bls-realer",
+   "category": "financial",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.02,
+   "tokens": 2887,
+   "bytes": 10641,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9739,
+     "recall": 0.9895,
+     "f1": 0.9817
+    },
+    "order": 0.8182,
+    "tables": {
+     "rows_found": 28,
+     "rows_total": 42,
+     "cells_hit": 176,
+     "cells_total": 192,
+     "cell_recall": 0.9167,
+     "cell_precision": 0.6111,
+     "cell_f1": 0.7333
+    },
+    "score": 0.8833
+   }
+  },
+  {
+   "doc": "fin-census-income",
+   "category": "financial",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.047,
+   "tokens": 10034,
+   "bytes": 32680,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9791,
+     "recall": 0.9851,
+     "f1": 0.9821
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 91,
+     "rows_total": 91,
+     "cells_hit": 937,
+     "cells_total": 937,
+     "cell_recall": 1.0,
+     "cell_precision": null,
+     "cell_f1": 1.0
+    },
+    "score": 0.9955
+   }
+  },
+  {
+   "doc": "invoice-borderless",
+   "category": "financial",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.004,
+   "tokens": 623,
+   "bytes": 1907,
+   "metrics": {
+    "sentences": [
+     4,
+     5
+    ],
+    "text": {
+     "precision": 0.9868,
+     "recall": 1.0,
+     "f1": 0.9934
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 20,
+     "rows_total": 20,
+     "cells_hit": 88,
+     "cells_total": 88,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9483
+   }
+  },
+  {
+   "doc": "form-1040es",
+   "category": "form",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.046,
+   "tokens": 11848,
+   "bytes": 48027,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9795,
+     "recall": 0.9894,
+     "f1": 0.9844
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 6,
+     "rows_total": 10,
+     "cells_hit": 37,
+     "cells_total": 44,
+     "cell_recall": 0.8409,
+     "cell_precision": 1.0,
+     "cell_f1": 0.9136
+    },
+    "score": 0.9745
+   }
+  },
+  {
+   "doc": "form-w4",
+   "category": "form",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.034,
+   "tokens": 6843,
+   "bytes": 20938,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.999,
+     "recall": 0.9969,
+     "f1": 0.998
+    },
+    "order": 0.9091,
+    "tables": {
+     "rows_found": 24,
+     "rows_total": 24,
+     "cells_hit": 312,
+     "cells_total": 312,
+     "cell_recall": 1.0,
+     "cell_precision": null,
+     "cell_f1": 1.0
+    },
+    "score": 0.9768
+   }
+  },
+  {
+   "doc": "irs-w9",
+   "category": "form",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.027,
+   "tokens": 8710,
+   "bytes": 38395,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.998,
+     "recall": 0.9937,
+     "f1": 0.9958
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 11,
+     "rows_total": 13,
+     "cells_hit": 24,
+     "cells_total": 26,
+     "cell_recall": 0.9231,
+     "cell_precision": 1.0,
+     "cell_f1": 0.96
+    },
+    "score": 0.989
+   }
+  },
+  {
+   "doc": "scan-nasa-budget",
+   "category": "scanned",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 2.22,
+   "tokens": 1237,
+   "bytes": 5412,
+   "metrics": {
+    "sentences": [
+     4,
+     5
+    ],
+    "order": 1.0,
+    "tables": {
+     "rows_found": 2,
+     "rows_total": 10,
+     "cells_hit": 16,
+     "cells_total": 37,
+     "cell_recall": 0.4324,
+     "cell_precision": 0.2927,
+     "cell_f1": 0.3491
+    },
+    "score": 0.7164
+   }
+  },
+  {
+   "doc": "scan-nasa-notes",
+   "category": "scanned",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 1.685,
+   "tokens": 1159,
+   "bytes": 4892,
+   "metrics": {
+    "sentences": [
+     4,
+     6
+    ],
+    "order": 0.9091,
+    "tables": {
+     "rows_found": 1,
+     "rows_total": 5,
+     "cells_hit": 4,
+     "cells_total": 14,
+     "cell_recall": 0.2857,
+     "cell_precision": null,
+     "cell_f1": 0.2857
+    },
+    "score": 0.6205
+   }
+  },
+  {
+   "doc": "scan-oklahoma-address",
+   "category": "scanned",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 6.594,
+   "tokens": 3887,
+   "bytes": 19232,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "order": 1.0,
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "cjk-jp-stat-elderly",
+   "category": "cjk",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.025,
+   "tokens": 4170,
+   "bytes": 10362,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9477,
+     "recall": 0.9837,
+     "f1": 0.9654
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 36,
+     "rows_total": 38,
+     "cells_hit": 333,
+     "cells_total": 335,
+     "cell_recall": 0.994,
+     "cell_precision": 1.0,
+     "cell_f1": 0.997
+    },
+    "score": 0.9906
+   }
+  },
+  {
+   "doc": "cjk-tw-archives",
+   "category": "cjk",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.016,
+   "tokens": 2532,
+   "bytes": 8054,
+   "metrics": {
+    "sentences": [
+     5,
+     5
+    ],
+    "text": {
+     "precision": 0.9979,
+     "recall": 1.0,
+     "f1": 0.999
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 11,
+     "rows_total": 12,
+     "cells_hit": 23,
+     "cells_total": 24,
+     "cell_recall": 0.9583,
+     "cell_precision": 0.92,
+     "cell_f1": 0.9388
+    },
+    "score": 0.9844
+   }
+  },
+  {
+   "doc": "cjk-tw-dgbas-cpi",
+   "category": "cjk",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.038,
+   "tokens": 5818,
+   "bytes": 13626,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9895,
+     "recall": 0.9982,
+     "f1": 0.9938
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 17,
+     "rows_total": 17,
+     "cells_hit": 177,
+     "cells_total": 177,
+     "cell_recall": 1.0,
+     "cell_precision": null,
+     "cell_f1": 1.0
+    },
+    "score": 0.9985
+   }
+  },
+  {
+   "doc": "slides-epa-1bp",
+   "category": "slides",
+   "format": "pptx",
+   "status": "ok",
+   "seconds": 0.009,
+   "tokens": 3682,
+   "bytes": 17718,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.9679,
+     "recall": 0.9662,
+     "f1": 0.9671
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 5,
+     "rows_total": 10,
+     "cells_hit": 14,
+     "cells_total": 20,
+     "cell_recall": 0.7,
+     "cell_precision": 0.7,
+     "cell_f1": 0.7
+    },
+    "score": 0.9168
+   }
+  },
+  {
+   "doc": "slides-markitdown-pptx",
+   "category": "slides",
+   "format": "pptx",
+   "status": "ok",
+   "seconds": 0.004,
+   "tokens": 521,
+   "bytes": 1770,
+   "metrics": {
+    "sentences": [
+     5,
+     5
+    ],
+    "text": {
+     "precision": 0.888,
+     "recall": 1.0,
+     "f1": 0.9407
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 4,
+     "rows_total": 4,
+     "cells_hit": 24,
+     "cells_total": 24,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9852
+   }
+  },
+  {
+   "doc": "slides-nasa-clarreo",
+   "category": "slides",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.039,
+   "tokens": 1763,
+   "bytes": 7203,
+   "metrics": {
+    "sentences": [
+     6,
+     7
+    ],
+    "text": {
+     "precision": 0.9454,
+     "recall": 0.8991,
+     "f1": 0.9217
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 16,
+     "rows_total": 16,
+     "cells_hit": 34,
+     "cells_total": 34,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9447
+   }
+  },
+  {
+   "doc": "slides-nist-pqc-update",
+   "category": "slides",
+   "format": "pdf",
+   "status": "ok",
+   "seconds": 0.042,
+   "tokens": 2160,
+   "bytes": 6960,
+   "metrics": {
+    "sentences": [
+     8,
+     8
+    ],
+    "text": {
+     "precision": 0.9514,
+     "recall": 0.9916,
+     "f1": 0.9711
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 14,
+     "rows_total": 14,
+     "cells_hit": 30,
+     "cells_total": 30,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9928
+   }
+  },
+  {
+   "doc": "csv-census-popest-2023",
+   "category": "spreadsheet",
+   "format": "csv",
+   "status": "ok",
+   "seconds": 0.002,
+   "tokens": 6555,
+   "bytes": 12073,
+   "metrics": {
+    "order": 1.0,
+    "tables": {
+     "rows_found": 67,
+     "rows_total": 67,
+     "cells_hit": 2077,
+     "cells_total": 2077,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "csv-usgs-quakes-week",
+   "category": "spreadsheet",
+   "format": "csv",
+   "status": "ok",
+   "seconds": 0.002,
+   "tokens": 13854,
+   "bytes": 24571,
+   "metrics": {
+    "order": 1.0,
+    "tables": {
+     "rows_found": 131,
+     "rows_total": 131,
+     "cells_hit": 2881,
+     "cells_total": 2881,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "sheet-ers-crop-insurance",
+   "category": "spreadsheet",
+   "format": "xlsx",
+   "status": "ok",
+   "seconds": 0.002,
+   "tokens": 519,
+   "bytes": 1261,
+   "metrics": {
+    "sentences": [
+     1,
+     1
+    ],
+    "order": 1.0,
+    "tables": {
+     "rows_found": 30,
+     "rows_total": 30,
+     "cells_hit": 84,
+     "cells_total": 84,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "sheet-markitdown-xlsx",
+   "category": "spreadsheet",
+   "format": "xlsx",
+   "status": "ok",
+   "seconds": 0.002,
+   "tokens": 373,
+   "bytes": 607,
+   "metrics": {
+    "order": 1.0,
+    "tables": {
+     "rows_found": 29,
+     "rows_total": 29,
+     "cells_hit": 116,
+     "cells_total": 116,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "docx-hhs-market-research",
+   "category": "docx",
+   "format": "docx",
+   "status": "ok",
+   "seconds": 0.006,
+   "tokens": 3545,
+   "bytes": 16923,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9991,
+     "recall": 0.9996,
+     "f1": 0.9994
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 20,
+     "rows_total": 20,
+     "cells_hit": 31,
+     "cells_total": 31,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9998
+   }
+  },
+  {
+   "doc": "docx-markitdown",
+   "category": "docx",
+   "format": "docx",
+   "status": "ok",
+   "seconds": 0.003,
+   "tokens": 964,
+   "bytes": 4486,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 5,
+     "rows_total": 5,
+     "cells_hit": 30,
+     "cells_total": 30,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "docx-nsf-aaac-minutes",
+   "category": "docx",
+   "format": "docx",
+   "status": "ok",
+   "seconds": 0.004,
+   "tokens": 3396,
+   "bytes": 15341,
+   "metrics": {
+    "sentences": [
+     8,
+     8
+    ],
+    "text": {
+     "precision": 0.9911,
+     "recall": 0.9894,
+     "f1": 0.9903
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 20,
+     "rows_total": 20,
+     "cells_hit": 50,
+     "cells_total": 50,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9976
+   }
+  },
+  {
+   "doc": "epub-gutenberg-jekyll",
+   "category": "epub",
+   "format": "epub",
+   "status": "ok",
+   "seconds": 0.006,
+   "tokens": 36462,
+   "bytes": 161030,
+   "metrics": {
+    "sentences": [
+     7,
+     7
+    ],
+    "text": {
+     "precision": 0.9972,
+     "recall": 0.9999,
+     "f1": 0.9986
+    },
+    "order": 1.0,
+    "score": 0.9995
+   }
+  },
+  {
+   "doc": "epub-gutenberg-relativity",
+   "category": "epub",
+   "format": "epub",
+   "status": "ok",
+   "seconds": 0.015,
+   "tokens": 42116,
+   "bytes": 205093,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "text": {
+     "precision": 0.998,
+     "recall": 0.9994,
+     "f1": 0.9987
+    },
+    "order": 1.0,
+    "tables": {
+     "rows_found": 13,
+     "rows_total": 13,
+     "cells_hit": 59,
+     "cells_total": 59,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 0.9997
+   }
+  },
+  {
+   "doc": "epub-markitdown",
+   "category": "epub",
+   "format": "epub",
+   "status": "ok",
+   "seconds": 0.002,
+   "tokens": 83,
+   "bytes": 331,
+   "metrics": {
+    "sentences": [
+     3,
+     3
+    ],
+    "text": {
+     "precision": 0.86,
+     "recall": 0.9556,
+     "f1": 0.9053
+    },
+    "order": 1.0,
+    "score": 0.9684
+   }
+  },
+  {
+   "doc": "html-bls-ooh-software-developers",
+   "category": "html",
+   "format": "html",
+   "status": "ok",
+   "seconds": 0.004,
+   "tokens": 4680,
+   "bytes": 22856,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "order": 1.0,
+    "tables": {
+     "rows_found": 28,
+     "rows_total": 35,
+     "cells_hit": 88,
+     "cells_total": 95,
+     "cell_recall": 0.9263,
+     "cell_precision": 1.0,
+     "cell_f1": 0.9617
+    },
+    "score": 0.9872
+   }
+  },
+  {
+   "doc": "html-markitdown-wikipedia",
+   "category": "html",
+   "format": "html",
+   "status": "ok",
+   "seconds": 0.01,
+   "tokens": 21733,
+   "bytes": 87498,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "order": 1.0,
+    "tables": {
+     "rows_found": 34,
+     "rows_total": 34,
+     "cells_hit": 128,
+     "cells_total": 128,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  },
+  {
+   "doc": "html-wikipedia-roman-numerals",
+   "category": "html",
+   "format": "html",
+   "status": "ok",
+   "seconds": 0.018,
+   "tokens": 23146,
+   "bytes": 80565,
+   "metrics": {
+    "sentences": [
+     6,
+     6
+    ],
+    "order": 1.0,
+    "tables": {
+     "rows_found": 21,
+     "rows_total": 21,
+     "cells_hit": 102,
+     "cells_total": 102,
+     "cell_recall": 1.0,
+     "cell_precision": 1.0,
+     "cell_f1": 1.0
+    },
+    "score": 1.0
+   }
+  }
+ ]
+}

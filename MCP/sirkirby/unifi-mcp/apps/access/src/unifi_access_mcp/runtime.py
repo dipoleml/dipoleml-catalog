@@ -1,0 +1,264 @@
+# ruff: noqa: E402
+from __future__ import annotations
+
+"""Shared runtime objects for the UniFi-Access MCP server.
+
+This module is the *single* source of truth for global singletons such as the
+FastMCP server instance, loaded configuration, and all manager helpers.
+
+Downstream code (tool modules, tests, etc.) should import these via::
+
+    from unifi_access_mcp.runtime import server, config, door_manager
+
+Lazy factories (`get_*`) are provided so unit tests can substitute fakes by
+monkey-patching before the first call.
+
+IMPORTANT: The server's `tool` decorator is wrapped here (not in main.py) to
+ensure that tool modules can be imported directly (for testing, etc.) without
+errors from unrecognized decorator kwargs like `permission_category`.
+"""
+
+import os
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from mcp.server.transport_security import TransportSecuritySettings
+
+from unifi_access_mcp.bootstrap import UNIFI_TOOL_REGISTRATION_MODE, load_config, logger
+from unifi_access_mcp.support import AccessSupportBundleAdapter
+from unifi_mcp_shared.metadata import PROJECT_WEBSITE_URL, configure_mcp_server_metadata
+from unifi_mcp_shared.response_policy import resolve_mcp_content_mode, should_redact_response_sensitive_fields
+from unifi_mcp_shared.server import UniFiMCPServer, resolve_allowed_hosts
+from unifi_mcp_shared.support_bundle import (
+    SupportBundleService,
+    configured_filter,
+    configured_transports,
+    fixed_manifest_reader,
+)
+
+_TOOLS_MANIFEST_PATH = Path(__file__).resolve().parent / "tools_manifest.json"
+from unifi_access_mcp.tool_index import TOOL_REGISTRY
+from unifi_core.access.managers.connection_manager import AccessConnectionManager
+from unifi_core.access.managers.credential_manager import CredentialManager
+from unifi_core.access.managers.device_manager import DeviceManager
+from unifi_core.access.managers.door_manager import DoorManager
+from unifi_core.access.managers.event_manager import EventManager
+from unifi_core.access.managers.policy_manager import PolicyManager
+from unifi_core.access.managers.system_manager import SystemManager
+from unifi_core.access.managers.visitor_manager import VisitorManager
+from unifi_core.auth import UniFiAuth
+
+# ---------------------------------------------------------------------------
+# Core singletons
+# ---------------------------------------------------------------------------
+
+
+@lru_cache
+def get_config():
+    """Load and cache configuration."""
+    return load_config()
+
+
+@lru_cache
+def get_auth() -> UniFiAuth:
+    """Create and cache the dual-auth instance."""
+    settings = get_config().unifi
+    api_key = getattr(settings, "api_key", None) or os.environ.get("UNIFI_API_KEY")
+    return UniFiAuth(api_key=api_key if api_key else None)
+
+
+@lru_cache
+def get_server() -> UniFiMCPServer:
+    """Create the FastMCP server instance exactly once."""
+    # The operator owns the public allowlist. Deployments such as Docker Compose
+    # can add required internal service names without overriding that setting.
+    allowed_hosts = resolve_allowed_hosts(
+        os.getenv("UNIFI_MCP_ALLOWED_HOSTS"),
+        override_hosts=(
+            os.getenv("UNIFI_MCP_COMPOSE_ALLOWED_HOSTS_OVERRIDE")
+            if os.getenv("UNIFI_MCP_COMPOSE_ALLOWED_HOSTS_OVERRIDE_SET") == "true"
+            else None
+        ),
+        internal_hosts=os.getenv("UNIFI_MCP_INTERNAL_ALLOWED_HOSTS"),
+    )
+
+    # Allow disabling DNS rebinding protection entirely (default: enabled)
+    # Set to "false" for Kubernetes/proxy deployments where allowed_hosts is insufficient
+    enable_dns_rebinding = os.getenv("UNIFI_MCP_ENABLE_DNS_REBINDING_PROTECTION", "true").lower() == "true"
+
+    # Configure transport security settings
+    transport_security = TransportSecuritySettings(
+        allowed_hosts=allowed_hosts,
+        enable_dns_rebinding_protection=enable_dns_rebinding,
+    )
+
+    logger.debug(
+        "Configuring FastMCP with allowed_hosts: %s, dns_rebinding_protection: %s",
+        allowed_hosts,
+        enable_dns_rebinding,
+    )
+
+    server = UniFiMCPServer(
+        name="unifi-access-mcp",
+        debug=False,
+        website_url=PROJECT_WEBSITE_URL,
+        transport_security=transport_security,
+        tools_manifest_path=_TOOLS_MANIFEST_PATH,
+        mcp_content_mode=resolve_mcp_content_mode("access", config=get_config()),
+    )
+    configure_mcp_server_metadata(server, package_name="unifi-access-mcp", icon_family="access")
+
+    # Until main.py installs the full permissioned_tool, a fail-closed stand-in
+    # accepts the permission kwargs so tool modules can be imported directly.
+    # A tool registered through it with a permission declared denies every call.
+    from unifi_mcp_shared.permissioned_tool import create_import_time_tool_decorator
+    from unifi_mcp_shared.protocol import create_mcp_tool_adapter
+
+    # Wrap Layer 1 (raw FastMCP decorator) with protocol adapter.
+    # server._original_tool must be set to the adapter (not raw server.tool),
+    # because setup_permissioned_tool reads server._original_tool (line 47 of
+    # permissioned_tool.py) and uses it as the bottom of the decorator chain.
+    # This ensures Layer 3 delegates to the protocol adapter.
+    server._original_tool = create_mcp_tool_adapter(server.tool)
+    server.tool = create_import_time_tool_decorator(server._original_tool, logger=logger)
+
+    return server
+
+
+# ---------------------------------------------------------------------------
+# Manager factories ---------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+
+def _unifi_settings() -> Any:
+    cfg = get_config().unifi
+    return cfg
+
+
+@lru_cache
+def get_connection_manager() -> AccessConnectionManager:
+    cfg = _unifi_settings()
+    full_cfg = get_config()
+    api_key = getattr(cfg, "api_key", None) or os.environ.get("UNIFI_ACCESS_API_KEY") or os.environ.get("UNIFI_API_KEY")
+    # Access-specific API port from config.yaml access.api_port (default 12445)
+    api_port = 12445
+    try:
+        api_port = int(full_cfg.access.api_port)
+    except (AttributeError, TypeError, ValueError) as exc:
+        logger.debug("Could not parse access.api_port, using default %d: %s", api_port, exc)
+    return AccessConnectionManager(
+        host=cfg.host,
+        username=cfg.username,
+        password=cfg.password,
+        port=int(cfg.port),
+        verify_ssl=str(cfg.verify_ssl).lower() in ("true", "1", "yes"),
+        api_key=api_key if api_key else None,
+        api_port=api_port,
+    )
+
+
+@lru_cache
+def get_door_manager() -> DoorManager:
+    return DoorManager(get_connection_manager())
+
+
+@lru_cache
+def get_policy_manager() -> PolicyManager:
+    return PolicyManager(get_connection_manager())
+
+
+@lru_cache
+def get_credential_manager() -> CredentialManager:
+    return CredentialManager(get_connection_manager())
+
+
+@lru_cache
+def get_visitor_manager() -> VisitorManager:
+    return VisitorManager(get_connection_manager())
+
+
+@lru_cache
+def get_event_manager() -> EventManager:
+    cfg = get_config()
+    events_cfg: dict = {}
+    try:
+        events_cfg = dict(cfg.access.events) if hasattr(cfg, "access") and hasattr(cfg.access, "events") else {}
+    except Exception:
+        pass
+    return EventManager(get_connection_manager(), config=events_cfg)
+
+
+@lru_cache
+def get_device_manager() -> DeviceManager:
+    return DeviceManager(get_connection_manager())
+
+
+@lru_cache
+def get_system_manager() -> SystemManager:
+    return SystemManager(get_connection_manager())
+
+
+@lru_cache
+def get_tool_registry() -> dict[str, Any]:
+    """Return the global tool registry for runtime access."""
+    return TOOL_REGISTRY
+
+
+@lru_cache
+def get_support_bundle_adapter() -> AccessSupportBundleAdapter:
+    """Create the Access adapter over existing safe runtime singletons."""
+    return AccessSupportBundleAdapter(get_connection_manager())
+
+
+@lru_cache
+def get_support_bundle_service() -> SupportBundleService:
+    """Create the process-wide Access support-bundle service."""
+    cfg = get_config()
+    return SupportBundleService(
+        adapter=get_support_bundle_adapter(),
+        registration_mode=UNIFI_TOOL_REGISTRATION_MODE,
+        content_mode=resolve_mcp_content_mode("access", config=cfg),
+        transports=configured_transports(cfg.server),
+        diagnostics_enabled=str(cfg.server.diagnostics.get("enabled", False)).lower() in {"true", "1", "yes"},
+        response_redaction_enabled=should_redact_response_sensitive_fields("access", cfg),
+        manifest_reader=fixed_manifest_reader(_TOOLS_MANIFEST_PATH),
+        enabled_categories=configured_filter(cfg.server.get("enabled_categories")),
+        enabled_tools=configured_filter(cfg.server.get("enabled_tools")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shorthand aliases (import-time singletons) --------------------------------
+# ---------------------------------------------------------------------------
+
+# These provide the convenient attribute style while still being created lazily
+# the first time the corresponding factory is called.
+
+config = get_config()
+auth = get_auth()
+server = get_server()
+connection_manager = get_connection_manager()
+door_manager = get_door_manager()
+policy_manager = get_policy_manager()
+credential_manager = get_credential_manager()
+visitor_manager = get_visitor_manager()
+event_manager = get_event_manager()
+device_manager = get_device_manager()
+system_manager = get_system_manager()
+tool_registry = get_tool_registry()
+support_bundle_adapter = get_support_bundle_adapter()
+support_bundle_service = get_support_bundle_service()
+
+
+def should_redact_sensitive_fields() -> bool:
+    """Whether Access MCP responses should redact sensitive fields.
+
+    Policy-resolved per call (env → config) so the surface-specific and global
+    ``UNIFI_*REDACT_SENSITIVE_FIELDS`` overrides both take effect. Binds the
+    ``"access"`` prefix + config in one place for the tool modules.
+    """
+    return should_redact_response_sensitive_fields("access", config)
+
+
+logger.debug("runtime.py: shared singletons initialised")

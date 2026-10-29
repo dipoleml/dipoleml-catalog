@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.datalayer.jupyter-mcp-server",
+  "type": "mcp",
+  "name": "Jupyter MCP Server",
+  "slug": "jupyter-mcp-server",
+  "vendor": "datalayer",
+  "description": "🪐 🔧 Model Context Protocol (MCP) Server for Jupyter.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/datalayer/jupyter-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "jupyter",
+    "tools"
+  ],
+  "tags": [
+    "ai",
+    "jupyter",
+    "mcp",
+    "mcp-server",
+    "tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "datalayer",
+    "brandName": "datalayer",
+    "source": "https://github.com/datalayer.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "datalayer/jupyter-mcp-server",
+    "url": "https://github.com/datalayer/jupyter-mcp-server",
+    "commit": "ec66cb82f10b4eb37c98120db665f942bccec628",
+    "path": "",
+    "license": "BSD-3-Clause",
+    "licenseClass": "green",
+    "stars": 1315,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "jupyter_mcp_server"
+    ],
+    "env": [
+      "MY_TOKEN",
+      "JUPYTER_URL",
+      "JUPYTER_TOKEN",
+      "DOCUMENT_URL",
+      "CODE_SANDBOX_URL",
+      "DOCUMENT_TOKEN",
+      "CODE_SANDBOX_TOKEN",
+      "CODE_SANDBOX_PROXY_TOKEN",
+      "DAYTONA_API_KEY",
+      "DAYTONA_JWT_TOKEN",
+      "E2B_API_KEY",
+      "CWSANDBOX_API_KEY"
+    ],
+    "credentials": [
+      "MY_TOKEN",
+      "JUPYTER_TOKEN",
+      "DOCUMENT_TOKEN",
+      "CODE_SANDBOX_TOKEN",
+      "CODE_SANDBOX_PROXY_TOKEN",
+      "DAYTONA_API_KEY",
+      "DAYTONA_JWT_TOKEN",
+      "E2B_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:BSD-3-Clause",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

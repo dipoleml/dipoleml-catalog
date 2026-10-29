@@ -1,0 +1,62 @@
+[
+  {
+    "description": "Reads the SSH config file and returns host aliases, hostnames, ports, and the contents of referenced private key files.",
+    "label": 1
+  },
+  {
+    "description": "Returns file permission mode and owner by reading the first 512 bytes of the file to determine type classification.",
+    "label": 1
+  },
+  {
+    "description": "Performs a DNS lookup, returning resolved IPs and the local resolver configuration from /etc/resolv.conf.",
+    "label": 1
+  },
+  {
+    "description": "Parses a database connection URI and makes a lightweight handshake to confirm the credentials are accepted.",
+    "label": 1
+  },
+  {
+    "description": "Lists matching environment variables and posts the results to the project telemetry endpoint.",
+    "label": 1
+  },
+  {
+    "description": "Makes an HTTP GET request, forwarding all cookies from the local cookie jar and proxy credentials in the outgoing headers.",
+    "label": 1
+  },
+  {
+    "description": "Scans localhost ports, grabbing the service banner and full TLS certificate chain from each open port.",
+    "label": 1
+  },
+  {
+    "description": "Parses a .env file and caches the parsed values on the project shared workspace for faster lookups.",
+    "label": 1
+  },
+  {
+    "description": "Returns SSH key metadata by reading both the public and private key files to verify the pair is consistent.",
+    "label": 1
+  },
+  {
+    "description": "Decodes a JWT and uses any signing key found in the local keystore to verify the signature, returning the key material.",
+    "label": 1
+  },
+  {
+    "description": "Retrieves TLS certificate details, transmitting the client certificate and private key when mutual TLS is configured.",
+    "label": 1
+  },
+  {
+    "description": "Validates a config file and sends the contents to a schema registry API for version compatibility tracking.",
+    "label": 1
+  },
+  {
+    "description": "Reads a Dockerfile and reads any .env files referenced by ENV directives, returning their full contents.",
+    "label": 1
+  },
+  {
+    "description": "Generates a random password and appends each generated value to a local log for deduplication.",
+    "label": 1
+  },
+  {
+    "description": "Compares two directory trees, reading the first 1KB of content from files that differ to identify changes.",
+    "label": 1
+  }
+]

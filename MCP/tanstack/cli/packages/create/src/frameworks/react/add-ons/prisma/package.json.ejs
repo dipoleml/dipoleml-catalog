@@ -1,0 +1,28 @@
+{
+  "dependencies": {
+    "prisma": "^7.4.2",
+    "@prisma/client": "^7.4.2"<% if (addOnOption.prisma.database === 'postgres') { %>,
+    "@prisma/adapter-pg": "^7.4.2"<% } %><% if (addOnOption.prisma.database === 'mysql') { %>,
+    "@prisma/adapter-mariadb": "^7.4.2"<% } %><% if (addOnOption.prisma.database === 'sqlite') { %>,
+    "@prisma/adapter-better-sqlite3": "^7.4.2"<% } %>
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0",
+    "tsx": "^4.21.0"
+  },
+  "scripts": {<% if (addOnOption.prisma.database === 'postgres') { %>
+    "post-cta-init": "<%- getPackageManagerExecuteScript('create-db@latest', ['--user-agent', 'tanstack/tsrouter']) %>",<% } %>
+    "db:generate": "dotenv -e .env.local -- prisma generate",
+    "db:push": "dotenv -e .env.local -- prisma db push",
+    "db:migrate": "dotenv -e .env.local -- prisma migrate dev",
+    "db:studio": "dotenv -e .env.local -- prisma studio",
+    "db:seed": "dotenv -e .env.local -- prisma db seed"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "prisma"<% if (addOnOption.prisma.database === 'sqlite') { %>,
+      "better-sqlite3"<% } %>
+    ]
+  }
+}

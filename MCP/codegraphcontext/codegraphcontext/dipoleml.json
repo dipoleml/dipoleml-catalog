@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.codegraphcontext.codegraphcontext",
+  "type": "mcp",
+  "name": "Codegraphcontext",
+  "slug": "codegraphcontext",
+  "vendor": "codegraphcontext",
+  "description": "An MCP server plus a CLI tool that indexes local code into a graph database to provide context to AI assistants.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/CodeGraphContext/CodeGraphContext",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "codegraph",
+    "codegraphcontext",
+    "hacktoberfest2025",
+    "social-winter-of-code"
+  ],
+  "tags": [
+    "codegraph",
+    "codegraphcontext",
+    "hacktoberfest2025",
+    "social-winter-of-code"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "codegraphcontext",
+    "brandName": "codegraphcontext",
+    "source": "https://github.com/CodeGraphContext.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "CodeGraphContext/CodeGraphContext",
+    "url": "https://github.com/CodeGraphContext/CodeGraphContext",
+    "commit": "93c9685bff9151f50a3121e9913e5ba2d27c1191",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4363,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "codegraphcontext"
+    ],
+    "env": [
+      "DCMAKE_EXPORT_COMPILE_COMMANDS"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

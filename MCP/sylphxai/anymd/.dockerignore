@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+.git/
+*.log
+.env
+.env.*
+bun.lock

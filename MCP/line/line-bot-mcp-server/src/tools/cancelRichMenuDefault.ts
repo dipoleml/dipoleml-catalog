@@ -1,0 +1,39 @@
+import { McpServer } from "@modelcontextprotocol/server";
+import { LineBotClient } from "@line/bot-sdk";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+} from "../common/response.js";
+import { AbstractTool } from "./AbstractTool.js";
+
+export default class CancelRichMenuDefault extends AbstractTool {
+  private client: LineBotClient;
+
+  constructor(client: LineBotClient) {
+    super();
+    this.client = client;
+  }
+
+  register(server: McpServer) {
+    server.registerTool(
+      "cancel_rich_menu_default",
+      {
+        title: "Cancel Rich Menu Default",
+        description: "Cancel the default rich menu.",
+        annotations: {
+          destructiveHint: true,
+        },
+      },
+      async () => {
+        try {
+          const response = await this.client.cancelDefaultRichMenu();
+          return createSuccessResponse(response);
+        } catch (error) {
+          return createErrorResponse(
+            `Failed to cancel default rich menu: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
+    );
+  }
+}

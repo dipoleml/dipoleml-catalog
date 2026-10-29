@@ -1,0 +1,559 @@
+{
+  "pageIntent": {
+    "type": "landing",
+    "confidence": 0.61,
+    "path": "/",
+    "title": "Vercel: Build and deploy the best web experiences with the AI Cloud",
+    "description": "Vercel gives developers the frameworks, workflows, and infrastructure to build a faster, more personalized web.",
+    "signals": [
+      {
+        "kind": "dom",
+        "type": "blog-post",
+        "weight": 0.35,
+        "detail": "byline|min-read"
+      },
+      {
+        "kind": "url",
+        "type": "landing",
+        "weight": 0.45,
+        "detail": "root-path"
+      },
+      {
+        "kind": "shape",
+        "type": "landing",
+        "weight": 0.3,
+        "detail": "features+hero+footer"
+      }
+    ],
+    "alternates": [
+      {
+        "type": "blog-post",
+        "score": 0.35
+      }
+    ],
+    "needsSmart": false
+  },
+  "sectionRoles": {
+    "sections": [
+      {
+        "index": 0,
+        "tag": "header",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 64
+        },
+        "buttonCount": 15,
+        "cardCount": 100,
+        "slots": {
+          "ctaCount": 15,
+          "lede": "Products\nAI Cloud\nAI Gateway"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 1,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 146,
+          "y": 17,
+          "w": 474.171875,
+          "h": 30
+        },
+        "buttonCount": 3,
+        "cardCount": 92,
+        "slots": {
+          "ctaCount": 3,
+          "lede": "Products\nAI Cloud\nAI Gateway"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 2,
+        "tag": "main",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Build and deploy on the AI Cloud.",
+        "bounds": {
+          "x": 0,
+          "y": 64,
+          "w": 1280,
+          "h": 5569.046875
+        },
+        "buttonCount": 59,
+        "cardCount": 144,
+        "slots": {
+          "heading": "Build and deploy on the AI Cloud.",
+          "subheadings": [
+            "Build and deploy on the AI Cloud.",
+            "Your product, delivered.",
+            "Agents",
+            "AI Apps"
+          ],
+          "ctaCount": 59,
+          "lede": "Events"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 3,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.85,
+        "heading": "Build and deploy on the AI Cloud.",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 6,
+        "cardCount": 3,
+        "slots": {
+          "heading": "Build and deploy on the AI Cloud.",
+          "ctaCount": 6,
+          "lede": "Build and deploy on the AI Cloud.Vercel provides the developer tools and cloud infrastructure to build, scale, and secure a faster, more personalized web.DeployStart DeployingGet a Demo"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 4,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.85,
+        "heading": "Build and deploy on the AI Cloud.",
+        "bounds": {
+          "x": 100.5,
+          "y": 129,
+          "w": 1079,
+          "h": 719.328125
+        },
+        "buttonCount": 6,
+        "cardCount": 3,
+        "slots": {
+          "heading": "Build and deploy on the AI Cloud.",
+          "ctaCount": 6
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 5,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 100.5,
+          "y": 890.328125,
+          "w": 1079,
+          "h": 313
+        },
+        "buttonCount": 7,
+        "cardCount": 15,
+        "slots": {
+          "ctaCount": 7,
+          "lede": "build times went from 7m to 40s. saw a 95% reduction in page load times.  saw 24x faster builds.\nAI Apps\nAI Apps\nWeb Apps\nWeb Apps\nEcommerce\nEcommerce\nMarketing\nMarketing\nPlatforms\nPlatforms"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 6,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Your product, delivered.",
+        "bounds": {
+          "x": 100.5,
+          "y": 1245.328125,
+          "w": 1079,
+          "h": 611
+        },
+        "buttonCount": 14,
+        "cardCount": 28,
+        "slots": {
+          "heading": "Your product, delivered.",
+          "subheadings": [
+            "Agents",
+            "AI Apps",
+            "Web Apps",
+            "Composable Commerce"
+          ],
+          "ctaCount": 14
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 7,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Agents",
+        "bounds": {
+          "x": 460.15625,
+          "y": 1245.328125,
+          "w": 358.65625,
+          "h": 176
+        },
+        "buttonCount": 2,
+        "cardCount": 1,
+        "slots": {
+          "heading": "Agents",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 8,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "AI Apps",
+        "bounds": {
+          "x": 819.8125,
+          "y": 1245.328125,
+          "w": 358.65625,
+          "h": 176
+        },
+        "buttonCount": 2,
+        "cardCount": 1,
+        "slots": {
+          "heading": "AI Apps",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 9,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Web Apps",
+        "bounds": {
+          "x": 100.5,
+          "y": 1550.328125,
+          "w": 358.65625,
+          "h": 176
+        },
+        "buttonCount": 2,
+        "cardCount": 1,
+        "slots": {
+          "heading": "Web Apps",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 10,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Composable Commerce",
+        "bounds": {
+          "x": 460.15625,
+          "y": 1550.328125,
+          "w": 358.65625,
+          "h": 176
+        },
+        "buttonCount": 2,
+        "cardCount": 1,
+        "slots": {
+          "heading": "Composable Commerce",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 11,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Multi-tenant Platform",
+        "bounds": {
+          "x": 819.8125,
+          "y": 1550.328125,
+          "w": 358.65625,
+          "h": 176
+        },
+        "buttonCount": 2,
+        "cardCount": 1,
+        "slots": {
+          "heading": "Multi-tenant Platform",
+          "ctaCount": 2
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 12,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Framework-Defined Infrastructure",
+        "bounds": {
+          "x": 100.5,
+          "y": 1855.328125,
+          "w": 1079,
+          "h": 264
+        },
+        "buttonCount": 0,
+        "cardCount": 3,
+        "slots": {
+          "heading": "Framework-Defined Infrastructure",
+          "lede": "Svelte\nVite\nNext.js\nNuxt\nTurbopack\nFramework-Defined Infrastructure"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 13,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 100.5,
+          "y": 2119.328125,
+          "w": 1079,
+          "h": 553
+        },
+        "buttonCount": 6,
+        "cardCount": 7,
+        "slots": {
+          "heading": "",
+          "subheadings": [
+            ""
+          ],
+          "ctaCount": 6
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 14,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Deploy once, deliver everywhere.",
+        "bounds": {
+          "x": 100.5,
+          "y": 2764.328125,
+          "w": 1079,
+          "h": 821.203125
+        },
+        "buttonCount": 4,
+        "cardCount": 5,
+        "slots": {
+          "heading": "Deploy once, deliver everywhere.",
+          "ctaCount": 4
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 15,
+        "tag": "section",
+        "role": "cta",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": "Fluid Compute",
+        "bounds": {
+          "x": 100.5,
+          "y": 3535.53125,
+          "w": 1079,
+          "h": 422
+        },
+        "buttonCount": 2,
+        "cardCount": 2,
+        "slots": {
+          "heading": "Fluid Compute",
+          "ctaCount": 2
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 16,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "AI Gateway",
+        "bounds": {
+          "x": 100.5,
+          "y": 3957.53125,
+          "w": 1079,
+          "h": 642
+        },
+        "buttonCount": 7,
+        "cardCount": 44,
+        "slots": {
+          "heading": "AI Gateway",
+          "ctaCount": 7
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 17,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Deploy your first app in seconds.",
+        "bounds": {
+          "x": 100.5,
+          "y": 4599.53125,
+          "w": 1079,
+          "h": 710.515625
+        },
+        "buttonCount": 0,
+        "cardCount": 24,
+        "slots": {
+          "heading": "Deploy your first app in seconds.",
+          "lede": "Deploy your first app in seconds.\nDeploy automatically from git or with our CLI\nWide range support for the most popular frameworks\nPreviews for every push\nAutomatic HTTPS for all your domains\nNext.js Templates\nReact Templates\nAstro Templates\nSvelte Templates\nNuxt Templates\nPython Templates"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 18,
+        "tag": "section",
+        "role": "feature-grid",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Start Deploying",
+        "bounds": {
+          "x": 100.5,
+          "y": 5310.046875,
+          "w": 1079,
+          "h": 323
+        },
+        "buttonCount": 4,
+        "cardCount": 6,
+        "slots": {
+          "heading": "Start Deploying",
+          "ctaCount": 4,
+          "lede": "Start Deploying\nStart Deploying\nTalk to an Expert\nGet an Enterprise Trial"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 19,
+        "tag": "footer",
+        "role": "footer",
+        "subrole": null,
+        "confidence": 0.95,
+        "heading": "GET STARTED",
+        "bounds": {
+          "x": 0,
+          "y": 5723.046875,
+          "w": 1280,
+          "h": 610
+        },
+        "buttonCount": 0,
+        "cardCount": 119,
+        "slots": {
+          "heading": "GET STARTED",
+          "subheadings": [
+            "BUILD",
+            "SCALE",
+            "SECURE",
+            "RESOURCES"
+          ]
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 20,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": "GET STARTED",
+        "bounds": {
+          "x": 24,
+          "y": 5763.046875,
+          "w": 1232,
+          "h": 530
+        },
+        "buttonCount": 0,
+        "cardCount": 119,
+        "slots": {
+          "heading": "GET STARTED",
+          "subheadings": [
+            "BUILD",
+            "SCALE",
+            "SECURE",
+            "RESOURCES"
+          ]
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 21,
+        "tag": "aside",
+        "role": "sidebar",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 1280,
+          "y": 0,
+          "w": 0,
+          "h": 800
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {},
+        "needsSmart": true
+      }
+    ],
+    "counts": {
+      "feature-grid": 10,
+      "nav": 7,
+      "hero": 2,
+      "cta": 1,
+      "footer": 1,
+      "sidebar": 1
+    },
+    "readingOrder": [
+      "feature-grid",
+      "hero",
+      "sidebar",
+      "nav",
+      "feature-grid",
+      "hero",
+      "feature-grid",
+      "feature-grid",
+      "nav",
+      "nav",
+      "nav",
+      "nav",
+      "nav",
+      "feature-grid",
+      "feature-grid",
+      "feature-grid",
+      "cta",
+      "feature-grid",
+      "feature-grid",
+      "feature-grid",
+      "footer",
+      "nav"
+    ]
+  }
+}

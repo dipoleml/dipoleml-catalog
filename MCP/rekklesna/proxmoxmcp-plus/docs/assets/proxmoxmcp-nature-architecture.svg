@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1024" viewBox="0 0 1200 1024" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">ProxmoxMCP-Plus architecture</title>
+  <desc id="desc">A logical overview with two alternative entry points. MCP clients use the MCP server over stdio, Streamable HTTP or SSE. HTTP automation uses the OpenAPI bridge. Both reach target-aware tools with configurable permissions, policy and approval gates, bounded dispatch, job polling reuse, logs and latency metrics. Tools reach Proxmox VE through its HTTPS REST API, including QEMU Guest Agent for VM commands, or optional SSH for node commands and LXC pct exec. SQLite stores job IDs, Proxmox UPIDs, results and audit history across restarts. Optional MCP HTTP OAuth stores its state in PostgreSQL. Solid arrows show requests and execution; dashed arrows show job state reads and writes. MCP and OpenAPI may run in separate processes.</desc>
+  <defs>
+    <marker id="request" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#454545"/>
+    </marker>
+    <marker id="route" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#454545"/>
+    </marker>
+    <marker id="execution" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#303030"/>
+    </marker>
+    <marker id="state" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+      <path d="M1 1 11 6 1 11Z" fill="#666666"/>
+    </marker>
+    <style>
+      text { font-family: "Segoe UI", Arial, sans-serif; fill: #202020; }
+      .title { font-size: 38px; font-weight: 700; letter-spacing: -.5px; }
+      .heading { font-size: 26px; font-weight: 700; }
+      .label { font-size: 22px; font-weight: 700; }
+      .body { font-size: 22px; fill: #4B4B4B; }
+      .detail { font-size: 20px; fill: #4B4B4B; }
+      .column { font-size: 20px; font-weight: 700; }
+      .flow { font-size: 20px; font-weight: 600; }
+      .request { stroke: #454545; stroke-width: 3; marker-end: url(#request); }
+      .route { stroke: #454545; stroke-width: 3; marker-end: url(#route); }
+      .execution { stroke: #303030; stroke-width: 3; marker-end: url(#execution); }
+      .state { stroke: #666666; stroke-width: 3; stroke-dasharray: 7 6; marker-start: url(#state); marker-end: url(#state); }
+    </style>
+  </defs>
+
+  <rect width="1200" height="1024" rx="24" fill="#FAFAFA"/>
+  <text x="48" y="64" class="title">ProxmoxMCP-Plus architecture</text>
+  <text x="48" y="101" class="body">Two entry points for guarded, target-aware Proxmox workflows.</text>
+
+  <!-- Client examples describe usage; transports are shown at their server entry points. -->
+  <g id="mcp-clients">
+    <rect x="48" y="136" width="534" height="120" rx="18" fill="#F2F2F2" stroke="#BBBBBB" stroke-width="2"/>
+    <text x="72" y="174" class="heading">MCP clients and AI agents</text>
+    <text x="72" y="208" class="body">Local or remote MCP connections</text>
+    <text x="72" y="237" class="detail">Claude, Cursor, Codex, Open WebUI</text>
+  </g>
+  <g id="http-clients">
+    <rect x="618" y="136" width="534" height="120" rx="18" fill="#F2F2F2" stroke="#BBBBBB" stroke-width="2"/>
+    <text x="642" y="174" class="heading">HTTP automation</text>
+    <text x="642" y="208" class="body">Dashboards, scripts and internal tools</text>
+    <text x="642" y="237" class="detail">OpenAPI-compatible integrations</text>
+  </g>
+
+  <!-- This is a logical boundary, not a claim that both entry points share one process. -->
+  <rect x="48" y="304" width="1104" height="410" rx="24" fill="#EAEAEA" stroke="#9B9B9B" stroke-width="2"/>
+  <text x="600" y="344" class="heading" text-anchor="middle">ProxmoxMCP-Plus runtime</text>
+
+  <path d="M315 256V374" class="request"/>
+  <text x="339" y="288" class="flow" style="fill: #454545">MCP</text>
+  <path d="M885 256V374" class="request"/>
+  <text x="909" y="288" class="flow" style="fill: #454545">HTTP</text>
+
+  <g id="mcp-entry">
+    <rect x="72" y="374" width="516" height="104" rx="16" fill="#FFFFFF" stroke="#C2C2C2" stroke-width="2"/>
+    <text x="96" y="408" class="heading">MCP server</text>
+    <text x="96" y="438" class="detail">stdio / Streamable HTTP / SSE</text>
+    <text x="96" y="464" class="detail">HTTP Bearer auth / optional OAuth</text>
+  </g>
+  <g id="openapi-entry">
+    <rect x="612" y="374" width="516" height="104" rx="16" fill="#FFFFFF" stroke="#C2C2C2" stroke-width="2"/>
+    <text x="636" y="408" class="heading">OpenAPI bridge</text>
+    <text x="636" y="438" class="detail">REST tools / Swagger UI · Bearer auth</text>
+    <text x="636" y="464" class="detail">/docs · /openapi.json · /jobs</text>
+  </g>
+
+  <path d="M330 478V542" class="route"/>
+  <path d="M870 478V542" class="route"/>
+  <g id="tool-runtime">
+    <rect x="72" y="542" width="1056" height="148" rx="16" fill="#FFFFFF" stroke="#C2C2C2" stroke-width="2"/>
+    <text x="96" y="578" class="heading">Filtered, target-aware tool runtime</text>
+    <line x1="438" y1="606" x2="438" y2="666" stroke="#DEDEDE"/>
+    <line x1="804" y1="606" x2="804" y2="666" stroke="#DEDEDE"/>
+    <text x="96" y="618" class="column">Guardrails</text>
+    <text x="96" y="650" class="detail">Permissions · policy · approvals</text>
+    <text x="462" y="618" class="column">Target-aware execution</text>
+    <text x="462" y="650" class="detail">Queues · jobs · polling reuse</text>
+    <text x="828" y="618" class="column">Observability</text>
+    <text x="828" y="650" class="detail">Logs · latency histograms</text>
+  </g>
+
+  <!-- State is read and written separately from backend execution. -->
+  <path d="M240 695V777" class="state"/>
+  <text x="264" y="756" class="flow" style="fill: #666666">Job + audit state</text>
+  <path d="M870 690V782" class="execution"/>
+  <text x="894" y="756" class="flow" style="fill: #303030">Execute</text>
+
+  <g id="job-persistence">
+    <rect x="48" y="782" width="510" height="184" rx="18" fill="#F4F4F4" stroke="#AFAFAF" stroke-width="2"/>
+    <text x="72" y="821" class="heading">Persistent jobs and audit</text>
+    <text x="72" y="856" class="label">SQLite</text>
+    <text x="72" y="888" class="detail">Stable job_id · Proxmox UPID · retries</text>
+    <text x="72" y="920" class="detail">Results and audit history survive restarts</text>
+  </g>
+  <g id="proxmox-targets">
+    <rect x="594" y="782" width="558" height="184" rx="18" fill="#F4F4F4" stroke="#AFAFAF" stroke-width="2"/>
+    <text x="618" y="821" class="heading">Proxmox VE targets</text>
+    <text x="618" y="856" class="label">HTTPS API / optional SSH</text>
+    <text x="618" y="888" class="detail">VM / LXC · backup · storage / ISO</text>
+    <text x="618" y="920" class="detail">VM: QEMU Guest Agent · LXC: pct exec</text>
+  </g>
+  <text x="48" y="1003" class="detail">Optional paths: SSH for node / LXC commands · PostgreSQL for MCP OAuth state.</text>
+</svg>

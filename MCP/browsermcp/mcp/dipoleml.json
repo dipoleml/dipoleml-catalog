@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.browsermcp.mcp",
+  "type": "mcp",
+  "name": "MCP",
+  "slug": "mcp",
+  "vendor": "browsermcp",
+  "description": "Browser MCP is a Model Context Provider (MCP) server that allows AI applications to control your browser",
+  "version": "0.0.0",
+  "homepage": "https://github.com/BrowserMCP/mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "browser-automation",
+    "browser-extension",
+    "cursor"
+  ],
+  "tags": [
+    "browser-automation",
+    "browser-extension",
+    "claude",
+    "cursor",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "browsermcp",
+    "brandName": "browsermcp",
+    "source": "https://github.com/BrowserMCP.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "BrowserMCP/mcp",
+    "url": "https://github.com/BrowserMCP/mcp",
+    "commit": "5f50da7c9fde7bd4a6cbc6f34696e7840037e824",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 7238,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=24.0.0"
+    ],
+    "packages": [
+      "browsermcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "skill": "compound-docs",
+  "should_trigger": [
+    "Check compound docs for our Ecto N+1 solutions before debugging",
+    "Search the knowledge base for async state management patterns we've solved",
+    "Look up how we documented changeset validation edge cases",
+    "What constraint violation solutions have we documented?",
+    "Find our past solutions for LiveView multi-step forms"
+  ],
+  "should_not_trigger": [
+    "Debug this N+1 query error for me (investigate or n1-check)",
+    "Teach me how to write Ecto migrations properly (ecto-patterns)",
+    "Just fixed a tricky bug, let's capture the solution (compound)"
+  ]
+}

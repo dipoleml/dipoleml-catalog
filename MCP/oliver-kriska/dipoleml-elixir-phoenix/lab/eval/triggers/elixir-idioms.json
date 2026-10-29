@@ -1,0 +1,15 @@
+{
+  "skill": "elixir-idioms",
+  "should_trigger": [
+    "Help me implement a GenServer to manage app state",
+    "What's the proper supervision tree pattern for workers?",
+    "Refactor this code to use `with` chains idiomatically",
+    "Debug error tuple handling in my Task.async pipeline",
+    "Create a custom mix task for database cleanup"
+  ],
+  "should_not_trigger": [
+    "How do I optimize my Ecto queries for performance?",
+    "Design a context module to organize business logic",
+    "Set up an Oban worker for async email delivery"
+  ]
+}

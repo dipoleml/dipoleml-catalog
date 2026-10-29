@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.philschmid.mcp-cli",
+  "type": "mcp",
+  "name": "MCP CLI",
+  "slug": "mcp-cli",
+  "vendor": "philschmid",
+  "description": "Lighweight CLI to interact with MCP servers",
+  "version": "0.3.0",
+  "homepage": "https://github.com/philschmid/mcp-cli",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "philschmid",
+    "brandName": "philschmid",
+    "source": "https://github.com/philschmid.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:29Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "philschmid/mcp-cli",
+    "url": "https://github.com/philschmid/mcp-cli",
+    "commit": "d77672a1ce800ec3fec1f43829909badb2ffbd32",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1279,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:11Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-cli"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "src/index.ts"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mcp-cli"
+    ],
+    "env": [
+      "API_KEY"
+    ],
+    "credentials": [
+      "API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

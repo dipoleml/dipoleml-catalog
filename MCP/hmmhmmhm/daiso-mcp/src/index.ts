@@ -1,0 +1,450 @@
+import { registerBrowseRoutes } from './pages/browse.js';
+import { applyCompactTools } from './core/compact/server.js';
+import { COMPACT_CATALOG, PUBLIC_TOOL_NAMES } from './core/compact/catalog.js';
+import { apiResultHtml } from './pages/apiResult.js';
+import { withExternalRouting } from './utils/externalRouting.js';
+import { refreshRouteChecks } from './utils/routeProbes.js';
+import { registerRouteHealthRoutes } from './api/routes/routeHealthRoutes.js';
+export { UpstreamRouteHealth } from './durableObjects/upstreamRouteHealth.js';
+export { GeocodeGateway } from './durableObjects/geocodeGateway.js';
+import { convenienceTransportFromBindings } from './utils/convenienceTransport.js';
+import { handleLotteMartFindStores } from './api/lottemartHandlers.js';
+import { geocodeBindings } from './utils/geocode.js';
+/**
+ * 다중 서비스 MCP 서버
+ *
+ * Cloudflare Workers에서 실행되는 플러그인 기반 MCP 서버입니다.
+ * 다이소, 편의점, 백화점 등 다양한 서비스를 확장할 수 있습니다.
+ */
+import { diagnosticsMiddleware } from './middleware/diagnostics.js';
+import { dtryxTransportFromBindings } from './services/dtryx/transport.js';
+import { Hono, type Context } from 'hono';
+import { cors } from 'hono/cors';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { ServiceRegistry } from './core/registry.js';
+import { createDaisoJpService } from './services/daisoJp/index.js';
+import { createDaisoService } from './services/daiso/index.js';
+import { createOliveyoungService } from './services/oliveyoung/index.js';
+import { createDtryxService } from './services/dtryx/index.js';
+import { createMegaboxService } from './services/megabox/index.js';
+import { japanProductTransportFromBindings } from './services/daisoJp/productRelay.js';
+import { cgvTransportFromBindings } from './services/cgv/relayTransport.js';
+import { createCgvService } from './services/cgv/index.js';
+import { createLotteCinemaService } from './services/lottecinema/index.js';
+import { createCuService } from './services/cu/index.js';
+import { createEmart24Service } from './services/emart24/index.js';
+import { createGs25Service } from './services/gs25/index.js';
+import { createSevenElevenService } from './services/seveneleven/index.js';
+import { createPlacesService } from './services/places/index.js';
+import { createOpinetService } from './services/opinet/index.js';
+import { createCompareService } from './services/compare/index.js';
+import { createFeedbackService } from './services/feedback/index.js';
+import { createAgentStartResponse, createVersionedGuideResponse } from './pages/agentStart.js';
+import { createPromptResponse } from './pages/prompt.js';
+import { buildDiscoveryAssets } from './pages/discovery.js';
+import {
+  createFullOpenApiJsonResponse,
+  createFullOpenApiYamlResponse,
+  createOpenApiJsonResponse,
+  createOpenApiYamlResponse,
+} from './pages/openapi.js';
+import { createPrivacyResponse } from './pages/privacy.js';
+import type { AppBindings } from './api/response.js';
+import { buildActionQueryTargetUrl } from './api/actionsProxy.js';
+import { registerHealthRoutes } from './api/routes/healthRoutes.js';
+import { registerServiceRoutes } from './api/routes/registerServiceRoutes.js';
+import { registerRateLimitStatsRoutes } from './api/routes/rateLimitStatsRoutes.js';
+import { buildConfigStatus } from './api/configStatus.js';
+import { createDailyRateLimitMiddleware } from './middleware/dailyRateLimit.js';
+export { DailyRateLimiter } from './durableObjects/dailyRateLimiter.js';
+// 서버 메타데이터
+const SERVER_NAME = 'multi-service-mcp';
+const SERVER_VERSION = '1.0.0';
+const SESSION_HEADER = 'mcp-session-id';
+// 세션별 MCP 전송 계층/서버를 유지해 GET/POST/DELETE를 일관 처리합니다.
+const mcpSessions = new Map<
+  string,
+  {
+    server: McpServer;
+    transport: WebStandardStreamableHTTPServerTransport;
+  }
+>();
+
+/**
+ * 요청 컨텍스트 기반 서비스 레지스트리 생성
+ */
+const createRegistry = (bindings?: AppBindings) => {
+  const registry = new ServiceRegistry();
+
+  registry.registerAll([
+    createDaisoService,
+    () => createDaisoJpService(japanProductTransportFromBindings(bindings)),
+    () =>
+      createGs25Service({ ...convenienceTransportFromBindings(bindings),
+        ...geocodeBindings(bindings),
+        zyteApiKey: bindings?.ZYTE_API_KEY,
+        apiKey: bindings?.GS25_API_KEY,
+      }),
+    () => createSevenElevenService({ ...convenienceTransportFromBindings(bindings), zyteApiKey: bindings?.ZYTE_API_KEY }),
+    () => createCompareService(convenienceTransportFromBindings(bindings)),
+    () =>
+      createFeedbackService({
+        supabaseUrl: bindings?.SUPABASE_URL,
+        supabaseServiceRoleKey: bindings?.SUPABASE_SERVICE_ROLE_KEY,
+      }),
+    () =>
+      createPlacesService({
+        naverClientId: bindings?.NAVER_CLIENT_ID,
+        naverClientSecret: bindings?.NAVER_CLIENT_SECRET,
+      }),
+    () =>
+      createOpinetService({
+        apiKey: bindings?.OPINET_API_KEY,
+        ...geocodeBindings(bindings),
+      }),
+    () =>
+      createCuService({ ...convenienceTransportFromBindings(bindings),
+        zyteApiKey: bindings?.ZYTE_API_KEY,
+        ...geocodeBindings(bindings),
+      }),
+    () => createEmart24Service(convenienceTransportFromBindings(bindings)),
+    () => createMegaboxService(geocodeBindings(bindings)),
+    () => createDtryxService(dtryxTransportFromBindings(bindings)),
+    () =>
+      createLotteCinemaService({
+        ...geocodeBindings(bindings),
+      }),
+    () =>
+      createCgvService({
+        ...cgvTransportFromBindings(bindings),
+        zyteApiKey: bindings?.ZYTE_API_KEY,
+        ...geocodeBindings(bindings),
+      }),
+    () =>
+      createOliveyoungService({
+        relayUrl: bindings?.OY_RELAY_URL,
+        relayToken: bindings?.OY_RELAY_TOKEN,
+        accessClientId: bindings?.OY_ACCESS_CLIENT_ID,
+        accessClientSecret: bindings?.OY_ACCESS_CLIENT_SECRET,
+      }),
+  ]);
+
+  return registry;
+};
+/**
+ * MCP 서버 생성 함수
+ */
+const createMcpServer = (bindings?: AppBindings) => {
+  const registry = createRegistry(bindings);
+  const server = new McpServer({
+    name: SERVER_NAME,
+    version: SERVER_VERSION,
+  });
+
+  applyCompactTools(server, registry);
+
+  return server;
+};
+
+export function buildRootInfo() {
+  const registry = createRegistry();
+  const services = registry.getServicesInfo().map(service => ({ ...service, tools: COMPACT_CATALOG.filter(group => group.routes.some(route => service.tools.includes(route.legacy))).map(group => group.name) }));
+  const allTools = [...PUBLIC_TOOL_NAMES];
+
+  return {
+    name: SERVER_NAME,
+    version: SERVER_VERSION,
+    description: 'Multi-Service MCP Server for Cloudflare Workers',
+    endpoints: {
+      mcp: '/ 또는 /mcp (POST) - MCP 프로토콜 엔드포인트',
+      quickStart: '/browse (GET) - 설치 없는 HTML 웹 조회와 /llms.txt 안내',
+      health: '/health (GET) - 헬스 체크',
+      healthChecks: '/api/health/checks (GET) - 서비스별 상세 헬스 체크',
+      openapi: '/openapi.json (GET) - OpenAI Actions용 축약 OpenAPI',
+      openapiFull: '/openapi-full.json (GET) - 전체 OpenAPI',
+      actionsQuery: '/api/actions/query (GET) - 기존 GET API 통합 facade',
+      compareProducts: '/api/compare/products (GET) - 키 없는 통합 상품 가격 후보 비교',
+      opinetAverage: '/api/opinet/average (GET) - 오피넷 전국 평균 유가',
+      opinetLowest: '/api/opinet/lowest (GET) - 오피넷 최저가 주유소',
+      japanProducts: '/browse/daiso-jp/products/검색어 (GET) - 일본 다이소 상품',
+      japanStores: '/browse/daiso-jp/stores/지역 (GET) - 일본 다이소 매장 (재고 미지원)',
+      developerRequests: '/api/feedback/requests (POST/GET) - 개발자 요청 제출',
+    },
+    services,
+    tools: allTools,
+    totalServices: services.length,
+    totalTools: allTools.length,
+  };
+}
+const ROOT_INFO_JSON = JSON.stringify(buildRootInfo());
+const ROOT_INFO_BODY = new TextEncoder().encode(ROOT_INFO_JSON);
+const ROOT_HTML_BODY = new TextEncoder().encode(buildDiscoveryAssets(buildRootInfo())['discovery.html']);
+const ROOT_INFO_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Content-Length': String(ROOT_INFO_BODY.byteLength),
+  'Access-Control-Allow-Origin': '*',
+  'Cache-Control': 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400',
+};
+function isRootInfoRequest(request: Request): boolean {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return false;
+  }
+
+  const url = new URL(request.url);
+  return url.pathname === '/' && url.search === '';
+}
+function createRootInfoResponse(request: Request): Response {
+  const json = request.headers.get('Accept')?.includes('application/json');
+  const body = json ? ROOT_INFO_BODY : ROOT_HTML_BODY;
+  return new Response(request.method === 'HEAD' ? null : body, {
+    status: 200,
+    headers: { ...ROOT_INFO_HEADERS,
+      'Content-Type': json ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8',
+      'Content-Length': String(body.byteLength), 'Cache-Control': json ? ROOT_INFO_HEADERS['Cache-Control'] : 'no-store', Vary: 'Accept' },
+  });
+}
+/**
+ * initialize 요청 여부를 확인합니다.
+ */
+const isInitializeRequest = (body: unknown): boolean => {
+  if (Array.isArray(body)) {
+    return body.some(
+      (item) =>
+        typeof item === 'object' &&
+        item !== null &&
+        (item as { method?: unknown }).method === 'initialize',
+    );
+  }
+
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { method?: unknown }).method === 'initialize'
+  );
+};
+/**
+ * 새 세션 transport/server를 생성합니다.
+ */
+const createSessionTransport = (bindings?: AppBindings) => {
+  const server = createMcpServer(bindings);
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+    onsessioninitialized: (sessionId) => {
+      mcpSessions.set(sessionId, { server, transport });
+    },
+    onsessionclosed: (sessionId) => {
+      mcpSessions.delete(sessionId);
+    },
+  });
+
+  return { server, transport };
+};
+
+/**
+ * /mcp 요청을 세션 기반으로 처리합니다.
+ */
+const handleMcpRequest = async (c: Context<{ Bindings: AppBindings }>) => {
+  const sessionId = c.req.header(SESSION_HEADER);
+
+  if (sessionId) {
+    const existing = mcpSessions.get(sessionId);
+    if (!existing) {
+      if (c.req.method === 'POST') {
+        const transport = new WebStandardStreamableHTTPServerTransport();
+        const server = createMcpServer(c.env);
+        await server.connect(transport);
+        const response = await transport.handleRequest(c.req.raw);
+        response.headers.set('x-mcp-session-fallback', 'stateless');
+        return response;
+      }
+
+      return c.json(
+        {
+          error: 'Session not found',
+          message: '유효하지 않은 mcp-session-id 입니다. initialize 요청부터 다시 시작해주세요.',
+        },
+        404,
+      );
+    }
+
+    return existing.transport.handleRequest(c.req.raw);
+  }
+
+  if (c.req.method === 'POST') {
+    const parsedBody = await c.req.raw
+      .clone()
+      .json()
+      .catch(() => undefined);
+
+    if (!isInitializeRequest(parsedBody)) {
+      return c.json(
+        {
+          error: 'Bad Request',
+          message: '세션이 없습니다. 먼저 initialize 요청으로 세션을 생성해주세요.',
+        },
+        400,
+      );
+    }
+
+    const { server, transport } = createSessionTransport(c.env);
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw, { parsedBody });
+  }
+
+  return c.json(
+    {
+      error: 'Bad Request',
+      message: `세션이 없습니다. 먼저 POST /mcp initialize 요청 후 ${SESSION_HEADER} 헤더를 사용해주세요.`,
+    },
+    400,
+  );
+};
+
+const handleRootMcpRequest = async (c: Context<{ Bindings: AppBindings }>) => {
+  if (c.req.header(SESSION_HEADER) || c.req.method === 'DELETE') {
+    return handleMcpRequest(c);
+  }
+
+  const parsedBody = await c.req.raw
+    .clone()
+    .json()
+    .catch(() => undefined);
+
+  if (isInitializeRequest(parsedBody)) {
+    const { server, transport } = createSessionTransport(c.env);
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw, { parsedBody });
+  }
+
+  const transport = new WebStandardStreamableHTTPServerTransport();
+  const server = createMcpServer(c.env);
+  await server.connect(transport);
+  return transport.handleRequest(c.req.raw, { parsedBody });
+};
+// Hono 앱 생성
+const app = new Hono<{ Bindings: AppBindings }>();
+
+app.use('*', diagnosticsMiddleware);
+// CORS 설정
+app.use(
+  '*',
+  cors({
+    origin: '*',
+    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-health-check-key',
+      'mcp-session-id',
+      'Last-Event-ID',
+      'mcp-protocol-version',
+    ],
+    exposeHeaders: ['mcp-session-id', 'mcp-protocol-version', 'x-request-id'],
+  }),
+);
+
+// Zyte 연동 공개 GET API의 일일 호출량을 IP별로 제한합니다.
+app.use('/api/*', apiResultHtml);
+app.use('/api/*', createDailyRateLimitMiddleware());
+
+// 기본 정보 엔드포인트 (GET 요청만)
+app.get('/', (c) => {
+  return createRootInfoResponse(c.req.raw);
+});
+app.get('/root.json', (c) => c.body(ROOT_INFO_JSON, 200, ROOT_INFO_HEADERS));
+
+// 루트 경로에서 MCP 요청 처리 (POST, DELETE)
+app.on(['POST', 'DELETE'], '/', handleRootMcpRequest);
+
+// 헬스 체크 엔드포인트
+app.get('/health', (c) => c.json({ status: 'ok', config: buildConfigStatus(c.env) }));
+registerHealthRoutes(app);
+registerRouteHealthRoutes(app);
+registerRateLimitStatsRoutes(app);
+registerServiceRoutes(app);
+registerBrowseRoutes(app);
+
+// 설치 없는 첫 조회 안내
+app.get('/guide/:version', (c) => createVersionedGuideResponse(new URL(c.req.url).origin, c.req.param('version')));
+app.get('/llms.txt', (c) => createAgentStartResponse(new URL(c.req.url).origin));
+
+// 프롬프트 페이지 (MCP 미지원 에이전트용)
+app.get('/prompt', (c) => createPromptResponse(new URL(c.req.url).origin));
+
+// OpenAPI 스펙 엔드포인트 (ChatGPT GPTs 등록용)
+app.get('/openapi.json', (c) => {
+  const baseUrl = new URL(c.req.url).origin;
+  return createOpenApiJsonResponse(baseUrl);
+});
+
+app.get('/openapi.yaml', (c) => {
+  const baseUrl = new URL(c.req.url).origin;
+  return createOpenApiYamlResponse(baseUrl);
+});
+
+app.get('/openapi-full.json', (c) => {
+  const baseUrl = new URL(c.req.url).origin;
+  return createFullOpenApiJsonResponse(baseUrl);
+});
+
+app.get('/openapi-full.yaml', (c) => {
+  const baseUrl = new URL(c.req.url).origin;
+  return createFullOpenApiYamlResponse(baseUrl);
+});
+
+// 개인정보 처리방침 페이지
+app.get('/privacy', (c) => {
+  const baseUrl = new URL(c.req.url).origin;
+  return createPrivacyResponse(baseUrl);
+});
+
+// GET API 엔드포인트 (MCP 미지원 에이전트용)
+
+app.get('/api/actions/query', async (c) => {
+  if (['lottemartFindStores', 'lottemartSearchProducts'].includes(c.req.query('action') || '')) return handleLotteMartFindStores(c);
+  try {
+    const targetUrl = buildActionQueryTargetUrl(c.req.url);
+    const headers = new Headers(c.req.raw.headers);
+    headers.delete('host');
+
+    return app.fetch(
+      new Request(targetUrl.toString(), {
+        method: 'GET',
+        headers,
+      }),
+      c.env,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_ACTION_QUERY',
+          message,
+        },
+      },
+      400,
+    );
+  }
+});
+
+// MCP 엔드포인트
+app.all('/mcp', handleMcpRequest);
+
+const worker = {
+  fetch(request: Request, env: AppBindings, executionCtx: ExecutionContext) {
+    if (isRootInfoRequest(request)) {
+      return createRootInfoResponse(request);
+    }
+
+    return withExternalRouting(env, executionCtx, () => app.fetch(request, env, executionCtx));
+  },
+  scheduled(_controller: ScheduledController, env: AppBindings, ctx: ExecutionContext) {
+    ctx.waitUntil(refreshRouteChecks(env));
+  },
+  request: app.request.bind(app),
+};
+
+export default worker;

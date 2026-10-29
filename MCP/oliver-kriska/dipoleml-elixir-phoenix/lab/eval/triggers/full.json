@@ -1,0 +1,19 @@
+{
+  "skill": "full",
+  "should_trigger": [
+    "Build complete e-commerce with cart, payments, order tracking, emails, and admin dashboard",
+    "Implement full multi-tenant SaaS with billing, subscriptions, and usage analytics",
+    "Create real-time activity feed with notifications, preferences, and cross-context archival",
+    "Build end-to-end document management with versioning, comments, and role-based access control",
+    "I need a complete event management system spanning registrations, payments, emails, and dashboards"
+  ],
+  "should_not_trigger": [
+    "Fix the typo in the error message",
+    "Why is creating a post taking 5 seconds?",
+    "Review this authentication code for security issues",
+    "What's the best pattern for splitting contexts?",
+    "Just plan the new subscription feature for now",
+    "Debug this flaky test that passes locally",
+    "Find all duplicate code in the codebase"
+  ]
+}

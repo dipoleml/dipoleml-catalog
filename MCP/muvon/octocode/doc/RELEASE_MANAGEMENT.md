@@ -1,0 +1,543 @@
+# Release Management Guide
+
+Complete guide to Octocode's AI-powered release management system with automatic version calculation and changelog generation.
+
+## Overview
+
+Octocode provides intelligent release automation that analyzes your commit history using conventional commits to determine appropriate semantic version bumps and generates structured changelogs. It supports multiple project types and integrates seamlessly with your git workflow.
+
+## Key Features
+
+- **Deterministic Version Calculation**: Derives the semantic version bump from conventional commit types
+- **Automatic Changelog**: Generates structured changelogs from commit messages
+- **Multi-Project Support**: Works with Rust, Node.js, PHP, Go, and Python projects
+- **Git Integration**: Creates release commits and annotated tags automatically
+- **Dry Run Mode**: Preview changes before execution
+- **Conventional Commits**: Supports conventional commit format for precise version calculation
+
+## Quick Start
+
+### Basic Release Workflow
+
+```bash
+# 1. Preview what would be done (recommended first step)
+octocode release --dry-run
+
+# 2. Create the release
+octocode release
+
+# 3. Push to remote
+git push origin main --tags
+```
+
+### With Confirmation
+
+```bash
+# Skip confirmation prompt for automation
+octocode release --yes
+
+# Force a specific version (bypasses the conventional-commit bump)
+octocode release --force-version "2.0.0"
+
+# Use custom changelog file
+octocode release --changelog "HISTORY.md"
+```
+
+## Supported Project Types
+
+### Rust Projects (Cargo.toml)
+
+```toml
+[package]
+name = "my-project"
+version = "0.1.0"  # Updated automatically
+```
+
+**Files updated:**
+- `Cargo.toml` - Package version
+- `CHANGELOG.md` - Release notes
+
+### Node.js Projects (package.json)
+
+```json
+{
+  "name": "my-project",
+  "version": "0.1.0"
+}
+```
+
+**Files updated:**
+- `package.json` - Package version
+- `CHANGELOG.md` - Release notes
+
+### PHP Projects (composer.json)
+
+```json
+{
+  "name": "vendor/my-project",
+  "version": "0.1.0"
+}
+```
+
+**Files updated:**
+- `composer.json` - Package version
+- `CHANGELOG.md` - Release notes
+
+### Go Projects (go.mod)
+
+```go
+module github.com/user/my-project
+
+go 1.21
+```
+
+**Files updated:**
+- `VERSION` file - Version string
+- `CHANGELOG.md` - Release notes
+
+**Note**: Go projects use a `VERSION` file since `go.mod` doesn't contain version information.
+
+### Python Projects (pyproject.toml)
+
+```toml
+[project]
+name = "my-project"
+version = "0.1.0"
+```
+
+The `version` key under `[project]` or `[tool.poetry]` is updated in place; formatting is preserved.
+
+**Files updated:**
+- `pyproject.toml` - Project version
+- `uv.lock` - Refreshed via `uv lock` when present
+- `CHANGELOG.md` - Release notes
+
+### Chrome Extensions (manifest.json)
+
+A `manifest.json` carrying `manifest_version` is treated as a Chrome extension manifest (PWA web manifests are ignored). Its `version` is rewritten in place; when it is the only project file, it is also the version source.
+
+Manifests in the project root and immediate subdirectories (`public/`, `src/`, …; not `dist/`, `build/`, `node_modules/`) are synced with any other project type, so a Vite/WXT/Plasmo extension with a `package.json` keeps both in step.
+
+Chrome accepts only 1-4 dot-separated integers, so a pre-release version (e.g. `1.2.0-beta.1`) aborts the release before any file is written.
+
+**Files updated:**
+- `manifest.json` - Extension version (each one found)
+- `CHANGELOG.md` - Release notes
+
+### Plain Version File (VERSION or version.txt)
+
+For projects without a language manifest (Bash tools, Makefile or Docker projects), put the version alone in a `VERSION` (or `version.txt`) file at the project root:
+
+```text
+1.4.0
+```
+
+It is used only when none of the manifests above is present; `VERSION` wins over `version.txt`. Have your tool read the version from this file at runtime so it stays the single source of truth. The version must be a full semver (`1.4.0`, not `1.4`).
+
+**Files updated:**
+- `VERSION` / `version.txt` - Version string (trailing newline kept)
+- `CHANGELOG.md` - Release notes
+
+## How It Works
+
+### 1. Project Detection
+
+Octocode automatically detects your project type by scanning for:
+- `Cargo.toml` → Rust project
+- `package.json` → Node.js project
+- `composer.json` → PHP project
+- `go.mod` → Go project
+- `pyproject.toml` → Python project
+- `manifest.json` with `manifest_version` → Chrome extension
+- `VERSION` or `version.txt` → Plain version file (only when no manifest is found)
+
+### 2. Version Analysis
+
+Extracts current version from:
+- Project files (Cargo.toml, package.json, etc.)
+- Git tags (if no version in project files)
+- Defaults to 0.1.0 for new projects
+
+### 3. Commit Analysis
+
+Analyzes commits since the last release using:
+- Git log between current HEAD and last version tag
+- Conventional commit format parsing
+- Commit message categorization
+
+### 4. Version Calculation
+
+The bump is derived deterministically from the conventional commit types since the last tag (no LLM involved):
+- Any breaking change (`!` or `BREAKING CHANGE`) bumps major, or minor while the major version is still 0
+- Any `feat:` bumps minor
+- Anything else bumps patch
+
+### 5. Changelog Generation
+
+Creates structured changelog with:
+- A short LLM-written summary, only when the release contains `feat`, `fix`, `perf` or breaking commits; it never carries commit hashes, and is audited against the commit list: claims no commit supports are rejected and redrafted, and the release aborts if they persist
+- Categorized changes (Features, Bug Fixes, etc.) rendered from git, with exact commit hashes
+- Breaking change highlights
+- Release date
+
+### 6. File Updates and Git Operations
+
+- Updates project version files
+- Adds changelog entry
+- Creates release commit
+- Creates annotated git tag
+
+## Conventional Commits Support
+
+### Commit Types and Version Bumps
+
+| Commit Type | Version Bump | Example |
+|-------------|--------------|---------|
+| `feat:` | Minor (0.1.0 → 0.2.0) | `feat: add user authentication` |
+| `fix:` | Patch (0.1.0 → 0.1.1) | `fix: resolve login timeout issue` |
+| `BREAKING CHANGE` | Major (1.1.0 → 2.0.0), minor before 1.0 (0.1.0 → 0.2.0) | `feat!: redesign API endpoints` |
+| `chore:` | Patch | `chore: update dependencies` |
+| `docs:` | Patch | `docs: update API documentation` |
+| `style:` | Patch | `style: fix code formatting` |
+| `refactor:` | Patch | `refactor: simplify auth logic` |
+| `test:` | Patch | `test: add integration tests` |
+| `perf:` | Patch | `perf: optimize database queries` |
+
+### Breaking Changes
+
+Breaking changes trigger major version bumps (minor while the major version is 0):
+
+```bash
+# Using exclamation mark
+feat!: redesign user API endpoints
+
+# Using BREAKING CHANGE footer
+feat: add new authentication system
+
+BREAKING CHANGE: The old auth endpoints have been removed
+```
+
+### Scoped Commits
+
+Scopes help organize changelog entries:
+
+```bash
+feat(auth): add OAuth2 support
+fix(database): resolve connection pool issues
+docs(api): update endpoint documentation
+```
+
+## Command Options
+
+### Basic Commands
+
+```bash
+# Preview release (no changes made)
+octocode release --dry-run
+
+# Create release with prompts
+octocode release
+
+# Create release without prompts
+octocode release --yes
+```
+
+### Version Control
+
+```bash
+# Force specific version (bypasses the conventional-commit bump)
+octocode release --force-version "2.0.0"
+octocode release --force-version "1.5.0-beta.1"
+```
+
+### Changelog Options
+
+```bash
+# Use custom changelog file
+octocode release --changelog "HISTORY.md"
+octocode release --changelog "docs/RELEASES.md"
+```
+
+## Example Workflows
+
+### Standard Development Workflow
+
+```bash
+# 1. Development with conventional commits
+git add .
+octocode commit  # AI generates conventional commit
+
+# 2. More development...
+git add .
+octocode commit
+
+# 3. Ready for release
+octocode release --dry-run  # Preview
+octocode release            # Create release
+
+# 4. Deploy
+git push origin main --tags
+```
+
+### Pre-release Workflow
+
+```bash
+# Create beta release
+octocode release --force-version "1.0.0-beta.1"
+
+# Test the beta...
+
+# Create release candidate
+octocode release --force-version "1.0.0-rc.1"
+
+# Final release
+octocode release --force-version "1.0.0"
+```
+
+### Hotfix Workflow
+
+```bash
+# On main branch, fix critical bug
+git add .
+octocode commit  # AI generates "fix: critical security vulnerability"
+
+# Create patch release
+octocode release  # fix commits give a patch bump (e.g., 1.0.0 → 1.0.1)
+```
+
+### Feature Release Workflow
+
+```bash
+# Develop features with conventional commits
+git add .
+octocode commit  # "feat: add user dashboard"
+
+git add .
+octocode commit  # "feat: add data export functionality"
+
+git add .
+octocode commit  # "fix: resolve dashboard loading issue"
+
+# Create minor release
+octocode release  # AI determines minor bump (e.g., 1.0.0 → 1.1.0)
+```
+
+## Changelog Format
+
+### Generated Changelog Structure
+
+```markdown
+# Changelog
+
+## [1.2.0] - 2025-01-27
+
+### ✨ Features
+
+- Add user dashboard with analytics
+- Implement data export functionality
+- Add OAuth2 authentication support
+
+### 🐛 Bug Fixes
+
+- Fix dashboard loading timeout issue
+- Resolve authentication token refresh bug
+- Fix data export CSV formatting
+
+### 📚 Documentation
+
+- Update API documentation
+- Add user guide for new dashboard
+
+### 🔧 Maintenance
+
+- Update dependencies to latest versions
+- Improve test coverage
+- Refactor authentication module
+
+### ⚠️ Breaking Changes
+
+- Removed deprecated `/api/v1/auth` endpoint
+- Changed user profile data structure
+
+## [1.1.0] - 2025-01-15
+
+...
+```
+
+## Integration with CI/CD
+
+### GitHub Actions
+
+```yaml
+name: Release
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['CHANGELOG.md']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Need full history for release analysis
+
+      - name: Install Octocode
+        run: curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
+
+      - name: Create Release
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          octocode release --yes
+          git push origin main --tags
+```
+
+### GitLab CI
+
+```yaml
+release:
+  stage: release
+  script:
+    - curl -fsSL https://raw.githubusercontent.com/muvon/octocode/master/install.sh | sh
+    - octocode release --yes
+    - git push origin main --tags
+  only:
+    - main
+  variables:
+    OPENROUTER_API_KEY: $OPENROUTER_API_KEY
+```
+
+### Manual Automation
+
+```bash
+#!/bin/bash
+# release.sh - Automated release script
+
+set -e
+
+echo "🚀 Starting release process..."
+
+# Ensure we're on main branch
+git checkout main
+git pull origin main
+
+# Run tests
+echo "🧪 Running tests..."
+cargo test  # or npm test, composer test, go test
+
+# Create release
+echo "📦 Creating release..."
+octocode release --dry-run
+read -p "Continue with release? (y/N) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    octocode release --yes
+    git push origin main --tags
+    echo "✅ Release complete!"
+else
+    echo "❌ Release cancelled"
+    exit 1
+fi
+```
+
+## Configuration
+
+### Configuration
+
+The release command uses the LLM model configured in `[llm]` section:
+
+```toml
+[llm]
+model = "openrouter:openai/gpt-4o-mini"  # Used for version calculation
+```
+
+Change the model with:
+```bash
+octocode config --model "openrouter:openai/gpt-4o-mini"
+```
+
+## Troubleshooting
+
+### Version Calculation Issues
+
+**Problem**: AI suggests wrong version bump
+
+**Solutions:**
+1. Use `--force-version` to override
+2. Improve commit message quality
+3. Use conventional commit format consistently
+4. Try different LLM model
+
+### Git Integration Issues
+
+**Problem**: Git operations fail
+
+**Solutions:**
+1. Ensure git repository is clean
+2. Check git credentials and permissions
+3. Verify branch permissions
+4. Check for conflicting tags
+
+### Project Detection Issues
+
+**Problem**: Project type not detected
+
+**Solutions:**
+1. Ensure project files exist (Cargo.toml, package.json, etc.)
+2. Run from project root directory
+3. Check file permissions
+4. Manually specify project type
+
+### Changelog Generation Issues
+
+**Problem**: Changelog format is incorrect
+
+**Solutions:**
+1. Check conventional commit format
+2. Verify commit message quality
+3. Use custom changelog template
+4. Check LLM model configuration
+
+## Best Practices
+
+### Commit Message Quality
+
+```bash
+# Good conventional commits
+feat(auth): add OAuth2 authentication support
+fix(database): resolve connection pool timeout issue
+docs(api): update authentication endpoint documentation
+
+# Poor commits (avoid)
+fix stuff
+update code
+changes
+```
+
+### Release Timing
+
+1. **Regular Releases**: Schedule regular releases (weekly/monthly)
+2. **Feature Releases**: Release when significant features are complete
+3. **Hotfix Releases**: Release immediately for critical bugs
+4. **Pre-releases**: Use for testing major changes
+
+### Version Strategy
+
+1. **Semantic Versioning**: Follow semver strictly
+2. **Breaking Changes**: Clearly mark breaking changes
+3. **Pre-releases**: Use for beta testing
+4. **LTS Versions**: Consider long-term support versions
+
+### Changelog Maintenance
+
+1. **Clear Descriptions**: Write clear, user-focused descriptions
+2. **Breaking Changes**: Highlight breaking changes prominently
+3. **Migration Guides**: Include migration instructions for major versions
+4. **Regular Updates**: Keep changelog up to date with each release
+
+For more information, see:
+- [Commands Reference](COMMANDS.md) - Complete command documentation
+- [Advanced Usage](ADVANCED_USAGE.md) - Advanced workflows
+- [Configuration](CONFIGURATION.md) - Configuration options

@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "declaration": true,
+    "noEmit": false,
+    "noEmitOnError": true,
+    "outDir": "dist",
+    "rewriteRelativeImportExtensions": true,
+    "rootDir": ".",
+    "stripInternal": true,
+    "sourceMap": true
+  },
+  "include": [
+    "config.ts",
+    "extraction-settings.ts",
+    "metadata-cache.ts",
+    "mcp-bearer-store.ts",
+    "secure-keyring.ts",
+    "semantic-settings.ts",
+    "types.ts",
+    "project-server-trust.ts",
+    "server-manager.ts"
+  ]
+}

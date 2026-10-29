@@ -1,0 +1,165 @@
+{
+  "accountId": "6353b3b978a6ebc8ee4b2953509da274",
+  "scriptName": "daiso-mcp",
+  "metric": "workersInvocationsAdaptive.requests + httpRequestsAdaptiveGroups.count",
+  "aggregation": "script-level plus redirected root GET",
+  "includedTraffic": "Worker invocations for daiso-mcp plus redirected GET / traffic on mcp.aka.page, retaining complete historical daily totals.",
+  "rootRedirect": {
+    "zoneId": "c987d32286724a5a1fd5586cec7756c1",
+    "host": "mcp.aka.page",
+    "path": "/",
+    "start": "2026-05-27T07:24:50.000Z",
+    "rootRequestsRetentionDays": 7
+  },
+  "timezone": "Asia/Seoul",
+  "coverageVersion": 1,
+  "days": 30,
+  "startDate": "2026-09-29",
+  "endDate": "2026-10-28",
+  "updatedAt": "2026-10-28T20:19:30.615Z",
+  "renderedAt": "2026-10-28T20:19:30.615Z",
+  "total": 271142362,
+  "average": 9038079,
+  "median": 9122471,
+  "peak": {
+    "date": "2026-10-26",
+    "requests": 16967613
+  },
+  "recent7Total": 101462733,
+  "recent7Average": 14494676,
+  "previous7Total": 82740800,
+  "weekOverWeekDiff": 18721933,
+  "weekOverWeekPercent": 22.627208100477635,
+  "latest": {
+    "date": "2026-10-28",
+    "requests": 14756364
+  },
+  "previous": {
+    "date": "2026-10-27",
+    "requests": 14504992
+  },
+  "dayOverDayDiff": 251372,
+  "dayOverDayPercent": 1.7330033687712478,
+  "points": [
+    {
+      "date": "2026-09-29",
+      "requests": 3358595
+    },
+    {
+      "date": "2026-09-30",
+      "requests": 3124858
+    },
+    {
+      "date": "2026-10-01",
+      "requests": 3017461
+    },
+    {
+      "date": "2026-10-02",
+      "requests": 3289178
+    },
+    {
+      "date": "2026-10-03",
+      "requests": 2413254
+    },
+    {
+      "date": "2026-10-04",
+      "requests": 2201761
+    },
+    {
+      "date": "2026-10-05",
+      "requests": 2454624
+    },
+    {
+      "date": "2026-10-06",
+      "requests": 3290273
+    },
+    {
+      "date": "2026-10-07",
+      "requests": 4664255
+    },
+    {
+      "date": "2026-10-08",
+      "requests": 9035186
+    },
+    {
+      "date": "2026-10-09",
+      "requests": 5639286
+    },
+    {
+      "date": "2026-10-10",
+      "requests": 5279548
+    },
+    {
+      "date": "2026-10-11",
+      "requests": 5229891
+    },
+    {
+      "date": "2026-10-12",
+      "requests": 8689478
+    },
+    {
+      "date": "2026-10-13",
+      "requests": 10932356
+    },
+    {
+      "date": "2026-10-14",
+      "requests": 14318825
+    },
+    {
+      "date": "2026-10-15",
+      "requests": 12788904
+    },
+    {
+      "date": "2026-10-16",
+      "requests": 12470843
+    },
+    {
+      "date": "2026-10-17",
+      "requests": 9209755
+    },
+    {
+      "date": "2026-10-18",
+      "requests": 8026253
+    },
+    {
+      "date": "2026-10-19",
+      "requests": 11182492
+    },
+    {
+      "date": "2026-10-20",
+      "requests": 15108995
+    },
+    {
+      "date": "2026-10-21",
+      "requests": 13953558
+    },
+    {
+      "date": "2026-10-22",
+      "requests": 13875230
+    },
+    {
+      "date": "2026-10-23",
+      "requests": 15836868
+    },
+    {
+      "date": "2026-10-24",
+      "requests": 12211903
+    },
+    {
+      "date": "2026-10-25",
+      "requests": 13309763
+    },
+    {
+      "date": "2026-10-26",
+      "requests": 16967613
+    },
+    {
+      "date": "2026-10-27",
+      "requests": 14504992
+    },
+    {
+      "date": "2026-10-28",
+      "requests": 14756364
+    }
+  ]
+}

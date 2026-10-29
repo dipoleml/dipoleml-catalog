@@ -1,0 +1,370 @@
+/**
+ * XLS (BIFF8) 파서 — Workbook 스트림 → IRBlock[].
+ *
+ * 흐름:
+ *   1. cfb-lenient로 OLE2 컨테이너 → "Workbook" 스트림 추출
+ *   2. readRecords로 BIFF 레코드 시퀀스 파싱
+ *   3. Globals 서브스트림: BoundSheet8 수집 + SST 디코딩
+ *   4. 각 시트 BOF 인덱스 찾기 → extractSheetCells
+ *   5. RawSheet → heading + IRTable 블록 변환
+ *
+ * 참조: docs/biff8-spec.md
+ */
+
+import type {
+  IRBlock,
+  DocumentMetadata,
+  InternalParseResult,
+  ParseOptions,
+  ParseWarning,
+} from "../types.js"
+import { KordocError } from "../utils.js"
+import { blocksToMarkdown } from "../table/builder.js"
+import { parseLenientCfb } from "../hwp5/cfb-lenient.js"
+import {
+  readRecords,
+  decodeBof,
+  OP_BOF,
+  OP_EOF,
+  OP_BOUNDSHEET8,
+  OP_FILEPASS,
+  OP_CODEPAGE,
+  OP_DATE1904,
+  OP_FORMAT,
+  OP_XF,
+  DT_GLOBALS,
+  DT_WORKSHEET,
+  type BiffRecord,
+} from "./record.js"
+import { decodeSST } from "./sst.js"
+import { extractSheetCells, type RawSheet, type CellValue } from "./cell.js"
+import { decodeUtf16Le } from "./encoding.js"
+import { dateKindOfFmt, dateSerialToIso, type DateKind } from "../xlsx/parser.js"
+import { sheetToBlocks } from "../xlsx/sheet-blocks.js"
+
+// ─── 상수 ─────────────────────────────────────────
+
+const MAX_SHEETS = 100
+
+// ─── BoundSheet8 ─────────────────────────────────
+
+interface BoundSheet {
+  name: string
+  /** Workbook 스트림 절대 오프셋 — 본 시트 BOF 위치 */
+  lbPlyPos: number
+  /** 0=Worksheet, 1=Chart, 2=Macro */
+  dt: number
+}
+
+/**
+ * BoundSheet8 레코드 디코딩.
+ * 구조: lbPlyPos(4) hsState(1) dt(1) stName(ShortXLUnicodeString)
+ *   ShortXLUnicodeString: cch(1) flags(1) chars(...)
+ *   flags bit 0: 1=UTF-16LE, 0=compressed
+ */
+function decodeBoundSheet(data: Buffer): BoundSheet | null {
+  if (data.length < 8) return null
+  const lbPlyPos = data.readUInt32LE(0)
+  const dt = data.readUInt8(5)
+  const cch = data.readUInt8(6)
+  const flags = data.readUInt8(7)
+  const highByte = (flags & 0x01) !== 0
+  const start = 8
+
+  let name: string
+  if (highByte) {
+    const end = Math.min(start + cch * 2, data.length)
+    name = decodeUtf16Le(data.subarray(start, end))
+  } else {
+    const end = Math.min(start + cch, data.length)
+    const slice = data.subarray(start, end)
+    const padded = Buffer.alloc(slice.length * 2)
+    for (let i = 0; i < slice.length; i++) padded[i * 2] = slice[i]
+    name = decodeUtf16Le(padded)
+  }
+
+  return { name, lbPlyPos, dt }
+}
+
+// ─── Globals 처리 ────────────────────────────────
+
+interface GlobalsResult {
+  sheets: BoundSheet[]
+  sst: string[]
+  codePage: number
+  encrypted: boolean
+  /** XF 인덱스(ixfe) → 날짜 서식 종류 (날짜 아닌 xf는 미포함) */
+  dateXfs: Map<number, DateKind>
+  /** DATE1904 레코드 — 1904 날짜 체계 */
+  date1904: boolean
+  /** Globals 서브스트림이 끝난 records 인덱스 */
+  endIndex: number
+}
+
+/** Format 레코드(0x041E) 디코딩 — ifmt(2) + XLUnicodeString(cch(2) flags(1) rgb) */
+function decodeFormatRecord(data: Buffer): { ifmt: number; code: string } | null {
+  if (data.length < 5) return null
+  const ifmt = data.readUInt16LE(0)
+  const cch = data.readUInt16LE(2)
+  const flags = data.readUInt8(4)
+  const highByte = (flags & 0x01) !== 0
+  const start = 5
+
+  let code: string
+  if (highByte) {
+    const end = Math.min(start + cch * 2, data.length)
+    code = decodeUtf16Le(data.subarray(start, end))
+  } else {
+    const end = Math.min(start + cch, data.length)
+    const slice = data.subarray(start, end)
+    const padded = Buffer.alloc(slice.length * 2)
+    for (let i = 0; i < slice.length; i++) padded[i * 2] = slice[i]
+    code = decodeUtf16Le(padded)
+  }
+  return { ifmt, code }
+}
+
+function processGlobals(records: BiffRecord[]): GlobalsResult {
+  const sheets: BoundSheet[] = []
+  let codePage = 1200
+  let encrypted = false
+  let date1904 = false
+  const customFormats = new Map<number, string>()
+  const xfFmtIds: number[] = [] // XF 레코드 순서 = ixfe 인덱스
+
+  // 첫 BOF는 records[0]이어야 함
+  const firstBof = records[0]
+  if (!firstBof || firstBof.opcode !== OP_BOF) {
+    throw new KordocError("XLS: 첫 레코드가 BOF가 아님")
+  }
+  const bof = decodeBof(firstBof.data)
+  if (!bof || bof.dt !== DT_GLOBALS) {
+    throw new KordocError("XLS: Globals 서브스트림 BOF 누락")
+  }
+
+  let i = 1
+  while (i < records.length) {
+    const r = records[i]
+    if (r.opcode === OP_EOF) {
+      i++
+      break
+    }
+    if (r.opcode === OP_BOUNDSHEET8) {
+      const bs = decodeBoundSheet(r.data)
+      if (bs) sheets.push(bs)
+    } else if (r.opcode === OP_CODEPAGE && r.data.length >= 2) {
+      codePage = r.data.readUInt16LE(0)
+    } else if (r.opcode === OP_FILEPASS) {
+      encrypted = true
+    } else if (r.opcode === OP_DATE1904 && r.data.length >= 2) {
+      date1904 = r.data.readUInt16LE(0) === 1
+    } else if (r.opcode === OP_FORMAT) {
+      const f = decodeFormatRecord(r.data)
+      if (f) customFormats.set(f.ifmt, f.code)
+    } else if (r.opcode === OP_XF && r.data.length >= 4) {
+      // XF 구조: ifnt(2) ifmt(2) ... — ifmt만 필요
+      xfFmtIds.push(r.data.readUInt16LE(2))
+    }
+    i++
+  }
+
+  // XF 인덱스별 날짜 서식 판정 (내장 + 커스텀 Format)
+  const dateXfs = new Map<number, DateKind>()
+  for (let k = 0; k < xfFmtIds.length; k++) {
+    const kind = dateKindOfFmt(xfFmtIds[k], customFormats)
+    if (kind) dateXfs.set(k, kind)
+  }
+
+  // SST는 Globals 내부 어딘가 — 전체 records 검색하되 첫 EOF 이전만
+  const globalsRecords = records.slice(0, i)
+  const sst = decodeSST(globalsRecords)
+
+  return { sheets, sst, codePage, encrypted, dateXfs, date1904, endIndex: i }
+}
+
+// ─── 시트 BOF 인덱스 찾기 ─────────────────────────
+
+export function findSheetBofIndex(records: BiffRecord[], lbPlyPos: number): number {
+  // 정확한 매칭 우선
+  const exact = records.findIndex(
+    r => r.opcode === OP_BOF && r.offset === lbPlyPos,
+  )
+  if (exact >= 0) return exact
+
+  // 못 찾으면 최근접(오프셋 ≥ lbPlyPos) BOF — 일괄 두 번째 BOF 폴백은
+  // 미매칭 시트가 전부 시트1 복제로 나오던 결함 (첫 BOF는 Globals라 제외)
+  let best = -1
+  let bestOffset = Infinity
+  for (let idx = 1; idx < records.length; idx++) {
+    const r = records[idx]
+    if (r.opcode !== OP_BOF) continue
+    if (r.offset >= lbPlyPos && r.offset < bestOffset) {
+      best = idx
+      bestOffset = r.offset
+    }
+  }
+  return best
+}
+
+// ─── RawSheet → IRBlock[] ────────────────────────
+
+function cellValueToText(v: CellValue): string {
+  if (v === null || v === undefined) return ""
+  if (typeof v === "number") {
+    // 부동소수점 아티팩트 정리
+    if (Number.isInteger(v)) return v.toString()
+    const cleaned = parseFloat(v.toPrecision(15)).toString()
+    return cleaned
+  }
+  if (typeof v === "boolean") return v ? "TRUE" : "FALSE"
+  return v
+}
+
+/** BIFF8 열 끝(IV) — 그 밖 좌표는 손상 레코드다. 시트 칸은 표 열 상한(200)이 아니라 칸 예산으로 막는다(xlsx/sheet-blocks) */
+const BIFF8_COLS = 256
+
+/** RawSheet → 행별 칸 글(희소) + 병합 → 공용 시트 표 (xlsx/sheet-blocks). 열은 BIFF8 열 끝 안만 */
+function rawSheetToBlocks(
+  sheetName: string,
+  sheet: RawSheet,
+  sheetIndex: number,
+  warnings: ParseWarning[],
+  keepAnchoredEmptyCols?: boolean,
+): IRBlock[] {
+  const rows = new Map<number, string[]>()
+  let maxCol = -1
+  for (const c of sheet.cells) {
+    if (c.col >= BIFF8_COLS) continue
+    let row = rows.get(c.row)
+    if (!row) rows.set(c.row, (row = []))
+    while (row.length <= c.col) row.push("")
+    row[c.col] = cellValueToText(c.value)
+    if (c.col > maxCol) maxCol = c.col
+  }
+  const merges = sheet.merges
+    .filter(m => m.c1 < BIFF8_COLS)
+    .map(m => ({ r1: m.r1, c1: m.c1, r2: m.r2, c2: Math.min(m.c2, BIFF8_COLS - 1) }))
+  // 종전과 같이 병합 끝 열까지 표 폭에 넣는다 (셀 없는 병합 머리 행도 열이 산다)
+  for (const m of merges) if (m.c2 > maxCol) maxCol = m.c2
+  return sheetToBlocks(sheetName, rows, maxCol, merges, sheetIndex, warnings, keepAnchoredEmptyCols)
+}
+
+// ─── 메인 ─────────────────────────────────────────
+
+export async function parseXlsDocument(
+  buffer: ArrayBuffer,
+  options?: ParseOptions,
+): Promise<InternalParseResult> {
+  const buf = Buffer.from(buffer)
+
+  // 1. OLE2 컨테이너 → Workbook 스트림
+  let cfb
+  try {
+    cfb = parseLenientCfb(buf)
+  } catch (e) {
+    throw new KordocError(
+      `XLS: OLE2 시그니처 검증 실패 — ${e instanceof Error ? e.message : "알 수 없는 오류"}`,
+    )
+  }
+
+  const wb = cfb.findStream("/Workbook") ?? cfb.findStream("/Book")
+  if (!wb) {
+    throw new KordocError("XLS: Workbook 스트림이 없음 (BIFF5 또는 비표준 파일)")
+  }
+
+  // 2. BIFF 레코드 시퀀스
+  const records = readRecords(wb)
+  if (records.length === 0) {
+    throw new KordocError("XLS: 시그니처 레코드가 없음 (Workbook 스트림 손상)")
+  }
+
+  // 3. BIFF 버전 체크
+  const firstBof = decodeBof(records[0].data)
+  if (firstBof && firstBof.vers !== 0x0600) {
+    throw new KordocError(
+      `XLS: BIFF8(0x0600)만 지원 — 본 파일은 0x${firstBof.vers.toString(16)}`,
+    )
+  }
+
+  // 4. Globals 처리
+  const globals = processGlobals(records)
+  const warnings: ParseWarning[] = []
+
+  // 다른 포맷(HWP5/HWP3/HWPX)과 동일하게 throw → success:false + ENCRYPTED.
+  // 종전엔 success:true + 빈 markdown 을 돌려줘 호출자가 실패를 감지 못했다.
+  if (globals.encrypted) {
+    throw new KordocError("XLS 파일이 암호화되어 있어 파싱할 수 없습니다")
+  }
+
+  // 날짜 서식 셀 변환 훅 — 숫자 시리얼 → ISO 문자열
+  const convertNum = globals.dateXfs.size > 0
+    ? (n: number, ixfe: number): CellValue => {
+        const kind = globals.dateXfs.get(ixfe)
+        if (kind) {
+          const iso = dateSerialToIso(n, globals.date1904, kind)
+          if (iso) return iso
+        }
+        return n
+      }
+    : undefined
+
+  // 5. 페이지/시트 필터
+  const totalSheets = Math.min(globals.sheets.length, MAX_SHEETS)
+  let pageFilter: Set<number> | null = null
+  if (options?.pages) {
+    const { parsePageRange } = await import("../page-range.js")
+    pageFilter = parsePageRange(options.pages, totalSheets)
+  }
+
+  // 6. 각 시트 처리
+  const allBlocks: IRBlock[] = []
+  for (let i = 0; i < totalSheets; i++) {
+    if (pageFilter && !pageFilter.has(i + 1)) continue
+    const meta = globals.sheets[i]
+    // BoundSheet8.dt: 0=Worksheet, 1=Macro, 2=Chart — 워크시트만 처리
+    if (meta.dt !== 0) continue
+
+    options?.onProgress?.(i + 1, totalSheets)
+
+    const bofIdx = findSheetBofIndex(records, meta.lbPlyPos)
+    if (bofIdx < 0) {
+      warnings.push({
+        page: i + 1,
+        message: `시트 "${meta.name}" BOF를 찾을 수 없음 (lbPlyPos=${meta.lbPlyPos})`,
+        code: "PARTIAL_PARSE",
+      })
+      continue
+    }
+
+    // 시트 BOF 검증
+    const sheetBof = decodeBof(records[bofIdx].data)
+    if (sheetBof && sheetBof.dt !== DT_WORKSHEET) {
+      // 차트/매크로 등은 스킵
+      continue
+    }
+
+    try {
+      const { sheet } = extractSheetCells(records, bofIdx, globals.sst, convertNum)
+      const blocks = rawSheetToBlocks(meta.name, sheet, i, warnings, options?.keepTrailingEmptyCols)
+      allBlocks.push(...blocks)
+    } catch (e) {
+      warnings.push({
+        page: i + 1,
+        message: `시트 "${meta.name}" 파싱 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}`,
+        code: "PARTIAL_PARSE",
+      })
+    }
+  }
+
+  // 7. 메타데이터
+  const metadata: DocumentMetadata = {
+    pageCount: totalSheets,
+  }
+
+  return {
+    markdown: blocksToMarkdown(allBlocks, { tableFormat: options?.tableFormat }),
+    blocks: allBlocks,
+    metadata,
+    warnings: warnings.length > 0 ? warnings : undefined,
+  }
+}

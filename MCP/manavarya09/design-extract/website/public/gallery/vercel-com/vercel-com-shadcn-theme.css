@@ -1,0 +1,19 @@
+/* shadcn/ui Theme — extracted from https://vercel.com */
+/* Paste into your globals.css */
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 0 0% 9%;
+    --primary: 211 100% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 208 100% 66%;
+    --secondary-foreground: 0 0% 0%;
+    --accent: 212 100% 48%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 210 100% 96%;
+    --muted-foreground: 0 0% 9%;
+    --border: 0 0% 40%;
+    --radius: 8px;
+  }
+}

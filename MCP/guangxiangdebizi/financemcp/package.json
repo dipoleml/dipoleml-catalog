@@ -1,0 +1,49 @@
+{
+  "name": "finance-mcp",
+  "version": "4.11.2",
+  "description": "Multi-source financial data MCP server with Tushare, optional Qveris routing, and Binance crypto data",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "finance-mcp": "build/index.js",
+    "finance-mcp-http": "build/httpServer.js",
+    "finance-cache-gateway": "build/cacheGateway.js",
+    "finance-cache": "build/cacheCli.js"
+  },
+  "files": [
+    "build",
+    "docs/cache-gateway.md",
+    "docs/deploy-dockhold.md",
+    "docs/tool-availability.md"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('build',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc && node -e \"for(const f of ['build/index.js','build/httpServer.js','build/cacheGateway.js','build/cacheCli.js']){try{require('fs').chmodSync(f,'755')}catch(e){}}\"",
+    "prepare": "npm run build",
+    "watch": "tsc --watch",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "dev": "node build/httpServer.js",
+    "dev:sse": "node build/index.js",
+    "start:http": "node build/httpServer.js",
+    "start:stdio": "node build/index.js",
+    "start:cache": "node build/cacheGateway.js",
+    "start:sse": "npx supergateway --stdio \"node build/index.js\" --port 3100",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:cache": "npm run build && node --test test/cache-gateway.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.22.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}

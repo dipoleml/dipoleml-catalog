@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cronusl-1141.ai-company",
+  "type": "mcp",
+  "name": "Ai Company",
+  "slug": "ai-company",
+  "vendor": "cronusl-1141",
+  "description": "Multi-agent team operating system for DipoleML. 108 MCP tools, 40+ agent templates, 10 lifecycle hooks, 7 pipeline workflows. Persistent teams, structured meetings, task wall, real-time React dashboard. No LangChain/AutoGen — pure CC native integration.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/CronusL-1141/AI-company",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-framework",
+    "agent-orchestration",
+    "autonomous-agents",
+    "claude-code-plugin",
+    "dashboard",
+    "fastapi",
+    "meeting-system",
+    "multi-agent-system"
+  ],
+  "tags": [
+    "agent-framework",
+    "agent-orchestration",
+    "ai-agents",
+    "autonomous-agents",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "dashboard",
+    "fastapi",
+    "mcp",
+    "mcp-server",
+    "meeting-system",
+    "multi-agent-system",
+    "pipeline-workflow",
+    "python",
+    "react",
+    "sqlite",
+    "task-management",
+    "team-collaboration",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cronusl-1141",
+    "brandName": "cronusl-1141",
+    "source": "https://github.com/CronusL-1141.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "CronusL-1141/AI-company",
+    "url": "https://github.com/CronusL-1141/AI-company",
+    "commit": "2551bf15c249edc9f57445ee24cd0ffeb2c746ed",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 375,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ai Company | Multi-agent team operating system for Claude Code. 108 MCP tools, 40+ agent templates, 10 lifecycle hooks, 7 pipeline workflows. Persistent teams, structured meetings, task wall, real-time React dashboard. No LangChain/AutoGen — pure CC native integration.",
+        "after": "Ai Company | Multi-agent team operating system for DipoleML. 108 MCP tools, 40+ agent templates, 10 lifecycle hooks, 7 pipeline workflows. Persistent teams, structured meetings, task wall, real-time React dashboard. No LangChain/AutoGen — pure CC native integration.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "ai-team-os"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

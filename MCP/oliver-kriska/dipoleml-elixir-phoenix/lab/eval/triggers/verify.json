@@ -1,0 +1,17 @@
+{
+  "skill": "verify",
+  "should_trigger": [
+    "Verify the changes pass compile, format, and tests",
+    "Full verification before I open the PR",
+    "Done with the feature, verify it works",
+    "Check everything passes before I commit",
+    "Run verification on my changes"
+  ],
+  "should_not_trigger": [
+    "Run the unit tests for the auth module",
+    "Review my code changes",
+    "Check for N+1 queries",
+    "This test is failing, help me debug",
+    "How do I structure this LiveView form"
+  ]
+}

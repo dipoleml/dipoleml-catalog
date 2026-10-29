@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.riponcm.projectmem",
+  "type": "mcp",
+  "name": "Projectmem",
+  "slug": "projectmem",
+  "vendor": "riponcm",
+  "description": "Open-source coding agents memory. Records issues, attempts, fixes and decisions, then warns your agent before it repeats an approach that already failed. Native MCP server for DipoleML, Cursor, Antigravity and Codex. 100% local, no cloud, no telemetry. MIT.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/riponcm/projectmem",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-memory",
+    "agentic-ai",
+    "ai-memory",
+    "antigravity",
+    "coding-agents-memory",
+    "coding-assistant",
+    "coding-memory",
+    "cursor"
+  ],
+  "tags": [
+    "agent-memory",
+    "agentic-ai",
+    "ai-agents",
+    "ai-memory",
+    "ai-tools",
+    "antigravity",
+    "claude",
+    "claude-code",
+    "coding-agents-memory",
+    "coding-assistant",
+    "coding-memory",
+    "cursor",
+    "developer-tools",
+    "knowledge-management",
+    "local-first",
+    "mcp-server",
+    "mem0-alternative",
+    "memory",
+    "model-context-protocol",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "riponcm",
+    "brandName": "riponcm",
+    "source": "https://github.com/riponcm.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "riponcm/projectmem",
+    "url": "https://github.com/riponcm/projectmem",
+    "commit": "e49dd0c5eabaf5962a54ffc7f7480d60a2f63133",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 870,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Projectmem | Open-source coding agents memory. Records issues, attempts, fixes and decisions, then warns your agent before it repeats an approach that already failed. Native MCP server for Claude Code, Cursor, Antigravity and Codex. 100% local, no cloud, no telemetry. MIT.",
+        "after": "Projectmem | Open-source coding agents memory. Records issues, attempts, fixes and decisions, then warns your agent before it repeats an approach that already failed. Native MCP server for DipoleML, Cursor, Antigravity and Codex. 100% local, no cloud, no telemetry. MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "projectmem"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

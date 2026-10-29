@@ -1,0 +1,1349 @@
+import asyncio
+import textwrap
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any, ClassVar, Literal, TypedDict, cast
+
+import httpx
+from pydantic import BaseModel, ConfigDict, Field
+
+from dbt_mcp.config.config_providers import DiscoveryConfig
+from dbt_mcp.config.settings import PLATFORM_API_TIMEOUT
+from dbt_mcp.discovery.graphql import load_query
+from dbt_mcp.errors import DiscoveryToolCallError, InvalidParameterError, ToolCallError
+from dbt_mcp.errors.common import NotFoundError
+from dbt_mcp.gql.errors import raise_gql_error
+from dbt_mcp.http_limits import response_limit_hook
+from dbt_mcp.pagination import Pagination, ResultPage, validate_page_size
+from dbt_mcp.tools.parameters import (
+    LineageDirection,
+    LineageResourceType,
+    ModelAccess,
+)
+
+DEFAULT_PAGE_SIZE = 50
+
+# dbt-labs first-party packages (from dbt-labs/dbt-adapters monorepo)
+# These are the only packages maintained directly by dbt Labs
+# See: https://github.com/dbt-labs/dbt-adapters
+DBT_BUILTIN_PACKAGES = frozenset(
+    {
+        "dbt",  # dbt-core
+        "dbt_postgres",  # dbt-postgres
+        "dbt_redshift",  # dbt-redshift
+        "dbt_snowflake",  # dbt-snowflake
+        "dbt_bigquery",  # dbt-bigquery
+        "dbt_spark",  # dbt-spark
+        "dbt_athena",  # dbt-athena
+    }
+)
+
+
+class GraphQLQueries:
+    GET_MODELS = textwrap.dedent("""
+        query GetModels(
+            $environmentId: BigInt!,
+            $modelsFilter: ModelAppliedFilter,
+            $after: String,
+            $first: Int,
+            $sort: AppliedModelSort
+        ) {
+            environment(id: $environmentId) {
+                applied {
+                    models(filter: $modelsFilter, after: $after, first: $first, sort: $sort) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                        edges {
+                            node {
+                                name
+                                uniqueId
+                                description
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+
+    GET_MODEL_HEALTH = textwrap.dedent("""
+        query GetModelDetails(
+            $environmentId: BigInt!,
+            $modelsFilter: ModelAppliedFilter
+            $first: Int,
+        ) {
+            environment(id: $environmentId) {
+                applied {
+                    models(filter: $modelsFilter, first: $first) {
+                        edges {
+                            node {
+                                name
+                                uniqueId
+                                executionInfo {
+                                    lastRunGeneratedAt
+                                    lastRunStatus
+                                    executeCompletedAt
+                                    executeStartedAt
+                                }
+                                tests {
+                                    name
+                                    description
+                                    columnName
+                                    testType
+                                    executionInfo {
+                                        lastRunGeneratedAt
+                                        lastRunStatus
+                                        executeCompletedAt
+                                        executeStartedAt
+                                    }
+                                }
+                                ancestors(types: [Model, Source, Seed, Snapshot]) {
+                                  ... on ModelAppliedStateNestedNode {
+                                    name
+                                    uniqueId
+                                    resourceType
+                                    materializedType
+                                    modelexecutionInfo: executionInfo {
+                                      lastRunStatus
+                                      executeCompletedAt
+                                      }
+                                  }
+                                  ... on SnapshotAppliedStateNestedNode {
+                                    name
+                                    uniqueId
+                                    resourceType
+                                    snapshotExecutionInfo: executionInfo {
+                                      lastRunStatus
+                                      executeCompletedAt
+                                    }
+                                  }
+                                  ... on SeedAppliedStateNestedNode {
+                                    name
+                                    uniqueId
+                                    resourceType
+                                    seedExecutionInfo: executionInfo {
+                                      lastRunStatus
+                                      executeCompletedAt
+                                    }
+                                  }
+                                  ... on SourceAppliedStateNestedNode {
+                                    sourceName
+                                    name
+                                    resourceType
+                                    freshness {
+                                      maxLoadedAt
+                                      maxLoadedAtTimeAgoInS
+                                      freshnessStatus
+                                    }
+                                  }
+                              }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+
+    COMMON_FIELDS_PARENTS_CHILDREN = textwrap.dedent("""
+        {
+        ... on ExposureAppliedStateNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on ExternalModelNode {
+            resourceType
+            description
+            name
+        }
+        ... on MacroDefinitionNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on MetricDefinitionNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on ModelAppliedStateNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on SavedQueryDefinitionNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on SeedAppliedStateNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on SemanticModelDefinitionNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on SnapshotAppliedStateNestedNode {
+            resourceType
+            name
+            description
+        }
+        ... on SourceAppliedStateNestedNode {
+            resourceType
+            sourceName
+            uniqueId
+            name
+            description
+        }
+        ... on TestAppliedStateNestedNode {
+            resourceType
+            name
+            description
+        }
+    """)
+
+    GET_MODEL_PARENTS = (
+        textwrap.dedent("""
+        query GetModelParents(
+            $environmentId: BigInt!,
+            $modelsFilter: ModelAppliedFilter
+            $first: Int,
+        ) {
+            environment(id: $environmentId) {
+                applied {
+                    models(filter: $modelsFilter, first: $first) {
+                        pageInfo {
+                            endCursor
+                        }
+                        edges {
+                            node {
+                                parents
+    """)
+        + COMMON_FIELDS_PARENTS_CHILDREN
+        + textwrap.dedent("""
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+    )
+
+    GET_MODEL_CHILDREN = (
+        textwrap.dedent("""
+        query GetModelChildren(
+            $environmentId: BigInt!,
+            $modelsFilter: ModelAppliedFilter
+            $first: Int,
+        ) {
+            environment(id: $environmentId) {
+                applied {
+                    models(filter: $modelsFilter, first: $first) {
+                        pageInfo {
+                            endCursor
+                        }
+                        edges {
+                            node {
+                                children
+    """)
+        + COMMON_FIELDS_PARENTS_CHILDREN
+        + textwrap.dedent("""
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+    )
+
+    GET_SOURCES = textwrap.dedent("""
+        query GetSources(
+            $environmentId: BigInt!,
+            $sourcesFilter: SourceAppliedFilter,
+            $after: String,
+            $first: Int
+        ) {
+            environment(id: $environmentId) {
+                applied {
+                    sources(filter: $sourcesFilter, after: $after, first: $first) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                        edges {
+                            node {
+                                name
+                                uniqueId
+                                identifier
+                                description
+                                sourceName
+                                resourceType
+                                database
+                                schema
+                                freshness {
+                                    maxLoadedAt
+                                    maxLoadedAtTimeAgoInS
+                                    freshnessStatus
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+
+    GET_EXPOSURES = textwrap.dedent("""
+        query Exposures($environmentId: BigInt!, $first: Int, $after: String) {
+            environment(id: $environmentId) {
+                definition {
+                    exposures(first: $first, after: $after) {
+                        totalCount
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                        edges {
+                            node {
+                                name
+                                uniqueId
+                                url
+                                description
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+
+    GET_MACROS = textwrap.dedent("""
+        query GetMacros(
+            $environmentId: BigInt!,
+            $filter: AppliedResourcesFilter!,
+            $after: String,
+            $first: Int
+        ) {
+            environment(id: $environmentId) {
+                applied {
+                    resources(filter: $filter, after: $after, first: $first) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                        edges {
+                            node {
+                                ... on MacroDefinitionNode {
+                                    name
+                                    uniqueId
+                                    description
+                                    packageName
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    """)
+
+    # Lineage query
+    GET_FULL_LINEAGE = load_query("get_full_lineage.gql")
+
+    # Mesh model search query
+    GET_PUBLIC_MESH_MODELS = load_query("get_public_mesh_models.gql")
+
+
+async def execute_query(
+    query: str,
+    variables: dict,
+    *,
+    config: DiscoveryConfig,
+    response_type: str = "discovery",
+) -> dict:
+    url = config.url
+    headers = config.headers_provider.get_headers()
+
+    async with (
+        config.http_config.admission(),
+        httpx.AsyncClient(
+            headers={"Accept-Encoding": "gzip, deflate"},
+            timeout=PLATFORM_API_TIMEOUT,
+            event_hooks={
+                "response": [
+                    response_limit_hook(
+                        config.http_config.response_limits,
+                        response_type=response_type,
+                        observer=config.http_config.observer,
+                    )
+                ]
+            },
+        ) as client,
+    ):
+        response = await client.post(
+            url=url,
+            json={"query": query, "variables": variables},
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+class PageInfo(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    end_cursor: str | None = Field(default=None, alias="endCursor")
+    has_next_page: bool | None = Field(default=None, alias="hasNextPage")
+
+
+class PaginatedResourceFetcher:
+    def __init__(
+        self,
+        config: DiscoveryConfig,
+        *,
+        edges_path: tuple[str, ...],
+        page_info_path: tuple[str, ...],
+    ):
+        self._config = config
+        self._edges_path = edges_path
+        self._page_info_path = page_info_path
+
+    def _extract_path(self, payload: dict, path: tuple[str, ...]) -> Any:
+        current = payload
+        for key in path:
+            current = current[key]
+        return current
+
+    def _parse_edges(self, result: dict) -> list[dict]:
+        raise_gql_error(result)
+        edges = self._extract_path(result, self._edges_path)
+        parsed_edges: list[dict] = []
+        if not edges:
+            return parsed_edges
+        for edge in edges:
+            if not isinstance(edge, dict) or "node" not in edge:
+                continue
+            node = edge["node"]
+            if not isinstance(node, dict):
+                continue
+            parsed_edges.append(node)
+        return parsed_edges
+
+    async def _fetch_page(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        *,
+        limit: int,
+        after: str | None,
+    ) -> tuple[ResultPage[list[dict]], dict]:
+        validate_page_size(limit)
+        request_variables = variables | {
+            "environmentId": self._config.environment_id,
+            "first": limit,
+        }
+        if after is not None:
+            request_variables["after"] = after
+        result = await execute_query(query, request_variables, config=self._config)
+        nodes = self._parse_edges(result)
+        if len(nodes) > limit:
+            raise DiscoveryToolCallError(
+                "Discovery returned more nodes than requested."
+            )
+        page_info = PageInfo(**self._extract_path(result, self._page_info_path))
+        has_more = bool(page_info.has_next_page)
+        if has_more and (not page_info.end_cursor or page_info.end_cursor == after):
+            raise DiscoveryToolCallError("Discovery pagination did not advance.")
+        page = ResultPage(
+            result=nodes,
+            pagination=Pagination(
+                has_more=has_more,
+                next_cursor=page_info.end_cursor if has_more else None,
+            ),
+        )
+        return page, result
+
+    async def fetch_paginated(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> ResultPage[list[dict]]:
+        page, _ = await self._fetch_page(query, variables, limit=limit, after=after)
+        return page
+
+    async def fetch_paginated_with_sibling_field(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        *,
+        limit: int = 50,
+        after: str | None = None,
+        sibling_path: tuple[str, ...],
+    ) -> tuple[ResultPage[list[dict]], Any | None]:
+        """Like `fetch_paginated`, but also hands back one sibling field from the
+        same response -- for data that lives alongside the paginated edges (e.g.
+        `environment.dbtProjectName` next to `environment.applied.models`) and
+        would otherwise cost a second round trip to fetch. `sibling_path` is
+        walked defensively: a missing key or null intermediate yields None
+        rather than raising, since its absence is a data condition for the
+        caller to handle, not a malformed response."""
+        page, result = await self._fetch_page(
+            query, variables, limit=limit, after=after
+        )
+        sibling: Any = result
+        for key in sibling_path:
+            if not isinstance(sibling, dict):
+                sibling = None
+                break
+            sibling = sibling.get(key)
+        return page, sibling
+
+
+class ModelFilter(TypedDict, total=False):
+    """`ModelAppliedFilter` input, shared by every `applied.models` query.
+
+    Mesh search goes through `applied.models` rather than
+    `applied.resources` because only this filter type exposes `access` and
+    `identifier`; `AppliedResourcesFilter` has neither.
+    """
+
+    modelingLayer: Literal["marts"] | None
+    # Matches a model's *alias*, not its dbt `name` if `alias` is set.
+    identifier: str
+    database: str
+    schema: str
+    uniqueIds: list[str]
+    # The API's `AccessLevel` enum rejects uppercase, so ModelAccess is a
+    # lowercase StrEnum passed straight through as a filter variable.
+    access: ModelAccess
+
+
+class SourceFilter(TypedDict, total=False):
+    sourceNames: list[str]
+    uniqueIds: list[str] | None
+    identifier: str
+
+
+class MacroFilter(TypedDict, total=False):
+    types: list[str]
+    uniqueIds: list[str] | None
+
+
+class MeshNodeExecutionInfo(TypedDict, total=False):
+    lastRunStatus: str | None
+    lastRunGeneratedAt: str | None
+
+
+class MeshModelNode(TypedDict, total=False):
+    """Fields of a `ModelAppliedStateNode` that GET_PUBLIC_MESH_MODELS
+    selects. The Discovery API has no schema the type checker can see."""
+
+    name: str
+    uniqueId: str
+    description: str | None
+    relationName: str | None
+    version: str | int | float | None
+    latestVersion: str | int | float | None
+    executionInfo: MeshNodeExecutionInfo | None
+
+
+def build_models_paginator(config: DiscoveryConfig) -> PaginatedResourceFetcher:
+    """The `applied.models` paginator shape shared by `ModelsFetcher` and
+    `PublicMeshModelsFetcher` -- each project scanned by mesh search needs
+    its own instance bound to that project's own config."""
+    return PaginatedResourceFetcher(
+        config=config,
+        edges_path=("data", "environment", "applied", "models", "edges"),
+        page_info_path=("data", "environment", "applied", "models", "pageInfo"),
+    )
+
+
+class ModelsFetcher:
+    def __init__(
+        self,
+        config: DiscoveryConfig,
+        paginator: PaginatedResourceFetcher,
+    ):
+        self._config = config
+        self._paginator = paginator
+
+    def _get_model_filters(
+        self, model_name: str | None = None, unique_id: str | None = None
+    ) -> ModelFilter:
+        if unique_id:
+            return {"uniqueIds": [unique_id]}
+        elif model_name:
+            return {"identifier": model_name}
+        else:
+            raise InvalidParameterError(
+                "Either model_name or unique_id must be provided"
+            )
+
+    async def fetch_models(
+        self,
+        model_filter: ModelFilter | None = None,
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> ResultPage[list[dict]]:
+        return await self._paginator.fetch_paginated(
+            GraphQLQueries.GET_MODELS,
+            variables={
+                "modelsFilter": model_filter or {},
+                "sort": {"field": "queryUsageCount", "direction": "desc"},
+            },
+            limit=limit,
+            after=after,
+        )
+
+    async def resolve_unique_ids_by_name(
+        self,
+        name: str,
+    ) -> list[str]:
+        """Resolve a model name to unique_id(s) via the Discovery API's
+        `identifier` filter.
+
+        `identifier` matches on the model's *alias* (DB relation name), not its
+        dbt `name` -- in the Discovery API schema, `identifier` is grouped with
+        `database`/`schema` as a materialization field and resolves to an
+        `alias` column match. `alias` defaults to `name` unless overridden via
+        `{{ config(alias=...) }}`, so:
+          - a model whose alias coincidentally equals `name` but whose real
+            name differs would be a false-positive match from the server
+            alone -- filtered out below by comparing the returned node's name.
+          - a model whose alias was overridden away from its name is a false
+            negative this method cannot find (there is no server-side `name`
+            filter on the model filter type). Known limitation, consistent
+            with existing `_get_model_filters` usage in
+            fetch_model_health/fetch_model_children/fetch_model_parents.
+        """
+        page = await self.fetch_models(
+            model_filter=self._get_model_filters(model_name=name),
+            limit=100,
+        )
+        if page.pagination.has_more:
+            raise InvalidParameterError(
+                "Name lookup returned an incomplete candidate set; provide unique_id."
+            )
+        return [
+            model["uniqueId"]
+            for model in page.result
+            if model.get("uniqueId")
+            and (model.get("name") or "").lower() == name.lower()
+        ]
+
+    async def fetch_model_parents(
+        self,
+        model_name: str | None = None,
+        unique_id: str | None = None,
+    ) -> list[dict]:
+        model_filters = self._get_model_filters(model_name, unique_id)
+        variables = {
+            "environmentId": self._config.environment_id,
+            "modelsFilter": model_filters,
+            "first": 1,
+        }
+        result = await execute_query(
+            GraphQLQueries.GET_MODEL_PARENTS, variables, config=self._config
+        )
+        raise_gql_error(result)
+        edges = result["data"]["environment"]["applied"]["models"]["edges"]
+        if not edges:
+            return []
+        return edges[0]["node"]["parents"]
+
+    async def fetch_model_children(
+        self,
+        model_name: str | None = None,
+        unique_id: str | None = None,
+    ) -> list[dict]:
+        model_filters = self._get_model_filters(model_name, unique_id)
+        variables = {
+            "environmentId": self._config.environment_id,
+            "modelsFilter": model_filters,
+            "first": 1,
+        }
+        result = await execute_query(
+            GraphQLQueries.GET_MODEL_CHILDREN,
+            variables,
+            config=self._config,
+        )
+        raise_gql_error(result)
+        edges = result["data"]["environment"]["applied"]["models"]["edges"]
+        if not edges:
+            return []
+        return edges[0]["node"]["children"]
+
+    async def fetch_model_health(
+        self,
+        model_name: str | None = None,
+        unique_id: str | None = None,
+    ) -> list[dict]:
+        model_filters = self._get_model_filters(model_name, unique_id)
+        variables = {
+            "environmentId": self._config.environment_id,
+            "modelsFilter": model_filters,
+            "first": 1,
+        }
+        result = await execute_query(
+            GraphQLQueries.GET_MODEL_HEALTH, variables, config=self._config
+        )
+        raise_gql_error(result)
+        edges = result["data"]["environment"]["applied"]["models"]["edges"]
+        if not edges:
+            return []
+        return [edges[0]["node"]]
+
+
+class ExposuresFetcher:
+    def __init__(
+        self,
+        paginator: PaginatedResourceFetcher,
+    ):
+        self._paginator = paginator
+
+    async def fetch_exposures(
+        self, *, limit: int = 50, after: str | None = None
+    ) -> ResultPage[list[dict]]:
+        return await self._paginator.fetch_paginated(
+            GraphQLQueries.GET_EXPOSURES,
+            variables={},
+            limit=limit,
+            after=after,
+        )
+
+
+class SourcesFetcher:
+    def __init__(
+        self,
+        paginator: PaginatedResourceFetcher,
+    ):
+        self._paginator = paginator
+
+    async def fetch_sources(
+        self,
+        source_names: list[str] | None = None,
+        unique_ids: list[str] | None = None,
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> ResultPage[list[dict]]:
+        source_filter: SourceFilter = {}
+        if source_names is not None:
+            source_filter["sourceNames"] = source_names
+        if unique_ids is not None:
+            source_filter["uniqueIds"] = unique_ids
+
+        return await self._paginator.fetch_paginated(
+            GraphQLQueries.GET_SOURCES,
+            variables={"sourcesFilter": source_filter},
+            limit=limit,
+            after=after,
+        )
+
+
+class MacrosFetcher:
+    def __init__(
+        self,
+        paginator: PaginatedResourceFetcher,
+    ):
+        self._paginator = paginator
+
+    async def fetch_macros(
+        self,
+        package_names: list[str] | None = None,
+        return_package_names_only: bool = False,
+        include_default_dbt_packages: bool = False,
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> ResultPage[list[dict] | list[str]]:
+        """Fetch all macros with optional filtering.
+
+        Args:
+            package_names: Optional list of package names to filter by.
+            return_package_names_only: If True, returns only unique package names
+                instead of full macro details. Useful for discovering available
+                packages before drilling down.
+            include_default_dbt_packages: If True, includes the default dbt macros that
+                are maintained by dbt Labs.
+
+        Returns:
+            List of macros with name, uniqueId, description, and packageName,
+            or list of unique package names if return_package_names_only is True.
+        """
+        macro_filter: MacroFilter = {"types": ["Macro"]}
+
+        page = await self._paginator.fetch_paginated(
+            GraphQLQueries.GET_MACROS,
+            variables={"filter": macro_filter},
+            limit=limit,
+            after=after,
+        )
+
+        macros = page.result
+
+        # Filter out dbt-labs first-party macros unless include_default_dbt_packages is True
+        if not include_default_dbt_packages:
+            macros = [
+                m
+                for m in macros
+                if not self._is_dbt_builtin_package(m.get("packageName", ""))
+            ]
+
+        # Filter by package names if specified
+        if package_names is not None:
+            package_names_lower = [p.lower() for p in package_names]
+            macros = [
+                m
+                for m in macros
+                if m.get("packageName", "").lower() in package_names_lower
+            ]
+
+        # Return only unique package names if requested
+        if return_package_names_only:
+            unique_packages = sorted(
+                {name for m in macros if (name := m.get("packageName"))}
+            )
+            return ResultPage(result=unique_packages, pagination=page.pagination)
+
+        return ResultPage(result=macros, pagination=page.pagination)
+
+    def _is_dbt_builtin_package(self, package_name: str) -> bool:
+        """Check if a package is dbt core or a dbt-labs first-party adapter."""
+        if not package_name:
+            return False
+        return package_name.lower() in DBT_BUILTIN_PACKAGES
+
+
+# Bounds a scan at 2_000 public nodes. A safety net against an unbounded
+# loop, not an operational limit -- the scan filters to public server-side.
+MESH_SCAN_PAGE_SIZE = 100
+MESH_SCAN_MAX_PAGES = 20
+
+# `environment.dbtProjectName` is a sibling of `environment.applied` in
+MESH_PROJECT_NAME_PATH: tuple[str, ...] = ("data", "environment", "dbtProjectName")
+
+
+@dataclass(frozen=True, slots=True)
+class MeshCandidates:
+    """One environment's candidate model nodes plus its confirmed identity.
+
+    `platform_project_name` is never empty: `PublicMeshModelsFetcher._require_project_name`
+    raises rather than returning one, so a `MeshCandidates` only ever exists
+    for a project whose identity is confirmed.
+
+    `incomplete` means pages remained unread, so a negative must be treated
+    as unproven: on the scan path the page budget ran out; on the point-query
+    path more rows exist at that one relation than fit in a page, which a
+    near-unique relation match makes a safety net rather than a real signal.
+    """
+
+    nodes: list[MeshModelNode]
+    incomplete: bool
+    platform_project_name: str
+
+
+class PublicMeshModelsFetcher:
+    """Scans an environment's public model nodes with Mesh-relevant fields.
+
+    Unlike the other fetchers here, this one does not hand continuation back
+    to the caller: the search fans out across N projects to answer a
+    whole-environment question, so a cursor would have to be per-project and
+    every partial answer would be unsound. It sweeps internally against a
+    page budget and reports whether the sweep completed.
+    """
+
+    def __init__(
+        self,
+        config: DiscoveryConfig,
+        paginator: PaginatedResourceFetcher,
+    ):
+        self._config = config
+        self._paginator = paginator
+
+    async def fetch_candidates(
+        self, relation_filter: ModelFilter | None = None
+    ) -> MeshCandidates:
+        """With `relation_filter`, one filtered request whose rows *are*
+        the matches; without it, the bounded public-only sweep. Either way,
+        the environment's own project name rides along in the same response
+        as the node page(s), so there is no separate identity lookup.
+
+        If that project name is missing, this raises rather than degrading:
+        without a confirmed identity nothing in the node scan can be
+        attributed to this producer, so the caller treats the whole project
+        as failed instead of returning unverifiable nodes.
+        """
+        if relation_filter is not None:
+            nodes, incomplete, raw_project_name = await self._fetch_relation_match(
+                relation_filter
+            )
+        else:
+            nodes, incomplete, raw_project_name = await self._scan_all_nodes()
+        return MeshCandidates(
+            nodes=nodes,
+            incomplete=incomplete,
+            platform_project_name=self._require_project_name(raw_project_name),
+        )
+
+    def _require_project_name(self, raw_project_name: str | None) -> str:
+        """Raises when the platform can't confirm this environment's own
+        project identity -- a GraphQL/network error (surfaced earlier, while
+        parsing the node page), or a well-formed response with no
+        `dbtProjectName` set. Mesh search cannot trust any node's ownership
+        without this answer, so the caller (`_fetch_one_project` in
+        tools.py) treats the whole project as failed rather than returning
+        unverifiable nodes.
+        """
+        if not raw_project_name:
+            raise DiscoveryToolCallError(
+                "The platform did not return a project name for this environment"
+            )
+        return raw_project_name
+
+    async def _fetch_relation_match(
+        self, relation_filter: ModelFilter
+    ) -> tuple[list[MeshModelNode], bool, str | None]:
+        """One page is enough -- `(database, schema, identifier)` is
+        effectively unique within a project. `incomplete` stays wired to
+        `has_more` rather than hardcoded False so that if the assumption ever
+        fails, the uncertainty is reported instead of rows being dropped.
+        """
+        # Built fresh rather than mutating `relation_filter` in place: the
+        # same dict is shared across concurrent per-project fetches in the
+        # mesh search fan-out.
+        model_filter: ModelFilter = {"access": ModelAccess.PUBLIC}
+        model_filter.update(relation_filter)
+        page, project_name = await self._paginator.fetch_paginated_with_sibling_field(
+            GraphQLQueries.GET_PUBLIC_MESH_MODELS,
+            variables={
+                "modelsFilter": model_filter,
+                "sort": {"field": "queryUsageCount", "direction": "desc"},
+            },
+            limit=MESH_SCAN_PAGE_SIZE,
+            after=None,
+            sibling_path=MESH_PROJECT_NAME_PATH,
+        )
+        return (
+            cast(list[MeshModelNode], page.result),
+            page.pagination.has_more,
+            project_name,
+        )
+
+    async def _scan_all_nodes(self) -> tuple[list[MeshModelNode], bool, str | None]:
+        """Sweep every public model node, most-queried first within this
+        project."""
+        model_filter: ModelFilter = {"access": ModelAccess.PUBLIC}
+        collected: list[MeshModelNode] = []
+        project_name: str | None = None
+        after: str | None = None
+        for _ in range(MESH_SCAN_MAX_PAGES):
+            (
+                page,
+                page_project_name,
+            ) = await self._paginator.fetch_paginated_with_sibling_field(
+                GraphQLQueries.GET_PUBLIC_MESH_MODELS,
+                variables={
+                    "modelsFilter": model_filter,
+                    "sort": {"field": "queryUsageCount", "direction": "desc"},
+                },
+                limit=MESH_SCAN_PAGE_SIZE,
+                after=after,
+                sibling_path=MESH_PROJECT_NAME_PATH,
+            )
+            collected.extend(cast(list[MeshModelNode], page.result))
+            # Every page carries the same project name; a transient null on a
+            # later page must not erase an already-confirmed identity.
+            if project_name is None:
+                project_name = page_project_name
+            if not page.pagination.has_more:
+                return collected, False, project_name
+            after = page.pagination.next_cursor
+        return collected, True, project_name
+
+
+class AppliedResourceType(StrEnum):
+    MODEL = "model"
+    SOURCE = "source"
+    EXPOSURE = "exposure"
+    TEST = "test"
+    SEED = "seed"
+    SNAPSHOT = "snapshot"
+    MACRO = "macro"
+    SEMANTIC_MODEL = "semantic_model"
+
+
+class ResourceDetailsFetcher:
+    def __init__(self, config: DiscoveryConfig, models_fetcher: ModelsFetcher):
+        self._config = config
+        self._models_fetcher = models_fetcher
+
+    GET_PACKAGES_QUERY = load_query("get_packages.gql")
+    GET_MODELS_DETAILS_QUERY = load_query("get_model_details.gql")
+    GET_SOURCES_QUERY = load_query("get_source_details.gql")
+    GET_EXPOSURES_QUERY = load_query("get_exposure_details.gql")
+    GET_TESTS_QUERY = load_query("get_test_details.gql")
+    GET_SEEDS_QUERY = load_query("get_seed_details.gql")
+    GET_SNAPSHOTS_QUERY = load_query("get_snapshot_details.gql")
+    GET_MACROS_QUERY = load_query("get_macro_details.gql")
+    GET_SEMANTIC_MODELS_QUERY = load_query("get_semantic_model_details.gql")
+
+    GQL_QUERIES: ClassVar[dict[AppliedResourceType, str]] = {
+        AppliedResourceType.MODEL: GET_MODELS_DETAILS_QUERY,
+        AppliedResourceType.SOURCE: GET_SOURCES_QUERY,
+        AppliedResourceType.EXPOSURE: GET_EXPOSURES_QUERY,
+        AppliedResourceType.TEST: GET_TESTS_QUERY,
+        AppliedResourceType.SEED: GET_SEEDS_QUERY,
+        AppliedResourceType.SNAPSHOT: GET_SNAPSHOTS_QUERY,
+        AppliedResourceType.MACRO: GET_MACROS_QUERY,
+        AppliedResourceType.SEMANTIC_MODEL: GET_SEMANTIC_MODELS_QUERY,
+    }
+
+    RESOURCE_TYPE_TO_GQL_TYPE: ClassVar[dict[AppliedResourceType, str]] = {
+        AppliedResourceType.MODEL: "Model",
+        AppliedResourceType.SOURCE: "Source",
+        AppliedResourceType.EXPOSURE: "Exposure",
+        AppliedResourceType.TEST: "Test",
+        AppliedResourceType.SEED: "Seed",
+        AppliedResourceType.SNAPSHOT: "Snapshot",
+        AppliedResourceType.MACRO: "Macro",
+        AppliedResourceType.SEMANTIC_MODEL: "SemanticModel",
+    }
+
+    async def fetch_details(
+        self,
+        resource_type: AppliedResourceType,
+        name: str | None = None,
+        unique_id: str | None = None,
+    ) -> list[dict]:
+        stripped_name = name.strip() if name else None
+        normalized_name = stripped_name.lower() if stripped_name else None
+        # Do not lowercase unique_id — the Discovery API uniqueIds filter is case-sensitive
+        stripped_unique_id = unique_id.strip() if unique_id else None
+        environment_id = self._config.environment_id
+        if not stripped_name and not stripped_unique_id:
+            raise InvalidParameterError("Either name or unique_id must be provided")
+        if (
+            normalized_name
+            and stripped_unique_id
+            and normalized_name != stripped_unique_id.split(".")[-1].lower()
+        ):
+            raise InvalidParameterError(
+                f"Name and unique_id do not match. The unique_id does not end with {normalized_name}."
+            )
+        if not stripped_unique_id:
+            assert stripped_name is not None, "Name must be provided"
+            if resource_type == AppliedResourceType.MODEL:
+                # Models support a server-side name filter (see
+                # ModelsFetcher.resolve_unique_ids_by_name), so we can resolve
+                # directly instead of enumerating packages and guessing unique_ids.
+                unique_ids = await self._models_fetcher.resolve_unique_ids_by_name(
+                    stripped_name,
+                )
+                if not unique_ids:
+                    return []
+            else:
+                packages_result = await asyncio.gather(
+                    execute_query(
+                        self.GET_PACKAGES_QUERY,
+                        variables={
+                            "resource": "macro",
+                            "environmentId": environment_id,
+                        },
+                        config=self._config,
+                    ),
+                    execute_query(
+                        self.GET_PACKAGES_QUERY,
+                        variables={
+                            "resource": "model",
+                            "environmentId": environment_id,
+                        },
+                        config=self._config,
+                    ),
+                )
+                raise_gql_error(packages_result[0])
+                raise_gql_error(packages_result[1])
+                macro_packages = packages_result[0]["data"]["environment"]["applied"][
+                    "packages"
+                ]
+                model_packages = packages_result[1]["data"]["environment"]["applied"][
+                    "packages"
+                ]
+                if not macro_packages and not model_packages:
+                    raise InvalidParameterError("No packages found for project")
+                # Try both the provided casing and lowercase to handle resources with uppercase names
+                name_candidates = sorted({stripped_name, stripped_name.lower()})
+                unique_ids = [
+                    f"{resource_type.value.lower()}.{package_name}.{name_candidate}"
+                    for package_name in macro_packages + model_packages
+                    for name_candidate in name_candidates
+                ]
+        else:
+            unique_ids = [stripped_unique_id]
+        if len(unique_ids) > 100:
+            raise InvalidParameterError(
+                "Too many packages match this name; provide unique_id."
+            )
+        query = self.GQL_QUERIES[resource_type]
+        variables = {
+            "environmentId": environment_id,
+            "filter": {
+                "uniqueIds": unique_ids,
+                "types": [self.RESOURCE_TYPE_TO_GQL_TYPE[resource_type]],
+            },
+            "first": len(unique_ids),
+        }
+        get_details_result = await execute_query(query, variables, config=self._config)
+        raise_gql_error(get_details_result)
+        edges = get_details_result["data"]["environment"]["applied"]["resources"][
+            "edges"
+        ]
+        if not edges:
+            return []
+        return [e["node"] for e in edges]
+
+
+class LineageFetcher:
+    """Fetcher for lineage data. Returns nodes connected to the target."""
+
+    def __init__(self, config: DiscoveryConfig):
+        self._config = config
+
+    async def fetch_lineage(
+        self,
+        unique_id: str,
+        depth: int,
+        types: list[LineageResourceType] | None = None,
+        direction: LineageDirection = LineageDirection.BOTH,
+    ) -> list[dict]:
+        """Fetch lineage graph filtered to nodes connected to unique_id.
+
+        Args:
+            unique_id: The dbt unique ID of the resource to get lineage for.
+            depth: how many levels to traverse (0 = infinite, 1 = immediate neighbors only, higher = deeper)
+            types: List of resource types to include. If None, includes all types.
+            direction: Which direction(s) to traverse relative to unique_id.
+
+        Returns:
+            List of nodes connected to unique_id, filtered to `direction`.
+        """
+        if depth < 0:
+            raise ToolCallError("Depth must be greater than or equal to 0")
+        type_filter = [
+            t.value for t in (types if types is not None else LineageResourceType)
+        ]
+        variables = {
+            "environmentId": self._config.environment_id,
+            "types": type_filter,
+            # uniqueId removed - not used by GraphQL
+        }
+
+        result = await execute_query(
+            GraphQLQueries.GET_FULL_LINEAGE,
+            variables,
+            config=self._config,
+            response_type="discovery.lineage",
+        )
+        raise_gql_error(result)
+
+        all_nodes = (
+            result.get("data", {})
+            .get("environment", {})
+            .get("applied", {})
+            .get("lineage", [])
+        )
+
+        # Filter to connected nodes only
+        return self._filter_connected_nodes(all_nodes, unique_id, depth, direction)
+
+    def _filter_connected_nodes(
+        self,
+        nodes: list[dict],
+        target_id: str,
+        depth: int,
+        direction: LineageDirection = LineageDirection.BOTH,
+    ) -> list[dict]:
+        """Return only nodes connected to target_id, filtered to `direction`.
+        Uses BFS to find all nodes reachable from target in the requested direction(s).
+        Args:
+            nodes: List of all nodes in the lineage graph.
+            target_id: The unique ID of the target node.
+            depth: how many levels to traverse (0 = infinite, 1 = immediate neighbors only, higher = deeper)
+            direction: Which direction(s) to traverse relative to target_id.
+        """
+        node_map = {
+            n["uniqueId"]: n
+            for n in nodes
+            if (resource_type := n.get("resourceType"))
+            and isinstance(resource_type, str)
+            # Filtering out macros because they have large
+            # dependency graphs that aren't always useful.
+            and resource_type.strip().lower() != "macro"
+        }
+
+        if target_id not in node_map:
+            return []
+
+        include_upstream = direction in (
+            LineageDirection.UPSTREAM,
+            LineageDirection.BOTH,
+        )
+        include_downstream = direction in (
+            LineageDirection.DOWNSTREAM,
+            LineageDirection.BOTH,
+        )
+
+        children_by_parent: dict[str, list[str]] = defaultdict(list)
+        if include_downstream:
+            for node in nodes:
+                candidate_id = node.get("uniqueId")
+                if not isinstance(candidate_id, str) or candidate_id not in node_map:
+                    continue
+                for parent_id in node.get("parentIds", []):
+                    if parent_id in node_map:
+                        children_by_parent[parent_id].append(candidate_id)
+
+        # BFS orders the closest nodes first and makes output deterministic.
+        connected = {target_id}
+        connected_order = [target_id]
+        queue = deque([(target_id, 0)])
+
+        def enqueue(candidate_id: str, candidate_depth: int) -> None:
+            if candidate_id in connected or candidate_id not in node_map:
+                return
+            connected.add(candidate_id)
+            connected_order.append(candidate_id)
+            queue.append((candidate_id, candidate_depth))
+
+        while queue:
+            current_id, current_depth = queue.popleft()
+            node = node_map[current_id]
+
+            # Stop traversing beyond the depth limit, depth=0 means infinite
+            if depth > 0 and current_depth >= depth:
+                continue
+
+            # Traverse upstream (parents)
+            if include_upstream:
+                for parent_id in node.get("parentIds", []):
+                    enqueue(parent_id, current_depth + 1)
+
+            # Traverse downstream (children)
+            if include_downstream:
+                for candidate_id in children_by_parent.get(current_id, ()):
+                    enqueue(candidate_id, current_depth + 1)
+
+        # One-directional queries return only ancestors (upstream) or
+        # descendants (downstream), excluding the target node itself — this
+        # makes get_lineage a true drop-in for get_model_parents/
+        # get_model_children. direction="both" keeps the target as the
+        # anchor of the full connected subgraph.
+        if direction != LineageDirection.BOTH:
+            del connected_order[0]
+
+        return [node_map[uid] for uid in connected_order]
+
+
+class ModelPerformanceFetcher:
+    """Fetches model execution performance data from Discovery API."""
+
+    GET_MODEL_PERFORMANCE_QUERY = load_query("get_model_performance.gql")
+
+    def __init__(
+        self,
+        config: DiscoveryConfig,
+        models_fetcher: ModelsFetcher,
+    ):
+        self._config = config
+        self._models_fetcher = models_fetcher
+
+    async def fetch_performance(
+        self,
+        name: str | None = None,
+        unique_id: str | None = None,
+        num_runs: int = 1,
+        include_tests: bool = False,
+    ) -> list[dict]:
+        """Fetch model performance data.
+
+        Args:
+            name: Model name (resolved to unique_id if provided)
+            unique_id: Fully-qualified unique ID (preferred)
+            num_runs: Number of historical runs to retrieve
+            include_tests: If True, include test execution history for each run
+
+        Returns:
+            List of performance records sorted by executeStartedAt descending
+
+        Raises:
+            InvalidParameterError: If neither name nor unique_id provided
+            ToolCallError: If model not found or API error
+        """
+        environment_id = self._config.environment_id
+        # Strip whitespace up front -- mirrors ResourceDetailsFetcher.fetch_details,
+        # which this method used to delegate through for name resolution.
+        stripped_name = name.strip() if name else None
+        stripped_unique_id = unique_id.strip() if unique_id else None
+        if not stripped_name and not stripped_unique_id:
+            raise InvalidParameterError("Either 'name' or 'unique_id' must be provided")
+
+        # Resolve name to unique_id if needed
+        resolved_unique_id = stripped_unique_id
+        if not resolved_unique_id:
+            assert stripped_name is not None, "Name must be provided"
+            unique_ids = await self._models_fetcher.resolve_unique_ids_by_name(
+                stripped_name,
+            )
+            if not unique_ids:
+                raise NotFoundError(f"Model not found: {stripped_name}")
+            # Model name can map to multiple unique_ids - require disambiguation
+            # For example, if multiple dbt packages define a model with the same name
+            if len(unique_ids) > 1:
+                matches = ", ".join(sorted(unique_ids))
+                raise NotFoundError(
+                    f"Multiple models found for name '{stripped_name}'. "
+                    "Please provide the unique_id instead. "
+                    f"Matches: {matches}"
+                )
+            resolved_unique_id = unique_ids[0]
+
+        variables = {
+            "environmentId": environment_id,
+            "uniqueId": resolved_unique_id,
+            "lastRunCount": num_runs,
+        }
+
+        result = await execute_query(
+            self.GET_MODEL_PERFORMANCE_QUERY,
+            variables,
+            config=self._config,
+        )
+        raise_gql_error(result)
+
+        runs = (
+            result.get("data", {})
+            .get("environment", {})
+            .get("applied", {})
+            .get("modelHistoricalRuns", [])
+        )
+
+        if not include_tests and runs:
+            for run in runs:
+                run.pop("tests", None)
+
+        return runs or []

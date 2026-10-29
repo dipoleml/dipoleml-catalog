@@ -1,0 +1,66 @@
+enum DocumentStatus {
+  BACKLOG
+  QUEUED
+  QUEUED_FOR_RESYNC
+  QUEUED_FOR_DELETE
+  PRE_PROCESSING
+  PROCESSING
+  DELETING
+  CANCELLING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Document {
+  id         String  @id @default(cuid())
+  externalId String?
+  name       String?
+  tenantId   String?
+
+  status DocumentStatus @default(BACKLOG)
+  error  String?
+
+  /// [DocumentSource]
+  source Json
+
+  /// [DocumentConfig]
+  config Json?
+
+  queuedAt        DateTime? @default(now())
+  preProcessingAt DateTime?
+  processingAt    DateTime?
+  completedAt     DateTime?
+  failedAt        DateTime?
+
+  namespaceId String
+  namespace   Namespace @relation(fields: [namespaceId], references: [id], onDelete: Cascade)
+
+  ingestJobId String
+  ingestJob   IngestJob @relation(fields: [ingestJobId], references: [id], onDelete: Cascade)
+
+  workflowRunsIds String[] @default([])
+
+  /// [DocumentProperties]
+  documentProperties Json?
+
+  totalChunks     Int   @default(0)
+  totalTokens     Int   @default(0)
+  totalCharacters Int   @default(0)
+  totalPages      Float @default(0.0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // externalId must be unique within a namespace
+  @@unique([namespaceId, externalId])
+  // ---- Namespace-centric (primary path) ----
+  @@index([namespaceId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([namespaceId, status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([namespaceId, tenantId, createdAt(sort: Desc), id(sort: Desc)])
+  // ---- Job-centric ----
+  @@index([ingestJobId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([ingestJobId, status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([ingestJobId, tenantId, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("document")
+}

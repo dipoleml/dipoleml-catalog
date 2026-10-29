@@ -1,0 +1,52 @@
+{
+  "name": "deployment",
+  "title": "Manage deployment",
+  "description": "Manage deployment: get/cancel/list_for_app/rollback_images. Logs excluded by default on all actions — for get use `lines` (paginated tail), for list_for_app use `include_logs: true` to include raw build-log blobs. rollback_images takes an application uuid (Coolify 4.3+); an empty list means Coolify could not inspect the server.",
+  "annotations": {
+    "destructiveHint": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "get",
+          "cancel",
+          "list_for_app",
+          "rollback_images"
+        ]
+      },
+      "uuid": {
+        "type": "string"
+      },
+      "lines": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "page": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "per_page": {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "max_chars": {
+        "type": "number"
+      },
+      "include_logs": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "action",
+      "uuid"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": {}
+  }
+}

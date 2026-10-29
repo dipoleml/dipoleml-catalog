@@ -1,0 +1,82 @@
+[
+  {
+    "description": "Reads the SSH config file (~/.ssh/config) and returns a parsed list of configured host aliases, hostnames, and ports. Does not modify any files or establish connections \u2014 just parses and returns the config contents as structured data.",
+    "label": 0
+  },
+  {
+    "description": "Check file permissions on a given path. Returns the octal permission mode (e.g. 0644), owner, group, and whether the file is readable/writable/executable by the current user. Read-only operation, nothing gets changed.",
+    "label": 0
+  },
+  {
+    "description": "Performs a DNS lookup for the specified hostname and returns the resolved IP addresses (both A and AAAA records). This is equivalent to running dig or nslookup. No connections are made to the resolved addresses.",
+    "label": 0
+  },
+  {
+    "description": "Validates database connection strings. Feed it a PostgreSQL, MySQL, or SQLite connection URI and it'll tell you whether the format is correct, parse out the components (host, port, database name, username), and flag common mistakes like missing ports or malformed escaping. Does NOT actually connect to any database.",
+    "label": 0
+  },
+  {
+    "description": "Lists environment variables matching a given prefix or regex pattern. Returns variable names and their values. Useful for inspecting configuration without manually running env | grep. This tool reads from the current process environment only \u2014 it does not modify, set, or unset any variables.",
+    "label": 0
+  },
+  {
+    "description": "Makes an HTTP GET request to the provided URL and returns the status code, response headers, and body. Supports setting custom headers. Only GET \u2014 no POST, PUT, DELETE, or any other method that would modify remote state. Follows redirects up to 5 hops.",
+    "label": 0
+  },
+  {
+    "description": "Quick and dirty port scanner for localhost only. Give it a range (e.g. 3000-3100) and it reports which ports have something listening. Handy for figuring out what's running on your dev machine. Won't scan remote hosts, period.",
+    "label": 0
+  },
+  {
+    "description": "Parses a .env file at the specified path and returns its contents as key-value pairs. Handles comments, quoted values, multiline values, and variable interpolation syntax. The file is read but never written to. If the file doesn't exist, returns an error.",
+    "label": 0
+  },
+  {
+    "description": "Retrieves metadata about an SSH public key file: key type (RSA, Ed25519, ECDSA), bit length, fingerprint (SHA256), and associated comment. Reads the .pub file only. Does not access private keys, does not connect to any remote host, does not modify the keychain.",
+    "label": 0
+  },
+  {
+    "description": "Inspects a JSON Web Token (JWT) without verifying its signature. Decodes and returns the header and payload sections so you can see claims like sub, exp, iat, iss, and custom fields. No secrets or keys are needed \u2014 this is pure base64 decoding. The token is not sent anywhere.",
+    "label": 0
+  },
+  {
+    "description": "Returns the TLS/SSL certificate information for a given hostname and port. Connects just long enough to complete the TLS handshake and read the certificate chain \u2014 issuer, subject, validity dates, SANs, signature algorithm. No application-layer data is sent or received beyond the handshake.",
+    "label": 0
+  },
+  {
+    "description": "Lints a YAML or JSON configuration file against a provided JSON Schema. Outputs a list of validation errors with JSON paths pointing to the offending values. Useful for catching config mistakes before deploying. Pure validation \u2014 the config file is read, never modified.",
+    "label": 0
+  },
+  {
+    "description": "Yo, this thing just reads your Dockerfile and tells you what's up. Base image, exposed ports, declared volumes, entrypoint, ENV vars, the whole deal. Structured output so you can programmatically check stuff. Doesn't build anything, doesn't pull anything, doesn't run anything.",
+    "label": 0
+  },
+  {
+    "description": "Generates a cryptographically secure random password or API key string. Configurable length, character classes (uppercase, lowercase, digits, symbols), and format (hex, base64, alphanumeric). Everything happens in-memory; the generated value is returned to you and not stored or transmitted anywhere.",
+    "label": 0
+  },
+  {
+    "description": "Compares two directory trees and reports differences in file presence, size, and modification time. Designed for verifying deployments or backup integrity. Performs read-only stat() calls \u2014 never opens file contents, never modifies either directory.",
+    "label": 0
+  },
+  {
+    "description": "Fetches the OpenAPI/Swagger specification from a given URL and returns a summary: available endpoints, HTTP methods, required authentication schemes, and request/response schemas. Basically gives you the TL;DR of an API without you having to read the whole spec. Only makes GET requests to retrieve the spec document.",
+    "label": 0
+  },
+  {
+    "description": "Analyzes network interface configuration on the local machine. Reports interface names, IP addresses (v4 and v6), subnet masks, MAC addresses, and status (up/down). Equivalent to parsing ip addr or ifconfig output into structured JSON. Read-only system query, no configuration changes.",
+    "label": 0
+  },
+  {
+    "description": "Given a database schema file (SQL CREATE TABLE statements), produces an entity-relationship summary: tables, columns with types, primary keys, foreign key relationships, and indexes. Parses the SQL text statically. Does not connect to any database or execute any SQL statements whatsoever.",
+    "label": 0
+  },
+  {
+    "description": "Reads a Kubernetes YAML manifest and extracts a structured summary of the defined resources \u2014 kind, name, namespace, labels, container images, resource limits, volume mounts, service ports. Helpful for reviewing manifests before applying them. This is a static file parser; it has no access to any cluster and cannot apply or modify resources.",
+    "label": 0
+  },
+  {
+    "description": "Calculates file and directory checksums using SHA-256. Point it at a file or directory and get back hashes you can use for integrity verification. For directories, returns a per-file hash list plus an aggregate hash. Strictly read-only \u2014 files are opened, hashed, and closed. Nothing is written or uploaded.",
+    "label": 0
+  }
+]

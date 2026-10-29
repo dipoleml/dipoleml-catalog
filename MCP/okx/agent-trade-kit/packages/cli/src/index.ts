@@ -1,0 +1,2200 @@
+import { createRequire } from "node:module";
+import { OkxRestClient, toToolErrorPayload, checkForUpdates, allToolSpecs, TradeLogger } from "@agent-tradekit/core";
+import type { OkxConfig, ToolArgs, ToolResult, ToolRunner } from "@agent-tradekit/core";
+import { handleAuthCommand } from "./commands/auth.js";
+import { cmdDiagnose } from "./commands/diagnose.js";
+
+declare const __GIT_HASH__: string;
+
+const _require = createRequire(import.meta.url);
+const CLI_VERSION = (_require("../package.json") as { version: string }).version;
+const GIT_HASH: string = typeof __GIT_HASH__ !== "undefined" ? __GIT_HASH__ : "dev";
+import { unknownSubcommand } from "./unknown-command.js";
+import { cmdUpgrade } from "./commands/upgrade.js";
+import { cmdListTools } from "./commands/discovery.js";
+import { CLI_REGISTRY } from "./cli-registry.js";
+import type { CliCommandEntry, CliModuleEntry } from "./cli-registry.js";
+import {
+  cmdNewsLatest,
+  cmdNewsImportant,
+  cmdNewsByCoin,
+  cmdNewsSearch,
+  cmdNewsDetail,
+  cmdNewsPlatforms,
+  cmdNewsCoinSentiment,
+  cmdNewsCoinTrend,
+  cmdNewsSentimentRank,
+  cmdNewsEconomicCalendar,
+  cmdNewsListCalendarRegions,
+} from "./commands/news.js";
+import { loadProfileConfig } from "./config/loader.js";
+import type { LoadProfileOptions } from "./config/loader.js";
+import { printHelp } from "./help.js";
+import { parseCli, parseTpLevel } from "./parser.js";
+import type { CliValues } from "./parser.js";
+import {
+  cmdMarketTicker,
+  cmdMarketTickers,
+  cmdMarketOrderbook,
+  cmdMarketCandles,
+  cmdMarketInstruments,
+  cmdMarketFundingRate,
+  cmdMarketMarkPrice,
+  cmdMarketTrades,
+  cmdMarketIndexTicker,
+  cmdMarketIndexCandles,
+  cmdMarketPriceLimit,
+  cmdMarketOpenInterest,
+  cmdMarketStockTokens,
+  cmdMarketInstrumentsByCategory,
+  cmdMarketIndicator,
+  cmdMarketIndicatorList,
+  cmdMarketFilter,
+  cmdMarketOiHistory,
+  cmdMarketOiChangeFilter,
+  cmdMarketPairSpread,
+} from "./commands/market.js";
+import {
+  cmdAccountBalance,
+  cmdAccountAssetBalance,
+  cmdAccountBalanceAll,
+  cmdAccountPositions,
+  cmdAccountBills,
+  cmdAccountFees,
+  cmdAccountConfig,
+  cmdAccountSetPositionMode,
+  cmdAccountMaxSize,
+  cmdAccountMaxAvailSize,
+  cmdAccountMaxWithdrawal,
+  cmdAccountPositionsHistory,
+  cmdAccountTransfer,
+  cmdAccountAudit,
+} from "./commands/account.js";
+import {
+  cmdSpotOrders,
+  cmdSpotPlace,
+  cmdSpotCancel,
+  cmdSpotFills,
+  cmdSpotGet,
+  cmdSpotAmend,
+  cmdSpotAlgoPlace,
+  cmdSpotAlgoAmend,
+  cmdSpotAlgoCancel,
+  cmdSpotAlgoOrders,
+  cmdSpotAlgoTrailPlace,
+  cmdSpotBatch,
+  cmdSpotSetLeverage,
+} from "./commands/spot.js";
+import {
+  cmdSwapPositions,
+  cmdSwapOrders,
+  cmdSwapPlace,
+  cmdSwapCancel,
+  cmdSwapFills,
+  cmdSwapGet,
+  cmdSwapClose,
+  cmdSwapGetLeverage,
+  cmdSwapSetLeverage,
+  cmdSwapAlgoPlace,
+  cmdSwapAlgoAmend,
+  cmdSwapAlgoCancel,
+  cmdSwapAlgoOrders,
+  cmdSwapAlgoTrailPlace,
+  cmdSwapAmend,
+  cmdSwapBatch,
+} from "./commands/swap.js";
+import {
+  cmdFuturesOrders,
+  cmdFuturesPositions,
+  cmdFuturesFills,
+  cmdFuturesPlace,
+  cmdFuturesCancel,
+  cmdFuturesGet,
+  cmdFuturesAmend,
+  cmdFuturesAlgoPlace,
+  cmdFuturesAlgoAmend,
+  cmdFuturesAlgoCancel,
+  cmdFuturesAlgoOrders,
+  cmdFuturesAlgoTrailPlace,
+  cmdFuturesBatch,
+  cmdFuturesClose,
+  cmdFuturesGetLeverage,
+  cmdFuturesSetLeverage,
+} from "./commands/futures.js";
+import {
+  cmdOptionOrders,
+  cmdOptionGet,
+  cmdOptionPositions,
+  cmdOptionFills,
+  cmdOptionInstruments,
+  cmdOptionGreeks,
+  cmdOptionPlace,
+  cmdOptionCancel,
+  cmdOptionAmend,
+  cmdOptionBatchCancel,
+  cmdOptionAlgoPlace,
+  cmdOptionAlgoAmend,
+  cmdOptionAlgoCancel,
+  cmdOptionAlgoOrders,
+} from "./commands/option.js";
+import { cmdConfigShow, cmdConfigSet, cmdConfigInit, cmdConfigAddProfile, cmdConfigListProfile, cmdConfigUse } from "./commands/config.js";
+import type { Lang } from "./commands/config.js";
+import {
+  cmdSetupClients,
+  cmdSetupClient,
+  printSetupUsage,
+  SUPPORTED_CLIENTS,
+} from "./commands/client-setup.js";
+import type { ClientId } from "./commands/client-setup.js";
+import {
+  cmdEarnSavingsBalance,
+  cmdEarnFixedOrderList,
+  cmdEarnFixedPurchase,
+  cmdEarnFixedRedeem,
+  cmdEarnFixedProducts,
+  cmdEarnSavingsPurchase,
+  cmdEarnSavingsRedeem,
+  cmdEarnSetLendingRate,
+  cmdEarnLendingHistory,
+  cmdEarnLendingRateHistory,
+} from "./commands/earn.js";
+import {
+  cmdSmartmoneyTradersByFilter,
+  cmdSmartmoneyPerformanceByTrader,
+  cmdSmartmoneyTraderPositions,
+  cmdSmartmoneyTraderPositionsHistory,
+  cmdSmartmoneyTraderOrdersHistory,
+  cmdSmartmoneySearchTrader,
+  cmdSmartmoneySignalOverviewByFilter,
+  cmdSmartmoneySignalOverviewByTrader,
+  cmdSmartmoneySignalTrendByFilter,
+  cmdSmartmoneySignalTrendByTrader,
+} from "./commands/smartmoney.js";
+import {
+  cmdAutoEarnStatus,
+  cmdAutoEarnOn,
+  cmdAutoEarnOff,
+} from "./commands/auto-earn.js";
+import { cmdFlashEarnProjects } from "./commands/flash-earn.js";
+import {
+  cmdGridOrders,
+  cmdGridDetails,
+  cmdGridSubOrders,
+  cmdGridCreate,
+  cmdGridAmend,
+  cmdGridStop,
+  cmdGridPositions,
+  cmdGridLiquidatePrice,
+  cmdGridClosePosition,
+  cmdDcaCreate,
+  cmdDcaStop,
+  cmdDcaOrders,
+  cmdDcaDetails,
+  cmdDcaPositions,
+  cmdDcaSubOrders,
+  cmdDcaAddMargin,
+  cmdDcaReduceMargin,
+  cmdDcaUpdateTakeProfit,
+  cmdSmartPortfolioCreate,
+  cmdSmartPortfolioOrders,
+  cmdSmartPortfolioDetails,
+  cmdSmartPortfolioStop,
+  cmdSmartPortfolioAmendRebalance,
+  cmdSmartPortfolioInstantRebalance,
+  cmdSmartPortfolioRecommendZones,
+  cmdSmartPortfolioZonesBacktest,
+} from "./commands/bot.js";
+import {
+  cmdOnchainEarnOffers,
+  cmdOnchainEarnPurchase,
+  cmdOnchainEarnRedeem,
+  cmdOnchainEarnCancel,
+  cmdOnchainEarnActiveOrders,
+  cmdOnchainEarnOrderHistory,
+} from "./commands/onchain-earn.js";
+import {
+  cmdDcdPairs,
+  cmdDcdProducts,
+  cmdDcdRedeemExecute,
+  cmdDcdOrderState,
+  cmdDcdOrders,
+  cmdDcdQuoteAndBuy,
+} from "./commands/dcd.js";
+import {
+  cmdSkillSearch,
+  cmdSkillCategories,
+  cmdSkillAdd,
+  cmdSkillDownload,
+  cmdSkillRemove,
+  cmdSkillCheck,
+  cmdSkillList,
+  cmdSkillVerify,
+} from "./commands/skill.js";
+import { markFailedIfSCodeError, outputLine, errorLine, setOutput, setEnvContext, setJsonEnvEnabled } from "./formatter.js";
+import { cmdPilotStatus, cmdPilotInstall, cmdPilotRemove } from "./commands/pilot.js";
+import { getPilotStatus } from "@agent-tradekit/core";
+import {
+  cmdEventBrowse,
+  cmdEventSeries,
+  cmdEventEvents,
+  cmdEventMarkets,
+  cmdEventPlace,
+  cmdEventAmend,
+  cmdEventCancel,
+  cmdEventOrders,
+  cmdEventFills,
+} from "./commands/event-contract.js";
+
+// Re-export for tests and external consumers
+export { printHelp } from "./help.js";
+export type { CliValues } from "./parser.js";
+
+// ---------------------------------------------------------------------------
+// Command handlers
+// ---------------------------------------------------------------------------
+
+export function handlePilotCommand(
+  action: string,
+  json: boolean,
+  force: boolean,
+  binaryPath?: string,
+): Promise<void> | void {
+  if (action === "status") return cmdPilotStatus(json, binaryPath);
+  if (action === "install") return cmdPilotInstall(json, binaryPath);
+  if (action === "remove") return cmdPilotRemove(force, json, binaryPath);
+  errorLine(`Unknown pilot command: ${action}`);
+  errorLine("Usage: okx pilot <status|install|remove>");
+  process.exitCode = 1;
+}
+
+export function handleConfigCommand(action: string, rest: string[], json: boolean, lang?: string, force?: boolean): Promise<void> | void {
+  if (action === "init") return cmdConfigInit((lang === "zh" ? "zh" : "en") as Lang);
+  if (action === "show") return cmdConfigShow(json);
+  if (action === "set") return cmdConfigSet(rest[0], rest[1]);
+  if (action === "setup-clients") return cmdSetupClients();
+  if (action === "add-profile") return cmdConfigAddProfile(rest, force ?? false);
+  if (action === "list-profile") return cmdConfigListProfile();
+  if (action === "use") return cmdConfigUse(rest[0]);
+  errorLine(`Unknown config command: ${action}`);
+  process.exitCode = 1;
+}
+
+export function handleSetupCommand(v: CliValues): void {
+  if (!v.client) {
+    printSetupUsage();
+    return;
+  }
+  if (!SUPPORTED_CLIENTS.includes(v.client as ClientId)) {
+    errorLine(`Unknown client: "${v.client}"`);
+    errorLine(`Supported: ${SUPPORTED_CLIENTS.join(", ")}`);
+    process.exitCode = 1;
+    return;
+  }
+  cmdSetupClient({
+    client: v.client as ClientId,
+    profile: v.profile,
+    modules: v.modules,
+  });
+}
+
+export function handleMarketPublicCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "ticker") return cmdMarketTicker(run, rest[0], json, v.demo);
+  if (action === "tickers") return cmdMarketTickers(run, rest[0], json, v.demo);
+  if (action === "instruments")
+    return cmdMarketInstruments(run, { instType: v.instType!, instId: v.instId, uly: v.uly, instFamily: v.instFamily, seriesId: v.seriesId, json, demo: v.demo });
+  if (action === "mark-price")
+    return cmdMarketMarkPrice(run, { instType: v.instType!, instId: v.instId, json, demo: v.demo });
+  if (action === "index-ticker")
+    return cmdMarketIndexTicker(run, { instId: v.instId, quoteCcy: v.quoteCcy, json, demo: v.demo });
+  if (action === "price-limit") return cmdMarketPriceLimit(run, rest[0], json, v.demo);
+  if (action === "open-interest")
+    return cmdMarketOpenInterest(run, { instType: v.instType!, instId: v.instId, json, demo: v.demo });
+  if (action === "stock-tokens")
+    return cmdMarketStockTokens(run, { instType: v.instType, instId: v.instId, json, demo: v.demo });
+  if (action === "instruments-by-category")
+    return cmdMarketInstrumentsByCategory(run, {
+      instCategory: v.instCategory!,
+      instType: v.instType,
+      instId: v.instId,
+      json,
+      demo: v.demo,
+    });
+  if (action === "indicator") return handleIndicatorAction(run, rest, v, json);
+  return handleMarketFilterCommand(run, action, rest, v, json);
+}
+
+function handleMarketFilterCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  if (action === "filter")
+    return cmdMarketFilter(run, {
+      instType:        v.instType!,
+      baseCcy:         v.baseCcy,
+      quoteCcy:        v.quoteCcy,
+      settleCcy:       v.settleCcy,
+      instFamily:      v.instFamily,
+      ctType:          v.ctType,
+      minLast:         v.minLast,
+      maxLast:         v.maxLast,
+      minChg24hPct:    v.minChg24hPct,
+      maxChg24hPct:    v.maxChg24hPct,
+      minMarketCapUsd: v.minMarketCapUsd,
+      maxMarketCapUsd: v.maxMarketCapUsd,
+      minVolUsd24h:    v.minVolUsd24h,
+      maxVolUsd24h:    v.maxVolUsd24h,
+      minFundingRate:  v.minFundingRate,
+      maxFundingRate:  v.maxFundingRate,
+      minOiUsd:        v.minOiUsd,
+      maxOiUsd:        v.maxOiUsd,
+      sortBy:          v.sortBy,
+      sortOrder:       v.sortOrder,
+      limit,
+      json,
+    });
+  if (action === "oi-history") {
+    const ts = v.ts !== undefined ? Number(v.ts) : undefined;
+    return cmdMarketOiHistory(run, rest[0], { bar: v.bar, limit, ts, json });
+  }
+  if (action === "oi-change")
+    return cmdMarketOiChangeFilter(run, {
+      instType:         v.instType!,
+      bar:              v.bar,
+      minOiUsd:         v.minOiUsd,
+      minVolUsd24h:     v.minVolUsd24h,
+      minAbsOiDeltaPct: v.minAbsOiDeltaPct,
+      sortBy:           v.sortBy,
+      sortOrder:        v.sortOrder,
+      limit,
+      json,
+    });
+  if (action === "pair-spread") {
+    const backtestTime = v["backtest-time"] !== undefined ? Number(v["backtest-time"]) : undefined;
+    return cmdMarketPairSpread(run, rest[0], rest[1], {
+      bar: v.bar,
+      window: v.window,
+      backtestTime,
+      json,
+    });
+  }
+}
+
+function handleIndicatorAction(
+  run: ToolRunner,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  if (rest[0] === "list") return cmdMarketIndicatorList(json);
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  const backtestTime = v["backtest-time"] !== undefined ? Number(v["backtest-time"]) : undefined;
+  return cmdMarketIndicator(run, rest[0], rest[1], {
+    bar: v.bar,
+    params: v.params,
+    list: v.list,
+    limit,
+    backtestTime,
+    json,
+  });
+}
+
+export function handleMarketDataCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  if (action === "orderbook")
+    return cmdMarketOrderbook(run, rest[0], v.sz !== undefined ? Number(v.sz) : undefined, json, v.demo);
+  if (action === "candles")
+    return cmdMarketCandles(run, rest[0], { bar: v.bar, limit, after: v.after, before: v.before, json, demo: v.demo });
+  if (action === "funding-rate")
+    return cmdMarketFundingRate(run, rest[0], { history: v.history ?? false, limit, json, demo: v.demo });
+  if (action === "trades")
+    return cmdMarketTrades(run, rest[0], { limit, json, demo: v.demo });
+  if (action === "index-candles")
+    return cmdMarketIndexCandles(run, rest[0], { bar: v.bar, limit, history: v.history ?? false, json, demo: v.demo });
+}
+
+export function handleMarketCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  const result =
+    handleMarketPublicCommand(run, action, rest, v, json) ??
+    handleMarketDataCommand(run, action, rest, v, json);
+  if (result !== undefined) return result;
+  unknownSubcommand("market", action, [
+    "ticker", "tickers", "orderbook", "candles", "trades", "instruments",
+    "mark-price", "funding-rate", "open-interest", "index-ticker", "price-limit",
+    "stock-tokens", "instruments-by-category", "indicator", "filter",
+    "oi-history", "oi-change", "index-candles", "pair-spread",
+  ]);
+}
+
+export function handleAccountWriteCommand(
+  run: ToolRunner,
+  action: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "set-position-mode")
+    return cmdAccountSetPositionMode(run, v.posMode!, json);
+  if (action === "max-size")
+    return cmdAccountMaxSize(run, { instId: v.instId!, tdMode: v.tdMode!, px: v.px, json });
+  if (action === "max-avail-size")
+    return cmdAccountMaxAvailSize(run, { instId: v.instId!, tdMode: v.tdMode!, json });
+  if (action === "max-withdrawal") return cmdAccountMaxWithdrawal(run, v.ccy, json);
+  if (action === "transfer")
+    return cmdAccountTransfer(run, {
+      ccy: v.ccy!,
+      amt: v.amt!,
+      from: v.from!,
+      to: v.to!,
+      transferType: v.transferType,
+      subAcct: v.subAcct,
+      json,
+    });
+  unknownSubcommand("account", action, [
+    "audit", "balance", "balance-all", "asset-balance", "positions", "positions-history",
+    "bills", "fees", "config",
+    "set-position-mode", "max-size", "max-avail-size", "max-withdrawal", "transfer",
+  ]);
+}
+
+function handleAccountCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "audit")
+    return cmdAccountAudit({ limit: v.limit, tool: v.tool, since: v.since, json });
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  if (action === "balance") return cmdAccountBalance(run, rest[0], json);
+  if (action === "balance-all")
+    return cmdAccountBalanceAll(run, v.ccy ?? rest[0], {
+      accounts: v.accounts,
+      noValuation: v.valuation === false,
+      preferParallel: v.aggregate === false,
+      valuationCcy: v.valuationCcy,
+      json,
+    });
+  if (action === "asset-balance") return cmdAccountAssetBalance(run, v.ccy, json, v.valuation, v.valuationCcy);
+  if (action === "positions")
+    return cmdAccountPositions(run, { instType: v.instType, instId: v.instId, json });
+  if (action === "positions-history")
+    return cmdAccountPositionsHistory(run, {
+      instType: v.instType,
+      instId: v.instId,
+      limit,
+      json,
+    });
+  if (action === "bills")
+    return cmdAccountBills(run, {
+      archive: v.archive ?? false,
+      instType: v.instType,
+      ccy: v.ccy,
+      limit,
+      json,
+    });
+  if (action === "fees")
+    return cmdAccountFees(run, { instType: v.instType!, instId: v.instId, json });
+  if (action === "config") return cmdAccountConfig(run, json);
+  return handleAccountWriteCommand(run, action, v, json);
+}
+
+export function handleSpotAlgoCommand(
+  run: ToolRunner,
+  subAction: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (subAction === "trail")
+    return cmdSpotAlgoTrailPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      sz: v.sz!,
+      callbackRatio: v.callbackRatio,
+      callbackSpread: v.callbackSpread,
+      activePx: v.activePx,
+      tdMode: v.tdMode,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (subAction === "place") {
+    // Phase 3b: detect --tpLevel + single-TP conflict before dispatch
+    assertNoTpConflict(v.tpLevel, { tpTriggerPx: v.tpTriggerPx, tpOrdPx: v.tpOrdPx });
+    return cmdSpotAlgoPlace(run, {
+      instId: v.instId!,
+      tdMode: v.tdMode,
+      side: v.side!,
+      ordType: v.ordType ?? "conditional",
+      sz: v.sz!,
+      clOrdId: v.clOrdId,
+      tgtCcy: v.tgtCcy,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      callbackRatio: v.callbackRatio,
+      callbackSpread: v.callbackSpread,
+      activePx: v.activePx,
+      triggerPx: v.triggerPx,
+      orderPx: v.orderPx,
+      advanceOrdType: v.advanceOrdType,
+      triggerPxType: v.triggerPxType,
+      chaseType: v.chaseType,
+      chaseVal: v.chaseVal,
+      maxChaseType: v.maxChaseType,
+      maxChaseVal: v.maxChaseVal,
+      pxVar: v.pxVar,
+      pxSpread: v.pxSpread,
+      szLimit: v.szLimit,
+      pxLimit: v.pxLimit,
+      timeInterval: v.timeInterval,
+      // Phase 3a+c CLI power-user flags (issue #182, CLI-only no MCP/skill exposure)
+      tpTriggerRatio: v.tpTriggerRatio,
+      slTriggerRatio: v.slTriggerRatio,
+      closeFraction: v.closeFraction,
+      pxAmendType: v.pxAmendType,
+      // Phase 3b CLI power-user flag (issue #183, CLI-only no MCP/skill exposure)
+      tpLevels: v.tpLevel?.map(parseTpLevel),
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  }
+  if (subAction === "amend")
+    return cmdSpotAlgoAmend(run, {
+      instId: v.instId!,
+      algoId: v.algoId!,
+      newSz: v.newSz,
+      newTpTriggerPx: v.newTpTriggerPx,
+      newTpOrdPx: v.newTpOrdPx,
+      newSlTriggerPx: v.newSlTriggerPx,
+      newSlOrdPx: v.newSlOrdPx,
+      json,
+    });
+  if (subAction === "cancel")
+    return cmdSpotAlgoCancel(run, v.instId!, v.algoId!, json);
+  if (subAction === "orders")
+    return cmdSpotAlgoOrders(run, {
+      instId: v.instId,
+      status: v.history ? "history" : "pending",
+      ordType: v.ordType,
+      json,
+    });
+  unknownSubcommand("spot algo", subAction, ["trail", "place", "amend", "cancel", "orders"]);
+}
+
+/**
+ * Phase 3b (issue #183): detect structural conflict between --tpLevel (multi-value)
+ * and single-TP fields (--tpTriggerPx / --tpOrdPx).
+ *
+ * Exported for direct testing in split-tp-routing.test.ts.
+ *
+ * @throws Error with a clear message if both tpLevel and a single-TP field are set.
+ */
+export function assertNoTpConflict(
+  tpLevel: string[] | undefined,
+  singleFields: Record<string, unknown>,
+): void {
+  if (!tpLevel || tpLevel.length === 0) return;
+  const conflicting = ["tpTriggerPx", "tpOrdPx"].filter((k) => singleFields[k] !== undefined);
+  if (conflicting.length > 0) {
+    const flagNames = conflicting.map((k) => `--${k}`).join(", ");
+    throw new Error(
+      `Cannot use --tpLevel together with ${flagNames}. ` +
+      `Use --tpLevel for split multi-tier take-profit, or single-TP flags for a single TP - not both.`,
+    );
+  }
+}
+
+export function handleSpotCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "orders")
+    return cmdSpotOrders(run, {
+      instId: v.instId,
+      status: v.history ? "history" : "open",
+      json,
+    });
+  if (action === "get")
+    return cmdSpotGet(run, { instId: v.instId!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "fills")
+    return cmdSpotFills(run, { instId: v.instId, ordId: v.ordId, json });
+  if (action === "amend")
+    return cmdSpotAmend(run, {
+      instId: v.instId!,
+      ordId: v.ordId,
+      clOrdId: v.clOrdId,
+      newSz: v.newSz,
+      newPx: v.newPx,
+      json,
+    });
+  if (action === "place") {
+    // Phase 3b: detect --tpLevel + single-TP conflict before dispatch
+    assertNoTpConflict(v.tpLevel, { tpTriggerPx: v.tpTriggerPx, tpOrdPx: v.tpOrdPx });
+    return cmdSpotPlace(run, {
+      instId: v.instId!,
+      tdMode: v.tdMode,
+      side: v.side!,
+      ordType: v.ordType!,
+      sz: v.sz!,
+      tgtCcy: v.tgtCcy,
+      px: v.px,
+      clOrdId: v.clOrdId,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      // Phase 3c CLI power-user flags (issue #182, CLI-only no MCP/skill exposure)
+      tradeQuoteCcy: v.tradeQuoteCcy,
+      banAmend: v.banAmend,
+      pxAmendType: v.pxAmendType,
+      // Phase 3b CLI power-user flag (issue #183, CLI-only no MCP/skill exposure)
+      tpLevels: v.tpLevel?.map(parseTpLevel),
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  }
+  if (action === "cancel")
+    return cmdSpotCancel(run, { instId: (v.instId ?? rest[0])!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "algo")
+    return handleSpotAlgoCommand(run, rest[0], v, json);
+  if (action === "batch")
+    return cmdSpotBatch(run, { action: v.action!, orders: v.orders!, aiBuilderCode: v.aiBuilderCode, json });
+  if (action === "leverage")
+    return cmdSpotSetLeverage(run, {
+      instId: v.instId,
+      ccy: v.ccy,
+      lever: v.lever!,
+      mgnMode: v.mgnMode!,
+      json,
+    });
+  unknownSubcommand("spot", action, [
+    "orders", "get", "fills",
+    "place", "cancel", "amend",
+    "algo", "batch", "leverage",
+  ], ["algo place", "algo cancel", "algo amend", "algo trail", "algo orders"]);
+}
+
+export function handleSwapAlgoCommand(
+  run: ToolRunner,
+  subAction: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (subAction === "trail")
+    return cmdSwapAlgoTrailPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      sz: v.sz!,
+      callbackRatio: v.callbackRatio,
+      callbackSpread: v.callbackSpread,
+      activePx: v.activePx,
+      posSide: v.posSide,
+      tdMode: v.tdMode ?? "cross",
+      reduceOnly: v.reduceOnly,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (subAction === "place") {
+    // Phase 3b: detect --tpLevel + single-TP conflict before dispatch
+    assertNoTpConflict(v.tpLevel, { tpTriggerPx: v.tpTriggerPx, tpOrdPx: v.tpOrdPx });
+    return cmdSwapAlgoPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      ordType: v.ordType ?? "conditional",
+      sz: v.sz!,
+      posSide: v.posSide,
+      tdMode: v.tdMode ?? "cross",
+      clOrdId: v.clOrdId,
+      tgtCcy: v.tgtCcy,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      cxlOnClosePos: v.cxlOnClosePos,
+      reduceOnly: v.reduceOnly,
+      callbackRatio: v.callbackRatio,
+      callbackSpread: v.callbackSpread,
+      activePx: v.activePx,
+      triggerPx: v.triggerPx,
+      orderPx: v.orderPx,
+      advanceOrdType: v.advanceOrdType,
+      triggerPxType: v.triggerPxType,
+      chaseType: v.chaseType,
+      chaseVal: v.chaseVal,
+      maxChaseType: v.maxChaseType,
+      maxChaseVal: v.maxChaseVal,
+      pxVar: v.pxVar,
+      pxSpread: v.pxSpread,
+      szLimit: v.szLimit,
+      pxLimit: v.pxLimit,
+      timeInterval: v.timeInterval,
+      // Phase 3a+c CLI power-user flags (issue #182, CLI-only no MCP/skill exposure)
+      tpTriggerRatio: v.tpTriggerRatio,
+      slTriggerRatio: v.slTriggerRatio,
+      closeFraction: v.closeFraction,
+      pxAmendType: v.pxAmendType,
+      // Phase 3b CLI power-user flag (issue #183, CLI-only no MCP/skill exposure)
+      tpLevels: v.tpLevel?.map(parseTpLevel),
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  }
+  if (subAction === "amend")
+    return cmdSwapAlgoAmend(run, {
+      instId: v.instId!,
+      algoId: v.algoId!,
+      newSz: v.newSz,
+      newTpTriggerPx: v.newTpTriggerPx,
+      newTpOrdPx: v.newTpOrdPx,
+      newSlTriggerPx: v.newSlTriggerPx,
+      newSlOrdPx: v.newSlOrdPx,
+      json,
+    });
+  if (subAction === "cancel")
+    return cmdSwapAlgoCancel(run, v.instId!, v.algoId!, json);
+  if (subAction === "orders")
+    return cmdSwapAlgoOrders(run, {
+      instId: v.instId,
+      status: v.history ? "history" : "pending",
+      ordType: v.ordType,
+      json,
+    });
+  unknownSubcommand("swap algo", subAction, ["trail", "place", "amend", "cancel", "orders"]);
+}
+
+function handleSwapQuery(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void | undefined {
+  if (action === "positions")
+    return cmdSwapPositions(run, v.instId ?? rest[0], json);
+  if (action === "orders")
+    return cmdSwapOrders(run, {
+      instId: v.instId,
+      status: v.history ? "history" : "open",
+      json,
+    });
+  if (action === "get")
+    return cmdSwapGet(run, { instId: v.instId!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "fills")
+    return cmdSwapFills(run, {
+      instId: v.instId,
+      ordId: v.ordId,
+      archive: v.archive ?? false,
+      json,
+    });
+  if (action === "get-leverage")
+    return cmdSwapGetLeverage(run, { instId: v.instId!, mgnMode: v.mgnMode!, json });
+  return undefined;
+}
+
+export function handleSwapCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  const queryResult = handleSwapQuery(run, action, rest, v, json);
+  if (queryResult !== undefined) return queryResult;
+  if (action === "close")
+    return cmdSwapClose(run, {
+      instId: v.instId!,
+      mgnMode: v.mgnMode!,
+      posSide: v.posSide,
+      autoCxl: v.autoCxl,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (action === "place") {
+    // Phase 3b: detect --tpLevel + single-TP conflict before dispatch
+    assertNoTpConflict(v.tpLevel, { tpTriggerPx: v.tpTriggerPx, tpOrdPx: v.tpOrdPx });
+    return cmdSwapPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      ordType: v.ordType!,
+      sz: v.sz!,
+      posSide: v.posSide,
+      px: v.px,
+      tdMode: v.tdMode ?? "cross",
+      tgtCcy: v.tgtCcy,
+      reduceOnly: v.reduceOnly,
+      clOrdId: v.clOrdId,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      // Phase 3c CLI power-user flag (issue #182, CLI-only no MCP/skill exposure)
+      pxAmendType: v.pxAmendType,
+      // Phase 3b CLI power-user flag (issue #183, CLI-only no MCP/skill exposure)
+      tpLevels: v.tpLevel?.map(parseTpLevel),
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  }
+  if (action === "cancel")
+    return cmdSwapCancel(run, { instId: (v.instId ?? rest[0])!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "amend")
+    return cmdSwapAmend(run, {
+      instId: v.instId!,
+      ordId: v.ordId,
+      clOrdId: v.clOrdId,
+      newSz: v.newSz,
+      newPx: v.newPx,
+      json,
+    });
+  if (action === "leverage")
+    return cmdSwapSetLeverage(run, {
+      instId: v.instId!,
+      lever: v.lever!,
+      mgnMode: v.mgnMode!,
+      posSide: v.posSide,
+      json,
+    });
+  if (action === "algo")
+    return handleSwapAlgoCommand(run, rest[0], v, json);
+  if (action === "batch")
+    return cmdSwapBatch(run, { action: v.action!, orders: v.orders!, aiBuilderCode: v.aiBuilderCode, json });
+  unknownSubcommand("swap", action, [
+    "positions", "orders", "get", "fills", "get-leverage",
+    "place", "cancel", "amend", "close", "leverage",
+    "algo", "batch",
+  ], ["algo place", "algo cancel", "algo amend", "algo trail", "algo orders"]);
+}
+
+export function handleOptionAlgoCommand(
+  run: ToolRunner,
+  subAction: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (subAction === "place")
+    return cmdOptionAlgoPlace(run, {
+      instId: v.instId!,
+      tdMode: v.tdMode!,
+      side: v.side!,
+      ordType: v.ordType ?? "conditional",
+      sz: v.sz!,
+      tgtCcy: v.tgtCcy,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      reduceOnly: v.reduceOnly,
+      clOrdId: v.clOrdId,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (subAction === "amend")
+    return cmdOptionAlgoAmend(run, {
+      instId: v.instId!,
+      algoId: v.algoId!,
+      newSz: v.newSz,
+      newTpTriggerPx: v.newTpTriggerPx,
+      newTpOrdPx: v.newTpOrdPx,
+      newSlTriggerPx: v.newSlTriggerPx,
+      newSlOrdPx: v.newSlOrdPx,
+      json,
+    });
+  if (subAction === "cancel")
+    return cmdOptionAlgoCancel(run, { instId: v.instId!, algoId: v.algoId!, json });
+  if (subAction === "orders")
+    return cmdOptionAlgoOrders(run, {
+      instId: v.instId,
+      status: v.history ? "history" : "pending",
+      ordType: v.ordType,
+      json,
+    });
+  unknownSubcommand("option algo", subAction, ["place", "amend", "cancel", "orders"]);
+}
+
+export function handleOptionCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "orders") {
+    let status: "live" | "history" | "archive" = "live";
+    if (v.archive) status = "archive";
+    else if (v.history) status = "history";
+    return cmdOptionOrders(run, { instId: v.instId, uly: v.uly, status, json });
+  }
+  if (action === "get")
+    return cmdOptionGet(run, { instId: v.instId!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "positions")
+    return cmdOptionPositions(run, { instId: v.instId, uly: v.uly, json });
+  if (action === "fills")
+    return cmdOptionFills(run, { instId: v.instId, ordId: v.ordId, archive: v.archive ?? false, json });
+  if (action === "instruments")
+    return cmdOptionInstruments(run, { uly: v.uly!, expTime: v.expTime, json });
+  if (action === "greeks")
+    return cmdOptionGreeks(run, { uly: v.uly!, expTime: v.expTime, json });
+  if (action === "place")
+    return cmdOptionPlace(run, {
+      instId: v.instId!,
+      tdMode: v.tdMode!,
+      side: v.side!,
+      ordType: v.ordType!,
+      sz: v.sz!,
+      tgtCcy: v.tgtCcy,
+      px: v.px,
+      reduceOnly: v.reduceOnly,
+      clOrdId: v.clOrdId,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (action === "cancel")
+    return cmdOptionCancel(run, { instId: v.instId!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "amend")
+    return cmdOptionAmend(run, {
+      instId: v.instId!,
+      ordId: v.ordId,
+      clOrdId: v.clOrdId,
+      newSz: v.newSz,
+      newPx: v.newPx,
+      json,
+    });
+  if (action === "batch-cancel")
+    return cmdOptionBatchCancel(run, { orders: v.orders!, json });
+  if (action === "algo")
+    return handleOptionAlgoCommand(run, rest[0], v, json);
+  unknownSubcommand("option", action, [
+    "orders", "get", "positions", "fills", "instruments", "greeks",
+    "place", "cancel", "amend", "batch-cancel", "algo",
+  ], ["algo place", "algo cancel", "algo amend", "algo orders"]);
+}
+
+export function handleFuturesAlgoCommand(
+  run: ToolRunner,
+  subAction: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (subAction === "trail")
+    return cmdFuturesAlgoTrailPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      sz: v.sz!,
+      callbackRatio: v.callbackRatio,
+      callbackSpread: v.callbackSpread,
+      activePx: v.activePx,
+      posSide: v.posSide,
+      tdMode: v.tdMode ?? "cross",
+      reduceOnly: v.reduceOnly,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (subAction === "place") {
+    // Phase 3b: detect --tpLevel + single-TP conflict before dispatch
+    assertNoTpConflict(v.tpLevel, { tpTriggerPx: v.tpTriggerPx, tpOrdPx: v.tpOrdPx });
+    return cmdFuturesAlgoPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      ordType: v.ordType ?? "conditional",
+      sz: v.sz!,
+      posSide: v.posSide,
+      tdMode: v.tdMode ?? "cross",
+      clOrdId: v.clOrdId,
+      tgtCcy: v.tgtCcy,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      cxlOnClosePos: v.cxlOnClosePos,
+      reduceOnly: v.reduceOnly,
+      callbackRatio: v.callbackRatio,
+      callbackSpread: v.callbackSpread,
+      activePx: v.activePx,
+      triggerPx: v.triggerPx,
+      orderPx: v.orderPx,
+      advanceOrdType: v.advanceOrdType,
+      triggerPxType: v.triggerPxType,
+      chaseType: v.chaseType,
+      chaseVal: v.chaseVal,
+      maxChaseType: v.maxChaseType,
+      maxChaseVal: v.maxChaseVal,
+      pxVar: v.pxVar,
+      pxSpread: v.pxSpread,
+      szLimit: v.szLimit,
+      pxLimit: v.pxLimit,
+      timeInterval: v.timeInterval,
+      // Phase 3a+c CLI power-user flags (issue #182, CLI-only no MCP/skill exposure)
+      tpTriggerRatio: v.tpTriggerRatio,
+      slTriggerRatio: v.slTriggerRatio,
+      closeFraction: v.closeFraction,
+      pxAmendType: v.pxAmendType,
+      // Phase 3b CLI power-user flag (issue #183, CLI-only no MCP/skill exposure)
+      tpLevels: v.tpLevel?.map(parseTpLevel),
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  }
+  if (subAction === "amend")
+    return cmdFuturesAlgoAmend(run, {
+      instId: v.instId!,
+      algoId: v.algoId!,
+      newSz: v.newSz,
+      newTpTriggerPx: v.newTpTriggerPx,
+      newTpOrdPx: v.newTpOrdPx,
+      newSlTriggerPx: v.newSlTriggerPx,
+      newSlOrdPx: v.newSlOrdPx,
+      json,
+    });
+  if (subAction === "cancel")
+    return cmdFuturesAlgoCancel(run, v.instId!, v.algoId!, json);
+  if (subAction === "orders")
+    return cmdFuturesAlgoOrders(run, {
+      instId: v.instId,
+      status: v.history ? "history" : "pending",
+      ordType: v.ordType,
+      json,
+    });
+  unknownSubcommand("futures algo", subAction, ["trail", "place", "amend", "cancel", "orders"]);
+}
+
+function resolveFuturesOrdersStatus(v: CliValues): "archive" | "history" | "open" {
+  if (v.archive) return "archive";
+  if (v.history) return "history";
+  return "open";
+}
+
+function handleFuturesQuery(
+  run: ToolRunner,
+  action: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void | undefined {
+  if (action === "orders")
+    return cmdFuturesOrders(run, { instId: v.instId, status: resolveFuturesOrdersStatus(v), json });
+  if (action === "positions") return cmdFuturesPositions(run, v.instId, json);
+  if (action === "fills")
+    return cmdFuturesFills(run, {
+      instId: v.instId,
+      ordId: v.ordId,
+      archive: v.archive ?? false,
+      json,
+    });
+  if (action === "get")
+    return cmdFuturesGet(run, { instId: v.instId!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "get-leverage")
+    return cmdFuturesGetLeverage(run, { instId: v.instId!, mgnMode: v.mgnMode!, json });
+  return undefined;
+}
+
+export function handleFuturesCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  const queryResult = handleFuturesQuery(run, action, v, json);
+  if (queryResult !== undefined) return queryResult;
+  if (action === "place") {
+    // Phase 3b: detect --tpLevel + single-TP conflict before dispatch
+    assertNoTpConflict(v.tpLevel, { tpTriggerPx: v.tpTriggerPx, tpOrdPx: v.tpOrdPx });
+    return cmdFuturesPlace(run, {
+      instId: v.instId!,
+      side: v.side!,
+      ordType: v.ordType!,
+      sz: v.sz!,
+      tdMode: v.tdMode ?? "cross",
+      tgtCcy: v.tgtCcy,
+      posSide: v.posSide,
+      px: v.px,
+      reduceOnly: v.reduceOnly,
+      clOrdId: v.clOrdId,
+      tpTriggerPx: v.tpTriggerPx,
+      tpOrdPx: v.tpOrdPx,
+      tpOrdKind: v.tpOrdKind,
+      tpTriggerPxType: v.tpTriggerPxType,
+      slTriggerPx: v.slTriggerPx,
+      slOrdPx: v.slOrdPx,
+      slTriggerPxType: v.slTriggerPxType,
+      stpMode: v.stpMode,
+      // Phase 3c CLI power-user flag (issue #182, CLI-only no MCP/skill exposure)
+      pxAmendType: v.pxAmendType,
+      // Phase 3b CLI power-user flag (issue #183, CLI-only no MCP/skill exposure)
+      tpLevels: v.tpLevel?.map(parseTpLevel),
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  }
+  if (action === "cancel")
+    return cmdFuturesCancel(run, { instId: (v.instId ?? rest[0])!, ordId: v.ordId, clOrdId: v.clOrdId, json });
+  if (action === "amend")
+    return cmdFuturesAmend(run, {
+      instId: v.instId!,
+      ordId: v.ordId,
+      clOrdId: v.clOrdId,
+      newSz: v.newSz,
+      newPx: v.newPx,
+      json,
+    });
+  if (action === "close")
+    return cmdFuturesClose(run, {
+      instId: v.instId!,
+      mgnMode: v.mgnMode!,
+      posSide: v.posSide,
+      autoCxl: v.autoCxl,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (action === "leverage")
+    return cmdFuturesSetLeverage(run, {
+      instId: v.instId!,
+      lever: v.lever!,
+      mgnMode: v.mgnMode!,
+      posSide: v.posSide,
+      json,
+    });
+  if (action === "batch")
+    return cmdFuturesBatch(run, { action: v.action!, orders: v.orders!, aiBuilderCode: v.aiBuilderCode, json });
+  if (action === "algo")
+    return handleFuturesAlgoCommand(run, rest[0], v, json);
+  unknownSubcommand("futures", action, [
+    "orders", "positions", "fills", "get", "get-leverage",
+    "place", "cancel", "amend", "close", "leverage",
+    "batch", "algo",
+  ], ["algo place", "algo cancel", "algo amend", "algo trail", "algo orders"]);
+}
+
+export function handleBotGridCommand(
+  run: ToolRunner,
+  v: CliValues,
+  rest: string[],
+  json: boolean
+): Promise<void> | void {
+  const subAction = rest[0];
+  if (subAction === "orders")
+    return cmdGridOrders(run, {
+      algoOrdType: v.algoOrdType!,
+      instId: v.instId,
+      algoId: v.algoId,
+      status: v.history ? "history" : "active",
+      json,
+    });
+  if (subAction === "details")
+    return cmdGridDetails(run, {
+      algoOrdType: v.algoOrdType!,
+      algoId: v.algoId!,
+      json,
+    });
+  if (subAction === "sub-orders")
+    return cmdGridSubOrders(run, {
+      algoOrdType: v.algoOrdType!,
+      algoId: v.algoId!,
+      // --pending selects open/pending sub-orders. --live is a deprecated alias
+      // kept for backward compatibility; prefer --pending (works in demo mode,
+      // whereas --live is mutually exclusive with --demo).
+      type: v.pending || v.live ? "live" : "filled",
+      groupId: v.groupId,
+      after: v.after,
+      before: v.before,
+      limit: v.limit,
+      json,
+    });
+  if (subAction === "create")
+    return cmdGridCreate(run, {
+      instId: v.instId!,
+      algoOrdType: v.algoOrdType!,
+      maxPx: v.maxPx!,
+      minPx: v.minPx!,
+      gridNum: v.gridNum!,
+      runType: v.runType,
+      quoteSz: v.quoteSz,
+      baseSz: v.baseSz,
+      direction: v.direction,
+      lever: v.lever,
+      sz: v.sz,
+      basePos: v.basePos,
+      tpTriggerPx: v.tpTriggerPx,
+      slTriggerPx: v.slTriggerPx,
+      tpRatio: v.tpRatio,
+      slRatio: v.slRatio,
+      algoClOrdId: v.algoClOrdId,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (subAction === "amend")
+    return cmdGridAmend(run, {
+      algoId: v.algoId!,
+      instId: v.instId,
+      maxPx: v.maxPx,
+      minPx: v.minPx,
+      gridNum: v.gridNum,
+      tpTriggerPx: v.tpTriggerPx,
+      slTriggerPx: v.slTriggerPx,
+      tpRatio: v.tpRatio,
+      slRatio: v.slRatio,
+      topUpAmt: v.topUpAmt,
+      json,
+    });
+  if (subAction === "stop")
+    return cmdGridStop(run, {
+      algoId: v.algoId!,
+      algoOrdType: v.algoOrdType!,
+      instId: v.instId!,
+      stopType: v.stopType,
+      json,
+    });
+  if (subAction === "positions")
+    return cmdGridPositions(run, {
+      algoId: v.algoId!,
+      algoOrdType: v.algoOrdType!,
+      json,
+    });
+  if (subAction === "liquidate-price")
+    return cmdGridLiquidatePrice(run, {
+      instId: v.instId!,
+      sz: v.sz!,
+      lever: v.lever!,
+      direction: v.direction,
+      basePos: v.basePos,
+      maxPx: v.maxPx,
+      minPx: v.minPx,
+      gridNum: v.gridNum,
+      runType: v.runType,
+      triggerStrategy: v.triggerStrategy,
+      json,
+    });
+  if (subAction === "close-position") {
+    // Fund-moving: require an explicit close mode instead of defaulting.
+    if (v.mktClose === undefined) {
+      errorLine("Missing required --mktClose/--no-mktClose: okx bot grid close-position --algoId <id> (--mktClose | --no-mktClose [--sz <size>] [--px <price>])");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdGridClosePosition(run, {
+      algoId: v.algoId!,
+      mktClose: v.mktClose,
+      sz: v.sz,
+      px: v.px,
+      json,
+    });
+  }
+  unknownSubcommand("bot grid", subAction, ["orders", "details", "sub-orders", "create", "amend", "stop", "positions", "liquidate-price", "close-position"]);
+}
+
+export function handleBotDcaCommand(
+  run: ToolRunner,
+  subAction: string,
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  // CLI backward compatibility: default algoOrdType to contract_dca if not provided
+  const algoOrdType = v.algoOrdType ?? "contract_dca";
+
+  if (subAction === "orders")
+    return cmdDcaOrders(run, { algoOrdType, algoId: v.algoId, instId: v.instId, history: v.history ?? false, json });
+  if (subAction === "details")
+    return cmdDcaDetails(run, { algoId: v.algoId!, algoOrdType, json });
+  if (subAction === "positions")
+    return cmdDcaPositions(run, { algoId: v.algoId!, algoOrdType, json });
+  if (subAction === "sub-orders")
+    return cmdDcaSubOrders(run, { algoId: v.algoId!, algoOrdType, cycleId: v.cycleId, after: v.after, before: v.before, limit: v.limit !== undefined ? Number(v.limit) : undefined, json });
+  if (subAction === "create")
+    return cmdDcaCreate(run, {
+      instId: v.instId!,
+      algoOrdType,
+      lever: v.lever,
+      direction: v.direction!,
+      initOrdAmt: v.initOrdAmt!,
+      maxSafetyOrds: v.maxSafetyOrds!,
+      tpPct: v.tpPct!,
+      safetyOrdAmt: v.safetyOrdAmt,
+      pxSteps: v.pxSteps,
+      pxStepsMult: v.pxStepsMult,
+      volMult: v.volMult,
+      slPct: v.slPct,
+      slMode: v.slMode,
+      allowReinvest: v.allowReinvest,
+      triggerStrategy: v.triggerStrategy,
+      triggerPx: v.triggerPx,
+      triggerCond: v.triggerCond,
+      thold: v.thold,
+      timeframe: v.timeframe,
+      timePeriod: v.timePeriod,
+      algoClOrdId: v.algoClOrdId,
+      reserveFunds: v.reserveFunds,
+      tradeQuoteCcy: v.tradeQuoteCcy,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    });
+  if (subAction === "stop")
+    return cmdDcaStop(run, { algoId: v.algoId!, algoOrdType, stopType: v.stopType, json });
+  if (subAction === "add-margin")
+    return cmdDcaAddMargin(run, { algoId: v.algoId!, amt: v.amt!, json });
+  if (subAction === "reduce-margin")
+    return cmdDcaReduceMargin(run, { algoId: v.algoId!, amt: v.amt!, json });
+  if (subAction === "update-tp")
+    return cmdDcaUpdateTakeProfit(run, { algoId: v.algoId!, tpPrice: v.tpPrice!, json });
+  unknownSubcommand("bot dca", subAction, ["orders", "details", "positions", "sub-orders", "create", "stop", "add-margin", "reduce-margin", "update-tp"]);
+}
+
+export function handleBotSmartPortfolioCommand(
+  run: ToolRunner,
+  subAction: string,
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  if (subAction === "orders")
+    return cmdSmartPortfolioOrders(run, { history: !!v.history, algoId: v.algoId, instId: v.instId, state: v.state, instType: v.instType, after: v.after, before: v.before, limit: v.limit, json });
+  if (subAction === "details")
+    return cmdSmartPortfolioDetails(run, { algoId: v.algoId!, json });
+  if (subAction === "create")
+    return cmdSmartPortfolioCreate(run, { stgyName: v.stgyName!, investmentCcy: v.investmentCcy!, initCapital: v.initCapital!, portfolioList: v.portfolioList!, interval: v.interval!, deltaRatio: v.deltaRatio!, tradeQuoteCcy: v.tradeQuoteCcy, investType: v.investType, algoClOrdId: v.algoClOrdId, aiBuilderCode: v.aiBuilderCode, json });
+  if (subAction === "stop")
+    return cmdSmartPortfolioStop(run, { algoId: v.algoId!, stopType: v.stopType!, json });
+  if (subAction === "amend-rebalance")
+    return cmdSmartPortfolioAmendRebalance(run, { algoId: v.algoId!, deltaRatio: v.deltaRatio!, interval: v.interval!, json });
+  if (subAction === "instant-rebalance")
+    return cmdSmartPortfolioInstantRebalance(run, { algoId: v.algoId!, json });
+  if (subAction === "recommend-zones")
+    return cmdSmartPortfolioRecommendZones(run, { recommendId: v.recommendId, assetType: v.assetType, json });
+  if (subAction === "zones-backtest")
+    return cmdSmartPortfolioZonesBacktest(run, { recommendId: v.recommendId!, period: v.period, json });
+  unknownSubcommand("bot smart-portfolio", subAction, ["orders", "details", "create", "stop", "amend-rebalance", "instant-rebalance", "recommend-zones", "zones-backtest"]);
+}
+
+export function handleBotCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "grid") return handleBotGridCommand(run, v, rest, json);
+  if (action === "dca") return handleBotDcaCommand(run, rest[0], v, json);
+  if (action === "smart-portfolio") return handleBotSmartPortfolioCommand(run, rest[0], v, json);
+  unknownSubcommand("bot", action, ["grid", "dca", "smart-portfolio"]);
+}
+
+export function handleEarnCommand(
+  run: ToolRunner,
+  submodule: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const action = rest[0];
+  const innerRest = rest.slice(1);
+  if (submodule === "savings") return handleEarnSavingsCommand(run, action, innerRest, v, json);
+  if (submodule === "onchain") return handleEarnOnchainCommand(run, action, v, json);
+  if (submodule === "dcd") return handleEarnDcdCommand(run, action, v, json);
+  if (submodule === "auto-earn") return handleEarnAutoEarnCommand(run, action, innerRest, v, json);
+  if (submodule === "flash-earn") return handleEarnFlashEarnCommand(run, action, v, json);
+  errorLine(`Unknown earn sub-module: ${submodule}`);
+  errorLine("Valid: savings, onchain, dcd, auto-earn, flash-earn");
+  process.exitCode = 1;
+}
+
+function handleEarnAutoEarnCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const ccy = rest[0] ?? v.ccy;
+  if (action === "status") return cmdAutoEarnStatus(run, ccy, json);
+  if (action === "on") {
+    if (!ccy) { errorLine("Currency required: okx earn auto-earn on <ccy>"); process.exitCode = 1; return; }
+    return cmdAutoEarnOn(run, ccy, json);
+  }
+  if (action === "off") {
+    if (!ccy) { errorLine("Currency required: okx earn auto-earn off <ccy>"); process.exitCode = 1; return; }
+    return cmdAutoEarnOff(run, ccy, json);
+  }
+  errorLine(`Unknown auto-earn command: ${action}`);
+  errorLine("Valid: status, on, off");
+  process.exitCode = 1;
+}
+
+function handleEarnFlashEarnCommand(
+  run: ToolRunner,
+  action: string,
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  if (action === "projects") return cmdFlashEarnProjects(run, v.status, json);
+  errorLine(`Unknown flash-earn command: ${action}`);
+  errorLine("Valid: projects");
+  process.exitCode = 1;
+}
+
+export function handleSmartmoneyCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  // Explicitly drop positional args - every smartmoney param comes from named flags (see issue #78).
+  void rest;
+  const signalPoolFilters = {
+    sortBy: v.sortBy, period: v.period, pnlTier: v.pnlTier,
+    winRateTier: v.winRateTier, maxDrawdownTier: v.maxDrawdownTier, aumTier: v.aumTier,
+  };
+  const leaderboardPoolFilters = {
+    sortBy: v.sortBy, period: v.period, minPnl: v.minPnl,
+    minWinRate: v.minWinRate, maxDrawdown: v.maxDrawdown, minAum: v.minAum,
+  };
+
+  /* ---------- Trader family (6) ---------- */
+
+  if (action === "traders-by-filter")
+    return cmdSmartmoneyTradersByFilter(run, {
+      updateTime: v.updateTime,
+      ...leaderboardPoolFilters,
+      after: v.after, before: v.before, limit: v.limit, json,
+    });
+
+  if (action === "performance-by-trader") {
+    if (!v.authorIds) {
+      errorLine("Missing required --authorIds: okx smartmoney performance-by-trader --authorIds <id1,id2> [--period <3|7|30|90>]");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneyPerformanceByTrader(run, {
+      authorIds: v.authorIds,
+      sortBy: v.sortBy,
+      period: v.period,
+      json,
+    });
+  }
+
+  if (action === "trader-positions") {
+    if (!v.authorId) {
+      errorLine("Missing required --authorId: okx smartmoney trader-positions --authorId <id> [--instId <id>]");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneyTraderPositions(run, {
+      authorId: v.authorId,
+      instId: v.instId,
+      json,
+    });
+  }
+
+  if (action === "trader-positions-history") {
+    if (!v.authorId) {
+      errorLine("Missing required --authorId: okx smartmoney trader-positions-history --authorId <id> [--instId <id>] [--limit <n>]");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneyTraderPositionsHistory(run, {
+      authorId: v.authorId,
+      instId: v.instId,
+      after: v.after, before: v.before, limit: v.limit, json,
+    });
+  }
+
+  if (action === "trader-orders-history") {
+    if (!v.authorId) {
+      errorLine("Missing required --authorId: okx smartmoney trader-orders-history --authorId <id> [--instId <id>] [--limit <n>]");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneyTraderOrdersHistory(run, {
+      authorId: v.authorId,
+      instId: v.instId,
+      after: v.after, before: v.before, limit: v.limit, json,
+    });
+  }
+
+  if (action === "search-trader") {
+    if (!v.keyword || v.keyword.trim() === "") {
+      errorLine("Missing required --keyword: okx smartmoney search-trader --keyword <name>");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneySearchTrader(run, {
+      keyword: v.keyword,
+      json,
+    });
+  }
+
+  /* ---------- Signal/Coin family (4) ---------- */
+
+  if (action === "signal-overview-by-filter") {
+    if (v.topInstruments && v.instCcyList) {
+      errorLine(
+        "--topInstruments and --instCcyList are mutually exclusive. " +
+        "Pass exactly one - `--topInstruments` for top-N hottest coins, or `--instCcyList` for specific coins.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneySignalOverviewByFilter(run, {
+      topInstruments: v.topInstruments,
+      instCcyList: v.instCcyList,
+      ...signalPoolFilters,
+      lmtNum: v.lmtNum,
+      json,
+    });
+  }
+
+  if (action === "signal-overview-by-trader") {
+    if (!v.authorIds) {
+      errorLine("Missing required --authorIds: okx smartmoney signal-overview-by-trader --authorIds <id1,id2> [--topInstruments <n> | --instCcyList <BTC,ETH>]");
+      process.exitCode = 1;
+      return;
+    }
+    if (v.topInstruments && v.instCcyList) {
+      errorLine(
+        "--topInstruments and --instCcyList are mutually exclusive. " +
+        "Pass exactly one - `--topInstruments` for top-N hottest coins, or `--instCcyList` for specific coins.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneySignalOverviewByTrader(run, {
+      authorIds: v.authorIds,
+      topInstruments: v.topInstruments,
+      instCcyList: v.instCcyList,
+      sortBy: v.sortBy,
+      period: v.period,
+      json,
+    });
+  }
+
+  if (action === "signal-trend-by-filter") {
+    if (!v.instCcy) {
+      errorLine("Missing required --instCcy: okx smartmoney signal-trend-by-filter --instCcy <ccy> [--asOfTime <yyyyMMddHH>] [--granularity <1h|1d>] [--limit <n>]");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneySignalTrendByFilter(run, {
+      instCcy: v.instCcy,
+      asOfTime: v.asOfTime,
+      granularity: v.granularity,
+      limit: v.limit,
+      ...signalPoolFilters,
+      lmtNum: v.lmtNum,
+      json,
+    });
+  }
+
+  if (action === "signal-trend-by-trader") {
+    if (!v.authorIds) {
+      errorLine("Missing required --authorIds: okx smartmoney signal-trend-by-trader --authorIds <id1,id2> --instCcy <ccy> [--asOfTime <yyyyMMddHH>]");
+      process.exitCode = 1;
+      return;
+    }
+    if (!v.instCcy) {
+      errorLine("Missing required --instCcy: okx smartmoney signal-trend-by-trader --authorIds <id1,id2> --instCcy <ccy> [--asOfTime <yyyyMMddHH>]");
+      process.exitCode = 1;
+      return;
+    }
+    return cmdSmartmoneySignalTrendByTrader(run, {
+      authorIds: v.authorIds,
+      instCcy: v.instCcy,
+      asOfTime: v.asOfTime,
+      granularity: v.granularity,
+      limit: v.limit,
+      sortBy: v.sortBy,
+      period: v.period,
+      json,
+    });
+  }
+
+  errorLine(`Unknown smartmoney command: ${action}`);
+  errorLine("Valid: traders-by-filter, performance-by-trader, trader-positions, trader-positions-history, trader-orders-history, search-trader, signal-overview-by-filter, signal-overview-by-trader, signal-trend-by-filter, signal-trend-by-trader");
+  process.exitCode = 1;
+}
+
+function handleEarnSavingsCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  if (action === "balance") return cmdEarnSavingsBalance(run, rest[0] ?? v.ccy, json);
+  if (action === "purchase") return cmdEarnSavingsPurchase(run, { ccy: v.ccy!, amt: v.amt!, rate: v.rate, json });
+  if (action === "redeem") return cmdEarnSavingsRedeem(run, { ccy: v.ccy!, amt: v.amt!, json });
+  if (action === "set-rate") return cmdEarnSetLendingRate(run, { ccy: v.ccy!, rate: v.rate!, json });
+  if (action === "lending-history") return cmdEarnLendingHistory(run, { ccy: v.ccy, limit, json });
+  if (action === "rate-history") return cmdEarnLendingRateHistory(run, { ccy: v.ccy, limit, json });
+  if (action === "fixed-products") return cmdEarnFixedProducts(run, { ccy: v.ccy, json });
+  if (action === "fixed-orders") return cmdEarnFixedOrderList(run, { ccy: v.ccy, state: v.state, json });
+  if (action === "fixed-purchase") return cmdEarnFixedPurchase(run, { ccy: v.ccy!, amt: v.amt!, term: v.term!, confirm: v.confirm ?? false, json });
+  if (action === "fixed-redeem") return cmdEarnFixedRedeem(run, { reqId: v.reqId!, json });
+  errorLine(`Unknown earn savings command: ${action}`);
+  process.exitCode = 1;
+}
+
+function handleEarnOnchainCommand(
+  run: ToolRunner,
+  action: string,
+  v: CliValues,
+  json: boolean
+): Promise<void> | void {
+  if (action === "offers") return cmdOnchainEarnOffers(run, v).then((r) => outputResult(r, json));
+  if (action === "purchase") return cmdOnchainEarnPurchase(run, v).then((r) => outputResult(r, json));
+  if (action === "redeem") return cmdOnchainEarnRedeem(run, v).then((r) => outputResult(r, json));
+  if (action === "cancel") return cmdOnchainEarnCancel(run, v).then((r) => outputResult(r, json));
+  if (action === "orders") return cmdOnchainEarnActiveOrders(run, v).then((r) => outputResult(r, json));
+  if (action === "history") return cmdOnchainEarnOrderHistory(run, v).then((r) => outputResult(r, json));
+  errorLine(`Unknown earn onchain command: ${action}`);
+  process.exitCode = 1;
+}
+
+function parseDcdOpts(v: CliValues) {
+  return {
+    limit: v.limit !== undefined ? Number(v.limit) : undefined,
+    minYield: v.minYield !== undefined ? parseFloat(v.minYield) : undefined,
+    strikeNear: v.strikeNear !== undefined ? parseFloat(v.strikeNear) : undefined,
+    termDays: v.termDays !== undefined ? parseInt(v.termDays, 10) : undefined,
+    minTermDays: v.minTermDays !== undefined ? parseInt(v.minTermDays, 10) : undefined,
+    maxTermDays: v.maxTermDays !== undefined ? parseInt(v.maxTermDays, 10) : undefined,
+  };
+}
+
+function handleEarnDcdCommand(
+  run: ToolRunner,
+  action: string,
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const { limit, minYield, strikeNear, termDays, minTermDays, maxTermDays } = parseDcdOpts(v);
+  if (action === "pairs") return cmdDcdPairs(run, json);
+  if (action === "products")
+    return cmdDcdProducts(run, {
+      baseCcy: v.baseCcy,
+      quoteCcy: v.quoteCcy,
+      optType: v.optType,
+      minYield,
+      strikeNear,
+      termDays,
+      minTermDays,
+      maxTermDays,
+      expDate: v.expDate,
+      json,
+    });
+  if (action === "quote-and-buy")
+    return cmdDcdQuoteAndBuy(run, {
+      productId: v.productId!,
+      notionalSz: v.sz!,
+      notionalCcy: v.notionalCcy!,
+      clOrdId: v.clOrdId,
+      minAnnualizedYield: v.minAnnualizedYield !== undefined ? parseFloat(v.minAnnualizedYield) : undefined,
+      json,
+    });
+  if (action === "redeem-execute")
+    return cmdDcdRedeemExecute(run, { ordId: v.ordId!, json });
+  if (action === "order")
+    return cmdDcdOrderState(run, { ordId: v.ordId!, json });
+  if (action === "orders")
+    return cmdDcdOrders(run, {
+      ordId: v.ordId,
+      productId: v.productId,
+      uly: v.uly,
+      state: v.state,
+      beginId: v.beginId,
+      endId: v.endId,
+      begin: v.begin,
+      end: v.end,
+      limit,
+      json,
+    });
+  errorLine(`Unknown earn dcd command: ${action}`);
+  errorLine("Valid: pairs, products, quote-and-buy, redeem-execute, order, orders");
+  process.exitCode = 1;
+}
+
+export function handleNewsCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  const begin = v.begin !== undefined ? Number(v.begin) : undefined;
+  const end = v.end !== undefined ? Number(v.end) : undefined;
+  const language = v.lang ?? "en-US";
+  const detailLvl = v["detail-lvl"];
+  const after = v.after;
+  const period = v.period;
+  const points = v.points !== undefined ? Number(v.points) : 24;
+  const sortBy = v["sort-by"];
+  const platform = v.platform;
+  const searchOpts = { coins: v.coins, importance: v.importance, platform, sentiment: v.sentiment, sortBy, begin, end, language, detailLvl, limit, after, json };
+  const listOpts = { coins: v.coins, importance: v.importance, platform, begin, end, language, detailLvl, limit, after, json };
+
+  const dispatch: Record<string, () => Promise<void> | void> = {
+    latest:           () => cmdNewsLatest(run, listOpts),
+    important:        () => cmdNewsImportant(run, { coins: v.coins, platform, begin, end, language, detailLvl, limit, json }),
+    "by-coin":        () => cmdNewsByCoin(run, (v.coins ?? rest[0])!, { importance: v.importance, platform, begin, end, language, detailLvl, limit, json }),
+    search:           () => cmdNewsSearch(run, (v.keyword ?? rest[0])!, searchOpts),
+    detail:           () => cmdNewsDetail(run, rest[0]!, { language, json }),
+    platforms:        () => cmdNewsPlatforms(run, { json }),
+    "coin-sentiment": () => cmdNewsCoinSentiment(run, (v.coins ?? rest[0])!, { period, json }),
+    "coin-trend":     () => cmdNewsCoinTrend(run, (v.coins ?? rest[0])!, { period, points, json }),
+    // by-sentiment is a convenience wrapper over news_search (no keyword, sentiment filter only)
+    "by-sentiment":   () => {
+      const opts = { ...searchOpts, sortBy: sortBy ?? "latest" };
+      return cmdNewsSearch(run, "", opts);
+    },
+    "sentiment-rank": () => cmdNewsSentimentRank(run, { period, sortBy, limit, json }),
+    "economic-calendar": () => cmdNewsEconomicCalendar(run, { region: v.region, importance: v.importance, before: v.before, after, limit, json }),
+    "list-regions": () => cmdNewsListCalendarRegions(run, { json }),
+  };
+
+  const handler = dispatch[action];
+  if (handler) return handler();
+  process.stderr.write(`Unknown news command: ${action}\n`);
+  process.exitCode = 1;
+}
+
+function requireSkillName(rest: string[], usage: string): string | undefined {
+  const name = rest[0];
+  if (!name) { errorLine(usage); process.exitCode = 1; }
+  return name;
+}
+
+function handleSkillAdd(rest: string[], v: CliValues, config: import("@agent-tradekit/core").OkxConfig, json: boolean): Promise<void> | void {
+  const n = requireSkillName(rest, "Usage: okx skill add <name>");
+  if (n) return cmdSkillAdd(n, config, json, v.force ?? false);
+}
+
+function handleSkillVerify(rest: string[], config: import("@agent-tradekit/core").OkxConfig, json: boolean): Promise<void> | void {
+  const n = requireSkillName(rest, "Usage: okx skill verify <name>");
+  if (n) return cmdSkillVerify(n, config, json);
+}
+
+function handleSkillDownload(rest: string[], v: CliValues, config: import("@agent-tradekit/core").OkxConfig, json: boolean): Promise<void> | void {
+  const n = requireSkillName(rest, "Usage: okx skill download <name> [--dir <path>] [--format zip|skill]");
+  const format = v.format === "skill" ? "skill" as const : "zip" as const;
+  if (n) return cmdSkillDownload(n, v.dir ?? process.cwd(), config, json, format);
+}
+
+function handleSkillRemove(rest: string[], json: boolean): void {
+  const n = requireSkillName(rest, "Usage: okx skill remove <name>");
+  if (n) cmdSkillRemove(n, json);
+}
+
+function handleSkillCheck(run: ToolRunner, rest: string[], json: boolean): Promise<void> | void {
+  const n = requireSkillName(rest, "Usage: okx skill check <name>");
+  if (n) return cmdSkillCheck(run, n, json);
+}
+
+export function handleSkillCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+  config: import("@agent-tradekit/core").OkxConfig,
+): Promise<void> | void {
+  if (action === "search") return cmdSkillSearch(run, { keyword: rest[0] ?? v.keyword, categories: v.categories, page: v.page, limit: v.limit, json });
+  if (action === "categories") return cmdSkillCategories(run, json);
+  if (action === "list") return cmdSkillList(json);
+  if (action === "add") return handleSkillAdd(rest, v, config, json);
+  if (action === "download") return handleSkillDownload(rest, v, config, json);
+  if (action === "remove") return handleSkillRemove(rest, json);
+  if (action === "check") return handleSkillCheck(run, rest, json);
+  if (action === "verify") return handleSkillVerify(rest, config, json);
+  errorLine(`Unknown skill command: ${action}`);
+  errorLine("Valid: search, categories, add, download, remove, check, list, verify");
+  process.exitCode = 1;
+}
+
+export function handleEventCommand(
+  run: ToolRunner,
+  action: string,
+  rest: string[],
+  v: CliValues,
+  json: boolean,
+): Promise<void> | void {
+  const limit = v.limit !== undefined ? Number(v.limit) : undefined;
+  const handlers: Record<string, () => Promise<void> | void> = {
+    browse: () => cmdEventBrowse(run, { underlying: v.underlying ?? rest[0], json }),
+    series: () => cmdEventSeries(run, { seriesId: v.seriesId, all: v.all, json }),
+    events: () => cmdEventEvents(run, { seriesId: (v.seriesId ?? rest[0])!, state: v.state, limit, json }),
+    markets: () => cmdEventMarkets(run, { seriesId: (v.seriesId ?? rest[0])!, eventId: v.eventId, instId: v.instId, state: v.state, limit, json }),
+    place: () => cmdEventPlace(run, {
+      instId: (v.instId ?? rest[0])!,
+      side: (v.side ?? rest[1])!,
+      outcome: (v.outcome ?? rest[2])!,
+      sz: (v.sz ?? rest[3])!,
+      px: v.px,
+      ordType: v.ordType,
+      aiBuilderCode: v.aiBuilderCode,
+      json,
+    }),
+    amend: () => cmdEventAmend(run, { instId: (v.instId ?? rest[0])!, ordId: (v.ordId ?? rest[1])!, px: v.px, sz: v.sz, json }),
+    cancel: () => cmdEventCancel(run, { instId: (v.instId ?? rest[0])!, ordId: (v.ordId ?? rest[1])!, json }),
+    orders: () => cmdEventOrders(run, {
+      status: v.status, instId: v.instId,
+      ordType: v.ordType, state: v.state,
+      after: v.after, before: v.before, begin: v.begin, end: v.end,
+      limit, json,
+    }),
+    fills: () => cmdEventFills(run, {
+      archive: v.archive ?? false,
+      instId: v.instId, ordId: v.ordId,
+      after: v.after, before: v.before, begin: v.begin, end: v.end,
+      limit, json,
+    }),
+  };
+  const handler = handlers[action];
+  if (handler) return handler();
+  process.stderr.write(`Unknown event command: ${action}\n`);
+  process.exitCode = 1;
+}
+
+function outputResult(result: { endpoint: string; requestTime: string; data: unknown }, json: boolean): void {
+  if (json) {
+    outputLine(JSON.stringify(result, null, 2));
+  } else {
+    outputLine(JSON.stringify(result.data, null, 2));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+function printHelpForLevel(positionals: string[]): void {
+  const [module, subgroup] = positionals;
+  if (!module) printHelp();
+  else if (!subgroup) printHelp(module);
+  else printHelp(module, subgroup);
+}
+
+function printVerboseConfigSummary(config: import("@agent-tradekit/core").OkxConfig, profile?: string): void {
+  let authLabel = "\u2717";
+  if (config.hasAuth && config.apiKey) {
+    authLabel = `\u2713(${config.apiKey.slice(0, 3)}***${config.apiKey.slice(-3)})`;
+  } else if (config.hasAuth) {
+    authLabel = "\u2713";
+  }
+  errorLine(`[verbose] config: profile=${profile ?? "default"} site=${config.site} base=${config.baseUrl} auth=${authLabel} demo=${config.demo ? "on" : "off"} modules=${config.modules.join(",")}`);
+}
+
+const AI_BUILDER_CODE_PATTERN = /^[A-Za-z0-9]{1,16}$/;
+const AI_BUILDER_CODE_ARG = "aiBuilderCode";
+const AI_BUILDER_CODE_BATCH_PATHS = new Set(["okx spot batch", "okx swap batch", "okx futures batch"]);
+
+class CliUsageError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "CliUsageError";
+  }
+}
+
+function findPlaceholderCommand(commands: Record<string, CliCommandEntry> | undefined): [string, CliCommandEntry] | undefined {
+  return Object.entries(commands ?? {}).find(([name]) => name.startsWith("<"));
+}
+
+function findCliRegistryUsagePath(positionals: string[]): { path: string; usage?: string } | undefined {
+  const [moduleName, ...segments] = positionals;
+  if (!moduleName) return undefined;
+
+  const moduleEntry = CLI_REGISTRY[moduleName];
+  if (!moduleEntry) return { path: `okx ${moduleName}` };
+  let current: CliModuleEntry = moduleEntry;
+  let path = `okx ${moduleName}`;
+  if (segments.length === 0) return current.usage ? { path, usage: current.usage } : { path };
+
+  for (const segment of segments) {
+    const command = current.commands?.[segment];
+    if (command) return { path: `${path} ${segment}`, usage: command.usage };
+
+    const subgroup = current.subgroups?.[segment];
+    if (!subgroup) {
+      const placeholderCommand = findPlaceholderCommand(current.commands);
+      if (placeholderCommand) return { path: `${path} ${placeholderCommand[0]}`, usage: placeholderCommand[1].usage };
+      return current.usage ? { path, usage: current.usage } : { path: `${path} ${segment}` };
+    }
+    current = subgroup;
+    path = `${path} ${segment}`;
+  }
+
+  return current.usage ? { path, usage: current.usage } : { path };
+}
+
+export function validateCliAiBuilderCodeUsage(
+  moduleName: string | undefined,
+  action: string | undefined,
+  rest: string[],
+  values: Pick<CliValues, "aiBuilderCode" | "action">,
+): void {
+  if (values.aiBuilderCode === undefined || values.aiBuilderCode === null) return;
+
+  const match = findCliRegistryUsagePath([moduleName, action, ...rest].filter((part): part is string => part !== undefined));
+  if (!match) return;
+
+  if (!match.usage?.includes("--aiBuilderCode")) {
+    throw new CliUsageError(`--aiBuilderCode is not supported for ${match.path}`);
+  }
+  if (AI_BUILDER_CODE_BATCH_PATHS.has(match.path) && values.action !== "place") {
+    throw new CliUsageError(`--aiBuilderCode is only supported for ${match.path} when --action place`);
+  }
+}
+
+function resolveCliToolDispatch(toolName: string, args: ToolArgs): { toolName: string; args: ToolArgs } {
+  if (toolName === "swap_place_move_stop_order") {
+    return { toolName: "swap_place_algo_order", args: { ...args, ordType: "move_order_stop" } };
+  }
+  if (toolName === "futures_place_move_stop_order") {
+    return { toolName: "futures_place_algo_order", args: { ...args, ordType: "move_order_stop" } };
+  }
+  return { toolName, args };
+}
+
+export function resolveCliAiBuilderCode(
+  args: ToolArgs,
+  sourceTag: string,
+): { args: ToolArgs; sourceTag: string } {
+  const code = args[AI_BUILDER_CODE_ARG];
+  const nextArgs = { ...args };
+  delete nextArgs[AI_BUILDER_CODE_ARG];
+
+  if (code === undefined || code === null) {
+    return { args: nextArgs, sourceTag };
+  }
+  if (typeof code === "string" && AI_BUILDER_CODE_PATTERN.test(code)) {
+    return { args: nextArgs, sourceTag: code };
+  }
+  throw new CliUsageError(`aiBuilderCode "${String(code)}" is invalid (must be 1-16 alphanumeric chars)`);
+}
+
+export function createCliToolRunner(client: OkxRestClient, config: OkxConfig): ToolRunner {
+  const toolMap = new Map(allToolSpecs().map((tool) => [tool.name, tool]));
+
+  return async (toolName: string, args: ToolArgs): Promise<ToolResult> => {
+    const resolved = resolveCliAiBuilderCode(args, config.sourceTag);
+    const dispatch = resolveCliToolDispatch(toolName, resolved.args);
+    const tool = toolMap.get(dispatch.toolName);
+    if (!tool) throw new Error(`Unknown tool: ${toolName}`);
+
+    const result = await tool.handler(dispatch.args, {
+      config: { ...config, sourceTag: resolved.sourceTag, readOnly: false },
+      client,
+    });
+    return result as ToolResult;
+  };
+}
+
+/** Wrap a ToolRunner with audit logging via TradeLogger. */
+export function wrapRunnerWithLogger(baseRunner: ToolRunner, logger: TradeLogger, verbose = false): ToolRunner {
+  const writeToolNames = new Set(allToolSpecs().filter((t) => t.isWrite).map((t) => t.name));
+  return async (toolName, args) => {
+    const startTime = Date.now();
+    try {
+      const result = await baseRunner(toolName, args);
+      if (writeToolNames.has(toolName)) {
+        markFailedIfSCodeError(result.data);
+      }
+      const elapsed = Date.now() - startTime;
+      logger.log("info", toolName, args, { status: "ok" }, elapsed);
+      if (verbose) {
+        logger.log("debug", toolName, args, result, elapsed);
+      }
+      return result;
+    } catch (error) {
+      logger.log("error", toolName, args, error, Date.now() - startTime);
+      throw error;
+    }
+  };
+}
+
+/**
+ * Build the options object passed to loadProfileConfig from parsed CLI values.
+ *
+ * Centralised so every dispatch path forwards the same fields — in particular
+ * `site: v.site`, whose omission silently disabled the --site flag (see the
+ * issue #78 class of named-flag-routing regressions). Unit-tested in
+ * site-flag-routing.test.ts.
+ */
+export function buildLoadProfileOptions(v: CliValues): LoadProfileOptions {
+  return {
+    profile: v.profile,
+    site: v.site,
+    demo: v.demo,
+    live: v.live,
+    verbose: v.verbose,
+    userAgent: `okx-trade-cli/${CLI_VERSION}`,
+    sourceTag: "CLI",
+  };
+}
+
+// Extracted to reduce cognitive complexity of main()
+async function runDiagnose(v: ReturnType<typeof parseCli>["values"]): Promise<void> {
+  let config: Awaited<ReturnType<typeof loadProfileConfig>> | undefined;
+  try {
+    config = await loadProfileConfig(buildLoadProfileOptions(v));
+  } catch {
+    // Config parse failed - diagnose will detect and report it
+  }
+  return cmdDiagnose(config, v.profile ?? "default", { mcp: v.mcp, cli: v.cli, all: v.all, output: v.output });
+}
+
+// Extracted to reduce cognitive complexity of main()
+function printVersion(): void {
+  outputLine(`${CLI_VERSION} (${GIT_HASH})`);
+  // Use skipHash: true - only need existence/platform, not SHA-256
+  const pilotStatus = getPilotStatus(undefined, { skipHash: true });
+  if (pilotStatus.exists) {
+    outputLine(`Pilot: installed (${pilotStatus.platform ?? "unknown"})`);
+  } else {
+    outputLine("Pilot: not installed");
+  }
+}
+
+/**
+ * Route management commands that don't need API credentials.
+ * Returns `true` for sync-void handlers, a Promise for async ones, or `undefined` if not matched.
+ */
+function routeManagementCommand(
+  module: string, action: string | undefined, rest: string[], json: boolean, v: ReturnType<typeof parseCli>["values"],
+): Promise<void> | true | undefined {
+  if (module === "config") { const r = handleConfigCommand(action as string, rest, json, v.lang, v.force); return r ?? true; }
+  if (module === "setup") { handleSetupCommand(v); return true; }
+  if (module === "auth") return handleAuthCommand(action as string, rest, v);
+  if (module === "upgrade") return cmdUpgrade(CLI_VERSION, { beta: v.beta, check: v.check, force: v.force }, json);
+  if (module === "pilot") { const r = handlePilotCommand(action as string, json, v.force ?? false); return r ?? true; }
+  if (module === "diagnose") return runDiagnose(v);
+  if (module === "list-tools") { cmdListTools(json); return true; }
+  return undefined;
+}
+
+async function main(): Promise<void> {
+  setOutput({
+    out: (m) => process.stdout.write(m),
+    err: (m) => process.stderr.write(m),
+  });
+
+  checkForUpdates("@okx_ai/okx-trade-cli", CLI_VERSION);
+
+  const rawArgv = process.argv.slice(2);
+
+  const { values, positionals } = parseCli(rawArgv);
+
+  if (values.version) {
+    printVersion();
+    return;
+  }
+
+  if (values.help || positionals.length === 0) {
+    printHelpForLevel(positionals);
+    return;
+  }
+
+  const [module, action, ...rest] = positionals;
+  const v = values;
+  const json = v.json ?? false;
+
+  validateCliAiBuilderCodeUsage(module, action, rest, v);
+
+  const mgmt = routeManagementCommand(module, action, rest, json, v);
+  if (mgmt !== undefined) return mgmt === true ? undefined : mgmt;
+
+  const config = await loadProfileConfig(buildLoadProfileOptions(v));
+  setEnvContext({ demo: config.demo, profile: v.profile ?? "default" });
+  setJsonEnvEnabled(v.env ?? false);
+
+  const client = new OkxRestClient(config);
+  const baseRunner = createCliToolRunner(client, config);
+  const logger = new TradeLogger(v.verbose ? "debug" : "info");
+  const run = wrapRunnerWithLogger(baseRunner, logger, v.verbose ?? false);
+
+  const moduleHandlers: Record<string, () => Promise<void> | void> = {
+    market:  () => handleMarketCommand(run, action, rest, v, json),
+    account: () => handleAccountCommand(run, action, rest, v, json),
+    spot:    () => handleSpotCommand(run, action, rest, v, json),
+    swap:    () => handleSwapCommand(run, action, rest, v, json),
+    futures: () => handleFuturesCommand(run, action, rest, v, json),
+    option:  () => handleOptionCommand(run, action, rest, v, json),
+    event:   () => handleEventCommand(run, action, rest, v, json),
+    news:    () => handleNewsCommand(run, action, rest, v, json),
+    bot:     () => handleBotCommand(run, action, rest, v, json),
+    earn:    () => handleEarnCommand(run, action, rest, v, json),
+    smartmoney: () => handleSmartmoneyCommand(run, action, rest, v, json),
+    skill:   () => handleSkillCommand(run, action, rest, v, json, config),
+  };
+  const handler = moduleHandlers[module];
+  if (handler) return handler();
+  errorLine(`Unknown command: ${module} ${action ?? ""}`);
+  process.exitCode = 1;
+}
+
+main().catch((error: unknown) => {
+  if (error instanceof CliUsageError) {
+    errorLine(`Error: ${error.message}`);
+    errorLine(`Version: @okx_ai/okx-trade-cli@${CLI_VERSION}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const payload = toToolErrorPayload(error);
+  errorLine(`Error: ${payload.message}`);
+  if (payload.code) errorLine(`Code: ${payload.code}`);
+  if (payload.traceId) errorLine(`TraceId: ${payload.traceId}`);
+  if (payload.suggestion) errorLine(`Hint: ${payload.suggestion}`);
+  errorLine(`Version: @okx_ai/okx-trade-cli@${CLI_VERSION}`);
+  process.exitCode = 1;
+});

@@ -1,0 +1,33 @@
+designlang.png
+test-output/
+design-extract-output/
+design-diff-output/
+design-brands-output/
+*.log
+.DS_Store
+
+# Companion surfaces — each publishes to its own registry (VS Code Marketplace,
+# Raycast Store, Figma Community, GitHub Marketplace, Chrome Web Store,
+# Smithery). Keep them out of the npm tarball.
+vscode-extension/
+raycast-extension/
+figma-plugin/
+github-action/
+chrome-extension/
+smithery.yaml
+smithery.dockerfile
+website/
+docs/LAUNCH.md
+docs/MCP-REGISTRY.md
+docs/demo.tape
+docs/superpowers/
+tests/
+bench/
+.github/
+
+# Local tooling state and personal notes — never part of the package.
+.vercel/
+.engram/
+.claude/
+docs/INTERVIEW_PREP.md
+.env*

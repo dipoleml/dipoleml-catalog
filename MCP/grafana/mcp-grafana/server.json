@@ -1,0 +1,96 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.grafana/mcp-grafana",
+  "title": "Grafana",
+  "description": "An MCP server giving access to Grafana dashboards, data and more.",
+  "repository": {
+    "url": "https://github.com/grafana/mcp-grafana",
+    "source": "github"
+  },
+  "websiteUrl": "https://grafana.com/docs/grafana/latest/developer-resources/mcp/",
+  "version": "$VERSION",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/grafana/mcp-grafana/main/assets/icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "180x180"
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.grafana.com/mcp",
+      "headers": [
+        {
+          "name": "X-Grafana-URL",
+          "description": "URL of your Grafana Cloud instance",
+          "placeholder": "https://<instance>.grafana.net",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/grafana/mcp-grafana:$VERSION",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "URL to your Grafana instance",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false,
+          "name": "GRAFANA_URL"
+        },
+        {
+          "description": "Service account token used to authenticate with your Grafana instance",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+        },
+        {
+          "description": "Username to authenticate with your Grafana instance",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "GRAFANA_USERNAME"
+        },
+        {
+          "description": "Password to authenticate with your Grafana instance",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "GRAFANA_PASSWORD"
+        },
+        {
+          "description": "Organization ID for multi-org support. Can also be set via X-Grafana-Org-Id header in SSE/streamable HTTP transports.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "GRAFANA_ORG_ID"
+        },
+        {
+          "description": "JSON object of additional HTTP headers to send with all Grafana API requests",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "GRAFANA_EXTRA_HEADERS"
+        },
+        {
+          "description": "Comma-separated list of HTTP header names to forward from the incoming request to Grafana (SSE/streamable-http only). Example: Cookie,X-Session-Id",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "GRAFANA_FORWARD_HEADERS"
+        }
+      ]
+    }
+  ]
+}

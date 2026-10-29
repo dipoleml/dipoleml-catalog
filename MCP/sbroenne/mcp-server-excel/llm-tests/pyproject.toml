@@ -1,0 +1,27 @@
+[project]
+name = "excelmcp-llm-tests"
+version = "0.1.0"
+description = "LLM integration tests for ExcelMcp MCP Server and CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4",
+    "pytest-skill-engineering==1.0.3",
+    "pytest-timeout>=2.4.0",
+    "pillow>=12.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+markers = [
+    "aitest: LLM integration tests",
+    "copilot: GitHub Copilot-backed skill engineering tests",
+    "mcp: MCP server tests",
+    "cli: CLI tests",
+    "skill_value: explicitly selected skill/no-skill comparisons",
+    "offline: checks requiring neither Excel nor model access",
+]

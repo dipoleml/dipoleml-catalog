@@ -1,0 +1,120 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use anyhow::Result;
+use clap::Args;
+
+use octocode::config::Config;
+use octocode::indexer;
+use octocode::mcp::{has_child_repos, McpServer, MultiServer, Sessions};
+
+#[derive(Args, Clone)]
+pub struct McpArgs {
+	/// Enable debug logging for MCP server
+	#[arg(long)]
+	pub debug: bool,
+
+	/// Path to the directory to serve (defaults to current directory)
+	#[arg(long, default_value = ".")]
+	pub path: String,
+
+	/// Skip git repository requirement and git-based optimizations
+	#[arg(long)]
+	pub no_git: bool,
+
+	/// External LSP server command to launch (e.g., "rust-analyzer", "typescript-language-server --stdio")
+	#[arg(long, value_name = "COMMAND")]
+	pub with_lsp: Option<String>,
+
+	/// Bind to HTTP server on host:port instead of using stdin/stdout (e.g., "0.0.0.0:12345")
+	#[arg(long, value_name = "HOST:PORT")]
+	pub bind: Option<String>,
+
+	/// Serve every git repository found one level under --path as a single MCP
+	/// endpoint. Each tool gains a `project` argument to select the target repo.
+	#[arg(long)]
+	pub multi: bool,
+
+	/// Automatically select mode: single-repo when the target directory is a git
+	/// repo root, multi-repo when it is not but git repos exist one level under it.
+	#[arg(long, conflicts_with = "multi")]
+	pub auto: bool,
+}
+
+pub async fn run(args: McpArgs) -> Result<()> {
+	let config = Config::load()?;
+
+	// Convert path to absolute PathBuf
+	let working_directory = std::path::Path::new(&args.path)
+		.canonicalize()
+		.map_err(|e| anyhow::anyhow!("Invalid path '{}': {}", args.path, e))?;
+
+	// Verify the path exists and is a directory
+	if !working_directory.is_dir() {
+		return Err(anyhow::anyhow!(
+			"Path '{}' is not a directory",
+			working_directory.display()
+		));
+	}
+
+	// No console output here — MCP protocol compliance requires clean stdout/stderr.
+	// All debug information is logged to files via structured logging in the server.
+	// Git validation is handled in the server: indexer only starts if in git repo or --no-git is set.
+
+	// Multi mode: serve every git repo one level under --path behind one endpoint,
+	// routing tool calls by an injected `project` argument. --auto resolves to
+	// multi only when the target itself is not a git repo root yet qualifying
+	// projects exist one level under it; otherwise it stays on the single-repo
+	// path below.
+	let use_multi = args.multi
+		|| (args.auto
+			&& !indexer::git::is_git_repo_root(&working_directory)
+			&& has_child_repos(&working_directory, args.no_git));
+	if use_multi {
+		let server = MultiServer::new(config, working_directory, args.no_git, args.debug).await?;
+		return match args.bind {
+			Some(bind_addr) => server.run_http(&bind_addr).await,
+			None => server.run_stdio().await,
+		};
+	}
+
+	// The git requirement exists for the in-process indexer. Only enforce it when
+	// that indexer will actually run (index.mcp_index = true): with it off the
+	// server serves the existing index read-only, where git is irrelevant.
+	// --no-git or require_git = false in config also waive it.
+	if config.index.mcp_index
+		&& config.index.require_git
+		&& !args.no_git
+		&& !indexer::git::is_git_repo_root(&working_directory)
+	{
+		return Err(anyhow::anyhow!(
+			"'{}' is not a git repository. Run `octocode mcp` from a git repo root, \
+			 pass --no-git to serve a non-git directory, or use --multi or --auto \
+			 to serve repositories found under this path.",
+			working_directory.display()
+		));
+	}
+
+	// Sessions in other directories (octomind shares one connection between its
+	// sessions) are routed to handlers for their own directories.
+	let sessions = Sessions::new(config.clone(), working_directory.clone(), args.no_git, args.debug);
+	let (server, bg) = McpServer::new(config, args.debug, working_directory, args.no_git, args.with_lsp).await?;
+
+	// Check if HTTP binding is requested
+	if let Some(bind_addr) = args.bind {
+		server.run_http(&bind_addr, bg, sessions).await
+	} else {
+		server.run_stdio(bg, sessions).await
+	}
+}

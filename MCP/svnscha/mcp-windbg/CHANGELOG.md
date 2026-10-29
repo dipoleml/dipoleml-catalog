@@ -1,0 +1,558 @@
+# Changelog
+
+All notable changes to the MCP Server for WinDbg Crash Analysis project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.6.0] - 2026-10-23
+
+### Added
+
+- Agent-visible remote-server startup warnings in the MCP tool descriptions,
+  remote-triage prompt, optional debug-remote skill, and documentation. They
+  explain the CDB NUL/EOF stdin nonpaged-pool exhaustion risk, the `-noio`
+  workaround, and cleanup of separately launched servers
+  ([CDB upstream report](https://github.com/microsoft/WinDbg-Feedback/issues/402)).
+- `--log-dir` keeps a log of everything each debugger session prints, including
+  what a running target prints between tool calls, and `read_debugger_log`
+  returns its newest lines, optionally filtered. The log files are unfiltered
+  raw output and stop at 64 MiB (#152, #153).
+- `close_cdb_session` takes `resume`, like `close_kd_session`, to choose whether
+  a remote target runs again after the close.
+
+### Changed
+
+- `open_cdb_remote` no longer stops a target that is running when the client
+  attaches. A debug server's target may be someone else's process, so the open
+  returns its session id with the target still running and says so under
+  `Target State`. Init commands wait for the first command that stops it.
+  `break_in: true` restores the 1.5.1 behavior of breaking in for the initial
+  triage (#140).
+
+### Fixed
+
+- Closing a remote session left every target it had broken into stopped. The
+  close relied on CTRL+B resuming the target, but measured against cdb it only
+  ends the client and leaves the target as it is. A close now restores the
+  state the client found: it resumes a target that was running at attach with
+  a `g` before CTRL+B, and leaves a target found stopped alone. A failed open
+  rolls back the same way, so it no longer strands a running target stopped
+  (#140).
+- Preserve completed command output when the debugger exits before the caller
+  reads it. Any final debugger output is appended within the existing retention
+  limit instead of replacing the completed reply (#151).
+
+## [1.5.1] - 2026-10-10
+
+### Fixed
+
+- `open_cdb_remote` against a debug server whose target is running no longer
+  waits out its whole timeout and fails with "Debugger initialization timed
+  out". A running target reads no commands, so the prompt probe the open
+  relied on could never be answered. The client now waits for its connect
+  banner, which is where connection latency belongs, and then gives the
+  target a short window to answer; silence means it is running, and the
+  session opens in that state. The initial triage then breaks in, as any
+  command on a running target does, the result says so under `Target State`,
+  and the target stays stopped until it is resumed or the session is closed.
+  A failed connect still reports the debugger's own error, and a connect that
+  never completes now says so instead of blaming initialization (#130, item 2;
+  the register-context approach was proposed in #127). Thanks to @xiaozhu1337.
+
+### Added
+
+- A standalone `mcp-windbg.exe`, for anyone who wants the server without a
+  Python toolchain. PyInstaller freezes the interpreter and every dependency
+  into one file; `cdb.exe` remains a prerequisite. Importing cleanly does not
+  prove a frozen build works - a dependency that imports lazily or reads a data
+  file at runtime fails at the tool call, not at startup - so
+  `MCP_WINDBG_SERVER_EXE` points the e2e harness at a built binary and the whole
+  scenario suite re-runs against it.
+- The executable is published on each release, **code signed**, with a
+  `SHA256SUMS` file taken from the signed binary. Before the asset is attached,
+  the signature is verified and the scenario suite runs once more against the
+  signed binary, since signing rewrites the executable.
+- Windows file metadata on the executable: a version resource generated from
+  `pyproject.toml`, an application icon, and a note that the binary is authored
+  by Sven Scharmentke and signed with a certificate sponsored by Liasoft GmbH,
+  which is the publisher Windows shows.
+
+## [1.5.0] - 2026-10-09
+
+### Fixed
+
+- A failed `open_*` no longer leaves behind a debugger session the caller cannot
+  address. All four open tools own their debugger until initialization, triage
+  and output filtering have all succeeded; on a failure or a cancelled request
+  that call's session is rolled back and shut down, and unrelated sessions are
+  left alone. A rollback never resumes a live target: an open that never
+  returned a session id should leave the target as it found it, and resuming
+  stays an explicit choice through `close_kd_session`'s `resume` (#125, #136).
+  Thanks to @xiaozhu1337 for the diagnosis, the reproduction and the design.
+- Completion markers are now unique per session. They were numbered from a
+  counter that restarts at 1 in every session, so several clients attached to
+  one shared `-remote` debug server could complete each other's commands, and
+  `..._1` also matched inside `..._10`. Each session now carries a random nonce
+  and the match is anchored at the end of the line (#137). Thanks to
+  @xiaozhu1337 for finding it.
+- A command that outruns its timeout on a **dump** session is now cancelled.
+  Only live targets were broken into before, so on a dump the debugger kept
+  executing the command while every later command queued behind it and timed
+  out as well, wedging the session until it was closed. That is easy to reach
+  now that `open_kd_dump` exists, since a `!process 0 7` over a large kernel
+  dump runs for minutes. If the cancel cannot resynchronize, a live target
+  keeps its session and the manual break-in hint, because `send_ctrl_break`
+  can still rescue it, while a dump session is closed rather than left wedged
+  (#138). Thanks to @robster7674 for the analysis and the fix.
+- The output retained for one command is now bounded, by line count and per
+  line, with a notice saying how it was cut. The transport keeps being drained
+  past the bound, so the command still completes and the session stays usable
+  (#130, #139).
+- `.logopen /u` quotes its path. Given a path containing a space the debugger
+  opened a log at the truncated prefix instead, left that file behind and never
+  created the intended one, which silently disabled the Unicode-log output
+  channel that a multibyte code page depends on. Reachable whenever the
+  resolved temp directory contains a space (#139).
+- A `close_*` that cannot shut its debugger down reports the failure instead of
+  success, so a debugger still holding its target is visible. A failed rollback
+  no longer replaces the error explaining why the open failed (#139).
+- `--verbose` writes to stderr rather than stdout, which on the stdio transport
+  carries the JSON-RPC stream, and it now installs a logging handler at all, so
+  the server's and a `--filter-script`'s own messages actually appear (#139).
+- Dump discovery runs off the event loop, so a glob over a large or remote share
+  no longer blocks a break-in on another session. The order is unchanged (#139).
+
+## [1.4.0] - 2026-10-01
+
+### Added
+
+- `--init-command` (repeatable), or `MCP_WINDBG_INIT_COMMANDS` with one command
+  per line, runs debugger commands on every new session before triage - for
+  example `.load` for a debugger extension. Their output leads the open result
+  under `Initialization`. `--kernel-init-command` /
+  `MCP_WINDBG_KERNEL_INIT_COMMANDS` do the same for kernel targets only: kd
+  sessions and kernel dumps, which are recognized by their file header even when
+  opened with `open_cdb_dump` (#121). Thanks to @RamanaIntel for the feature.
+- An `open_kd_dump` tool that opens a kernel crash dump with `kd.exe` (`-z`): a
+  complete, kernel, or bitmap memory dump (`MEMORY.DMP`) or a small memory dump
+  from `C:\Windows\Minidump`. It runs the init commands, then `vertarget` and
+  `!analyze -v`, and returns a `kd` session id for `run_kd_command` and
+  `close_kd_session` (#111). Thanks to @robster7674 for the proposal and the
+  analysis behind it, and to @RamanaIntel for testing it on a 66 GB dump.
+
+## [1.3.1] - 2026-09-29
+
+### Fixed
+
+- Debugger startup, commands, and shutdown run on worker threads so slow I/O
+  does not block other MCP calls. Break-in remains available even when the
+  debugger worker pool is full. Concurrent close calls claim a session once
+  and preserve the closing caller's kernel resume policy. Break-in keeps the
+  validated session record so a concurrent close cannot cause a registry error
+  (#109, #110). Thanks to @adity982 for the fix.
+- A command that times out before reaching its completion marker keeps the
+  output already read, so the timeout error still shows useful diagnostics from
+  runaway commands such as SOS `!clrstack`. The retained output is capped at
+  2,000 lines and 64 KiB (#112, #114). Thanks to @Oscar-Williams for the fix.
+- A debugger process that exits (`q`, a failed `-remote` or `-k` connect, or
+  cdb/kd crashing) is now reported at once with its exit code and last output,
+  instead of every pending command, `wait_for_break`, or session open sitting out
+  its full timeout and then misreporting a timeout (#115). Thanks to
+  @RamanaIntel for the fix.
+- Debugger errors (timeouts, a debugger that exited, failed connects) reach the
+  caller as their message alone, without a Python stack trace. The trace
+  repeated the message, so a timeout with partial output returned that output
+  twice.
+
+## [1.3.0] - 2026-09-10
+
+### Added
+
+- A `mcp-windbg-skills` Claude Code plugin with four optional debugging skills
+  for the uvx plugin or independently configured MCP servers, without a bundled server or agent.
+- A `mcp-windbg-agents` Claude Code plugin with the optional `crash-analyst`
+  agent, using an existing MCP connection without a bundled server or skills.
+
+### Changed
+
+- The uvx plugin now ships only the MCP server configuration. Install
+  `mcp-windbg-skills@mcp-windbg` and/or `mcp-windbg-agents@mcp-windbg` separately
+  to keep those workflows. Skills use `/mcp-windbg-skills:` instead of
+  `/mcp-windbg:`, and the agent is now `mcp-windbg-agents:crash-analyst`.
+- Skills resolve tools from the configured server; setup diagnosis checks its
+  actual launcher and host instead of requiring uv for every installation.
+- Release validation checks the version of every marketplace entry.
+- README and setup documentation explain all three plugins, their workflow names,
+  switching and updating, and the separate built-in MCP prompts.
+
+## [1.2.2] - 2026-09-05
+
+### Fixed
+
+- **Unicode command output on Chinese, Japanese and Korean Windows** ([#102](https://github.com/svnscha/mcp-windbg/issues/102)) - on a multibyte system code page (936, 932, 949, or the "Use Unicode UTF-8" setting 65001) the debugger truncates its text output over a pipe, dropping the tail of any line that contains non-ASCII text; a `du` of a Chinese string came back empty or partial, other Unicode output was cut short, and a line split in the middle of a character could leave the session unresponsive. On these code pages the session now mirrors output to a UTF-16 log and reads each command's output from it, keyed by the markers it already uses to synchronize; the result is complete for every command. Single-byte code pages (such as Western 1252), where the pipe is lossless, are detected and left on the pipe path unchanged.
+
+## [1.2.1] - 2026-08-27
+
+### Changed
+
+- **The README install section is organised by client, not by install method** - Claude Code
+  has its own heading, with the plugin and a manual `claude mcp add` beneath it, and other
+  clients follow. Python is no longer listed as a prerequisite, because it is not one for the
+  plugin route: each route now states what it needs next to the command it applies to. The note
+  about enterprise policy moves to the top, where it can still change whether you proceed.
+
+### Fixed
+
+- **A corrupted path in the README example prompts** - `C:\dumps\app.dmp` shipped with a literal
+  BEL byte where the `\a` should have been, so anyone copying that line got a control character
+  instead of a path. Every markdown, workflow and JSON file in the repository was swept for
+  stray control characters; this was the only one.
+
+## [1.2.0] - 2026-08-27
+
+### Added
+
+- **A Claude Code plugin, and a marketplace to serve it from this repo** - installing is now two
+  lines with no `pip install` and no MCP configuration to hand-edit:
+
+  ```
+  /plugin marketplace add svnscha/mcp-windbg
+  /plugin install mcp-windbg-uvx@mcp-windbg
+  ```
+
+  The plugin launches the server with `uvx`, which fetches the pinned version from PyPI on first
+  use, so the only prerequisites are Windows, CDB, and uv.
+
+  It ships the ten tools, four skills - `analyze-dump`, `debug-remote`, `kernel-debug`, and
+  `windbg-doctor` for diagnosing a machine that cannot debug - and a `crash-analyst` agent that
+  investigates a dump on its own and returns a verdict with its evidence, what it ruled out, and
+  what to do next. Always-on context cost is about 400 tokens; a skill or agent costs more only
+  when it fires.
+
+  Symbols work out of the box: the plugin supplies the Microsoft symbol server as a *default* for
+  `_NT_SYMBOL_PATH`, and an existing value wins over it, so a symbol path you tuned yourself is
+  never overwritten.
+
+### Changed
+
+- **Dependency floors raised to current releases** - `mcp` 2.1.1, `starlette` 1.6.0, `uvicorn`
+  0.52.4, and `pymdown-extensions` 11.0.2 for the docs build. The major-version caps are
+  unchanged, and `uv.lock` is regenerated to match; it had been left at 1.0.1 since the 1.1.0
+  release, because release-please has no updater for it.
+
+### Fixed
+
+- **The `crash-analyst` agent no longer hard-codes the plugin's installed name** - its `tools:`
+  list named MCP tools as `mcp__plugin_mcp-windbg_mcp-windbg__*`, and that middle segment is the
+  name the plugin is installed under. Under any marketplace entry not called exactly
+  `mcp-windbg` the list would have matched nothing, leaving the agent with no debugger tools at
+  all. It now denies the mutating tools instead, which keeps it read-only without naming the
+  plugin.
+
+- **The version-consistency check reports mismatches instead of crashing on them** - it looped
+  with `foreach ($error in $errors)`, and `$error` is a read-only PowerShell automatic variable,
+  so the moment it had something to report it threw "Cannot overwrite variable Error" and lost
+  the diagnostic. The build still failed, but never said which files disagreed. It now also
+  covers the plugin manifest, the marketplace entry, and the server version pinned in the
+  plugin's `.mcp.json`.
+
+## [1.1.0] - 2026-08-22
+
+### Changed
+
+- **Runs on the mcp 2.x SDK** - the requirement is now `mcp>=2.0.0`, up from the `<2.0.0` cap
+  1.0.1 shipped as a stopgap. 2.0.0 removed the low-level `@server.list_tools()` /
+  `@server.call_tool()` decorators this server registered its tools through, so the handlers are
+  now passed to `Server(...)` directly and return the SDK's result types (`ListToolsResult`,
+  `CallToolResult`) instead of bare lists. `McpError` is `MCPError`, and it takes a code and a
+  message rather than an `ErrorData`. None of this is visible to clients: the same nine tools
+  with the same schemas, over both stdio and streamable-http (#78).
+
+  Installing mcp-windbg pulls the SDK it needs, so there is nothing to do on upgrade. Python
+  support is unchanged - the 2.x SDK requires 3.10+, exactly as this project already did.
+- **Every runtime dependency is capped at the next major** - `mcp<3.0.0`, `pydantic<3.0.0`,
+  `starlette<2.0.0`, `uvicorn<1.0.0`. #76 happened because `mcp>=1.28.1` had no upper bound, so
+  the 2.0.0 release landed in fresh installs and broke them at import; moving the floor to 2.x
+  without a ceiling would have left the identical trap for 3.0.0. mcp-windbg is an application
+  rather than a library, so an upper bound cannot cause a diamond conflict for anyone, and it
+  turns the next breaking SDK release into a Dependabot PR that fails CI instead of an install
+  everybody has to work around by hand.
+- **A weekly canary tests the versions users will actually get** - CI installs from `uv.lock`, so
+  it only ever proved the server works against the exact versions pinned there, while a PyPI
+  install resolves to whatever the ranges allow. `dependency-canary.yml` closes that gap: it
+  resolves to the newest allowed versions, ignoring the lock, and runs the hermetic suite against
+  them every Monday. It is scheduled rather than attached to pull requests on purpose - an
+  upstream release breaking the build should page the maintainer, not block someone's unrelated PR.
+
+### Added
+
+- **`wait_for_break`** - block until a target you resumed stops again (bugcheck, breakpoint, or a
+  CTRL+BREAK from elsewhere) and return everything the debugger printed when it did. If the wait
+  expires the target is left running, so waiting never halts a machine behind your back.
+
+### Fixed
+
+- **`g` no longer freezes the target it was supposed to release** - go-class commands (`g`, `gh`,
+  `gn`, `gN`, `gc`, `gu`) hand the CPU back to the target, after which the debugger stops reading
+  its stdin. The marker protocol queued an `.echo` the debugger could not answer, so the command
+  hit its timeout and the cancel-on-timeout CTRL+BREAK halted the target again - the exact
+  opposite of what was asked. They are now written bare and return immediately. The step family
+  (`p`, `t`, `pa`, `ta`, ...) is unaffected: it returns to the prompt on its own and keeps the
+  marker round-trip (#74).
+- **An ordinary command after `g` breaks in by itself** - no need to interleave `send_ctrl_break`
+  manually, and whatever the target printed on the way to stopping leads that command's output
+  instead of being discarded.
+- **A break-in issued the instant `g` returns is no longer swallowed** - resuming wrote the `g`
+  and returned without waiting for the debugger to read it, so for a moment the debugger was
+  still sitting at its prompt with the resume unread. A CTRL+BREAK arriving in that window was
+  answered by the prompt instead of reaching the target, and the break was simply lost: the
+  caller then waited out a full `wait_for_break` timeout on a machine nothing was going to stop.
+  Measured against a live KDNET target, a break sent with no gap after `g` was lost every single
+  time. The resume is now confirmed consumed before it is reported. A go-class command that stops
+  again at once - a `gu` returning in microseconds, a breakpoint hit immediately - reports what it
+  printed instead of claiming the target is running.
+- **Break-in asks before it signals** - a CTRL+BREAK aimed at a target that has in fact already
+  stopped queues a break request a kernel target honours later, re-halting a machine we thought
+  we had released. The session probes for a prompt first and only signals if that goes
+  unanswered, which also makes `send_ctrl_break` safe to issue speculatively.
+- **`wait_for_break` trusts the debugger, not a flag** - it is right about a target running for
+  reasons this server never caused, and a second `g` while the target really is still running is
+  refused rather than queued behind the first.
+- **`bp nt!X; g` reports whether the breakpoint was set** - the part before the `g` runs with its
+  output returned, so a typo'd symbol surfaces as `Couldn't resolve error` rather than as a wait
+  for a break that can never arrive. A `;` inside a quoted command string is left alone.
+- **Output is no longer lost at a deadline** - a marker that lands in the moment between a timeout
+  expiring and being handled now counts as arrived, and the break-in output a timed-out command
+  was carrying rides along on the error instead of vanishing with it.
+- **One operation at a time per session** - `wait_for_break` parks for minutes on a worker thread
+  so the rest of the server keeps answering; a second call against the same session is refused
+  at once, with a message pointing at `send_ctrl_break`, rather than interleaving markers and
+  returning each other's output. The refusal never waits, so it cannot stall the server it exists
+  to keep responsive.
+- **Closing a session ends a wait parked on it** - instead of leaving a thread sitting out its
+  full timeout on a debugger that no longer exists and then reporting the target as still running.
+- **Kernel sessions over a named pipe or serial cable connect** - `kd` announces a COM/pipe link
+  with `Kernel Debugger connection established`, not the KDNET `Connected to target ...`. Only the
+  latter was matched, so `open_kd_session` timed out on a target that was in fact attached
+  (#47, #74).
+
+## [1.0.1] - 2026-08-21
+
+A single-line dependency fix, but an important one: every fresh install of 1.0.0 was broken.
+
+### Fixed
+
+- **Installs no longer pull an incompatible `mcp`** - the runtime requirement is now
+  `mcp>=1.28.1,<2.0.0`. `mcp` 2.0.0 renames `McpError` to `MCPError` and drops the low-level
+  `Server.list_tools()` decorator this server registers its tools with, so an unpinned install
+  resolved to 2.x and died at import with
+  `ImportError: cannot import name 'McpError' from 'mcp.shared.exceptions'` (#76). Thanks to
+  @aphroteus for the fix, and to @arjunarjun07 for pinning down the cause.
+
+  If you hit this on 1.0.0, upgrading is the fix: `pip install --upgrade mcp-windbg`. The manual
+  workaround (`pip install "mcp<2"`) is no longer needed.
+
+  Moving to the 2.x server API is tracked in #78.
+
+## [1.0.0] - 2026-07-16
+
+First stable release, and the one where kernel debugging actually works.
+
+The tool surface is redesigned around opaque **session ids** and split by debugger engine:
+user-mode (`cdb.exe`) and kernel (`kd.exe`). **This is a breaking change** for clients of the
+0.x tools. Every `*_windbg_*` tool has a new name, listed under Changed.
+
+### Added
+
+- **Kernel debugging** - `open_kd_session`, `run_kd_command`, and `close_kd_session` attach to a
+  kernel target over KDNET (`net:port=,key=`), a named pipe (`com:pipe,port=\\.\pipe\...`), or
+  serial, driven by `kd.exe`. This was impossible in 0.x: every remote connection was launched
+  with `-remote`, which is user-mode only, so a kernel target could never connect (#62, #47).
+- **Kernel sessions arrive already stopped** - `open_kd_session` waits for the target's connect
+  banner and breaks in for you, so there is no separate break-in step.
+- **Closing a kernel session sets the machine running again** - `close_kd_session` sends `g` by
+  default (`resume: true`). Pass `resume: false` only to leave the target halted on purpose.
+- **`--kd-path`** - point the server at a specific `kd.exe`, the counterpart to `--cdb-path`.
+  Kernel sessions need their own option because `cdb.exe` cannot drive a kernel cable.
+- **Session ids** - every `open_*` returns an opaque `session_id` (`cdb-…` / `kd-…`) on its first
+  output line, and `run_*`, `close_*`, and `send_ctrl_break` address a session by that id. The
+  kind is enforced: a `cdb` id passed to `run_kd_command` (or the reverse) returns an error
+  naming the right tool.
+- **Per-call timeouts** - `timeout_seconds` on any `open_*` / `run_*` overrides that tool's
+  default (`open_cdb_dump` 180s, connects 60s, `run_cdb_command` 60s, `run_kd_command` 120s).
+  The server-wide `--timeout` (default 60s) is the floor.
+- **`remote-triage` prompt** - a guided investigation of a live user-mode target: break in,
+  orient, then track down the hang or crash.
+- **`kernel-triage` prompt** - the same for a kernel target, including telling a real bugcheck
+  apart from a plain break-in, and releasing the machine at the end.
+
+### Changed
+
+- **BREAKING** - `list_windbg_dumps` is now `list_dumps`.
+- **BREAKING** - `open_windbg_dump` is now `open_cdb_dump`.
+- **BREAKING** - `open_windbg_remote` is now `open_cdb_remote`.
+- **BREAKING** - `run_windbg_cmd` is now `run_cdb_command` (user mode) or `run_kd_command`
+  (kernel). The `connection_type` discriminator is gone; the tool name says which engine.
+- **BREAKING** - `close_windbg_dump` and `close_windbg_remote` are both now `close_cdb_session`.
+- **BREAKING** - `send_ctrl_break` takes a `session_id`.
+- **BREAKING** - sessions are addressed by id, not by dump path or connection string, and `run_*`
+  no longer opens one implicitly: open a session first. Reopening the same dump gives you an
+  independent session instead of silently reusing one.
+- **Module layout** - kernel sessions live in `kd_session.py` and user-mode in `cdb_session.py`,
+  over a shared `debug_session.py` that owns the subprocess and marker protocol.
+- **Docs** - README and the docs site rewritten around the new tools and the session-id flow,
+  with a "Debug a kernel target" guide, a Development page, and client guides for Claude Code and
+  Autohand Code (#63). Setup instructions standardize on `pip install mcp-windbg` and
+  `python -m mcp_windbg`.
+- **Dependencies** - runtime floors refreshed (`mcp>=1.28.1`, `pydantic>=2.13.4`,
+  `starlette>=1.3.1`, `uvicorn>=0.51.0`), plus `pytest>=9.1.1`, and `uv.lock` regenerated. The
+  streamable-http transport was smoke-tested against the Starlette 0.x to 1.x bump.
+
+### Fixed
+
+- **A slow command no longer wedges a live session.** When a command outruns its timeout the
+  debugger is still busy running it, so the server now breaks in with CTRL+BREAK and
+  resynchronizes before reporting the timeout. The session is usable again for the next command
+  instead of stranded.
+- **A slow command's output is no longer attributed to the next command.** Every command waits
+  on its own unique completion marker, so late output from one command can never be mistaken for
+  the next one's result.
+- **Debugger processes are cleaned up on close.** `cdb.exe` launched through the Microsoft Store
+  execution aliases spawns a child that a plain terminate left behind, still holding the target.
+  Shutdown now does a Windows process-tree kill.
+
+### Removed
+
+- All `*_windbg_*` tool names, and the `connection_type` parameter on `run_windbg_cmd` and
+  `send_ctrl_break`, superseded by the `cdb` / `kd` split.
+- Session reuse by dump path or connection string. `open_*` always creates a fresh session and
+  returns its id.
+
+## [0.15.0] - 2026-06-08
+
+### Added
+
+- **Documentation site**: New MkDocs (Material) user guide under `docs/`, deployed to GitHub Pages via `pages.yml`. Covers getting started, the use cases, and a reference for the command-line options, tools, and client configuration. Content migrated and trimmed from the project wiki.
+- **Prompts reference**: Documented the built-in `dump-triage` MCP prompt and its `dump_path` argument (`docs/reference/prompts.md`).
+- **Usage guide coverage**: New use-case pages for running the server over HTTP (`Debug from another machine`) and scrubbing tool output (`Redact sensitive data`), plus WER auto-capture setup in the triage guide and the `dump-triage` prompt in the crash-dump guide. Documented the HTTP transport's lack of authentication, that attach-by-PID is unsupported, and that sessions are concurrent.
+
+### Changed
+
+- **Package metadata**: Filled in distribution metadata so `pip show` / PyPI are complete - added the author/maintainer email, project URLs (Homepage, Repository, Issues, Changelog), and classifiers for Windows, console environment, and the Debuggers/QA topics (#36)
+- **Contributor guide**: Migrated `AGENTS.md` to `CLAUDE.md` and added `.claude/rules/` (Markdown typography and documentation authoring), plus `scripts/Format-Docs.ps1` to enforce the typography rules
+- **Docs tooling**: Bumped the docs build dependencies in `requirements-docs.txt` to their latest patch floors - `mkdocs>=1.6.1`, `mkdocs-material>=9.7.6`, `pymdown-extensions>=10.21.3` (consolidates #51, #52, #53)
+- **Test suite**: Replaced the ad-hoc tests with a declarative end-to-end harness. Each `tests/scenarios/*.yaml` runs against a really-hosted `python -m mcp_windbg` server driven by a real MCP client (only the LLM is faked). Live scenarios carry `live`/`remote` markers and skip cleanly without CDB, so `-m "not live"` runs anywhere. Adds `pyyaml` as a dev dependency.
+- **Coverage**: The harness hosts the server under `coverage run --parallel-mode` (set `MCP_WINDBG_COVERAGE`), so coverage reflects the subprocess where tool dispatch runs rather than the test process. The suite reaches 90%+; CI enforces a floor with `coverage report --fail-under=88` (margin below the ~91% actual for cross-version and cdb-output jitter). Code that cannot be line-measured end-to-end (the streamable-http transport on Windows, atexit cleanup, debug-only and defensive branches) is excluded with documented `# pragma: no cover` and `exclude_also` rules. Adds `coverage` as a dev dependency.
+- **LFS dumps are mandatory**: a scenario whose `requires.dump` file is missing now hard-fails (run `git lfs pull`) instead of skipping, so a half-set-up checkout is a loud error rather than silent green.
+
+### Removed
+
+- **Dead code**: Removed three unused functions surfaced while raising test coverage - `server.execute_common_analysis_commands`, `CDBSession.get_session_id`, and `prompts.get_available_prompts`. None had callers.
+
+### Fixed
+
+- **Stdio server resilience**: The stdio transport no longer crashes on a malformed input line. `serve()` now uses the SDK default `raise_exceptions=False`, so an unparseable line (e.g. when the server is run directly in a terminal) is logged instead of tearing down the whole process (#45)
+
+## [0.14.0] - 2026-03-21
+
+### Added
+
+- **Tool Content Filter Script Hooks**: Added `--filter-script` so trusted Python helpers can rewrite string-valued tool arguments and tool text output for use cases like PII redaction without exposing full MCP protocol messages
+
+## [0.13.0] - 2026-03-18
+
+### Added
+
+- **Live Debugger Break-In**: Added the `send_ctrl_break` tool to interrupt an active CDB/WinDbg session with CTRL+BREAK for dump and remote debugging workflows (#40)
+
+### Changed
+
+- **Dependency Refresh**: Updated runtime dependency floors for `mcp`, `pydantic`, `starlette`, and `uvicorn`, and refreshed test and validation tooling versions in `pyproject.toml`
+- **CI Dependency Maintenance**: Updated GitHub Actions dependencies for Python setup and artifact handling in release workflows (#39, #42)
+
+### Fixed
+
+- **Registry Compatibility**: Restored MCP registry compatibility by reverting `server.json` to the supported `2025-10-17` schema version
+- **Publishing Workflow**: Adjusted MCP publishing workflows to match current registry publisher behavior
+
+## [0.12.2] - 2025-12-15
+
+### Fixed
+
+- **Registry Schema Migration**: Updated MCP server schema from deprecated `2025-10-17` to current `2025-12-11` version for mcp-publisher compatibility
+
+## [0.12.1] - 2025-12-15
+
+### Added
+
+- **HTTP Transport in Registry**: Added `streamable-http` transport configuration to server.json for MCP registry discovery
+- **Schema Validation in CI**: New `validate-server-schema.py` script validates server.json against the official MCP schema
+
+### Fixed
+
+- **Registry Schema Update**: Updated MCP server schema version from 2025-09-29 to 2025-10-17 for compatibility with registry.modelcontextprotocol.io
+- **CI Cache Warning**: Disabled unnecessary dependency caching in PyPI publish job to eliminate spurious warnings
+
+## [0.12.0] - 2025-12-15
+
+### Added
+
+- **HTTP Transport Support**: New `--transport streamable-http` option enables HTTP-based communication alongside the default stdio transport (#31)
+- **MCP Prompt API**: Implemented prompt templates for AI-assisted crash dump triage and analysis (#25)
+
+### Changed
+
+- **Updated Dependencies**: Bumped `mcp` to 1.17.0, `pydantic` to 2.12.0, and other dependencies (#26)
+- **Improved Prompt Templates**: Removed hard-coded model references from prompt templates for better flexibility (#29)
+- **Updated Dependabot Configuration**: Improved automated dependency update settings
+
+### Fixed
+
+- **Session Cleanup**: Prevent stale debugging sessions if `.shutdown()` fails (#28)
+
+## [0.10.0] - 2025-10-10
+
+**What's New in This Release**
+
+This release focuses on making mcp-windbg more reliable, faster, and easier to use for everyone - from beginners to advanced users.
+
+### New Features
+
+**Core**
+- Live debugging session support via `open_windbg_remote` and `close_windbg_remote`
+- Extended dump file support for `.mdmp` and `.hdmp` formats
+- Microsoft Store WinDbg CDB compatibility
+
+**Devops**
+- Set up continuous integration that automatically tests the code with Python versions 3.10 through 3.14
+- Added automatic dependency updates to keep everything secure and up-to-date
+- Streamlined the release process so new versions reach users faster
+
+**Development**
+- Switched to `uv` - a lightning-fast Python package manager that's 10-100x faster than pip
+- Development setup is now much quicker with commands like `uv sync` and `uv run`
+- More reliable builds with locked dependency versions
+
+**Documentation**
+- Added comprehensive debugging instructions for AI assistants ([`AGENTS.md`](AGENTS.md))
+- Created structured templates to help analyze crash dumps more effectively ([`.github/prompts/dump-triage.prompt.md`](.github/prompts/dump-triage.prompt.md))
+- All documentation is now available in the [repository Wiki](https://github.com/svnscha/mcp-windbg/wiki) for easy access
+- Simplified the main [`README.md`](README.md) to focus on getting started quickly
+- Added this structured [`CHANGELOG.md`](CHANGELOG.md) to track all project changes
+
+### Improvements
+
+**Performance Boost**: Build times are significantly faster thanks to the new tooling
+**Enhanced Security**: Automatic scanning and updates keep dependencies secure
+
+### Community Contributions
+
+Special thanks to [@sooknarine](https://github.com/sooknarine) for these valuable contributions:
+- [Find local dumps with other common extensions #6](https://github.com/svnscha/mcp-windbg/pull/6) - Now finds more crash dump files automatically
+- [Add support for remote debugging #10](https://github.com/svnscha/mcp-windbg/pull/10) - Connect to live debugging sessions
+
+
+## [0.1.0] - 2025-05-03
+
+- Initial version as blogged about.

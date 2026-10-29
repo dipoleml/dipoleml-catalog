@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.hmmhmmhm.daiso-mcp",
+  "type": "mcp",
+  "name": "Daiso MCP",
+  "slug": "daiso-mcp",
+  "vendor": "hmmhmmhm",
+  "description": "다이소·편의점 재고와 생활 정보를 AI에서 바로 조회하세요. 설치·API 키 없는 공개 MCP, 웹 링크 조회, CLI·Skill을 지원합니다.",
+  "version": "1.3.1",
+  "homepage": "https://github.com/hmmhmmhm/daiso-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cgv",
+    "clawhub",
+    "cli",
+    "codex-skill",
+    "daiso",
+    "gs25",
+    "inventory",
+    "korea"
+  ],
+  "tags": [
+    "cgv",
+    "clawhub",
+    "cli",
+    "codex-skill",
+    "daiso",
+    "gs25",
+    "inventory",
+    "korea",
+    "korean-retail",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "oliveyoung",
+    "retail"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "hmmhmmhm",
+    "brandName": "hmmhmmhm",
+    "source": "https://github.com/hmmhmmhm.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:03Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "hmmhmmhm/daiso-mcp",
+    "url": "https://github.com/hmmhmmhm/daiso-mcp",
+    "commit": "0e7ca70750f912978df5dd39c886970056864bb6",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 347,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@executeautomation/playwright-mcp-server"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "python3",
+      "args": [
+        "/Users/hm/Documents/GitHub/daiso-mcp/scripts/ghidra/cli_mcp_ghidra.py"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "/Users/hm/Library/Python/3.14/bin/frida-mcp",
+      "args": []
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "daiso"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "daiso"
+    ],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

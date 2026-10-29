@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.arabold.docs-mcp-server",
+  "type": "mcp",
+  "name": "Docs MCP Server",
+  "slug": "docs-mcp-server",
+  "vendor": "arabold",
+  "description": "Grounded Docs MCP Server: Open-Source Alternative to Context7, Nia, and Ref.Tools",
+  "version": "3.4.1",
+  "homepage": "https://github.com/arabold/docs-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-ai",
+    "copilot",
+    "cursor",
+    "vscode",
+    "windsurf"
+  ],
+  "tags": [
+    "agentic-ai",
+    "copilot",
+    "cursor",
+    "llm",
+    "mcp",
+    "vscode",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "arabold",
+    "brandName": "arabold",
+    "source": "https://github.com/arabold.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "arabold/docs-mcp-server",
+    "url": "https://github.com/arabold/docs-mcp-server",
+    "commit": "4e35baa7e82c3ec447405c48a301c8a4185e715f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1837,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@arabold/docs-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "@arabold/docs-mcp-server"
+    ],
+    "env": [
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

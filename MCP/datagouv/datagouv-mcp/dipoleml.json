@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.datagouv.datagouv-mcp",
+  "type": "mcp",
+  "name": "Datagouv MCP",
+  "slug": "datagouv-mcp",
+  "vendor": "datagouv",
+  "description": "Official data.gouv.fr Model Context Protocol (MCP) server that allows AI chatbots to search, explore, and analyze datasets from the French national Open Data platform, directly through conversation.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/datagouv/datagouv-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "open-data",
+    "opendata"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-server",
+    "open-data",
+    "opendata"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "datagouv",
+    "brandName": "datagouv",
+    "source": "https://github.com/datagouv.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "datagouv/datagouv-mcp",
+    "url": "https://github.com/datagouv/datagouv-mcp",
+    "commit": "01db2a6f3052c5248ad5a7d96030c65ee61f5edd",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1603,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:50Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "datagouv-mcp"
+    ],
+    "env": [
+      "MCP_PORT",
+      "DATAGOUV_API_ENV",
+      "MCP_HOST",
+      "SENTRY_DSN"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

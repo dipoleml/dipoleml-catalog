@@ -1,0 +1,42 @@
+import httpx
+
+from dbt_mcp.config.config_providers import SemanticLayerConfig
+from dbt_mcp.config.settings import SEMANTIC_LAYER_GQL_TIMEOUT
+from dbt_mcp.gql.errors import raise_gql_error
+from dbt_mcp.http_limits import response_limit_hook
+
+
+async def submit_request(
+    sl_config: SemanticLayerConfig,
+    payload: dict,
+    timeout: float = SEMANTIC_LAYER_GQL_TIMEOUT,
+) -> dict:
+    if "variables" not in payload:
+        payload["variables"] = {}
+    payload["variables"]["environmentId"] = sl_config.prod_environment_id
+
+    async with (
+        sl_config.http_config.admission(),
+        httpx.AsyncClient(
+            headers={"Accept-Encoding": "gzip, deflate"},
+            timeout=timeout,
+            event_hooks={
+                "response": [
+                    response_limit_hook(
+                        sl_config.http_config.response_limits,
+                        response_type="semantic_layer",
+                        observer=sl_config.http_config.observer,
+                    )
+                ]
+            },
+        ) as client,
+    ):
+        response = await client.post(
+            sl_config.url,
+            json=payload,
+            headers=sl_config.headers_provider.get_headers(),
+        )
+        response.raise_for_status()
+        result = response.json()
+        raise_gql_error(result)
+        return result

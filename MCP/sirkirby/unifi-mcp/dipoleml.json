@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.sirkirby.unifi-mcp",
+  "type": "mcp",
+  "name": "Unifi MCP",
+  "slug": "unifi-mcp",
+  "vendor": "sirkirby",
+  "description": "MCP servers & Graph API for the UniFi suite of applications, Network, Protect, and Access",
+  "version": "0.0.0",
+  "homepage": "https://github.com/sirkirby/unifi-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-ai",
+    "home-automation",
+    "unifi",
+    "unifi-access",
+    "unifi-controller",
+    "unifi-network",
+    "unifi-protect"
+  ],
+  "tags": [
+    "agentic-ai",
+    "home-automation",
+    "mcp-server",
+    "unifi",
+    "unifi-access",
+    "unifi-controller",
+    "unifi-network",
+    "unifi-protect"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sirkirby",
+    "brandName": "sirkirby",
+    "source": "https://github.com/sirkirby.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sirkirby/unifi-mcp",
+    "url": "https://github.com/sirkirby/unifi-mcp",
+    "commit": "0df304f7c1cf2504e23e960542b74ef0f61d4fb6",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 959,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "unifi-mcp"
+    ],
+    "env": [
+      "UNIFI_MCP_HTTP_AUTH_TOKEN",
+      "UNIFI_MCP_HOST",
+      "UNIFI_MCP_ALLOWED_HOSTS",
+      "UNIFI_NETWORK_HOST",
+      "UNIFI_PROTECT_HOST",
+      "UNIFI_ACCESS_HOST",
+      "UNIFI_HOST",
+      "UNIFI_API_KEY",
+      "UNIFI_PORT",
+      "UNIFI_NETWORK_PORT",
+      "UNIFI_PROTECT_PORT",
+      "UNIFI_ACCESS_PORT"
+    ],
+    "credentials": [
+      "UNIFI_MCP_HTTP_AUTH_TOKEN",
+      "UNIFI_API_KEY",
+      "UNIFI_NETWORK_API_KEY",
+      "UNIFI_PROTECT_API_KEY",
+      "UNIFI_ACCESS_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

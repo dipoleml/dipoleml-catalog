@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.sparfenyuk.mcp-proxy",
+  "type": "mcp",
+  "name": "MCP Proxy",
+  "slug": "mcp-proxy",
+  "vendor": "sparfenyuk",
+  "description": "A bridge between Streamable HTTP and stdio MCP transports",
+  "version": "0.0.0",
+  "homepage": "https://github.com/sparfenyuk/mcp-proxy",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "proxy",
+    "sse",
+    "streamable-http"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-server",
+    "proxy",
+    "sse",
+    "streamable-http"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sparfenyuk",
+    "brandName": "sparfenyuk",
+    "source": "https://github.com/sparfenyuk.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sparfenyuk/mcp-proxy",
+    "url": "https://github.com/sparfenyuk/mcp-proxy",
+    "commit": "701a0453487d1b28c8f9806ee4863674c70210dd",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2808,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-proxy"
+    ],
+    "env": [
+      "API_ACCESS_TOKEN",
+      "YOUR_TOKEN",
+      "GITHUB_PERSONAL_ACCESS_TOKEN",
+      "CLIENT_SECRET",
+      "TOKEN_URL",
+      "SSE_PORT",
+      "SSE_HOST",
+      "ANOTHER_KEY"
+    ],
+    "credentials": [
+      "API_ACCESS_TOKEN",
+      "YOUR_TOKEN",
+      "GITHUB_PERSONAL_ACCESS_TOKEN",
+      "CLIENT_SECRET",
+      "TOKEN_URL",
+      "ANOTHER_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

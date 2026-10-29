@@ -1,0 +1,391 @@
+{
+  "colors": {
+    "all": [
+      {
+        "hex": "#000000",
+        "rgb": {
+          "r": 0,
+          "g": 0,
+          "b": 0,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 0
+        },
+        "count": 299,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#3139fb",
+        "rgb": {
+          "r": 49,
+          "g": 57,
+          "b": 251,
+          "a": 1
+        },
+        "hsl": {
+          "h": 238,
+          "s": 96,
+          "l": 59
+        },
+        "count": 296,
+        "contexts": [
+          "background",
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#fffcec",
+        "rgb": {
+          "r": 255,
+          "g": 252,
+          "b": 236,
+          "a": 1
+        },
+        "hsl": {
+          "h": 51,
+          "s": 100,
+          "l": 96
+        },
+        "count": 146,
+        "contexts": [
+          "background",
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#ffffff",
+        "rgb": {
+          "r": 255,
+          "g": 255,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 100
+        },
+        "count": 72,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#fffadd",
+        "rgb": {
+          "r": 255,
+          "g": 250,
+          "b": 221,
+          "a": 1
+        },
+        "hsl": {
+          "h": 51,
+          "s": 100,
+          "l": 93
+        },
+        "count": 54,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#2702c2",
+        "rgb": {
+          "r": 39,
+          "g": 2,
+          "b": 194,
+          "a": 1
+        },
+        "hsl": {
+          "h": 252,
+          "s": 98,
+          "l": 38
+        },
+        "count": 26,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#696969",
+        "rgb": {
+          "r": 105,
+          "g": 105,
+          "b": 105,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 41
+        },
+        "count": 20,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      }
+    ]
+  },
+  "regions": [
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 32,
+        "y": 30,
+        "w": 465.21875,
+        "h": 36
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 5,
+      "className": "c-gqwkJN c-gqwkJN-ejCoEP-direction-row c-gqwkJN-jroWjL-align-center c-gqwkJN-awKDG-justify-start c-gqwkJN-kVNAnR-wrap-no-wrap c-gqwkJN-iPeWlq-gap-16"
+    },
+    {
+      "role": "content",
+      "tag": "main",
+      "bounds": {
+        "x": 0,
+        "y": 90,
+        "w": 1280,
+        "h": 4739.984375
+      },
+      "heading": "Arc is the Chrome  replacement I've been  waiting for.",
+      "buttonCount": 4,
+      "cardCount": 0,
+      "className": "c-gtTkau"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 707,
+        "w": 1280,
+        "h": 820
+      },
+      "heading": "Arc is the Chrome  replacement I've been  waiting for.",
+      "buttonCount": 4,
+      "cardCount": 0,
+      "className": "c-gujhdE"
+    },
+    {
+      "role": "sidebar",
+      "tag": "aside",
+      "bounds": {
+        "x": 0,
+        "y": 1527,
+        "w": 1280,
+        "h": 67
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "c-CPmpi"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 1722,
+        "w": 1280,
+        "h": 972.828125
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "c-OBxzD"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 2694.828125,
+        "w": 1280,
+        "h": 933.828125
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "c-OBxzD"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 3628.65625,
+        "w": 1280,
+        "h": 933.828125
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "c-OBxzD"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 4562.484375,
+        "w": 1280,
+        "h": 139.5
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "c-OBxzD"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 0,
+        "y": 5202.984375,
+        "w": 1280,
+        "h": 501.796875
+      },
+      "heading": null,
+      "buttonCount": 2,
+      "cardCount": 0,
+      "className": "c-fQOTre c-fQOTre-iHvQKn-css"
+    },
+    {
+      "role": "sidebar",
+      "tag": "aside",
+      "bounds": {
+        "x": 0,
+        "y": 5202.984375,
+        "w": 1280,
+        "h": 229.796875
+      },
+      "heading": null,
+      "buttonCount": 2,
+      "cardCount": 0,
+      "className": "c-glZFUG c-glZFUG-iHvQKn-css"
+    }
+  ],
+  "componentClusters": [
+    {
+      "kind": "button",
+      "structuralHash": "button>svg",
+      "instanceCount": 3,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(39, 2, 194)",
+            "padding": "8px 0px 8px 0px",
+            "borderRadius": "10px",
+            "border": "0px none rgb(39, 2, 194)",
+            "fontSize": "14px",
+            "fontWeight": "600"
+          },
+          "instanceCount": 2
+        },
+        {
+          "css": {
+            "background": "rgb(39, 2, 194)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "8px 0px 8px 0px",
+            "borderRadius": "10px",
+            "border": "0px none rgb(255, 255, 255)",
+            "fontSize": "14px",
+            "fontWeight": "600"
+          },
+          "instanceCount": 1
+        }
+      ]
+    }
+  ],
+  "accessibility": {
+    "remediation": []
+  },
+  "cssHealth": {
+    "sheets": [
+      {
+        "url": "https://arc.net/",
+        "totalBytes": 437,
+        "usedBytes": 419,
+        "unusedBytes": 18,
+        "unusedPercent": 4
+      },
+      {
+        "url": "https://arc.net/",
+        "totalBytes": 1301,
+        "usedBytes": 0,
+        "unusedBytes": 1301,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://arc.net/",
+        "totalBytes": 213963,
+        "usedBytes": 176165,
+        "unusedBytes": 37798,
+        "unusedPercent": 18
+      },
+      {
+        "url": "https://arc.net/_next/static/css/df28c1bc1b1a6c7d.css",
+        "totalBytes": 6309,
+        "usedBytes": 0,
+        "unusedBytes": 6309,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://arc.net/",
+        "totalBytes": 40,
+        "usedBytes": 40,
+        "unusedBytes": 0,
+        "unusedPercent": 0
+      }
+    ],
+    "totalBytes": 222050,
+    "usedBytes": 176624,
+    "unusedBytes": 45426,
+    "unusedPercent": 20,
+    "importantCount": 2,
+    "duplicates": 749,
+    "vendorPrefixes": {
+      "webkit": 26,
+      "moz": 5,
+      "ms": 3,
+      "o": 3
+    },
+    "keyframes": [],
+    "specificity": {
+      "max": [
+        0,
+        3,
+        2
+      ],
+      "average": [
+        0,
+        1.09,
+        0.21
+      ],
+      "count": 222
+    },
+    "issues": [
+      "2 !important rules",
+      "749 duplicate declarations"
+    ]
+  }
+}

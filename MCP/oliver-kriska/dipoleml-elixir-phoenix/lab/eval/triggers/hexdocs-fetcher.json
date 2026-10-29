@@ -1,0 +1,15 @@
+{
+  "skill": "hexdocs-fetcher",
+  "should_trigger": [
+    "What's the Jason.encode API?",
+    "Show me Ecto.Changeset documentation",
+    "Grab the Timex hexdocs for date formatting",
+    "What changed in Oban 1.14?",
+    "Look up the Plug.Router module docs"
+  ],
+  "should_not_trigger": [
+    "Research Ecto changeset best practices",
+    "How should I authenticate users securely?",
+    "Show me LiveView form examples"
+  ]
+}

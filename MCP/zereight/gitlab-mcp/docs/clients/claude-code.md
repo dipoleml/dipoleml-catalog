@@ -1,0 +1,194 @@
+# Claude Code Setup Guide
+
+This guide explains how to use `@zereight/mcp-gitlab` with Claude Code.
+
+## Recommended options
+
+Claude Code supports multiple ways to register a local stdio MCP server:
+
+1. `claude mcp add` — fastest for personal local setup
+2. `claude mcp add-json` — useful when you already have JSON config ready
+3. Project `.mcp.json` — best when you want a team-shared configuration in version control
+
+## Prerequisites
+
+- Claude Code installed
+- Node.js available in your shell
+- GitLab access via either:
+  - Personal Access Token (PAT), or
+  - OAuth application for local browser auth
+
+Use an API URL, not the web root:
+
+- `https://gitlab.com/api/v4`
+- `https://your-gitlab.example.com/api/v4`
+
+Install the server once:
+
+```bash
+brew tap zereight/gitlab-mcp https://github.com/zereight/gitlab-mcp
+brew install zereight/gitlab-mcp/zereight-mcp-gitlab
+```
+
+Or with npm:
+
+```bash
+npm install -g @zereight/mcp-gitlab
+```
+
+If Claude Code cannot find `zereight-mcp-gitlab`, use the absolute path from `which zereight-mcp-gitlab`.
+
+## Option 1 — Add with `claude mcp add` (PAT)
+
+This is the fastest path for a local personal setup.
+
+Read the token without echo, then export it. The shell history keeps the variable name.
+
+```bash
+read -rs GITLAB_PERSONAL_ACCESS_TOKEN && export GITLAB_PERSONAL_ACCESS_TOKEN
+```
+
+`--env KEY=value` is the Claude Code flag. The shell expands `"$GITLAB_PERSONAL_ACCESS_TOKEN"` before Claude Code stores the value.
+
+```bash
+claude mcp add gitlab --transport stdio \
+  --scope local \
+  --env GITLAB_PERSONAL_ACCESS_TOKEN="$GITLAB_PERSONAL_ACCESS_TOKEN" \
+  --env GITLAB_API_URL=https://gitlab.com/api/v4 \
+  -- zereight-mcp-gitlab
+```
+
+Optional flags you can add as extra `--env` values:
+
+- `GITLAB_PERMISSION_MODE=readonly`
+- `GITLAB_TOOLSETS=core,wiki,milestones,pipelines`
+- `GITLAB_TOOLS=validate_ci_lint,validate_project_ci_lint`
+
+`GITLAB_TOOLS` keeps the two CI lint tools that deprecated `USE_PIPELINE=true` exposed; they live in the `ci` toolset, not `pipelines`. If you already set `GITLAB_TOOLSETS`, append `wiki`, `milestones`, and `pipelines` to your existing list instead of replacing it.
+
+Useful management commands:
+
+```bash
+claude mcp list
+claude mcp get gitlab
+claude mcp remove gitlab
+```
+
+Inside Claude Code, use:
+
+```text
+/mcp
+```
+
+to inspect server status.
+
+## Option 2 — Add with `claude mcp add` (OAuth)
+
+Use this for a local browser-based auth flow instead of a PAT.
+
+```bash
+claude mcp add gitlab --transport stdio \
+  --scope local \
+  --env GITLAB_USE_OAUTH=true \
+  --env GITLAB_OAUTH_CLIENT_ID=your-client-id \
+  --env GITLAB_OAUTH_REDIRECT_URI=http://127.0.0.1:8888/callback \
+  --env GITLAB_API_URL=https://gitlab.com/api/v4 \
+  -- zereight-mcp-gitlab
+```
+
+If your GitLab OAuth app is confidential, also add:
+
+```bash
+--env GITLAB_OAUTH_CLIENT_SECRET=your-client-secret
+```
+
+## Option 3 — Add with `claude mcp add-json`
+
+Use this when you want to register a ready-made JSON server config.
+
+The JSON stays in single quotes except for the token. The shell inserts the exported value there, so the history line keeps `$GITLAB_PERSONAL_ACCESS_TOKEN`.
+
+```bash
+claude mcp add-json gitlab '{"type":"stdio","command":"zereight-mcp-gitlab","env":{"GITLAB_PERSONAL_ACCESS_TOKEN":"'"$GITLAB_PERSONAL_ACCESS_TOKEN"'","GITLAB_API_URL":"https://gitlab.com/api/v4"}}'
+```
+
+OAuth example:
+
+```bash
+claude mcp add-json gitlab '{"type":"stdio","command":"zereight-mcp-gitlab","env":{"GITLAB_USE_OAUTH":"true","GITLAB_OAUTH_CLIENT_ID":"your-client-id","GITLAB_OAUTH_REDIRECT_URI":"http://127.0.0.1:8888/callback","GITLAB_API_URL":"https://gitlab.com/api/v4"}}'
+```
+
+## Option 4 — Project `.mcp.json`
+
+Use a project-scoped config when you want the server definition shared with your team.
+
+Create a `.mcp.json` file at your project root:
+
+```json
+{
+  "mcpServers": {
+    "gitlab": {
+      "command": "zereight-mcp-gitlab",
+      "env": {
+        "GITLAB_PERSONAL_ACCESS_TOKEN": "${GITLAB_PERSONAL_ACCESS_TOKEN}",
+        "GITLAB_API_URL": "https://gitlab.com/api/v4"
+      }
+    }
+  }
+}
+```
+
+Claude Code expands `${GITLAB_PERSONAL_ACCESS_TOKEN}` from the environment when it starts the server.
+
+## Suggested first prompt
+
+After the server is loaded, try:
+
+```text
+List my GitLab projects.
+```
+
+## Common mistakes
+
+### 1. Using the web URL instead of the API URL
+
+Wrong:
+
+- `https://gitlab.com`
+
+Correct:
+
+- `https://gitlab.com/api/v4`
+
+### 2. OAuth redirect URI mismatch
+
+Your GitLab OAuth application redirect URI must exactly match:
+
+- `GITLAB_OAUTH_REDIRECT_URI`
+
+### 3. Missing OAuth client secret for confidential apps
+
+If the GitLab app is confidential, `GITLAB_OAUTH_CLIENT_SECRET` is required.
+
+### 4. Server not found in Claude Code
+
+Use:
+
+```bash
+claude mcp list
+claude mcp get gitlab
+```
+
+### 5. MCP trust or scope confusion
+
+Claude Code supports multiple scopes:
+
+- `local` — private to you in the current project context
+- `project` — stored in project `.mcp.json` for sharing
+- `user` — available across projects for your user account
+
+## See also
+
+- [OAuth2 Authentication Setup Guide](../auth/oauth-setup.md)
+- [VS Code Setup Guide](vscode.md)
+- [GitHub Copilot Setup Guide](copilot.md)

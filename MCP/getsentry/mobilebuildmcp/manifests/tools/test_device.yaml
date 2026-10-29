@@ -1,0 +1,16 @@
+id: test_device
+module: mcp/tools/device/test_device
+names:
+  mcp: test_device
+  cli: test
+description: Test on device.
+outputSchema:
+  schema: mobilebuildmcp.output.test-result
+  version: "3"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Test Device
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.bitbonsai.mcpvault",
+  "type": "mcp",
+  "name": "Mcpvault",
+  "slug": "mcpvault",
+  "vendor": "bitbonsai",
+  "description": "A lightweight Model Context Protocol (MCP) server for safe Obsidian vault access",
+  "version": "0.17.1",
+  "homepage": "https://github.com/bitbonsai/mcpvault",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "bitbonsai",
+    "brandName": "bitbonsai",
+    "source": "https://github.com/bitbonsai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "bitbonsai/mcpvault",
+    "url": "https://github.com/bitbonsai/mcpvault",
+    "commit": "adda8609be73fd5b3adaa14430b43c40c5cbfb18",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1704,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bitbonsai/mcpvault"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "dist/server.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "@bitbonsai/mcpvault"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

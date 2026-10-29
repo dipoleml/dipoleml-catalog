@@ -1,0 +1,122 @@
+<Project>
+
+  <!-- Approved exception for StringTools 18.11.0: .NET 10 uses its netstandard2.0 asset.
+       The publisher does not claim .NET 10 support. Override only this package's
+       warning target; leave other packages' framework support warnings enabled. -->
+  <Target Name="NETStandardCompatError_Microsoft_NET_StringTools_net11_0" />
+
+  <ItemGroup Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').StartsWith('$(MSBuildThisFileDirectory)src')) AND '$(MSBuildProjectName)' != 'ExcelMcp.Analyzers'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\ExcelMcp.Analyzers\ExcelMcp.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.Mcp.txt"
+                     Condition="'$(MSBuildProjectName)' == 'ExcelMcp.McpServer'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').StartsWith('$(MSBuildThisFileDirectory)tests')) AND '$(MSBuildProjectName)' != 'ExcelMcp.ScriptSafety.Tests'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\ExcelMcp.Analyzers\ExcelMcp.Analyzers.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([System.String]::Copy('$(MSBuildProjectDirectory)').StartsWith('$(MSBuildThisFileDirectory)tests'))">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.TestProcesses.txt" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ExcelMcp.McpServer'">
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)doc-counts.json;
+                              $(MSBuildThisFileDirectory)README.md;
+                              $(MSBuildThisFileDirectory)FEATURES.md;
+                              $(MSBuildThisFileDirectory)src\ExcelMcp.McpServer\README.md;
+                              $(MSBuildThisFileDirectory)src\ExcelMcp.CLI\README.md;
+                              $(MSBuildThisFileDirectory)src\ExcelMcp.CLI\ExcelMcp.CLI.csproj;
+                              $(MSBuildThisFileDirectory)vscode-extension\README.md;
+                              $(MSBuildThisFileDirectory)mcpb\README.md;
+                              $(MSBuildThisFileDirectory)mcpb\manifest.json;
+                              $(MSBuildThisFileDirectory)mcpb\BUILD.md;
+                              $(MSBuildThisFileDirectory)gh-pages\docs\index.md;
+                              $(MSBuildThisFileDirectory)gh-pages\docs\faq.md;
+                              $(MSBuildThisFileDirectory).github\plugins\excel-mcp\README.md;
+                              $(MSBuildThisFileDirectory).github\plugins\excel-cli\README.md;
+                              $(MSBuildThisFileDirectory)docs\INSTALLATION-CLI.md;
+                              $(MSBuildThisFileDirectory)docs\COPILOT-PLUGIN-DISTRIBUTION.md;
+                              $(MSBuildThisFileDirectory)Directory.Build.props;
+                              $(MSBuildThisFileDirectory)src\ExcelMcp.McpServer\.mcp\server.json;
+                              $(MSBuildThisFileDirectory)vscode-extension\package.json;
+                              $(MSBuildThisFileDirectory)docs\features\*.md" />
+  </ItemGroup>
+
+  <!--
+    Embed the Excel, Office, VBA editor, and generated ADO type definitions.
+
+    WHY THIS EXISTS:
+    The .NET SDK does NOT honor <EmbedInteropTypes>true</EmbedInteropTypes> metadata when the interop
+    assembly is supplied through a <PackageReference>. NuGet resolves Microsoft.Office.Interop.Excel as a
+    plain runtime asset (AssetType=runtime, CopyLocal=true), so the compiler receives it via /reference:
+    (a normal reference) instead of /link: (embed). The result is that the Excel types are NOT embedded and
+    the assembly takes a hard runtime dependency on office.dll (Microsoft.Office.Core) and
+    Microsoft.Vbe.Interop.dll, neither of which is deployed with a self-contained .NET app. Loading the Excel
+    interfaces at runtime then throws FileNotFoundException for 'office, Version=16.0.0.0'.
+
+    WHAT THIS DOES:
+    After ResolveAssemblyReferences computes the reference set, this target flips the Excel PIA reference to
+    EmbedInteropTypes=true so the compiler links (/link) the used interop types directly into THIS assembly.
+    Office and VBA editor definitions come from a pinned PackageDownload, not runtime package assets.
+    Add only their compiler references and embed the used types too. This keeps typed automation
+    available without shipping or loading separate Office/VBE interop DLLs.
+    The Microsoft importer supplies ADO definitions under obj with the same build-only boundary.
+
+    This applies uniformly to every project that resolves the Excel PIA (directly or transitively), keeping
+    embedding consistent across ComInterop, Core, McpServer, CLI, and the test projects.
+
+    See docs/PIA-COVERAGE.md.
+  -->
+  <Target Name="ResolveAdoInteropInputs">
+    <ItemGroup>
+      <_ExcelPiaReference Include="@(ReferencePath)"
+                          Condition="'%(FileName)' == 'Microsoft.Office.Interop.Excel'" />
+    </ItemGroup>
+    <PropertyGroup Condition="'@(_ExcelPiaReference)' != ''">
+      <AdoTypeLibraryImporterPath Condition="'$(AdoTypeLibraryImporterPath)' == ''">$(MSBuildProgramFiles32)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8.1 Tools\TlbImp.exe</AdoTypeLibraryImporterPath>
+      <AdoTypeLibraryPath Condition="'$(AdoTypeLibraryPath)' == ''">$(CommonProgramFiles)\System\ado\msado28.tlb</AdoTypeLibraryPath>
+      <_AdoInteropOutput>$(IntermediateOutputPath)InteropDefinitions\ADODB.dll</_AdoInteropOutput>
+    </PropertyGroup>
+    <Error Condition="'@(_ExcelPiaReference)' != '' AND !Exists('$(AdoTypeLibraryImporterPath)')"
+           Text="Microsoft TlbImp.exe 4.8.9037.0 is required. Install the .NET Framework 4.8.1 Developer Pack (https://go.microsoft.com/fwlink/?linkid=2203306). See docs/agents/development.md#windows-setup." />
+    <Error Condition="'@(_ExcelPiaReference)' != '' AND !Exists('$(AdoTypeLibraryPath)')"
+           Text="Windows ADO 2.8 definitions are missing: $(AdoTypeLibraryPath)." />
+  </Target>
+
+  <Target Name="GenerateAdoInteropDefinitions"
+          Condition="'@(_ExcelPiaReference)' != ''"
+          Inputs="$(AdoTypeLibraryImporterPath);$(AdoTypeLibraryPath);$(MSBuildThisFileDirectory)scripts\Import-AdoDefinitions.ps1;$(MSBuildThisFileFullPath)"
+          Outputs="$(_AdoInteropOutput)">
+    <Exec Command="pwsh -NoProfile -NonInteractive -File &quot;$(MSBuildThisFileDirectory)scripts\Import-AdoDefinitions.ps1&quot; -ImporterPath &quot;$(AdoTypeLibraryImporterPath)&quot; -TypeLibraryPath &quot;$(AdoTypeLibraryPath)&quot; -OutputPath &quot;$(_AdoInteropOutput)&quot;" />
+  </Target>
+
+  <Target Name="ForceEmbedExcelInteropTypes" AfterTargets="ResolveAssemblyReferences"
+          DependsOnTargets="ResolveAdoInteropInputs;GenerateAdoInteropDefinitions">
+    <ItemGroup>
+      <ReferencePath Include="$(NuGetPackageRoot)exceldna.interop\$(OfficeInteropDefinitionsVersion)\lib\net6.0-windows7.0\office.dll;
+                              $(NuGetPackageRoot)exceldna.interop\$(OfficeInteropDefinitionsVersion)\lib\net6.0-windows7.0\Microsoft.Vbe.Interop.dll"
+                     Condition="'@(_ExcelPiaReference)' != ''">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+        <Private>false</Private>
+      </ReferencePath>
+      <ReferencePath Condition="'%(FileName)' == 'Microsoft.Office.Interop.Excel'">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+        <Private>false</Private>
+      </ReferencePath>
+      <ReferencePath Include="$(_AdoInteropOutput)" Condition="'@(_ExcelPiaReference)' != ''">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+        <Private>false</Private>
+      </ReferencePath>
+      <FileWrites Include="$(_AdoInteropOutput)" Condition="'@(_ExcelPiaReference)' != ''" />
+      <!-- Embedded interop types are baked into this assembly; the PIA must NOT be copied to output. -->
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+                               Condition="'%(FileName)' == 'Microsoft.Office.Interop.Excel' OR '%(FileName)' == 'office' OR '%(FileName)' == 'Microsoft.Vbe.Interop' OR '%(FileName)' == 'ADODB'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

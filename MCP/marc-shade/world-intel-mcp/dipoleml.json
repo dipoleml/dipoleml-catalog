@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.marc-shade.world-intel-mcp",
+  "type": "mcp",
+  "name": "World Intel MCP",
+  "slug": "world-intel-mcp",
+  "vendor": "marc-shade",
+  "description": "160-tool MCP server for real-time global intelligence from free public APIs: markets, liquidity, prediction markets, SEC filings, conflict, military, aircraft-cohort early warning, migration and border flows, cyber, climate, news and more. Dated observation history, 29 research prompts, cited briefs, geofences, SSE dashboard. MIT, no paid API keys.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/marc-shade/world-intel-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-watch",
+    "anthropic",
+    "cybersecurity",
+    "dashboard",
+    "geofencing",
+    "geopolitical",
+    "geospatial",
+    "intelligence"
+  ],
+  "tags": [
+    "ai-tools",
+    "ai-watch",
+    "anthropic",
+    "claude",
+    "cybersecurity",
+    "dashboard",
+    "geofencing",
+    "geopolitical",
+    "geospatial",
+    "intelligence",
+    "markets",
+    "mcp",
+    "migration",
+    "military",
+    "model-context-protocol",
+    "nuclear",
+    "osint",
+    "real-time",
+    "space-weather",
+    "threat-intelligence"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "marc-shade",
+    "brandName": "marc-shade",
+    "source": "https://github.com/marc-shade.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:15Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "marc-shade/world-intel-mcp",
+    "url": "https://github.com/marc-shade/world-intel-mcp",
+    "commit": "fdebf9a8de6e00ed688053dd647cafedc179708b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1047,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:24Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "world-intel-mcp"
+    ],
+    "env": [
+      "UCDP_ACCESS_TOKEN",
+      "NASA_FIRMS_API_KEY",
+      "EIA_API_KEY",
+      "CLOUDFLARE_API_TOKEN",
+      "FRED_API_KEY",
+      "OPENSKY_CLIENT_SECRET",
+      "TOMTOM_API_KEY",
+      "WINDY_API_KEY",
+      "OLLAMA_API_URL",
+      "WORLD_INTEL_DASHBOARD_HOST"
+    ],
+    "credentials": [
+      "UCDP_ACCESS_TOKEN",
+      "NASA_FIRMS_API_KEY",
+      "EIA_API_KEY",
+      "CLOUDFLARE_API_TOKEN",
+      "FRED_API_KEY",
+      "OPENSKY_CLIENT_SECRET",
+      "TOMTOM_API_KEY",
+      "WINDY_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cursortouch.android-mcp",
+  "type": "mcp",
+  "name": "Android MCP",
+  "slug": "android-mcp",
+  "vendor": "cursortouch",
+  "description": "MCP Server for interacting with Android Devices.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/CursorTouch/Android-MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "android",
+    "automation"
+  ],
+  "tags": [
+    "ai",
+    "android",
+    "automation",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cursortouch",
+    "brandName": "cursortouch",
+    "source": "https://github.com/CursorTouch.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "CursorTouch/Android-MCP",
+    "url": "https://github.com/CursorTouch/Android-MCP",
+    "commit": "3b356eed32f63502e548992fa37c022c4c71c4ff",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 907,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "android-mcp-beta"
+    ],
+    "env": [
+      "ANDROID_MCP_HOST"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

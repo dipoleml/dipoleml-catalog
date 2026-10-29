@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.punkpeye.mcp-remote",
+  "type": "mcp",
+  "name": "MCP Remote",
+  "slug": "mcp-remote",
+  "vendor": "punkpeye",
+  "description": "Connect an MCP Client that only supports local (stdio) servers to a Remote MCP Server.",
+  "version": "0.1.38",
+  "homepage": "https://github.com/punkpeye/mcp-remote",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [
+    "mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "punkpeye",
+    "brandName": "punkpeye",
+    "source": "https://github.com/punkpeye.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "punkpeye/mcp-remote",
+    "url": "https://github.com/punkpeye/mcp-remote",
+    "commit": "373f7320f6afd1fdb00e0168826a3cea99102241",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1652,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:44Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mcp-remote"
+    ],
+    "env": [
+      "AUTH_TOKEN",
+      "MCP_REMOTE_CLIENT_SECRET",
+      "MCP_CLIENT_SECRET"
+    ],
+    "credentials": [
+      "AUTH_TOKEN",
+      "MCP_REMOTE_CLIENT_SECRET",
+      "MCP_CLIENT_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

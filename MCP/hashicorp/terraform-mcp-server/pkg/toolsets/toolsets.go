@@ -1,0 +1,177 @@
+// Copyright IBM Corp. 2025
+// SPDX-License-Identifier: MPL-2.0
+
+package toolsets
+
+import "strings"
+
+const (
+	// Core toolsets
+	Registry        = "registry"
+	RegistryPrivate = "registry-private" // Private registry (TFE/TFC)
+	Terraform       = "terraform"        // TFE/TFC operations
+
+	// Special toolsets
+	All     = "all"
+	Default = "default"
+)
+
+// Toolset represents metadata about a toolset
+type Toolset struct {
+	Name        string
+	Description string
+}
+
+var (
+	AllToolset = Toolset{
+		Name:        All,
+		Description: "Special toolset that enables all available toolsets",
+	}
+	DefaultToolset = Toolset{
+		Name:        Default,
+		Description: "Special toolset that enables the default toolset configuration",
+	}
+	RegistryToolset = Toolset{
+		Name:        Registry,
+		Description: "Public Terraform Registry (providers, modules, policies)",
+	}
+	RegistryPrivateToolset = Toolset{
+		Name:        RegistryPrivate,
+		Description: "Private registry access (TFE/TFC private modules and providers)",
+	}
+	TerraformToolset = Toolset{
+		Name:        Terraform,
+		Description: "HCP Terraform/TFE operations (workspaces, runs, variables, etc.)",
+	}
+)
+
+// AvailableToolsets returns metadata for every toolset group. Excludes "all" and "default"
+func AvailableToolsets() []Toolset {
+	return []Toolset{
+		RegistryToolset,
+		RegistryPrivateToolset,
+		TerraformToolset,
+	}
+}
+
+// DefaultToolsets returns the default set of enabled toolsets
+func DefaultToolsets() []string {
+	return []string{Registry}
+}
+
+// ValidToolsetNames returns every valid value for the --toolsets flag:
+// each real toolset group name, plus the "all" and "default" keywords.
+func ValidToolsetNames() map[string]bool {
+
+	validNames := make(map[string]bool)
+	for _, ts := range AvailableToolsets() {
+		validNames[ts.Name] = true
+	}
+	validNames[AllToolset.Name] = true
+	validNames[DefaultToolset.Name] = true
+	return validNames
+}
+
+// CleanToolsets trims whitespace and drops empty/duplicate entries from
+// enabledToolsets. It returns the cleaned, valid toolset names (invalid
+// names removed) and, separately, the invalid names that were dropped so
+// the caller can warn about them.
+func CleanToolsets(enabledToolsets []string) (valid []string, invalid []string) {
+	seen := make(map[string]bool)
+	valid = make([]string, 0, len(enabledToolsets))
+	invalid = make([]string, 0)
+	validNames := ValidToolsetNames()
+
+	for _, toolset := range enabledToolsets {
+		trimmed := strings.TrimSpace(toolset)
+		if trimmed == "" {
+			continue
+		}
+		if seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		if validNames[trimmed] {
+			valid = append(valid, trimmed)
+		} else {
+			invalid = append(invalid, trimmed)
+		}
+	}
+
+	return valid, invalid
+}
+
+// ExpandDefaultToolset replaces the "default" keyword in toolsets with the
+// names from DefaultToolsets(), leaving any other explicitly-requested
+// toolsets untouched. Returns toolsets unchanged if "default" isn't present.
+func ExpandDefaultToolset(toolsets []string) []string {
+	hasDefault := false
+	seen := make(map[string]bool)
+
+	for _, ts := range toolsets {
+		seen[ts] = true
+		if ts == Default {
+			hasDefault = true
+		}
+	}
+
+	if !hasDefault {
+		return toolsets
+	}
+
+	result := make([]string, 0, len(toolsets))
+	for _, ts := range toolsets {
+		if ts != Default {
+			result = append(result, ts)
+		}
+	}
+
+	for _, defaultTS := range DefaultToolsets() {
+		if !seen[defaultTS] {
+			result = append(result, defaultTS)
+		}
+	}
+
+	return result
+}
+
+// ContainsToolset checks if a toolset is in the list
+func ContainsToolset(toolsets []string, toCheck string) bool {
+	for _, ts := range toolsets {
+		if ts == toCheck {
+			return true
+		}
+	}
+	return false
+}
+
+// GenerateToolsetsHelp generates help text for the toolsets flag
+func GenerateToolsetsHelp() string {
+	defaultTools := strings.Join(DefaultToolsets(), ", ")
+
+	allToolsets := AvailableToolsets()
+	var toolsetNames []string
+	for _, ts := range allToolsets {
+		toolsetNames = append(toolsetNames, ts.Name)
+	}
+	availableTools := strings.Join(toolsetNames, ", ")
+
+	return "Comma-separated list of tool groups to enable.\n" +
+		"Available: " + availableTools + "\n" +
+		"Special toolset keywords:\n" +
+		"  - all: Enables all available toolsets\n" +
+		"  - default: Enables the default toolset configuration (" + defaultTools + ")\n" +
+		"Examples:\n" +
+		"  - --toolsets=registry,terraform\n" +
+		"  - --toolsets=default,registry-private\n" +
+		"  - --toolsets=all"
+}
+
+// GenerateToolsHelp generates help text for the tools flag
+func GenerateToolsHelp() string {
+	return "Comma-separated list of individual tool names to enable.\n" +
+		"When specified, only these tools will be available.\n" +
+		"Cannot be used together with --toolsets flag.\n" +
+		"Example:\n" +
+		"  - --tools=search_provider_docs,get_provider_details,search_modules"
+}

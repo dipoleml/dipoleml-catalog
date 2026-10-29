@@ -1,0 +1,40 @@
+{
+  "name": "@mongodb-js/mcp-accuracy-tests",
+  "version": "3.2.1",
+  "private": true,
+  "type": "module",
+  "description": "Accuracy testing scripts for the MongoDB MCP server",
+  "scripts": {
+    "test": "sh ./runAccuracyTests.sh",
+    "update-status": "tsx ./src/updateAccuracyRunStatus.ts",
+    "generate-summary": "tsx ./src/generateTestSummary.ts",
+    "check": "tsc --noEmit --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.11",
+    "uuid": "^14.0.0",
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "mongodb": "^7.1.1",
+    "@mongodb-js/mcp-integration-tests": "workspace:*",
+    "@mongodb-js/mcp-tools-mongodb": "workspace:*",
+    "@mongodb-js/mcp-tools-atlas": "workspace:*",
+    "mongodb-mcp-server": "workspace:*",
+    "@mongodb-js/mcp-core": "workspace:*",
+    "@mongodb-js/mcp-types": "workspace:*",
+    "@mongodb-js/mcp-tools-assistant": "workspace:*",
+    "@mongodb-js/mcp-test-utils": "workspace:*",
+    "@ai-sdk/google": "^3.0.131",
+    "@ai-sdk/azure": "^3.0.137",
+    "@ai-sdk/openai": "^3.0.126",
+    "@ai-sdk/mcp": "^1.0.93",
+    "@ai-sdk/anthropic": "^3.0.129",
+    "ai": "^6.0.304",
+    "proper-lockfile": "^4.1.2",
+    "@types/proper-lockfile": "^4.1.4",
+    "simple-git": "^4.0.2"
+  }
+}

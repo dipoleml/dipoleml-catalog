@@ -1,0 +1,3312 @@
+"""AI Team OS — Global shared type definitions.
+
+All modules reference types from this file; they do not define their own data models.
+This file is managed by the tech-lead; other engineers only read-reference it.
+"""
+
+from __future__ import annotations
+
+import enum
+from datetime import datetime
+from decimal import Decimal, localcontext
+from typing import Annotated, Any, Literal, get_args
+from urllib.parse import urlsplit
+from uuid import uuid4
+
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
+
+from aiteam.clock import utc_now
+from aiteam.surrogates import has_lone_surrogate, replace_lone_surrogates
+from aiteam.text_safety import clean_text, scan_invisible, strip_invisible
+
+# Request field types for text other people will read (write-side rules, see
+# aiteam.text_safety). A single-line field is cleaned on the way in; long text with
+# an invisible character is refused. The refusal is a validation error of this type,
+# which the API answers the memo way: 200, success false, a safety block.
+INVISIBLE_TEXT_ERROR = "invisible_unicode"
+
+
+def _refuse_invisible(value: str) -> str:
+    finding = scan_invisible(value)
+    if finding is not None:
+        raise PydanticCustomError(
+            INVISIBLE_TEXT_ERROR, "{message}",
+            {"message": finding.message, "category": finding.category, "pattern": finding.pattern},
+        )
+    return value
+
+
+SingleLineText = Annotated[str, AfterValidator(clean_text)]
+LongText = Annotated[str, AfterValidator(_refuse_invisible)]
+# Long text relayed from elsewhere (a GitHub repo description): no author is present
+# to refuse, so the invisible characters are dropped and the layout is kept.
+FetchedLongText = Annotated[str, AfterValidator(strip_invisible)]
+
+
+class SurrogateTolerantBody(BaseModel):
+    """Base for request bodies the hooks send: lone surrogates become U+FFFD first.
+
+    Every other route refuses a body with a lone surrogate (the API middleware
+    answers 400). A hook request is different: the host does not resend it, so a
+    refusal loses an auto-enrolment, an activity event or a notice. The middleware
+    lets these routes through and the replacement happens here, before any field is
+    checked: a length-checked str field rejects a lone surrogate outright, and the
+    422 that follows cannot even be encoded.
+    """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _replace_lone_surrogates(cls, data: object) -> object:
+        # Walk first and copy only when needed: hook bodies run to megabytes.
+        return replace_lone_surrogates(data) if has_lone_surrogate(data) else data
+
+
+class ReleaseUpdateStatus(BaseModel):
+    """Public release metadata; current_version is the running API version."""
+
+    current_version: str
+    latest_version: str | None = None
+    status: Literal["update_available", "up_to_date", "ahead", "unknown"] = "unknown"
+    release_url: str | None = None
+    checked_at: float | None = None
+    stale: bool = False
+    notice: str | None = None
+    language: Literal["zh", "en"] = "en"
+    additional_context: str | None = None
+
+# ============================================================
+# Enum types
+# ============================================================
+
+
+class OrchestrationMode(enum.StrEnum):
+    """Team orchestration mode."""
+
+    COORDINATE = "coordinate"
+    BROADCAST = "broadcast"
+    ROUTE = "route"
+    MEET = "meet"
+
+
+class TaskStatus(enum.StrEnum):
+    """Task status."""
+
+    PENDING = "pending"
+    BLOCKED = "blocked"  # Has unfinished dependencies
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class AgentStatus(enum.StrEnum):
+    """Agent status — three-state model."""
+
+    BUSY = "busy"  # Working — actively executing tool calls
+    WAITING = "waiting"  # Waiting — alive but awaiting input (between turns)
+    OFFLINE = "offline"  # Offline — terminated
+
+
+class MeetingStatus(enum.StrEnum):
+    """Meeting status."""
+
+    ACTIVE = "active"
+    CONCLUDED = "concluded"
+
+
+class PhaseStatus(enum.StrEnum):
+    """Phase status."""
+
+    PLANNING = "planning"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class TeamStatus(enum.StrEnum):
+    """Team lifecycle status."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
+class MeetingTemplate(enum.StrEnum):
+    """Meeting template type."""
+
+    BRAINSTORM = "brainstorm"  # Brainstorming (4 rounds)
+    DECISION = "decision"  # Decision meeting (3 rounds)
+    REVIEW = "review"  # Review meeting (3 rounds)
+    RETROSPECTIVE = "retrospective"  # Retrospective meeting (3 rounds)
+    STANDUP = "standup"  # Standup (1 round)
+    DEBATE = "debate"  # Debate mode
+    LEAN_COFFEE = "lean_coffee"  # Lean Coffee
+    FREE = "free"  # Free discussion (default)
+
+
+class TaskPriority(enum.StrEnum):
+    """Task priority."""
+
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class TaskHorizon(enum.StrEnum):
+    """Task time horizon."""
+
+    SHORT = "short"
+    MID = "mid"
+    LONG = "long"
+
+
+class MemoryScope(enum.StrEnum):
+    """Memory scope.
+
+    方向层（记忆系统 v2 P1）语义收窄为 global / project / user——跨任务长寿命的
+    偏好/纠正/约束/设计意图。task 级只影响单个任务的记录属情景层，走 task_memos。
+    TEAM / AGENT 为历史遗留分区（团队知识库 / agent 经验），不属方向层。
+    """
+
+    GLOBAL = "global"
+    PROJECT = "project"
+    TEAM = "team"
+    AGENT = "agent"
+    USER = "user"
+
+
+class EventType(enum.StrEnum):
+    """System event type."""
+
+    # Team events
+    TEAM_CREATED = "team.created"
+    TEAM_DELETED = "team.deleted"
+    TEAM_MODE_CHANGED = "team.mode_changed"
+    # completed 团队因新成员注册/会话恢复自动复活（hook_translator auto-revive；
+    # 2026-07-22 补录：先例 _resolve_cc_team 一直在发此事件但枚举缺席=潜伏 ValueError）
+    TEAM_AUTO_REVIVED = "team.auto_revived"
+    # 过期会话容器队被 reaper 扫走（与用户手动删队区分开，便于事后追溯是谁删的）
+    TEAM_CONTAINER_PURGED = "team.container_purged"
+
+    # Agent events
+    AGENT_CREATED = "agent.created"
+    AGENT_REMOVED = "agent.removed"
+    AGENT_STATUS_CHANGED = "agent.status_changed"
+
+    # Task events
+    TASK_CREATED = "task.created"
+    TASK_STARTED = "task.started"
+    TASK_COMPLETED = "task.completed"
+    TASK_FAILED = "task.failed"
+    # 失败诊断留痕：分析跑过但结果只回给调用方、不进事件流，等于没跑过——
+    # 事后既查不到诊断做没做，也无法统计诊断覆盖率。
+    TASK_FAILURE_ANALYZED = "task.failure_analyzed"
+    TASK_FAILURE_DIAGNOSED = "task.failure_diagnosed"
+
+    # Memory events
+    MEMORY_CREATED = "memory.created"
+    MEMORY_UPDATED = "memory.updated"
+    MEMORY_ACCESSED = "memory.accessed"
+
+    # Meeting events
+    MEETING_STARTED = "meeting.started"
+    MEETING_MESSAGE = "meeting.message"
+    MEETING_ROUND_COMPLETED = "meeting.round_completed"
+    MEETING_CONCLUDED = "meeting.concluded"
+
+    # Hook/CC events
+    AGENT_AUTO_REGISTERED = "agent.auto_registered"
+    CC_TOOL_USE = "cc.tool_use"
+    CC_TOOL_COMPLETE = "cc.tool_complete"
+    # A tool call that failed or was interrupted (CC PostToolUseFailure); the
+    # activity row it closes carries status "error" and the error text.
+    CC_TOOL_FAILED = "cc.tool_failed"
+    CC_SESSION_START = "cc.session_start"
+    CC_SESSION_END = "cc.session_end"
+    # CC 自己的队友空闲信号（TeammateIdle hook）。只观察不改状态——CC 的 idle
+    # 是"这一轮说完了"，OS 的 offline 是"人没了"，两者不能划等号。
+    CC_TEAMMATE_IDLE = "cc.teammate_idle"
+    # CC 队友私信（SendMessage）的只读镜像。刻意不写进 channel_messages ——
+    # 那张表是 OS 自有广播频道（已规划未启用）的地盘，镜像只进事件流。
+    CC_MESSAGE_SENT = "cc.message_sent"
+    # 存活判据双轨观察（C13）：transcript mtime 与 CC 会话注册表意见不一致时
+    # 落一条，供日后决定是否换主判据。判定本身仍只由 mtime 出。
+    SESSION_LIVENESS_DIVERGENCE = "session.liveness_divergence"
+    # 压缩检查点：PreCompact 定格 OS 侧作战态，压缩后的 SessionStart 递回。
+    SESSION_COMPACT_CHECKPOINT = "session.compact_checkpoint"
+    # PostCompact 回执：压缩真的发生了（PreCompact 触发后压缩仍可能取消）。
+    SESSION_COMPACT_COMPLETED = "session.compact_completed"
+    # Leader 主会话用量采集抛异常。只在**真异常**时落（节流跳过绝不进这张表）——
+    # 日志随进程重启被截断，事件不会，事后一条 SQL 就能回答"那次 PostCompact
+    # 到底采没采到"（2026-08-03 排查花两小时都答不上来，故补此留痕）。
+    LEADER_USAGE_CAPTURE_FAILED = "leader.usage_capture_failed"
+    # 隔离工作区出生/消失（本仓多会话并行纪律要求用 git worktree 隔离，此前 OS 无感）
+    CC_WORKTREE_CREATED = "cc.worktree_created"
+    CC_WORKTREE_REMOVED = "cc.worktree_removed"
+    # CC 原生任务的观测面，**只观测不记账**。曾经负责上墙的桥（cc_task_bridge）
+    # 已于 2026-09-23 退役：宿主 08-18 起不再提供 TaskCreate 任务清单工具。
+    CC_TASK_CREATED = "cc.task_created"
+    CC_TASK_COMPLETED = "cc.task_completed"
+    # 中止侧 CC 不给 hook（不存在 TaskStop/TaskAborted 事件，Esc 打断也无声），
+    # 只能把 TaskStop **工具调用**从工具事件洪流里拎成一等事件——实测中止才是
+    # 主路径（TaskStop 40 次且持续在用，TaskCreate 14 次且早已归零）。
+    CC_TASK_STOPPED = "cc.task_stopped"
+
+    # HTTP 请求级账本的小时聚合行（api/request_ledger.py）。给"零调用"判断补第
+    # 二个口径：MCP 工具面看不见的调用（Dashboard/hook/脚本/别的会话）都在这里。
+    API_REQUEST_ROLLUP = "api.request_rollup"
+
+    # File events
+    FILE_EDIT_CONFLICT = "file.edit_conflict"
+
+    # Task lifecycle events
+    TASK_STATUS_CHANGED = "task.status_changed"
+    TASK_ASSIGNED = "task.assigned"
+
+    # Task dependency events
+    TASK_DECOMPOSED = "task.decomposed"
+    TASK_BLOCKED = "task.blocked"
+    TASK_UNBLOCKED = "task.unblocked"
+
+    # System events
+    SYSTEM_STARTED = "system.started"
+    SYSTEM_STOPPED = "system.stopped"
+    SYSTEM_ERROR = "system.error"
+
+    # Watchdog patrol events
+    WATCHDOG_ALERT = "watchdog.alert"
+    WATCHDOG_AGENT_RECOVERED = "watchdog.agent_recovered"
+    WATCHDOG_TASK_RETRIED = "watchdog.task_retried"
+    WATCHDOG_TASK_FAILED_PERMANENTLY = "watchdog.task_failed_permanently"
+
+    # Decision events (TOP2 cockpit — unified decision event stream)
+    DECISION_TASK_ASSIGNED = "decision.task_assigned"
+    DECISION_APPROACH_CHOSEN = "decision.approach_chosen"
+    DECISION_AGENT_SELECTED = "decision.agent_selected"
+    DECISION_AGENT_CREATED = "decision.agent_created"
+    DECISION_MEETING_STARTED = "decision.meeting_started"
+    # 决策现场原文（低频高价值，与被停写的心跳正好相反）：
+    # ExitPlanMode 的方案正文 / AskUserQuestion 的问答对
+    DECISION_PLAN_PRESENTED = "decision.plan_presented"
+    DECISION_USER_ASKED = "decision.user_asked"
+    # A write to user configuration or a user directory that the user approved in
+    # conversation (preview, confirm, apply). Carries paths, before/after hashes,
+    # backups and the user's own words; see docs/user-notice-design.md.
+    DECISION_USER_CONFIG_WRITE = "decision.user_config_write"
+    # The user's answer to a pending decision item (leader briefing), recorded the
+    # moment briefing_resolve runs so the answer is a decision, not just a status.
+    DECISION_BRIEFING_RESOLVED = "decision.briefing_resolved"
+
+    # Knowledge events
+    KNOWLEDGE_LESSON_LEARNED = "knowledge.lesson_learned"
+
+    # Intent events
+    INTENT_AGENT_WORKING = "intent.agent_working"
+
+    # Enhanced event log (v0.9) — generic update events with state snapshots
+    TASK_UPDATED = "task.updated"
+    AGENT_UPDATED = "agent.updated"
+
+    # Channel events (v1.0 P1-6)
+    CHANNEL_MESSAGE = "channel.message"
+
+    # Workflow observability events (I3a — CC ultracode/Workflow observation layer)
+    # append-only: 一旦有历史数据写入不可再删（读端 EventType(x) 会崩）。
+    WORKFLOW_PLANNED = "workflow.planned"  # PreToolUse(Workflow) 静态计划就绪
+    WORKFLOW_STARTED = "workflow.started"  # PostToolUse(Workflow) 回执骨架就绪
+    WORKFLOW_COMPLETED = "workflow.completed"  # 文件对账落最终遥测
+    # Phase 2 live 追踪（兑现上方预留；每 run 每 tick 聚合发送，绝不逐 agent 逐条发）
+    WORKFLOW_AGENT_UPDATED = "workflow.agent_updated"  # live tail：本 tick 有 agent 增量
+    WORKFLOW_RUN_INGESTED = "workflow.run_ingested"  # run 级 live 水位 / killed·failed 首次终态 / interrupted 打标
+
+    # 工具渐进式加载 P1 — alwaysLoad 动态轮换审计（TTL 内复用缓存，只有真正重算才落一行；
+    # 该行同时是下期迟滞基线，状态与审计合一。append-only，历史写入后不可删。）
+    TOOL_ALWAYSLOAD_ROTATION = "tool.alwaysload.rotation"
+    # 同上，但记的是客户端侧落地结果：MCP server 启动期实际挂上了哪几个工具、耗时多少、
+    # 没挂上时是什么原因。rotation 只证明服务端算过，两条对照才看得出客户端是否真收到。
+    TOOL_ALWAYSLOAD_APPLIED = "tool.alwaysload.applied"
+
+    # 治理租约易主（A2-obs，辩论 503e07f1 议题A）：前任 holder 还挂在行上、租约已过期，
+    # 被另一个实例抢走。只在这一条分支上发——续约、无主认领、主动让出后接手都不算交替。
+    # 目的是先回答"这事到底发生过没有"：观测期内一条都没有，A2-impl（epoch 列）就不必做。
+    GOVERNANCE_LEASE_TAKEN_OVER = "governance.lease_taken_over"
+
+
+# ============================================================
+# Token 口径（token 用量归因 v1，阶段 0「口径正名」）
+# ============================================================
+# 一个 token 数值脱离口径就没有意义。本库同时存在两个正交的 token 口径，实测相差
+# 5~25 倍（同一批 agent：117,800 vs 632,504 … 127,089 vs 3,236,088）。把它们相加、
+# 并列、或塞进同一个"总 token"，就是本仓刚在时间戳上栽过的同类事故——混口径。
+# 规格见 docs/token-attribution-v1-design.md §0.2 / §1.1。
+
+
+class TokenMetric(enum.StrEnum):
+    """token 数值的口径 —— 归因层的一等维度，与覆盖率并列。
+
+    只有这两个成员，因为只有这两个口径在回答"用量"问题。取值语义：
+
+    * ``USAGE_SUM``：一份 transcript 内按 ``requestId`` 分组、每组取最后一条 usage
+      快照、再跨组累加的四层 token。回答"这段工作一共用掉多少"。
+    * ``CTX_LAST``：最后一条 assistant 消息的四字段和，是一个**瞬时上下文水位快照**，
+      不是消耗量。回答"这个 agent 结束时上下文有多满"。
+
+    两者**永不相加**。
+    """
+
+    USAGE_SUM = "usage_sum"
+    CTX_LAST = "ctx_last"
+
+
+# 第三个已存在的 token 口径：上下文水位（``agents.ctx_tokens`` / ``ctx_pct``，由
+# ``agent_context.measure`` 产出，服务于 agent 复用治理）。它**刻意不是 TokenMetric
+# 成员**——TokenMetric 覆盖的是"用量归因"这一个问题域，而水位口径与用量无关（§1.1）。
+# 但它仍需一个可标注的名字：呈现面上任何 token 数值都必须挂口径，包括不参与归因的。
+# 三个口径互不相加。
+CTX_WATERMARK_METRIC = "ctx_watermark"
+
+# Provider activity counters have their own scope and cannot be merged with
+# attributed request usage or context measurements.
+NATIVE_ACTIVITY_METRIC = "native_activity"
+
+# 全部合法口径标签 —— 呈现面标注与机检（I13）共用的封闭集合。
+TOKEN_METRIC_LABELS: frozenset[str] = frozenset(
+    {TokenMetric.USAGE_SUM.value, TokenMetric.CTX_LAST.value, CTX_WATERMARK_METRIC, NATIVE_ACTIVITY_METRIC}
+)
+
+# 口径 → (中文短名, 产出者, 一句话定义)。呈现面的口径徽标与页脚说明取自这里，
+# 避免同一段解释在页面、文档、注释里各写一版然后各自漂移。
+TOKEN_METRIC_SPECS: dict[str, tuple[str, str, str]] = {
+    TokenMetric.USAGE_SUM.value: (
+        "用量累加",
+        "services/token_attribution.parse_transcript_usage → agents 五列",
+        "按 requestId 分组取末条快照后跨组累加的四层 token；回答一共用掉多少。",
+    ),
+    TokenMetric.CTX_LAST.value: (
+        "末轮上下文水位",
+        "api/workflow_ingest._last_assistant_ctx_tokens → workflow_agents.tokens",
+        "最后一条 assistant 消息的四字段和；是瞬时水位快照，不是消耗量。",
+    ),
+    CTX_WATERMARK_METRIC: (
+        "上下文水位（复用治理）",
+        "api/agent_context.measure → agents.ctx_tokens / ctx_pct",
+        "agent 当前占了多少上下文；服务于复用决策，与用量归因无关。",
+    ),
+    NATIVE_ACTIVITY_METRIC: (
+        "原生活动 Token 样本",
+        "Codex profile/local JSONL → PlanUsageSnapshot.activity_tokens（按 source 隔离）",
+        "原生历史汇总或绑定后本机日志累计样本；不承诺跨设备账号全量，不等于计价账本或上下文水位。",
+    ),
+}
+
+# token 用量的四层 —— "总量"实测 95.6% 是 cache_read，只报总量等于只报缓存读取量，
+# 跨模型/跨派工路径的比较会被系统性带偏。因此四层必须始终可分列（§1.2）。
+TOKEN_LAYERS: tuple[str, ...] = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_tokens",
+    "cache_read_tokens",
+)
+
+# 四层之外还有一个**子集层**：它落在某个四层成员之内，因此**永不参与求和**。
+# 键 = 子集层列名，值 = 它所属的那个四层成员。为什么要显式声明这层归属关系：一个
+# "看起来像第五层"的列摆在四层旁边，早晚会被某个求和顺手加进去，而加进去之后
+# 得到的数没有任何办法被证伪（它只是偏大，不会报错）。声明在类型层，机检才拦得住。
+TOKEN_SUBSET_LAYERS: dict[str, str] = {
+    # Codex 的 reasoning token 已经计在 output_tokens 里，单独报是为了看清"思考"
+    # 占了多少输出，不是为了再加一遍（r5 §6.4）。
+    "reasoning_output_tokens": "output_tokens",
+}
+
+
+class HarnessId(enum.StrEnum):
+    """承载这次会话的宿主 CLI —— ``agents.harness`` 的取值。
+
+    列为 NULL 表示**未标注**，不等于 ``claude-code``：本库在 Codex 接入之前写下的
+    每一行都没有这个维度。历史行只按**认得出的证据**补标（按用户 2026-09-30 的裁定，
+    证据规则的唯一出处是 ``services.attribution_marks.infer_harness``，由
+    ``aiteam attribution repair`` 执行）；认不出的仍为 NULL，不整桶回填成
+    "claude-code"——那是给历史行编造判断。no-data 与具体取值必须分得开（同
+    ``tokens_source`` 的纪律）。
+
+    新行的判据只认 hook 入口：每个宿主有自己的入口脚本，Codex 入口在载荷里写
+    ``harness=codex``，CC 入口 ``send_event.py`` 不写，服务端据此把 CC 事件建的行
+    标成 ``claude-code``。**不嗅探环境**：hook 与 MCP 是两个进程、两条链路，各判
+    各的（r5 §4.1）。
+    """
+
+    CLAUDE_CODE = "claude-code"
+    CODEX = "codex"
+
+
+class LayerState(enum.StrEnum):
+    """某个 token 层在某个 harness 上**能不能被测到** —— 呈现面的三态。
+
+    存在的理由是：0 有三种完全不同的含义，而呈现面上它们长得一模一样。
+
+    * ``AVAILABLE`` —— 源头有这个字段，测出来的数就是真数。0 就是真的 0。
+    * ``ABSENT_AT_SOURCE`` —— 源头根本没有这一层，问题不适用。呈现面必须画
+      ``—`` 而不是 0：画 0 等于宣称"测过了，结果是零"。
+    * ``WIRE_PRESENT_UNVERIFIED`` —— 协议字段在、但本库从未见过非零值，无法区分
+      "确实一直是 0"与"上游压根没填"。呈现面必须标注未验证，不得当作已定真的 0。
+
+    最后一态不是过度设计：Codex 的 ``cache_write_input_tokens`` 自 0.145 起在线上，
+    本机实测恒 0，而同批的 provider 全非官方 —— 恒 0 可能是 provider 行为，也可能
+    是该层就没被写过，两者当前不可分辨（r5 §6.4 / ⑬ 风险 11）。
+    """
+
+    AVAILABLE = "available"
+    ABSENT_AT_SOURCE = "absent_at_source"
+    WIRE_PRESENT_UNVERIFIED = "wire_present_unverified"
+
+
+# (harness, layer) -> LayerState —— 覆盖 HarnessId x (TOKEN_LAYERS + 子集层)，无空格。
+# 空格 = 某个 harness 的某一层没人回答过"能不能测"，而呈现面照样会给它画一个 0。
+# I12 对这张表做满覆盖机检，并要求每个 wire_present_unverified 格在双语 i18n 里
+# 都有对应文案 —— 没有文案的未验证态，在页面上与已定真的 0 无从区分。
+LAYER_AVAILABILITY: dict[tuple[str, str], LayerState] = {
+    # CC：四层俱全，reasoning 不单独上报（混在 output 里，源头没有这个字段）。
+    (HarnessId.CLAUDE_CODE, "input_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CLAUDE_CODE, "output_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CLAUDE_CODE, "cache_creation_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CLAUDE_CODE, "cache_read_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CLAUDE_CODE, "reasoning_output_tokens"): LayerState.ABSENT_AT_SOURCE,
+    # Codex：三层去重叠后可直接对应；cache_creation 是那个"线上有、从未见过非零"
+    # 的层（r5 §6.4）；reasoning 有独立字段，但它是 output 的子集，不求和。
+    (HarnessId.CODEX, "input_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CODEX, "output_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CODEX, "cache_creation_tokens"): LayerState.WIRE_PRESENT_UNVERIFIED,
+    (HarnessId.CODEX, "cache_read_tokens"): LayerState.AVAILABLE,
+    (HarnessId.CODEX, "reasoning_output_tokens"): LayerState.AVAILABLE,
+}
+
+# hook 侧"跑了但没送到"的告警码 —— ``system.warn`` 的 code 取值。
+# 这一档静默失败在 stderr 之外没有任何痕迹，而 Codex 下 hook 子进程的 stderr 去向
+# 不明；实测形态是 POST 超时（不是 URLError），丢的是**唯一一次采样**，事后不可
+# 重建。所以它必须有一个具名的、可被机检和哨兵共同引用的码（r5 ⑬ 防线 14b）。
+HOOK_POST_LOSS = "hook_post_loss"
+
+
+class TokenSource(enum.StrEnum):
+    """``agents.tokens_source`` 的取值 —— 这一行的 token 数是怎么来的。
+
+    列为 NULL 表示**尚未采集**，既不是 transcript 定真也不是别名兜底——no-data 与
+    zero 必须分得开（§2.6）。
+    """
+
+    TRANSCRIPT = "transcript"  # 从 transcript 逐行解析定真
+    ALIAS_FALLBACK = "alias_fallback"  # transcript 已灭失，读侧按别名台账兜底推得
+    # Codex 侧两个来源。分开记而不是并成一个 "codex"：rollout 是逐行原件（可复算），
+    # state_5 是宿主自己维护的镜像（继承其一切幻影与导入基线污染，只作一致性检查
+    # 不作真值，r5 §6.1）。事后要判"这个数信不信得过"，全靠这一列分得开。
+    CODEX_ROLLOUT = "codex_rollout"  # 从 Codex rollout 原件逐行解析定真
+    CODEX_STATE_DB = "codex_state_db"  # 取自 Codex state 库的镜像值（降级来源）
+
+
+class AttributionScope(enum.StrEnum):
+    """一次归因查询问的是"哪一段工作"。
+
+    前四档沿归因链自上而下（§2.1），每一档的分母都是**该档内的派工数**，不是
+    "该档内已测到的派工数"——后者会让覆盖率恒等于 100%（§4.1）。
+
+    ``TASK`` 是旁支而非第五级：task 边靠寄生在记账行为上采得（§2.4），实测覆盖率
+    接近 0，与前四档不是一个量级的可信度，任何呈现都必须单独标注。
+    """
+
+    PROJECT = "project"
+    SESSION = "session"
+    WORKFLOW_RUN = "workflow_run"
+    AGENT = "agent"
+    TASK = "task"
+
+
+class AttributionMethod(enum.StrEnum):
+    """这一次归因的数是**怎么来的** —— 与 ``TokenSource`` 是行级/查询级的关系。
+
+    ``TokenSource`` 记的是"agents 某一行的四层数从哪来"，随行持久化；本枚举记的是
+    "这一次聚合查询整体走的是哪条路"，随查询结果返回。二者同名不同层，别混用。
+    """
+
+    TRANSCRIPT_PARSE = "transcript_parse"  # 由 transcript 逐行解析定真（usage_sum 正路）
+    SELF_REPORT = "self_report"  # 采自 workflow JSON / journal 的自报值（ctx_last 正路）
+    ALIAS_FALLBACK = "alias_fallback"  # transcript 已灭失，读侧按别名台账兜底
+    CODEX_ROLLOUT_PARSE = "codex_rollout_parse"  # 由 Codex rollout 原件逐行解析定真
+    CODEX_STATE_DB = "codex_state_db"  # 走 Codex state 库镜像（降级，非独立真值源）
+    # 这次聚合里既有 CC transcript 定真的行，也有 Codex rollout 定真的行。两者都是
+    # 一手来源、都不降级；单列出来是为了不让任何一个来源冒充全部。
+    MIXED = "mixed"
+
+
+class UnattributedReason(enum.StrEnum):
+    """未归因不是一种状态，是几种，处置方式各不相同（§3.4）。
+
+    这张表存在的唯一理由是**让"覆盖率 78%"变成一句可行动的话**——看的人应当据此
+    知道剩下 22% 能不能救。所以"救不回来"与"还没去救"必须分开标，把前者并进后者
+    会让这个枚举失去全部价值。
+
+    前四个是 §3.4 的原表。后两个是具名扩展，因为 §3.4 那张表是按 usage_sum 的子
+    agent 路径写的，硬套到另外两条路径上就会说谎：
+
+    * ``SELF_REPORT_ABSENT`` —— ctx_last 侧的 ``workflow_agents.tokens`` 为 0 时，
+      原因是那次 run 的 JSON 从头就没带遥测（数据源只有请求规格）。它不是
+      ``NOT_YET_MEASURED``：没有任何"再跑一次采集"能把它补回来。
+    * ``MULTI_TASK_UNSPLITTABLE`` —— agent 在多个 task 上都留过账时，它的四层数是
+      **整个生命周期的一个合计**，没有逐区间用量可供按边的时间序切分。§2.4 定死
+      这种情况如实计未归因，**禁止平均分摊**（分摊会造出无法证伪的数字）。
+
+    ``BY_DESIGN`` 是 §3.4 的第四码，但它描述的是**工具调用级**（``agent_activities``
+    52,119 条无 token 字段，是主动选择不采）。工具调用与派工不是同一个单位，所以它
+    只作呈现面上的一行标签，**绝不进** :attr:`TokenAttribution.unattributed_reasons`
+    ——那个 dict 与 ``dispatches_total`` 同单位，混进活动数就是混量纲。
+
+    最后五个是 harness 维度带来的扩展。CC 那条路上"未归因"只有一种成因（transcript
+    够不着），换一个宿主之后成因分叉成好几种，而它们的处置**方向相反**：
+    ``SOURCE_LACKS_LAYER`` 与 ``THREAD_EPHEMERAL`` 是"本来就没有"，再跑一百次采集
+    也不会变；``NO_ROLLOUT_UNKNOWN`` 是"本该有却没有"，是故障信号，要去查采集链。
+    把这两类并成一个码，等于让一次真实的断流永远伪装成正常现象——这正是本枚举存在
+    的理由（"救不回"与"还没去救"必须分开标）。
+    """
+
+    NO_TRANSCRIPT_PATH = "no_transcript_path"  # 行从未登记 transcript 路径（历史行，救不回）
+    TRANSCRIPT_GONE = "transcript_gone"  # 路径有但文件已不在（随时间只增不减，救不回）
+    # 文件在，只是还没跑过采集（可救）。Codex 行按线程 id 找原件，没有登记路径也算。
+    NOT_YET_MEASURED = "not_yet_measured"
+    BY_DESIGN = "by_design"  # 设计上不采集（工具调用级）——见类文档，不进 dict
+    SELF_REPORT_ABSENT = "self_report_absent"  # ctx_last 侧自报值缺失（救不回）
+    MULTI_TASK_UNSPLITTABLE = "multi_task_unsplittable"  # task 级切不开，如实计未归因
+    # 源头不产这一层：把 harness x layer 的 absent_at_source 如实说出来（LAYER_AVAILABILITY）。
+    SOURCE_LACKS_LAYER = "source_lacks_layer"  # 该 harness 的源头没有这一层，问题不适用
+    # 线程结构性无痕：--ephemeral 两侧皆不落盘，实测证实（r5 §6.2）。这是"本来就没有"，
+    # 与"曾经有过、后来找不到"必须分开——前者永远不可救，后者可能只是断流。
+    THREAD_EPHEMERAL = "thread_ephemeral"  # 线程结构性不落盘（救不回，且不是故障）
+    # 间歇性无痕：本机曾断流约 40 天后恢复，成因未定、可能复发。断流期数据不可重建，
+    # 但它是故障不是设计 —— 与上一码混写会让一次真实的采集断链被当成正常现象。
+    NO_ROLLOUT_UNKNOWN = "no_rollout_unknown"  # 应落盘却没有，成因未定（救不回，属故障）
+    # 系统线程（guardian / compact / memories 抽取 / root 背景 / 定时自动化）：
+    # 不建队、不占容器、token 不可测。计入未归因而不是从分母里删掉——删掉分母就会
+    # 让覆盖率虚高，而这些线程确实消耗了额度。
+    SYSTEM_THREAD = "system_thread"  # 系统线程，token 结构性不可测
+    # 派工边三级来源链全失落：子 agent 身份在（hook 给的），但"是哪次派工叫起来的"
+    # 解不出来。故意不加 UNIQUE 就是为了让这种行照常入库（r5 §4.3 / §6.2）。
+    DISPATCH_EDGE_UNRESOLVED = "dispatch_edge_unresolved"  # 派工边未解，行在但边缺
+    # 以下五个来自 2026-09-30 归因梳理（报告 c20b37a8 W3）：原先这些行全被归进
+    # not_yet_measured（"跑一次回采就能补上"），而多数并不是回采补得上的。
+    # 这个宿主本库还没有用量解析器（claude-code 与 codex 都有）。文件在，只是读不了；
+    # 有了解析器就可救，所以不是 transcript_gone。
+    HARNESS_UNSUPPORTED = "harness_unsupported"
+    # rollout 不在登记的路径上，但在宿主的归档目录里找得到（Codex 的
+    # archived_sessions）。它没有灭失，不能标 transcript_gone；Codex 回采会改指
+    # 归档原件并补上用量。
+    TRANSCRIPT_ARCHIVED = "transcript_archived"
+    # 这次派工还在跑（行是 busy，或 30 分钟内还有活动记录）。还没到该测的时候，既不是
+    # 缺口也不该让人去跑回采——回采会把中途值冻成已测量。
+    IN_FLIGHT = "in_flight"
+    # transcript 里只有宿主本地生成的合成错误行（限流、服务端错误等，model 为
+    # "<synthetic>"），没有一次计费调用。算"未测到"，不算测得 0：记成 0 会把
+    # "被限流"伪装成"跑了但没花钱"（按用户裁定 P-3）。
+    API_ERROR_ONLY = "api_error_only"
+    # 没有任何一次回复的用量记录：CC transcript 里一条 assistant 行都没有，或 Codex
+    # 解析器确认 rollout 里没有用量事件。agent 在首个回复前就结束了（被 kill 或中断），
+    # 那次没答完的请求用了多少无从得知 —— 没有数据，不是 0，也没有回采能补。
+    NO_USAGE_LINES = "no_usage_lines"
+    # 已结束且按线程 id 搜遍 sessions/归档仍无原件，也没有登记路径可供追查。
+    # 只说明本次查无原件，不能推断零用量或结构性不落盘。
+    CODEX_ROLLOUT_NOT_FOUND = "codex_rollout_not_found"
+
+
+# 拒测仍保留解析器原始静态码；限制长度/字符，禁止把异常消息或正文写成结论。
+CODEX_PARSER_REJECTED_PREFIX = "codex_parser_rejected:"
+CodexParserRejection = Annotated[
+    str,
+    Field(pattern=r"^codex_parser_rejected:[a-z][a-z0-9_]{0,63}$", max_length=len(CODEX_PARSER_REJECTED_PREFIX) + 64),
+]
+UsageUnmeasurable = UnattributedReason | CodexParserRejection
+
+
+class AttributionExclusion(enum.StrEnum):
+    """``agents.attribution_exclusion`` 的取值 —— 这一行为什么不计入任何用量统计。
+
+    用户于 2026-09-30 裁定「用量归因页全部显示真实修正后的数据」：不是真实派工/会话的
+    行不删（agents 表是审计留痕，token 归因也写在行上），打标后统计一律排除，页面同屏
+    写明排除了多少行。只收**证据确凿**的两类；认不准的行留在分母里如实算未归因——
+    把说不清的行移出分母，覆盖率就会被悄悄做好看（R2）。
+    """
+
+    # ``claude --resume`` 启动时 CC 先用一个一次性会话 id 发 SessionStart，于是建出一个
+    # Leader 行与容器队；随后事件都改用被续上的对话 id。这一行没有 transcript、没有
+    # 一次工具调用，不是一个会话。
+    RESUME_SHELL = "resume_shell"
+    # 与另一行指向同一份 transcript 的 Leader 行。transcript 是累计文件，一份只能由
+    # 一行代表；其余行再计一次就是重复计（历史上 4 份 transcript 两行都有账，output
+    # 多算 19%）。
+    DUPLICATE_TRANSCRIPT = "duplicate_transcript"
+
+
+class CoverageNote(enum.StrEnum):
+    """覆盖率矩阵每行、每一跳说明文字的键。文字本身在前端 i18n（中英两份）里。
+
+    后端只给键和参数：说明是给人看的，要随界面语言切换；写死在后端就只有一种语言，
+    而且会在后端与前端各长一份。
+    """
+
+    SUBAGENT_DENOMINATOR = "subagent_denominator"
+    LEADER_SEPARATE = "leader_separate"
+    WORKFLOW_SELF_REPORT = "workflow_self_report"
+    TOOL_CALL_NOT_COLLECTED = "tool_call_not_collected"  # params: activities
+    HOP_SESSION = "hop_session"
+    HOP_PROJECT = "hop_project"
+    HOP_WORKFLOW = "hop_workflow"
+    HOP_TRANSCRIPT = "hop_transcript"
+    HOP_TASK = "hop_task"
+
+
+class TokenAttribution(BaseModel):
+    """一次归因查询的完整答案 —— 数值与其分母、口径同生共死。
+
+    没有 ``total`` 这个字段，也没有任何方法返回它。调用方要渲染数值，就必须同时
+    拿到 ``dispatches_total`` 与 ``metric`` —— 分母和口径是数据的一部分，不是可选
+    的装饰。这条**必须落在类型层**：页面标注是软约束，三个月后的自己会忽略它
+    （§2.5，此结构由 I13 机检钉住）。
+
+    **为什么没有合计字段**：实测四层里 ``cache_read`` 占 95.6%，任何"总量"实际上
+    是"缓存读取量"的同义词；只报总量会让跨模型、跨派工路径的比较被系统性带偏
+    （§1.2）。四层必须始终可分列，合计要算由调用方自己负责并自己承担解释责任。
+
+    **口径（metric）无默认值**是刻意的：不标注口径就构造不出对象。本库同时存在
+    ``usage_sum``（用量累加）与 ``ctx_last``（末轮上下文水位）两个正交口径，实测
+    差 5~25 倍；把它们相加或并列，就是本仓刚在时间戳上栽过的同类事故（§0.2 / R1）。
+    本结构两种口径都能承载，**判断依据永远是 metric 字段本身**，不是字段名。
+
+    不变量（有契约测试钉住，见 tests/unit/test_token_attribution_contract.py）：
+
+    * 不存在 ``total`` / ``total_tokens`` 字段或属性；
+    * ``dispatches_attributed`` + Σ``unattributed_reasons`` == ``dispatches_total``；
+    * ``unattributed_reasons`` 的单位是**派工数**，与分母同单位。
+    """
+
+    model_config = {"frozen": True}
+
+    scope: AttributionScope  # project / session / workflow_run / agent / task
+    scope_id: str
+    metric: TokenMetric  # usage_sum | ctx_last —— 强制标注，无默认值
+    input_tokens: int  # 四层分列，不提供合计字段
+    output_tokens: int
+    cache_creation_tokens: int
+    cache_read_tokens: int
+    dispatches_attributed: int  # 分子：本 scope 内已测到用量的派工数
+    dispatches_total: int  # 分母：本 scope 内的派工总数
+    unattributed_reasons: dict[str, int]  # 未归因派工按原因分类计数（§3.4）
+    measured_window: tuple[datetime, datetime] | None
+    method: AttributionMethod  # transcript_parse | self_report | alias_fallback
+
+
+class DispatchPopulation(enum.StrEnum):
+    """派工路径 —— 覆盖率矩阵的行（§5.2），也是聚合查询的必填维度之一。
+
+    为什么它必须是查询维度而不是事后分组：三条路径的量级差着数量级（实测单个
+    Leader 会话 8.5 亿 token，远超全部子 agent 之和），混进一个排行榜里子 agent
+    的归因结果会被彻底淹没。§3.3 因此定死"主会话与子 agent 必须分列呈现，且默认
+    不合并" —— 把它做成必填参数，合并就得先显式发起两次查询再自己动手加，加的人
+    要自己承担这个动作。
+    """
+
+    SUBAGENT = "subagent"  # agents 表 role != 'leader' —— 派工（usage_sum）
+    LEADER_SESSION = "leader_session"  # agents 表 role == 'leader' —— 主会话（usage_sum）
+    WORKFLOW_SELF_REPORT = "workflow_self_report"  # workflow_agents 自报（ctx_last，仅覆盖率）
+    TOOL_CALL = "tool_call"  # agent_activities 工具调用级 —— 设计上不采集（§3.2）
+
+
+class UsageCoverageRow(BaseModel):
+    """覆盖率矩阵的一行 —— 分子、分母、口径，**刻意零 token 数值字段**。
+
+    §4.3 与 §5.2 那两张表本来就是覆盖率表：列是"派工数 / 已测量 / 覆盖率 / 口径"，
+    没有一列是 token 数。这一点让 ``ctx_last`` 路径也能如实上表——它的四层分解从
+    未被保存过（``workflow_agents.tokens`` 在 ingest 时已是四字段之和），进不了
+    :class:`TokenAttribution`，但它的分子分母是实打实的。
+
+    ``dispatches_total`` / ``dispatches_attributed`` 可为 None，专给"设计上不采集"
+    那一行用：**空白会被读成 bug，0 会被读成"真的一次都没有"**，而事实是这个问题
+    在这条路径上不适用（§5.2：「设计上不采集」是一个正式取值，不是空白）。
+    """
+
+    path: DispatchPopulation
+    metric: str  # TokenMetric 取值 或 ""（该路径不产出用量数值）
+    dispatches_total: int | None
+    dispatches_attributed: int | None
+    unattributed_reasons: dict[str, int] = Field(default_factory=dict)
+    # 说明文字的键与参数，文字由前端按界面语言渲染（CoverageNote）。
+    note_key: CoverageNote
+    note_params: dict[str, int | str] = Field(default_factory=dict)
+    # 这一行是哪个 harness 的。None = 该桶里的行没有标注 harness（历史行），**不是
+    # claude-code**：分列呈现的意义在于"这两列数是同一个源头产出的"，把未标注的行
+    # 塞进 claude-code 桶会让那一桶的分母掺进无从核实的行。两个 harness 的覆盖率
+    # 必须分列同屏、禁止相加（r5 §6.6 两桶口径）。
+    harness: HarnessId | None = None
+
+
+class EdgeCoverage(BaseModel):
+    """归因链上一跳的可解析率 C_hop（§4.1）。
+
+    端到端覆盖率是各跳的乘积，用一个标量表达会掩盖真正的瓶颈——实测瓶颈不在
+    token 采集而在 ``agent→task`` 这一跳（0.8%），只看总覆盖率永远看不出来。
+    """
+
+    edge: str  # 如 "agent->session"
+    resolvable: int  # 分子：该边可解析的行数
+    required: int  # 分母：需要该边的行数
+    note_key: CoverageNote
+    # 这一跳统计的是哪个 harness 的行（None = 未标注）。各跳与矩阵一样按 harness
+    # 分开算：Codex 行进 CC 的分母，两边的可解析率都会失真。
+    harness: HarnessId | None = None
+
+
+class UsageCoverageReport(BaseModel):
+    """覆盖率向量的完整答案 —— 页面第一屏第一块的数据源（§5.2 ①②）。
+
+    刻意**不含任何 token 数值**：本结构回答"测到了多少比例"，token 值一律走
+    :class:`TokenAttribution`（那里每个数字都自带分母）。因此它不进
+    ``scripts/usage_surface.py`` 的 PY_SURFACES —— 那张注册表管的是 token 呈现面，
+    而这里一个 token 字段都没有。
+
+    ``rows`` 刻意不提供合计行：``usage_sum`` 与 ``ctx_last`` 两个口径实测差 5~25 倍，
+    任何跨行合计都是混口径（§0.2 / §5.2）。
+    """
+
+    rows: list[UsageCoverageRow]
+    hops: list[EdgeCoverage]
+    window: tuple[datetime, datetime] | None  # 按 created_at 落窗，不是 tokens_measured_at
+    # 本窗口内因 attribution_exclusion 被排除出全部统计的行数，按排除原因分。页面同屏
+    # 写明这个数：排除是修正，不是藏起来，看的人必须能追溯。
+    excluded_rows: dict[str, int] = Field(default_factory=dict)
+    generated_at: datetime = Field(default_factory=utc_now)
+
+
+# ============================================================
+# Data models
+# ============================================================
+
+
+def _new_id() -> str:
+    return str(uuid4())
+
+
+class Project(BaseModel):
+    """Project data model."""
+
+    id: str = Field(default_factory=_new_id)
+    name: str
+    root_path: str = ""
+    description: str = ""
+    config: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Phase(BaseModel):
+    """Phase data model — execution phase under a Project."""
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str
+    name: str
+    description: str = ""
+    status: PhaseStatus = PhaseStatus.PLANNING
+    order: int = 0
+    config: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class Team(BaseModel):
+    """Team data model."""
+
+    id: str = Field(default_factory=_new_id)
+    name: str
+    mode: OrchestrationMode = OrchestrationMode.COORDINATE
+    project_id: str | None = None
+    leader_agent_id: str | None = None  # Leader agent for this team
+    status: TeamStatus = TeamStatus.ACTIVE
+    summary: str = ""  # One-line summary after team completion
+    config: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+    # 拥有此容器队的 CC 进程。**派生字段，不落库**：由 API 在响应时解析，供展示层
+    # 把同一进程的历史 + 当前容器队合成一组。证不出来就是 None（绝不猜），非容器
+    # 队恒为 None。
+    cc_pid: int | None = None
+
+
+class Agent(BaseModel):
+    """Agent data model."""
+
+    id: str = Field(default_factory=_new_id)
+    team_id: str
+    name: str
+    role: str
+    system_prompt: str = ""
+    # 模型未知即留空（展示为 --）：默认烘焙具体型号曾在四层（此处/ORM 列默认/
+    # to_pydantic 读注入/工具参数）反复冒出误导展示，真实值由 transcript 尾读
+    # (Leader)/wf 终态(workflow agent)回填。
+    model: str = ""
+    status: AgentStatus = AgentStatus.WAITING
+    config: dict[str, Any] = Field(default_factory=dict)
+    source: str = "api"  # "api" = registered via CLAUDE.md, "hook" = auto-captured by hooks
+    session_id: str | None = None  # Associated CC session ID
+    cc_tool_use_id: str | None = None  # Associated CC internal agent ID
+    current_task: str | None = None  # Currently executing task/activity description
+    project_id: str | None = None
+    current_phase_id: str | None = None
+    trust_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    created_at: datetime = Field(default_factory=utc_now)
+    last_active_at: datetime | None = None
+    # Agent reuse governance P1 (batch 1B): sub-agent context watermark ledger.
+    # Populated from the sub-agent transcript on SubagentStop + reaper backfill;
+    # reuse_domain is provisioned for the P2 decision layer (not written in P1).
+    # See docs/agent-reuse-design.md section 4.
+    # 口径: CTX_WATERMARK_METRIC（上下文水位，不参与用量归因，与下面四层不相加）
+    ctx_tokens: int | None = None  # last measured context token total (D1 formula)
+    ctx_window: int | None = None  # detected window size (e.g. 1_000_000)
+    ctx_pct: float | None = None  # ctx_tokens / ctx_window * 100
+    transcript_path: str | None = None  # sub-agent transcript pointer (resume/re-read anchor)
+    ctx_measured_at: datetime | None = None  # when the watermark was last measured
+    reuse_domain: str | None = None  # most-recent task domain tag (P2 decision layer)
+    # 口径: TokenMetric.USAGE_SUM（用量累加，四层分列）。与上面的 ctx_* 水位是两回事，
+    # 两者不相加。None = 尚未采集到，不等于 0 —— no-data 与 zero 必须分得开。
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_creation_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    tokens_measured_at: datetime | None = None
+    # 这一行的四层数是怎么来的：transcript 定真 / 别名兜底。None = 未采集。
+    # 只做审计溯源，不参与任何计算（§2.6 本设计新增的唯一一列）。
+    tokens_source: TokenSource | None = None
+    # 口径: TokenMetric.USAGE_SUM 的**子集层**（TOKEN_SUBSET_LAYERS）——它已经计在
+    # output_tokens 里，**永不与四层相加**。None = 未采集（CC 侧源头没有这一层）。
+    reasoning_output_tokens: int | None = None
+    # ── harness 维度（r5 §4.4）。四列全部 nullable、无 UNIQUE、无 DATETIME ──
+    # 观测字段一律默认留空：未知就空着由观测回填，不补猜测值。历史行的 harness 为
+    # NULL 表示"当时没有这个维度"，不是 claude-code；只有证据认得出来源的才由维护
+    # 脚本补标（见 HarnessId）。
+    harness: HarnessId | None = None  # 承载会话的宿主 CLI（claude-code / codex）
+    # 承载**内核**的版本，只取 session_meta.cli_version / state 库同名字段。刻意不
+    # 从 `codex --version` 取：那报的是 PATH 上的 standalone 二进制，与承载内核实测
+    # 不是同一个版本（r5 ⑫ I-CDX-R8(a)）。
+    harness_version: str | None = None
+    # 派工边：把这一行的子 agent 身份接回"是哪一次派工调用叫起来的"。**刻意不加
+    # UNIQUE**——三级来源链可能全失落，也可能重名，加了唯一约束会在
+    # DISPATCH_EDGE_UNRESOLVED 批量出现时把入库整个打死（r5 §4.3 明令）。
+    dispatch_call_id: str | None = None
+    # ── 用量归因的行级标记（按用户 2026-09-30 的裁定「全部显示真实修正后的数据」）──
+    # 这一行不是一次真实的派工/会话，所有用量统计一律排除；行本身不删（agents 表是
+    # 审计留痕）。None = 正常计入。取值见 AttributionExclusion，判定规则的唯一出处是
+    # services.attribution_marks，由 aiteam attribution repair 写入。
+    attribution_exclusion: AttributionExclusion | None = None
+    # 被排除的重复行由哪一行代表（同一份 transcript 的代表行 id）；空壳行为 None。
+    attribution_exclusion_of: str | None = None
+    # 这一行是真实派工，但本次查验没有得到用量：只有合成错误行（api_error_only）、
+    # 无回复用量事件（no_usage_lines），或 Codex 拒测（codex_parser_rejected:<静态原因码>）、
+    # 查无原件且无登记路径（codex_rollout_not_found）。只对已结束的行写
+    # （usage_coverage.is_in_flight），真实测到用量时清空；None = 尚无结论。
+    # 这些只记录观察结论，不代表零用量或永久不可恢复。与 attribution_exclusion 不同：
+    # 这一行留在分母里，如实算未归因。
+    usage_unmeasurable: UsageUnmeasurable | None = None
+
+
+class TaskWaitingOn(BaseModel):
+    """A human or agent decision needed before this task can proceed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["user", "agent"]
+    target_id: SingleLineText = ""
+    reason: SingleLineText = Field(min_length=1, max_length=2000)
+
+
+class Task(BaseModel):
+    """Task data model."""
+
+    id: str = Field(default_factory=_new_id)
+    team_id: str | None = None
+    title: str
+    description: str = ""
+    status: TaskStatus = TaskStatus.PENDING
+    assigned_to: str | None = None
+    result: str | None = None
+    parent_id: str | None = None
+    project_id: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+    depth: int = 0
+    order: int = 0
+    template_id: str | None = None
+    priority: TaskPriority = TaskPriority.MEDIUM
+    horizon: TaskHorizon = TaskHorizon.SHORT
+    tags: list[str] = Field(default_factory=list)
+    config: dict[str, Any] = Field(default_factory=dict)
+    waiting_on: TaskWaitingOn | None = None
+    block_reason: Literal["dependency", "manual", "waiting"] | None = None
+    status_note: str = ""
+    revision: int = Field(default=0, ge=0)
+    # CC 原生任务的 id（TaskCompleted 载荷的 task_id）。只有镜像进来的行才有值，
+    # 是镜像的幂等键——同一个 CC 任务重复完成不会建第二行。镜像方 cc_task_bridge
+    # 已退役，历史行与幂等逻辑保留。
+    cc_task_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_management_fields(cls, value: object) -> object:
+        """Project the independent management record without touching frozen memo."""
+        if not isinstance(value, dict):
+            return value
+        config = value.get("config")
+        management = config.get("task_management") if isinstance(config, dict) else None
+        if not isinstance(management, dict):
+            return value
+        data = dict(value)
+        for field in ("waiting_on", "block_reason", "status_note", "revision"):
+            if field not in data and field in management:
+                data[field] = management[field]
+        return data
+
+
+class Memory(BaseModel):
+    """Memory data model.
+
+    方向层（记忆系统 v2 P1）：低频·高价值密度·跨任务长寿命的偏好/纠正/约束/
+    设计意图。scope 语义 global/project/user；矛盾/更新时用 supersedes 置旧条失效
+    （Zep 失效语义，不删除）。source_refs 回指 memo/report/meeting id（④溯源）。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    scope: MemoryScope
+    scope_id: str
+    content: str
+    # preference(偏好) / directive(指令·工作方式) / constraint(约束) / design(设计意图)
+    kind: str = "preference"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_refs: list[str] = Field(default_factory=list)  # ④ 溯源：memo/report/meeting id
+    invalid_at: datetime | None = None  # ① 失效轴（NULL=有效）
+    invalidated_by: str | None = None  # 取代者 memory id
+    created_at: datetime = Field(default_factory=utc_now)
+    accessed_at: datetime = Field(default_factory=utc_now)
+
+
+# 写入口接受的 memo 类型（REST、MCP、整理 merge 三处都按它校验）。只校验写入，读路径
+# 不校验：memo 的 type 会原样拼进子 agent 注入，自由文本能伪造出整段章节。
+MemoType = Literal["progress", "decision", "issue", "summary"]
+
+
+class TaskMemo(BaseModel):
+    """情景层 task memo（记忆系统 v2 P0：从 tasks.config JSON 数组升为独立表）。
+
+    行级真 ID（可被 knowledge_links 引用）+ 失效轴（invalid_at/invalidated_by，
+    Zep 失效语义：矛盾时置失效不删除）。写入接口保持兼容，字段对齐设计 §2。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    task_id: str
+    project_id: str | None = None
+    author: str = "leader"
+    memo_type: str = "progress"  # progress / decision / issue / summary
+    content: str
+    scope_path: str = ""  # ② 路径作用域 /project/ecosystem/research
+    quality_score: int | None = None  # ⑧ 质量分（NULL=未评，整理时补）
+    invalid_at: datetime | None = None  # ① 失效轴（NULL=有效）
+    invalidated_by: str | None = None  # 取代者 memo id
+    meta: dict[str, Any] = Field(default_factory=dict)  # entities/topics（整理时补）
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+# ── 任务墙摘要（digest，设计见 docs/task-wall-digest-design.md）──────────────────
+# 一处计算（aiteam.loop.task_wall_engine.build_task_wall_digest），简报、压缩回注、
+# task_list_project、loop 巡检与 Dashboard 共用同一份数。
+
+# 动静的动作类型。created/started/closed 也可能来自任务行自己的时间戳（事件流
+# 07-06 之前没有账）；blocked/reopened/failed 只来自状态变更事件；subtask 是子任务
+# 的状态变更（子任务的 memo 直接算父任务的 memo）。
+TaskActivityKind = Literal["created", "started", "blocked", "reopened", "failed", "closed", "memo", "subtask"]
+
+
+class TaskActivityRecord(BaseModel):
+    """一次落在任务上的工作动作：一条 memo，或一次状态变更（digest 的输入）。
+
+    状态变更只取 ``task.updated`` 事件里 changes 含 status 的那些，状态取事件
+    快照；``task.status_changed`` 事件的 entity_id 全空，不作数据源。子任务上的
+    动作记在父任务名下：memo 仍是 memo，状态变更的 source 是 subtask。
+    """
+
+    task_id: str
+    at: datetime
+    source: Literal["memo", "status", "subtask"]
+    status: str = ""  # source=status/subtask：变更后的状态
+    author: str = ""  # source=memo
+    memo_type: str = ""  # source=memo
+
+
+class DigestItem(BaseModel):
+    """摘要里的一行任务：身份、动静与天数都在服务端算好。"""
+
+    id: str
+    title: str
+    status: str
+    priority: str
+    horizon: str
+    created_at: datetime
+    activity_at: datetime
+    activity_kind: TaskActivityKind
+    activity_memo_type: str = ""  # activity_kind=memo 时的 memo 类型
+    activity_by: str = ""  # activity_kind=memo 时的作者
+    idle_days: float  # 距最近一次动静的天数
+    wall_days: float  # 上墙天数（距新建）
+    stale: bool = False  # 进行中且超过停滞阈值没有动静
+    blocked_days: float | None = None  # 阻塞的：进入阻塞至今天数
+    waiting_on: TaskWaitingOn | None = None
+    parent_id: str | None = None
+    parent_title: str | None = None
+
+
+class TaskWallDigest(BaseModel):
+    """任务墙摘要：全墙统计 + 最近动静 + 待办最优先 + 中长期之首 + 卡住的。
+
+    计数口径：只数当前项目的顶层任务（parent_id 为空）；未关 = pending / running /
+    blocked / failed，completed 只进 completed_total 与 closed_7d。
+    waiting_user 单列真实等待事项，包含子任务，并附父任务身份；不计入顶层总数。
+    """
+
+    project_id: str
+    as_of: datetime
+    open_total: int
+    by_status: dict[str, int]
+    by_horizon: dict[str, int]
+    matrix: dict[str, dict[str, int]]  # 状态 → 期限 → 条数（只数未关）
+    by_priority: dict[str, int]
+    created_7d: int
+    closed_7d: int
+    completed_total: int
+    stale_days: int
+    stale_running: int
+    dormant_days: int
+    dormant_pending: int
+    blocked_oldest_days: float | None = None
+    recent: list[DigestItem]
+    top: list[DigestItem]
+    heads: dict[str, DigestItem]  # mid / long 各自排第一且不在 top 里的待办
+    stuck: list[DigestItem]  # 阻塞、失败与停滞的进行中，全量
+    waiting_user: list[DigestItem] = Field(default_factory=list)
+
+
+class Event(BaseModel):
+    """System event data model."""
+
+    id: str = Field(default_factory=_new_id)
+    type: EventType
+    source: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=utc_now)
+    # Enhanced event context (v0.9)
+    entity_id: str | None = None    # ID of the primary entity involved (task/agent/team)
+    entity_type: str | None = None  # Entity type: "task" / "agent" / "team" / "meeting"
+    state_snapshot: dict[str, Any] | None = None  # Trimmed key fields at event time
+
+
+class Meeting(BaseModel):
+    """Meeting data model."""
+
+    id: str = Field(default_factory=_new_id)
+    team_id: str
+    topic: str
+    status: MeetingStatus = MeetingStatus.ACTIVE
+    participants: list[str] = Field(default_factory=list)
+    project_id: str | None = None
+    meta_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    concluded_at: datetime | None = None
+
+
+class MeetingMessage(BaseModel):
+    """Meeting message data model."""
+
+    id: str = Field(default_factory=_new_id)
+    meeting_id: str
+    agent_id: str
+    agent_name: str
+    content: str
+    round_number: int = 1
+    timestamp: datetime = Field(default_factory=utc_now)
+    msg_metadata: dict[str, Any] = Field(default_factory=dict)  # audit: impersonation, actual_author, etc.
+
+
+class AgentActivity(BaseModel):
+    """Agent activity record — logs each agent tool call."""
+
+    id: str = Field(default_factory=_new_id)
+    agent_id: str
+    session_id: str
+    tool_name: str  # Tool name (Bash, Edit, Read, Agent, etc.)
+    input_summary: str = ""  # Input summary (e.g. command, file path)
+    output_summary: str = ""  # Output summary (truncated to 500 chars)
+    timestamp: datetime = Field(default_factory=utc_now)
+    # Tool call duration (ms): from PreToolUse arrival to completion arrival, so it
+    # includes waiting for a permission prompt. The host's own duration_ms (pure
+    # execution time) is used only to place the start when no PreToolUse was seen.
+    duration_ms: int | None = None
+    status: str = "completed"  # "running" | "completed" | "error"
+    error: str | None = None  # Error message
+    # 轮次身份。CC 的 hook 载荷里没有这个概念，故该列在 CC 行上恒为 NULL；Codex
+    # 侧用它把"没有 agent_id 又不属于本会话主轮"的工具调用标出来，而不是默默挂到
+    # Leader 头上（r5 §4.1 turn_attribution / §6.2）。
+    turn_id: str | None = None
+
+
+class CrossMessageType(enum.StrEnum):
+    """Cross-project message type."""
+
+    NOTIFICATION = "notification"
+    REQUEST = "request"
+    RESPONSE = "response"
+    BROADCAST = "broadcast"
+
+
+class CrossMessage(BaseModel):
+    """Cross-project message — shared across all projects in the global DB."""
+
+    id: str = Field(default_factory=_new_id)
+    from_project_id: str
+    from_project_dir: str
+    to_project_id: str | None = None  # None means broadcast to all projects
+    sender_name: str
+    content: str
+    message_type: CrossMessageType = CrossMessageType.NOTIFICATION
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    read_at: datetime | None = None
+
+
+class ScheduledTask(BaseModel):
+    """Scheduled task — periodic automation trigger."""
+
+    id: str = Field(default_factory=_new_id)
+    team_id: str | None = None
+    name: str
+    description: str = ""
+    interval_seconds: int  # minimum 300 (5 min)
+    action_type: str  # create_task / inject_reminder / emit_event
+    action_config: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    last_run_at: datetime | None = None
+    next_run_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class WakeSession(BaseModel):
+    """Record of a single wake_agent subprocess execution."""
+
+    id: str = Field(default_factory=_new_id)
+    scheduled_task_id: str
+    agent_name: str
+    team_id: str = ""
+    started_at: datetime = Field(default_factory=utc_now)
+    finished_at: datetime | None = None
+    outcome: str = ""  # completed / skipped_triage / timeout / error / fused / skipped_concurrent
+    triage_result: str = ""
+    stdout_summary: str = ""  # last 500 chars
+    exit_code: int | None = None
+    consecutive_failures: int = 0
+    duration_seconds: float = 0.0
+
+
+class LeaderBriefing(BaseModel):
+    """Leader Briefing — pending decision items for user review."""
+
+    id: str = Field(default_factory=_new_id)
+    title: str
+    description: str = ""
+    options: str = ""  # A/B/C options description
+    recommendation: str = ""  # Leader's suggested option
+    urgency: str = "medium"  # high / medium / low
+    # pending / resolved / dismissed / expired (pending for 14 days with no answer;
+    # the row is kept, only the status changes)
+    status: str = "pending"
+    resolution: str = ""  # user's decision
+    project_id: str = ""
+    tags: list[str] = Field(default_factory=list)  # free-form, for filtering the queue
+    created_at: datetime = Field(default_factory=utc_now)
+    resolved_at: datetime | None = None
+
+
+# ============================================================
+# User notices (docs/user-notice-design.md)
+# ============================================================
+
+
+class NoticeKind(enum.StrEnum):
+    """What a user-facing notice asks of the user; the colour follows from it."""
+
+    STATUS = "status"  # plain information
+    ACTION = "action"  # the user has to do something
+    DECISION = "decision"  # the user has to choose
+    BLOCKED = "blocked"  # a hook refused an operation
+    DONE = "done"  # something finished
+
+
+class NoticeSeverity(enum.StrEnum):
+    """Ordering weight: block > action > info."""
+
+    INFO = "info"
+    ACTION = "action"
+    BLOCK = "block"
+
+
+class NoticeColor(enum.StrEnum):
+    """Foreground colour of the notice body (the prefix always stays host grey)."""
+
+    DEFAULT = "default"
+    YELLOW = "yellow"
+    RED = "red"
+    GREEN = "green"
+
+
+class NoticeStatus(enum.StrEnum):
+    """Ledger state of one notice key."""
+
+    ACTIVE = "active"
+    CLEARED = "cleared"
+    DISMISSED = "dismissed"
+    SNOOZED = "snoozed"
+    # Aged out without being resolved (an unregistered folder nobody came back
+    # to). Kept, not deleted; a new hit revives it like a cleared one.
+    EXPIRED = "expired"
+
+
+class Notice(BaseModel):
+    """One ledger row: a user-facing notice identified by its dedup key."""
+
+    key: str
+    catalog_id: str
+    variant: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+    project_id: str = ""
+    session_id: str = ""
+    # The only host whose sessions may be shown this row; "" means every host.
+    # Set for host-specific findings (a release command, a host's own reader).
+    host: Literal["", "cc", "codex"] = ""
+    source: str = ""
+    status: NoticeStatus = NoticeStatus.ACTIVE
+    snoozed_until: datetime | None = None
+    first_seen_at: datetime = Field(default_factory=utc_now)
+    last_seen_at: datetime = Field(default_factory=utc_now)
+    cleared_at: datetime | None = None
+
+
+class NoticeDelivery(BaseModel):
+    """One claim of a notice for one host session (unique per key, host, session)."""
+
+    id: str = Field(default_factory=_new_id)
+    key: str
+    host: Literal["cc", "codex"]
+    session_id: str
+    event: str
+    channel_reliable: bool = True
+    language: Literal["zh", "en"] = "en"
+    claimed_at: datetime = Field(default_factory=utc_now)
+    emitted_at: datetime | None = None
+    confirmed_at: datetime | None = None
+    refired_at: datetime | None = None
+    lost_at: datetime | None = None
+
+
+class PendingFacts(BaseModel):
+    """What an exit hook knows locally and reports alongside a pending fetch."""
+
+    entrypoint: str = ""
+    # The Claude Code config folder this session runs from (CLAUDE_CONFIG_DIR or the
+    # default); the API reads this session's files there (aiteam.api.cc_config_scope).
+    # "" from Codex and from hooks older than this field.
+    config_dir: str = Field(default="", max_length=4096)
+    # Renderer the Claude Code session's side forces over the ``tui`` setting
+    # (screen-reader or flicker environment variables, the fullscreen crash
+    # latch in Claude Code's global config); "" when the settings decide. Decides whether a
+    # /clear line was visible.
+    tui_env: Literal["", "fullscreen", "default"] = ""
+    fallback_language: str = ""
+    # Records the hook appended to its local notice file since the last import:
+    # {"uuid", "kind": "emitted" | "local_notice" | "consent" | "notice_dismiss", ...}.
+    local_records: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
+    # Delivery ids the hook has written to stdout since its last fetch.
+    emitted: list[str] = Field(default_factory=list, max_length=500)
+
+
+class PendingRequest(SurrogateTolerantBody):
+    """Body of POST /api/notices/pending, sent by an exit hook."""
+
+    host: Literal["cc", "codex"]
+    event: str = Field(min_length=1, max_length=64)
+    source: str = Field(default="", max_length=64)
+    session_id: str = Field(default="", max_length=256)
+    cwd: str = Field(default="", max_length=4096)
+    project_id: str = Field(default="", max_length=64)
+    reader: str = Field(default="", max_length=100)
+    transcript_path: str = Field(default="", max_length=4096)
+    facts: PendingFacts = Field(default_factory=PendingFacts)
+
+
+class PendingResponse(BaseModel):
+    """Rendered output for one exit: user lines (systemMessage) and model notes."""
+
+    language: Literal["zh", "en"] = "en"
+    project_id: str = ""  # API-resolved identity for hook audit attribution.
+    user_text: str = ""
+    model_text: str = ""
+    delivery_ids: list[str] = Field(default_factory=list)
+
+
+class Report(BaseModel):
+    """Research/analysis report — stored in database with project isolation."""
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str = ""
+    author: str = ""
+    topic: str = ""
+    report_type: str = "research"  # research / design / analysis / meeting-minutes
+    date: str = ""  # YYYY-MM-DD
+    content: str = ""
+    task_id: str = ""
+    team_id: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkflowRun(BaseModel):
+    """Workflow 运行档案 — CC ultracode/Workflow 一次运行的可查询投影。
+
+    定位：`wf_<id>.json` 富快照的「可重建缓存」，按自然键 `wf_id` UPSERT 单调推进
+    （planned→running→completed / interrupted），绝不删行。审计轨仍走 events 表。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    wf_id: str  # wf_<id>，幂等主锚
+    project_id: str = ""  # 绑 launching Leader 项目，走 _apply_project_filter
+    team_id: str | None = None  # 既有 workflow-<wf_id> 团队；OS 离线期无团队时留 None
+    session_id: str | None = None  # 启动 Leader 会话
+    cc_task_id: str | None = None  # 回执里的 Task ID（≠ OS task_id）
+    name: str = ""  # run 名（回执/脚本 meta）
+    status: str = "planned"  # planned / running / completed / interrupted / killed / failed
+    source: str = "hook"  # 数据面溯源：hook / file / hook+file
+    phases: list[dict[str, Any]] = Field(default_factory=list)  # [{index,title}]
+    planned_agent_count: int = 0  # 静态解析 literal_agent_count
+    dynamic_nodes: int = 0  # 静态解析动态节点数
+    agent_count: int = 0  # 实际（快照 agentCount）
+    # 口径: TokenMetric.CTX_LAST —— 快照 totalTokens = Σ 各 agent 的末轮上下文水位，
+    # **不是**这次 run 一共烧了多少。与 agents 五列（USAGE_SUM）实测差 5~25 倍，
+    # 永不相加。本阶段只正名，数据与算法一概不动（§5.3 / §6.4-1）。
+    total_tokens: int = 0  # 快照 totalTokens
+    total_tool_calls: int = 0  # 快照 totalToolCalls
+    duration_ms: int | None = None  # 快照 durationMs
+    summary: str = ""  # run 结果摘要
+    result: dict[str, Any] | None = None  # 终端 StructuredOutput（截断防膨胀）
+    script_path: str = ""  # 脚本 .js 路径，供下钻
+    # 跨项目修复A：回执 Transcript dir 持久化——live/终态直接寻址，摆脱「项目必须
+    # 已注册」的依赖（未注册项目的 run 曾因 slug 扫不到而误判 interrupted/live 全盲）。
+    transcript_dir: str = ""
+    started_at: datetime | None = None  # startTime
+    completed_at: datetime | None = None  # startTime + durationMs
+    # Phase2 live 水位列 —— None=本次 upsert 不改；显式 0/''=复位（水位语义，
+    # 见 repository.upsert_workflow_run 独立分支，绝不套「新非零胜出」）。
+    journal_offset: int | None = None  # journal.jsonl 已消费字节水位（只前进到最后 \n）
+    source_fingerprint: str | None = None  # wf_<id>.json 的 "mtime_ns:size"，reconcile 廉价跳过
+    # 口径: TokenMetric.CTX_LAST（同 total_tokens，只是运行期的那一版估值）
+    live_tokens: int | None = None  # 运行期估值 = Σ agents lastCtx（cached 记 0）；终态 UI 用 total_tokens
+    last_activity_at: datetime | None = None  # max(journal+agent jsonl mtime)；单调取 max
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class KnowledgeLink(BaseModel):
+    """跨域引用边 — 知识层 P1a（docs/knowledge-layer-design.md）。
+
+    从 memo/report 文本用零 LLM 正则抽取 OS 原生 ID 引用（wf_id/commit/
+    task-uuid/[[memory]]），append-only，UNIQUE 五元组去重。图谱=派生视图，
+    可从源文本随时重建（文件真相源哲学）。
+    """
+
+    id: int | None = None  # 自增，插入前为 None
+    from_kind: str  # task_memo / report / task
+    from_id: str  # memo: "<task_id>#<ts>"; report/task: uuid
+    to_kind: str  # run / task / commit / memory / report
+    to_id: str  # wf_id / uuid / short-hash / memory-slug
+    link_type: str = "references"  # references / fixes
+    context: str = ""  # 命中点 ±120 字证据快照
+    link_source: str = ""  # regex-memo / regex-report / manual
+    project_id: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+# ``agent --worked_on--> task`` 边的词汇（§2.4）。写侧寄生在 task_memo_add /
+# task_update / report_save 三个**已经必然发生**的记账动作里，读侧在归因聚合里按它
+# 筛选。两侧必须共用同一份字面量：写错一个字，边照样写进去、查询照样返回空，
+# 而且不会有任何报错 —— 只会表现为"task 级归因覆盖率永远是 0"，一个看起来像是
+# 数据问题的代码问题。
+AGENT_TASK_LINK_FROM_KIND = "agent"
+AGENT_TASK_LINK_TO_KIND = "task"
+AGENT_TASK_LINK_TYPE = "worked_on"
+# 这条边的语义边界（写进代码是因为它极易被读成另一个意思）：它说的是"这个 agent
+# 在这个 task 上留过账"，**不是**"这个 agent 的全部 token 都属于这个 task"。
+AGENT_TASK_LINK_SOURCE = "ledger-parasite"
+
+
+class WorkflowAgent(BaseModel):
+    """逐-agent 遥测 — 一个 run 一个 fan-out agent 一行。
+
+    upsert by (wf_id, cc_agent_id)。数据 100% 现成，来自
+    `wf_<id>.json.workflowProgress[]` 的 type=workflow_agent 条，无需自聚合。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    run_id: str  # = workflow_runs.wf_id
+    wf_id: str  # 冗余便于直查
+    project_id: str = ""  # 隔离
+    cc_agent_id: str = ""  # 快照 agentId，与 run_id 组唯一去重键
+    os_agent_id: str | None = None  # 链既有成员：agents.cc_tool_use_id == cc_agent_id
+    label: str = ""  # 如 map:mcp
+    phase_index: int = 0
+    phase_title: str = ""
+    model: str = ""  # 如 claude-opus-4-8[1m]
+    state: str = ""  # queued / running / done
+    # 口径: TokenMetric.CTX_LAST —— 末轮上下文水位快照，不是这个 agent 的消耗量。
+    # 同一 agent 的 USAGE_SUM 走 os_agent_id 关联到 agents 五列去取，**绝不覆写本列**
+    # （§6.4-1：用关联解决，不用覆写解决）。0 在本列兼表"未采到"，是 ctx_last 侧的
+    # 历史遗产，本阶段不动数据也不动算法，由 I13 记在案（§5.3）。
+    tokens: int = 0
+    tool_calls: int = 0
+    duration_ms: int | None = None
+    last_tool_name: str = ""
+    last_tool_summary: str = ""
+    prompt_preview: str = ""
+    result_preview: str = ""
+    started_at: datetime | None = None
+    queued_at: datetime | None = None
+    last_activity_at: datetime | None = None  # Phase2: 该 agent jsonl 的 mtime（泳道右端 + 跳过水位）
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class StageTransition(BaseModel):
+    """Pipeline stage 转换事件。存独立表 pipeline_stage_history（append-only）。
+
+    RETAINED (pipeline subsystem retired 2026-07): the pipeline runtime is gone and
+    nothing writes this table any more, but the table itself is append-only history
+    that must stay readable, so this row schema backs PipelineStageHistoryModel.
+    Do not delete — deleting it would break the retained ORM model.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    task_id: str
+    from_stage: str | None = None
+    to_stage: str
+    transitioned_at: datetime = Field(default_factory=utc_now)
+    triggered_by: Literal["manual", "auto", "force", "system"] = "manual"
+    reason: str = ""
+
+
+class ChannelMessage(BaseModel):
+    """Channel message — supports cross-team broadcasting with @mention semantics."""
+
+    id: str = Field(default_factory=_new_id)
+    channel: str  # "team:<name>" / "project:<id>" / "global"
+    sender: str
+    content: str
+    # 收件人标识。**两种形态野外都存在**：本类的注释历来写 "@name"，而真实调用方
+    # （CC↔Codex 专线，实测 8 行）写的是裸串 "leader-cc"。任何按 mentions 做判定的
+    # 代码都必须把 name 与 "@"+name 一起当候选做**精确成员匹配**：只认一种必然漏，
+    # 而子串 contains 会误命中（"leader-cc" 命中 "leader-cc-2"，且 SQLite 的 LIKE
+    # 对 ASCII 大小写不敏感、% 与 _ 仍是通配符）。
+    mentions: list[str] = Field(default_factory=list)  # ["agent-name"] 或 ["@agent-name"]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    # 归属项目。为空表示历史行（本字段 2026-09-08 才加）。未读判定按项目隔离，避免
+    # 读错项目的信；新消息拿不到 project_id 时由写入侧**拒绝**而不是留空——留空的
+    # 消息谁都查不到，是最坏的失败形态。
+    project_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ChannelInboxPage(BaseModel):
+    """A read-only inbox page with a scope-bound insertion cursor."""
+
+    messages: list[ChannelMessage]
+    has_more: bool
+    next_cursor: str
+
+
+class ChannelInboxCursorExpiredError(ValueError):
+    """The persisted row anchoring an inbox cursor no longer exists."""
+
+
+class ChannelReadCursor(BaseModel):
+    """信道已读水位 —— 某个读者在某个项目的某个频道上"看到哪儿了"。
+
+    自然键是 (reader, channel, project_id)，故意不设 id。
+
+    reader 是**角色标识**（leader-cc / leader-codex），不是 session_id：会话是一次性的，
+    按 session_id 存水位会让每开一个新会话就把全部历史消息重算成未读。代价是同一
+    harness 的多个会话共享水位，语义为"这台机器上的该端已经看到了"。
+
+    两条硬语义，改动前先读：
+    - **缺水位 == 从头算（epoch），且读路径绝不补写这一行**。行只由显式的推进调用插入。
+      读路径补写会把"第一次查看"变成"已读全部"，正好埋掉这个功能要暴露的存量消息。
+    - **推进值由调用方显式给出**，取"本次实际读到的最后一条消息的 created_at"，服务端
+      不自己取 now。分页只拿了前 N 条时若推进到 now，未返回的那些会被静默跳过。
+      传入值早于或等于现有水位则视为 noop，水位单调不回退。
+    """
+
+    reader: str
+    channel: str
+    project_id: str
+    last_read_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemRepoProfile(BaseModel):
+    """Claude 生态仓档案 — 广索引检索 + 周期更新。
+
+    项目隔离: project_id=None 表示全局/未归属，每个项目拥有独立的快照行。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    repo_full_name: str  # "owner/repo"
+    name: str
+    owner: str
+    description: str | None = None
+    stars: int = 0
+    language: str | None = None
+    topics: list[str] = Field(default_factory=list)
+    homepage: str | None = None
+    last_commit_at: datetime | None = None
+    needs_deep_review: bool = False  # True when stars < 15000
+    # "agent-framework" / "mcp-server" / "memory-system" / "skill-system" / "tooling"
+    relevance_category: str | None = None
+    relevance_score: int = 0  # 0-10
+    one_line_summary: str | None = None
+    last_scanned_at: datetime = Field(default_factory=utc_now)
+    first_seen_at: datetime = Field(default_factory=utc_now)
+    # Stage B 扩展字段
+    pushed_at: datetime | None = None  # GitHub 仓最后 push 时间，用于判活跃度
+    is_archived: bool = False  # > 365 天未 push 标记为 deprecated
+    scan_run_id: str | None = None  # 关联到扫描批次 EcosystemScanRun.id
+    description_excerpt: str = ""  # 描述摘要，用于二次相关性过滤
+    # v1.5.0-A 扩展：渐进式漏斗 Stage 0 浅扫 + 失败追踪 + 活跃集
+    shallow_summary: str = ""  # Stage 0 agent 浅扫总结（200-400 字，区分 description_excerpt）
+    last_shallow_refreshed_at: datetime | None = None  # 上次浅扫刷新时间
+    is_deleted: bool = False  # GitHub 端仓被删（API 404）
+    is_private_now: bool = False  # GitHub 端仓被设私密（API 403 forbidden, not rate limit）
+    last_fetch_error: str = ""  # 最近一次抓取错误的短消息
+    fetch_failure_count: int = 0  # 累计失败次数
+    is_active: bool = True  # DEPRECATED v1.6.0 P1.A: 请用 last_active_status 代替。此字段仅向后兼容保留。
+    active_rank: int | None = None  # 当前项目内排名（按 stars，None=不在 top_n）
+    # v1.6.0-P0.4: NormalizedSignal fields (written by index_update)
+    canonical_id: str | None = None  # "github/owner/repo" cross-source dedup key
+    source_kind: str = "github"  # which data source produced this profile
+    last_active_status: str | None = None  # 'active'|'inactive'|'archived'|'manual_archived'
+    last_status_change_at: datetime | None = None  # when last_active_status last changed
+    popularity_percentile: float | None = None  # 0-1, 1.0 = top of scan results
+    activity_score: float | None = None  # 0-1 composite freshness * popularity
+    # v1.6.0-P1.A: human-flagged manual status
+    manual_status: str | None = None  # 'no_value' | 'pinned' | null
+    manual_status_reason: str | None = None
+    manual_status_set_at: datetime | None = None
+    manual_status_set_by: str | None = None
+    # v1.6.0-P1.C-1: JSON array of query strings that discovered this repo
+    discovered_via_queries: list[str] = Field(default_factory=list)
+    # v1.6.1 multi-source: list of source entries [{kind,id,stars/likes,url,last_seen_at}, ...]
+    # 一个 profile 多个来源（GitHub + HF Space + GitLab）合并显示，不再为同项目建多 profile
+    sources: list[dict] = Field(default_factory=list)
+    # v1.6.1 primary source — decides canonical URL/title; default 'github' for legacy rows
+    primary_source: str = "github"
+
+
+# ============================================================
+# Ecosystem 扩展模型 (Stage B)
+# ============================================================
+
+
+class EcosystemDeepReviewStatus(enum.StrEnum):
+    """深扫报告状态。"""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class IntegrationRecommendation(enum.StrEnum):
+    """集成建议级别。"""
+
+    INTEGRATE = "integrate"
+    REFERENCE = "reference"
+    LEARN = "learn"
+    SKIP = "skip"
+
+
+class DemoResult(enum.StrEnum):
+    """Demo 运行结果。"""
+
+    SUCCESS = "success"
+    FAIL = "fail"
+    SKIPPED = "skipped"
+
+
+class EcosystemTagCategory(enum.StrEnum):
+    """生态标签分类。"""
+
+    CAPABILITY = "capability"
+    TECH_STACK = "tech_stack"
+    MATURITY = "maturity"
+    POSITIONING = "positioning"
+
+
+class EcosystemTagSource(enum.StrEnum):
+    """标签来源。
+
+    v1.5.0-A 新增 LIFECYCLE — 用于漏斗 Stage 3 标记 reference / integrated /
+    deleted / private_now / evaluating，由 ecosystem lifecycle 自动写入。
+    """
+
+    GITHUB_TOPIC = "github_topic"
+    AUTO_RULE = "auto_rule"
+    AUTO_LLM = "auto_llm"
+    MANUAL = "manual"
+    LIFECYCLE = "lifecycle"
+
+
+class EcosystemStageStatus(enum.StrEnum):
+    """生态仓深扫漏斗 stage 状态 (v1.5.0)。
+
+    渐进式累加：queued → shallow_done → architecture_done → debated →
+    referenced / integrated。每个 *_failed 子状态表示该阶段重试 5 次仍失败，
+    不影响其他 stage 推进。
+    """
+
+    QUEUED = "queued"
+    SHALLOW_DONE = "shallow_done"
+    SHALLOW_FAILED = "shallow_failed"
+    ARCHITECTURE_DONE = "architecture_done"
+    ARCHITECTURE_FAILED = "architecture_failed"
+    DEBATED = "debated"
+    DEBATED_FAILED = "debated_failed"
+    REFERENCED = "referenced"
+    INTEGRATED = "integrated"
+
+
+# D5 convergence (2026-07): ``stage_status`` is the single authoritative axis
+# for deep-review funnel progress; the legacy ``status`` column is demoted to
+# a derived read-only view of it. This mapping is the SINGLE SOURCE OF TRUTH —
+# the storage choke points (repository.create_deep_review /
+# update_deep_review_stage) and the startup backfill
+# (repository.backfill_deep_review_dual_axis) all derive from it.
+# Do NOT duplicate this mapping in repository / services / routes / frontend.
+STAGE_TO_STATUS: dict[EcosystemStageStatus, EcosystemDeepReviewStatus] = {
+    EcosystemStageStatus.QUEUED: EcosystemDeepReviewStatus.QUEUED,
+    EcosystemStageStatus.SHALLOW_DONE: EcosystemDeepReviewStatus.COMPLETED,
+    EcosystemStageStatus.ARCHITECTURE_DONE: EcosystemDeepReviewStatus.COMPLETED,
+    EcosystemStageStatus.DEBATED: EcosystemDeepReviewStatus.COMPLETED,
+    EcosystemStageStatus.REFERENCED: EcosystemDeepReviewStatus.COMPLETED,
+    EcosystemStageStatus.INTEGRATED: EcosystemDeepReviewStatus.COMPLETED,
+    EcosystemStageStatus.SHALLOW_FAILED: EcosystemDeepReviewStatus.FAILED,
+    EcosystemStageStatus.ARCHITECTURE_FAILED: EcosystemDeepReviewStatus.FAILED,
+    EcosystemStageStatus.DEBATED_FAILED: EcosystemDeepReviewStatus.FAILED,
+}
+
+
+def derive_status_from_stage(
+    stage: EcosystemStageStatus | str,
+) -> EcosystemDeepReviewStatus:
+    """Derive the legacy ``status`` view from the authoritative ``stage_status``.
+
+    Accepts either the enum or its string value (normalized first).
+    Raises ``ValueError`` for unknown stage strings — same contract as
+    ``EcosystemStageStatus(...)``.
+    """
+    if isinstance(stage, str):
+        stage = EcosystemStageStatus(stage)
+    return STAGE_TO_STATUS[stage]
+
+
+class EcosystemRelationType(enum.StrEnum):
+    """仓与仓的关联类型。"""
+
+    INSPIRED_BY = "inspired_by"
+    FORKS = "forks"
+    EXTENDS = "extends"
+    COMPETES = "competes"
+    DEPENDS_ON = "depends_on"
+
+
+class EcosystemScanStrategy(enum.StrEnum):
+    """扫描策略。"""
+
+    INCREMENTAL = "incremental"
+    FULL = "full"
+    TOPIC = "topic"
+    TRENDING = "trending"
+
+
+# ============================================================
+# v1.6.0 P0: Multi-source data model types
+# ============================================================
+
+
+class DataSourceKind(enum.StrEnum):
+    """Supported ecosystem data source kinds."""
+
+    GITHUB = "github"
+    HUGGINGFACE = "huggingface"
+    NPM = "npm"
+    PYPI = "pypi"
+    HACKERNEWS = "hackernews"
+    PRODUCTHUNT = "producthunt"
+    ARXIV = "arxiv"
+    CUSTOM = "custom"
+
+
+class RepoActiveStatus(enum.StrEnum):
+    """Active status of a repo in the ecosystem index."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    STALE = "stale"
+    ARCHIVED = "archived"
+
+
+class EcosystemShallowBatch(BaseModel):
+    """浅扫批次 — 聚合一次批量浅扫的元信息与候选仓快照。
+
+    状态流转: pending_approval → (approved → running → completed) / cancelled
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    triggered_by: str  # 'cron' / 'manual' / 'user'
+    trigger_reason: str | None = None
+    candidates_count: int = 0
+    candidates_snapshot_json: str | None = None  # JSON list of repo_id
+    status: str = "pending_approval"  # pending_approval / approved / running / completed / cancelled
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    completed_at: datetime | None = None
+    new_repos_count: int = 0
+    updated_repos_count: int = 0
+    metadata_changed_count: int = 0
+    failed_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemDeepReview(BaseModel):
+    """生态仓深扫报告 — 针对单个仓的结构化分析。
+
+    FK 关系：repo_id → EcosystemRepoProfile.id (CASCADE)，report_id → Report.id (可选)。
+    项目隔离: project_id=None 表示全局/未归属，深扫报告归属于发起项目。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    repo_id: str  # FK -> EcosystemRepoProfile.id
+    status: EcosystemDeepReviewStatus = EcosystemDeepReviewStatus.QUEUED
+    agent_id: str | None = None  # 执行此次深扫的 agent
+    summary_md: str = ""
+    architecture_md: str = ""
+    demo_result: DemoResult | None = None
+    demo_log_excerpt: str = ""
+    risks_md: str = ""
+    learnings_md: str = ""
+    integration_recommendation: IntegrationRecommendation | None = None
+    report_id: str | None = None  # FK -> Report.id
+    dispatch_prompt: str = ""  # sub-agent dispatch prompt (separate from demo_log_excerpt)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_seconds: float = 0.0
+    created_at: datetime = Field(default_factory=utc_now)
+    # v1.5.0-A 扩展：渐进式漏斗 stage 状态机 + 关联会议/集成任务
+    stage_status: EcosystemStageStatus = EcosystemStageStatus.QUEUED  # 漏斗 stage 状态
+    integration_md: str = ""  # Stage 2 详细集成建议（不只是 enum）
+    shallow_completed_at: datetime | None = None  # Stage 0 完成时间
+    architecture_completed_at: datetime | None = None  # Stage 1 完成时间
+    debated_at: datetime | None = None  # Stage 2 辩论结束时间
+    stage3_completed_at: datetime | None = None  # Stage 3 referenced/integrated 完成时间
+    debate_meeting_id: str | None = None  # FK -> Meeting.id (Stage 2 触发会议)
+    integration_task_id: str | None = None  # FK -> Task.id (Stage 3 integrate 派任务)
+    # v1.5.3: worker pool claim 字段
+    claimed_by: str | None = None  # worker_id 字符串，认领中则非 None
+    claimed_at: datetime | None = None  # 认领时间戳
+    quality_score: int | None = None  # 0-100 审查质量分
+    quality_notes: str | None = None  # 审查理由
+    reviewed_by: str | None = None  # 质量审查者 worker_id
+    reviewed_at: datetime | None = None  # 质量审查完成时间
+    # v1.7.0: 关联浅扫批次
+    batch_id: str | None = None  # FK -> EcosystemShallowBatch.id
+
+
+class EcosystemTag(BaseModel):
+    """能力标签字典 — 描述生态仓的能力 / 技术栈 / 成熟度 / 定位。"""
+
+    id: str = Field(default_factory=_new_id)
+    name: str  # unique，如 "memory_system"
+    aliases: list[str] = Field(default_factory=list)
+    category: EcosystemTagCategory
+    description: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemRepoTag(BaseModel):
+    """仓-标签多对多关联。
+
+    FK 关系：repo_id → EcosystemRepoProfile.id (CASCADE)，tag_id → EcosystemTag.id (RESTRICT)。
+    Unique constraint: (repo_id, tag_id)。
+    项目隔离: project_id 跟随 repo_id 所属项目。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    repo_id: str  # FK -> EcosystemRepoProfile.id
+    tag_id: str  # FK -> EcosystemTag.id
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    source: EcosystemTagSource = EcosystemTagSource.MANUAL
+    agent_id: str | None = None  # 打标人
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemRelation(BaseModel):
+    """仓与仓的引用 / 衍生关系。
+
+    FK 关系：from_repo_id / to_repo_id → EcosystemRepoProfile.id (CASCADE)。
+    项目隔离: 项目内部的研究产出，不跨项目共享。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    from_repo_id: str  # FK -> EcosystemRepoProfile.id
+    to_repo_id: str  # FK -> EcosystemRepoProfile.id
+    relation_type: EcosystemRelationType
+    evidence: str = ""  # 来源说明
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    agent_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemScanRun(BaseModel):
+    """扫描批次记录 — 一次扫描任务的执行元数据与统计。
+
+    项目隔离: 扫描历史归属于发起扫描的项目。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    strategy: EcosystemScanStrategy = EcosystemScanStrategy.INCREMENTAL
+    started_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+    duration_seconds: float = 0.0
+    repos_added: int = 0
+    repos_updated: int = 0
+    repos_skipped: int = 0
+    # v1.6.1 Phase 2: count repos with actual metadata changes (topics/stars/desc/lang)
+    metadata_changed_count: int = 0
+    errors: list[str] = Field(default_factory=list)
+    notes: str = ""
+    triggered_by: str = "manual"  # "manual" / "cron"
+    agent_id: str | None = None
+
+
+class EcosystemRepoStatusSnapshot(BaseModel):
+    """每次 scan 的仓状态快照 (v1.5.0-A 决策 D — append-only 永不清理)。
+
+    用于追踪 stars 涨跌、push 频率、激活/退出活跃集等历史变化。
+    每次 scan 跑完为活跃集中每个仓写一行；用户可通过 UI 看历史 timeline。
+    """
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str | None = None
+    repo_id: str  # FK -> EcosystemRepoProfile.id
+    scan_run_id: str  # FK -> EcosystemScanRun.id (触发的扫描批次)
+    snapshot_at: datetime = Field(default_factory=utc_now)
+    stars: int = 0
+    pushed_at: datetime | None = None
+    is_archived: bool = False  # GitHub archived 状态
+    is_active: bool = True  # 当时是否在项目活跃集
+    summary_at_time: str = ""  # 当时的 shallow_summary (供历史比对)
+
+
+class EcosystemProjectSettings(BaseModel):
+    """每个项目的 ecosystem 配置 (v1.5.0-A 决策 C — 项目自定义阈值)。
+
+    项目首次访问 ecosystem 时由系统自动创建默认行；
+    AI Team OS 项目使用更严格的默认值 (min_stars=5000, top_n=200)。
+    """
+
+    project_id: str  # 主键 — 一项目一行
+    min_stars: int = 1000  # 入档阈值
+    top_n: int = 200  # 活跃集大小（按 stars 排序前 N）
+    refresh_interval_days: int = 7  # 浅扫刷新间隔
+    auto_shallow_on_archive: bool = True  # 入档时是否自动跑 Stage 0
+    focus_topics: list[str] = Field(default_factory=list)  # 关注 topic 白名单（空=全 topic）
+    focus_languages: list[str] = Field(default_factory=list)  # 关注语言白名单（空=全语言）
+    # 决策 F：测试驱动调整的并发配置
+    shallow_concurrency: int = 5
+    deep_concurrency: int = 3
+    # v1.6.1 Phase 2: migrated from scan_profile.alert_thresholds.max_new_per_scan
+    alert_max_new_per_scan: int = 50
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+# ============================================================
+# v1.6.0 P0: Multi-source data model Pydantic types
+# ============================================================
+
+
+class NormalizedSignal(BaseModel):
+    """Cross-source normalized activity/popularity signal."""
+
+    popularity_rank: int = 0
+    popularity_percentile: float = 0.0  # 0-1, where 0.99 = top 1%
+    last_activity_at: datetime | None = None
+    activity_score: float = 0.0  # 0-1 composite score
+
+
+class DataSource(BaseModel):
+    """Ecosystem data source configuration (per-project, multi-source)."""
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str
+    kind: DataSourceKind
+    name: str
+    config: dict[str, Any] = Field(default_factory=dict)  # queries/filters/rate_limit
+    enabled: bool = True
+    version: int = 1
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ScanProfile(BaseModel):
+    """Ecosystem scan profile — versioned config for active/inactive/archive thresholds."""
+
+    id: str = Field(default_factory=_new_id)
+    project_id: str
+    version: int = 1
+    profile: dict[str, Any] = Field(default_factory=dict)
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemIndexDiff(BaseModel):
+    """Record of a single index_update run's diff output (new/reactivated/deactivated/etc.)."""
+
+    id: str = Field(default_factory=_new_id)
+    scan_run_id: str | None = None
+    project_id: str | None = None
+    diff_type: str = "incremental"  # 'initial' | 'incremental'
+    new_count: int = 0
+    reactivated_count: int = 0
+    deactivated_count: int = 0
+    stale_count: int = 0
+    archived_count: int = 0  # deprecated: kept for backward compat, use github_archived_changed_count
+    # v1.6.0-P1 hotfix: new semantically-correct column names
+    github_archived_changed_count: int = 0
+    removed_from_query_count: int = 0
+    details_json: dict[str, Any] = Field(default_factory=dict)
+    markdown_summary: str = ""
+    alerted: bool = False
+    generated_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemStatusChange(BaseModel):
+    """Tracks individual repo status transitions (active → inactive, etc.)."""
+
+    id: str = Field(default_factory=_new_id)
+    repo_id: str
+    project_id: str | None = None
+    from_status: str | None = None
+    to_status: str
+    scan_run_id: str | None = None
+    reason: str = ""
+    triggered_at: datetime = Field(default_factory=utc_now)
+
+
+class EcosystemRepoEvent(BaseModel):
+    """Full event log for every operation on an ecosystem repo.
+
+    Replaces index_diffs as source-of-truth for change tracking. Diff views
+    are computed dynamically by grouping events over a time window.
+    """
+
+    id: str = Field(default_factory=_new_id)
+    repo_id: str
+    project_id: str | None = None
+    # 'discovered'|'rescanned'|'topics_changed'|'stars_jumped'|'status_changed'
+    # |'archived'|'manual_pinned'|'manual_unpinned'|'removed_from_query'
+    event_type: str
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+    source: str = "scanner"  # 'scanner' | 'manual' | 'api'
+    scan_run_id: str | None = None
+    # Kept for status_changed compat with EcosystemStatusChange
+    from_status: str | None = None
+    to_status: str | None = None
+    reason: str | None = None
+    triggered_at: datetime = Field(default_factory=utc_now)
+
+
+# ============================================================
+# Result types
+# ============================================================
+
+
+class TaskResult(BaseModel):
+    """Task execution result."""
+
+    task_id: str
+    status: TaskStatus
+    result: str
+    agent_outputs: dict[str, str] = Field(default_factory=dict)
+    duration_seconds: float = 0.0
+
+
+class TeamStatusSummary(BaseModel):
+    """Team status summary."""
+
+    team: Team
+    agents: list[Agent]
+    active_tasks: list[Task]
+    completed_tasks: int = 0
+    total_tasks: int = 0
+
+
+# ============================================================
+# Independent API-equivalent pricing types
+# ============================================================
+
+# Every Codex service tier a caller may request explicitly (launch argv, export assumption).
+# "default" and "priority" are wire names priced as "standard" and "fast". Tiers observed in
+# native records stay free text so that a new tier is reported unpriced instead of dropped.
+CodexServiceTier = Literal["standard", "default", "fast", "priority", "ultrafast", "flex", "batch"]
+CODEX_SERVICE_TIERS: frozenset[str] = frozenset(get_args(CodexServiceTier))
+
+
+class PricingRates(BaseModel):
+    """USD per million tokens; null means the rate is not published."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: Decimal = Field(ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "usd_per_million"})
+    cached_input: Decimal | None = Field(
+        ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "usd_per_million"},
+    )
+    cache_write: Decimal | None = Field(
+        ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "usd_per_million"},
+    )
+    output: Decimal = Field(ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "usd_per_million"})
+
+    @field_validator("input", "cached_input", "cache_write", "output", mode="before")
+    @classmethod
+    def validate_decimal_source(cls, value: Any) -> Any:
+        """Avoid accepting binary floating-point values from a catalog."""
+        if value is not None and not isinstance(value, (str, Decimal)):
+            raise ValueError("pricing rates must be decimal strings")
+        return value
+
+
+class PricingRateRecord(BaseModel):
+    """One model, service tier and inclusive single-request input interval."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1)
+    tier: Literal["standard", "fast", "ultrafast", "flex", "batch"]
+    min_input_tokens: int = Field(
+        strict=True, ge=0, json_schema_extra={"dimension": "token", "metric": "usage_sum"},
+    )
+    max_input_tokens: int | None = Field(
+        strict=True, ge=0, json_schema_extra={"dimension": "token", "metric": "usage_sum"},
+    )
+    rates: PricingRates
+    source_url: str
+    verified_at: AwareDatetime
+    effective_from: AwareDatetime | None
+    effective_until: AwareDatetime | None
+    notes: str
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        """Accept only HTTPS sources on explicitly trusted OpenAI hosts."""
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname not in {
+                "openai.com", "www.openai.com", "developers.openai.com",
+                "platform.openai.com", "help.openai.com", "learn.chatgpt.com",
+            }
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port not in (None, 443)
+        ):
+            raise ValueError("source_url must be an official OpenAI HTTPS URL")
+        return value
+
+    @model_validator(mode="after")
+    def validate_intervals(self) -> PricingRateRecord:
+        if self.max_input_tokens is not None and self.max_input_tokens < self.min_input_tokens:
+            raise ValueError("max_input_tokens must be >= min_input_tokens")
+        if (
+            self.effective_from is not None
+            and self.effective_until is not None
+            and self.effective_until < self.effective_from
+        ):
+            raise ValueError("effective_until must be >= effective_from")
+        return self
+
+
+class PricingUnpricedModel(BaseModel):
+    """An explicitly uncovered model with its source and reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    source_url: str
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        return PricingRateRecord.validate_source_url(value)
+
+
+class PricingSpeedMode(BaseModel):
+    """Subscription rules only; never multiply API prices or observed quota percentages."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    service_tier: Literal["fast", "ultrafast"]
+    models: list[str] = Field(min_length=1)
+    included_usage_multiplier: Decimal = Field(
+        gt=0, allow_inf_nan=False, json_schema_extra={"dimension": "ratio"},
+    )
+    purchased_credits_multiplier: Decimal = Field(
+        gt=0, allow_inf_nan=False, json_schema_extra={"dimension": "ratio"},
+    )
+    source_url: str
+    verified_at: AwareDatetime
+    effective_from: AwareDatetime | None
+    effective_until: AwareDatetime | None
+
+    @field_validator("included_usage_multiplier", "purchased_credits_multiplier", mode="before")
+    @classmethod
+    def validate_decimal_source(cls, value: Any) -> Any:
+        return PricingRates.validate_decimal_source(value)
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        return PricingRateRecord.validate_source_url(value)
+
+    @model_validator(mode="after")
+    def validate_metadata(self) -> PricingSpeedMode:
+        if any(not model.strip() for model in self.models) or len(set(self.models)) != len(self.models):
+            raise ValueError("speed mode models must be nonempty and unique")
+        if (self.effective_from is not None and self.effective_until is not None
+                and self.effective_until < self.effective_from):
+            raise ValueError("effective_until must be >= effective_from")
+        return self
+
+
+class PricingCatalog(BaseModel):
+    """A validated, versioned catalog, independent of token attribution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = Field(json_schema_extra={"dimension": "non_numeric"})
+    version: str = Field(min_length=1)
+    currency: Literal["USD"]
+    verified_at: AwareDatetime
+    records: list[PricingRateRecord]
+    aliases: dict[str, str]
+    unpriced_models: list[PricingUnpricedModel]
+    speed_modes: list[PricingSpeedMode] = Field(default_factory=list)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def validate_schema_version(cls, value: Any) -> Any:
+        if type(value) is not int:
+            raise ValueError("schema_version must be an integer")
+        return value
+
+    @model_validator(mode="after")
+    def validate_catalog(self) -> PricingCatalog:
+        modes = [mode.service_tier for mode in self.speed_modes]
+        if len(modes) != len(set(modes)):
+            raise ValueError("speed_modes must have unique service tiers")
+        groups: dict[tuple[str, str], list[PricingRateRecord]] = {}
+        for record in self.records:
+            groups.setdefault((record.model, record.tier), []).append(record)
+        for records in groups.values():
+            ordered = sorted(records, key=lambda record: record.min_input_tokens)
+            for previous, current in zip(ordered, ordered[1:]):
+                if previous.max_input_tokens is None or previous.max_input_tokens >= current.min_input_tokens:
+                    raise ValueError("pricing input intervals must not overlap")
+        priced = {record.model for record in self.records}
+        unpriced = {record.model for record in self.unpriced_models}
+        if len(unpriced) != len(self.unpriced_models) or priced & unpriced:
+            raise ValueError("unpriced_models must be unique and cannot contain priced models")
+        canonical_models = priced | unpriced
+        if canonical_models & self.aliases.keys():
+            raise ValueError("aliases must not shadow canonical models")
+        for alias in self.aliases:
+            if not alias:
+                raise ValueError("aliases must be nonempty")
+            seen: set[str] = set()
+            current = alias
+            while current in self.aliases:
+                if current in seen:
+                    raise ValueError("aliases must not contain cycles")
+                seen.add(current)
+                current = self.aliases[current]
+            if current not in canonical_models:
+                raise ValueError("aliases must resolve to a catalog model")
+        return self
+
+
+class PricingRequestLine(BaseModel):
+    """Observed tokens for one request; input includes both cache categories.
+
+    Omitted cache counts explicitly default to zero. Reasoning is already an
+    output subset and must not be supplied as a second chargeable category.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    service_tier: str = Field(min_length=1, max_length=256, pattern=r".*\S.*")
+    input_tokens: int = Field(
+        strict=True, ge=0, json_schema_extra={"dimension": "token", "metric": "usage_sum"},
+    )
+    output_tokens: int = Field(
+        strict=True, ge=0, json_schema_extra={"dimension": "token", "metric": "usage_sum"},
+    )
+    cached_input_tokens: int = Field(
+        default=0, strict=True, ge=0,
+        description="Cached reads included in input_tokens; omitted means zero.",
+        json_schema_extra={"dimension": "token", "metric": "usage_sum"},
+    )
+    cache_write_input_tokens: int = Field(
+        default=0, strict=True, ge=0,
+        description="Cache writes included in input_tokens; omitted means zero.",
+        json_schema_extra={"dimension": "token", "metric": "usage_sum"},
+    )
+
+    @model_validator(mode="after")
+    def validate_cache_counts(self) -> PricingRequestLine:
+        if self.cached_input_tokens + self.cache_write_input_tokens > self.input_tokens:
+            raise ValueError("cached reads plus cache writes must not exceed input_tokens")
+        return self
+
+
+class PricingQuoteRequest(BaseModel):
+    """A bounded set of explicitly identified requests for catalog pricing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    requests: list[PricingRequestLine] = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_unique_request_ids(self) -> PricingQuoteRequest:
+        if len({request.request_id for request in self.requests}) != len(self.requests):
+            raise ValueError("request_id must be unique within the quote")
+        return self
+
+
+class PricingQuoteItem(BaseModel):
+    """A price or an explicit coverage gap for one request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    model: str
+    canonical_model: str | None
+    service_tier: str = Field(min_length=1, max_length=256, pattern=r".*\S.*")
+    status: Literal["priced", "unpriced"]
+    reason: str | None
+    amount_usd: Decimal | None = Field(
+        ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    rate_record: PricingRateRecord | None
+
+    @model_validator(mode="after")
+    def validate_price_status(self) -> PricingQuoteItem:
+        if self.status == "priced":
+            if self.amount_usd is None or self.rate_record is None or self.reason is not None:
+                raise ValueError("priced items require an amount and rate record, without a gap reason")
+        elif self.amount_usd is not None or not self.reason:
+            raise ValueError("unpriced items require a gap reason and null amount")
+        return self
+
+
+class PricingVerificationSignal(BaseModel):
+    """Verification age of rates actually used in the latest local sample."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1)
+    canonical_model: str | None = Field(min_length=1)
+    status: Literal["fresh", "stale", "unverified", "unpriced"]
+    verified_at: AwareDatetime | None
+    missing_price: bool = Field(strict=True)
+
+    @model_validator(mode="after")
+    def validate_verification_state(self) -> PricingVerificationSignal:
+        if (self.status in {"fresh", "stale"}) != (self.verified_at is not None):
+            raise ValueError("only age-verified rates may carry a verification timestamp")
+        if self.status == "unpriced" and not self.missing_price:
+            raise ValueError("unpriced verification signals require a coverage gap")
+        return self
+
+
+class PricingQuoteResponse(BaseModel):
+    """Catalog API-equivalent amounts, with a null total if coverage is partial."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    basis: Literal["api_equivalent_at_catalog_version"] = "api_equivalent_at_catalog_version"
+    currency: Literal["USD"] = "USD"
+    catalog_version: str
+    catalog_sha256: str
+    verified_at: AwareDatetime
+    request_count: int = Field(strict=True, ge=0, json_schema_extra={"dimension": "count"})
+    priced_request_count: int = Field(strict=True, ge=0, json_schema_extra={"dimension": "count"})
+    unpriced_request_count: int = Field(strict=True, ge=0, json_schema_extra={"dimension": "count"})
+    complete: bool
+    total_usd: Decimal | None = Field(
+        ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    priced_subtotal_usd: Decimal = Field(
+        ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    items: list[PricingQuoteItem]
+    missing_models: list[str]
+
+    @model_validator(mode="after")
+    def validate_quote_totals(self) -> PricingQuoteResponse:
+        priced = [item for item in self.items if item.status == "priced"]
+        if (
+            self.request_count != len(self.items)
+            or self.priced_request_count != len(priced)
+            or self.unpriced_request_count != len(self.items) - len(priced)
+        ):
+            raise ValueError("quote request counts must match its items")
+        if self.complete != (self.unpriced_request_count == 0):
+            raise ValueError("quote completeness must match its coverage")
+        if self.complete:
+            if self.total_usd != self.priced_subtotal_usd:
+                raise ValueError("complete quote total must equal the priced subtotal")
+        elif self.total_usd is not None:
+            raise ValueError("incomplete quote total must be null")
+        amounts = [item.amount_usd for item in priced]
+        nonzero = [amount for amount in amounts if amount]
+        with localcontext() as context:
+            if nonzero:
+                context.prec = max(
+                    28,
+                    max(amount.adjusted() for amount in nonzero)
+                    - min(int(amount.as_tuple().exponent) for amount in nonzero)
+                    + len(str(len(amounts))) + 2,
+                )
+            subtotal = sum(amounts, Decimal(0))
+        if self.priced_subtotal_usd != subtotal:
+            raise ValueError("priced subtotal must equal the sum of priced items")
+        return self
+
+
+class PricingAccount(BaseModel):
+    """A local account label keyed by a hash, without raw account credentials."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    label: str = Field(min_length=1)
+    created_at: AwareDatetime
+
+
+class PricingQuotaSnapshot(BaseModel):
+    """An observed quota percentage for one account, bucket and reset window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: str = Field(min_length=1)
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit_id: str = Field(min_length=1)
+    used_percent: Decimal = Field(
+        ge=0, le=100, allow_inf_nan=False, json_schema_extra={"dimension": "percent"},
+    )
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+    resets_at: AwareDatetime
+    observed_at: AwareDatetime
+    source: Literal["codex_app_server", "user_import"]
+
+
+class PricingUsageEntry(BaseModel):
+    """One timestamped request included in an account's declared sample."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    occurred_at: AwareDatetime
+    request: PricingRequestLine
+    model_source: Literal["payload", "matching_turn_context"] | None = None
+    service_tier_source: Literal[
+        "payload", "matching_turn_context", "thread_settings", "session_meta", "standard_assumption",
+        "launch_requested",
+    ] | None = None
+    launch_id: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def validate_tier_evidence(self) -> PricingUsageEntry:
+        if self.service_tier_source == "standard_assumption" and self.request.service_tier != "standard":
+            raise ValueError("a missing tier may only be estimated at standard rates")
+        if (self.service_tier_source == "launch_requested") != (self.launch_id is not None):
+            raise ValueError("launch-requested pricing requires exactly its launch reference")
+        return self
+
+
+class PricingUsageBatch(BaseModel):
+    """Sample contents and user coverage confirmation stored as one batch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    batch_id: str = Field(min_length=1)
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    start_snapshot_id: str = Field(min_length=1)
+    end_snapshot_id: str = Field(min_length=1)
+    coverage: Literal["local_only", "account_complete"]
+    coverage_statement: str
+    coverage_confirmed_at: AwareDatetime | None
+    entries: list[PricingUsageEntry] = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_coverage_confirmation(self) -> PricingUsageBatch:
+        if self.coverage == "account_complete" and (
+            not self.coverage_statement.strip() or self.coverage_confirmed_at is None
+        ):
+            raise ValueError("account_complete requires a coverage statement and confirmation timestamp")
+        if len({entry.request.request_id for entry in self.entries}) != len(self.entries):
+            raise ValueError("request_id must be unique within the account usage batch")
+        return self
+
+
+class PricingAccountEstimate(BaseModel):
+    """Sample pricing and a conditional extrapolation from declared coverage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    batch_id: str
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    start_snapshot_id: str
+    end_snapshot_id: str
+    coverage: Literal["local_only", "account_complete"]
+    coverage_statement: str
+    coverage_confirmed_at: AwareDatetime | None
+    interval_start: AwareDatetime
+    interval_end: AwareDatetime
+    delta_used_percent: Decimal = Field(
+        ge=-100, le=100, allow_inf_nan=False, json_schema_extra={"dimension": "percent"},
+    )
+    quote: PricingQuoteResponse
+    estimated_full_week_usd: Decimal | None = Field(
+        ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    status: Literal["sample_only", "conditional", "unavailable"]
+    reason: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_estimate_status(self) -> PricingAccountEstimate:
+        if self.status == "conditional":
+            if (
+                self.estimated_full_week_usd is None
+                or self.coverage != "account_complete"
+                or not self.coverage_statement.strip()
+                or self.coverage_confirmed_at is None
+                or not self.quote.complete
+                or self.delta_used_percent <= 1
+            ):
+                raise ValueError("conditional estimates require confirmed coverage, complete pricing and delta > 1")
+        elif self.estimated_full_week_usd is not None:
+            raise ValueError("non-conditional estimates must not contain a full-week amount")
+        return self
+
+
+class PricingMonitorSettings(BaseModel):
+    """Explicit account sampling preferences while the API is running."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=False, strict=True)
+    interval_ms: int = Field(
+        default=1800000, strict=True, ge=30000, le=1800000,
+        json_schema_extra={"dimension": "duration_ms"},
+    )
+
+    @field_validator("interval_ms", mode="wrap")
+    @classmethod
+    def validate_stored_interval(
+        cls, value: Any, handler: ValidatorFunctionWrapHandler, info: ValidationInfo,
+    ) -> int:
+        # Only repository decoding may retain a previously valid longer period.
+        if (
+            isinstance(info.context, dict) and info.context.get("stored_monitor_settings") is True
+            and type(value) is int and 1800000 < value <= 86400000
+        ):
+            return value
+        return handler(value)
+
+
+class PricingMonitorState(BaseModel):
+    """Public account sampling state without internal lease credentials."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    settings: PricingMonitorSettings = Field(default_factory=PricingMonitorSettings)
+    revision: int = Field(default=0, strict=True, ge=0, json_schema_extra={"dimension": "count"})
+    status: Literal["disabled", "waiting", "sampling", "error", "paused_account_changed"] = "disabled"
+    last_started_at: AwareDatetime | None = None
+    last_finished_at: AwareDatetime | None = None
+    next_run_at: AwareDatetime | None = None
+    last_error: str | None = None
+    # A due round skipped because no local Codex activity happened since the last
+    # successful capture (idle rounds still capture every 2 hours).
+    last_skipped_at: AwareDatetime | None = None
+    runtime_running: bool = False
+
+
+class PlanUsageSnapshot(BaseModel):
+    """One native account activity observation paired with a usage window.
+
+    Source distinguishes delayed provider profiles from forward-only local
+    login-bound samples. Profile receipt times do not prove data coverage.
+    Local samples use a persisted binding and exact log cutoff, but do not
+    promise cross-device account completeness or retrospective attribution.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: str = Field(min_length=1)
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit_id: str = Field(min_length=1)
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+    resets_at: AwareDatetime
+    observed_at: AwareDatetime
+    used_percent: int = Field(strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"})
+    activity_observed_at: AwareDatetime | None
+    activity_tokens: int | None = Field(
+        strict=True, ge=0, le=9_007_199_254_740_991,
+        json_schema_extra={"dimension": "token", "metric": "native_activity"},
+    )
+    activity_scope: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    source: Literal["codex_account_activity", "codex_local_logs"] = "codex_account_activity"
+    activity_binding_at: AwareDatetime | None = None
+    # Persist mapping evidence separately from the forward-only usage baseline.
+    # Config rewrites must not invalidate earlier, already verified settings.
+    activity_provider_configured_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def validate_activity_pair(self) -> PlanUsageSnapshot:
+        presence = (
+            self.activity_tokens is not None, self.activity_scope is not None,
+            self.activity_observed_at is not None,
+        )
+        if any(presence) and not all(presence):
+            raise ValueError("activity counter, scope and observation time must be present together")
+        if self.activity_observed_at is not None:
+            age = (self.observed_at - self.activity_observed_at).total_seconds()
+            if not 0 <= age <= 60:
+                raise ValueError("activity and allowance must be observed within the same bounded capture")
+        if self.source == "codex_local_logs":
+            if all(presence):
+                if self.activity_binding_at is None or self.activity_binding_at > self.observed_at:
+                    raise ValueError("local activity requires its source binding start")
+                if self.activity_observed_at != self.observed_at:
+                    raise ValueError("local activity cutoff must equal the allowance observation")
+            elif self.activity_binding_at is not None:
+                raise ValueError("unavailable local activity must not claim a binding interval")
+        elif self.activity_binding_at is not None:
+            raise ValueError("profile activity has no local source binding")
+        if self.activity_provider_configured_at is not None and (
+            self.source != "codex_local_logs" or self.activity_binding_at is None
+            or self.activity_provider_configured_at > self.activity_binding_at
+        ):
+            raise ValueError("provider mapping evidence requires an existing local binding")
+        return self
+
+
+class PlanCapacityEstimate(BaseModel):
+    """A single usage-window capacity prediction in native activity tokens."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit_id: str = Field(min_length=1)
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+    resets_at: AwareDatetime
+    observed_at: AwareDatetime
+    used_percent: int | None = Field(strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"})
+    estimated_total_tokens: int | None = Field(
+        strict=True, ge=0, le=9_007_199_254_740_991,
+        json_schema_extra={"dimension": "token", "metric": "native_activity"},
+    )
+    delta_tokens: int | None = Field(
+        strict=True, ge=0, le=9_007_199_254_740_991,
+        json_schema_extra={"dimension": "token", "metric": "native_activity"},
+    )
+    delta_used_percent: int | None = Field(strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"})
+    start_snapshot_id: str | None
+    end_snapshot_id: str
+    interval_start: AwareDatetime | None
+    status: Literal["estimated", "collecting", "unavailable", "expired"]
+    source: Literal["codex_account_activity", "codex_local_logs"] = "codex_account_activity"
+    reason_code: Literal[
+        "activity_coverage_unknown", "bucket_activity_unattributed", "local_usage_unavailable",
+    ] | None = None
+
+    @model_validator(mode="after")
+    def validate_prediction(self) -> PlanCapacityEstimate:
+        if self.reason_code is not None and self.status != "unavailable":
+            raise ValueError("an unavailable activity reason must not accompany an estimate")
+        if self.reason_code is not None and any(value is not None for value in (
+            self.estimated_total_tokens, self.delta_tokens, self.delta_used_percent,
+            self.start_snapshot_id, self.interval_start,
+        )):
+            raise ValueError("unverified activity coverage must not contain a derived interval")
+        if self.status == "estimated":
+            if (
+                self.estimated_total_tokens is None or self.used_percent is None
+                or self.delta_tokens is None or self.delta_tokens <= 0
+                or self.delta_used_percent is None or self.delta_used_percent <= 0
+                or self.start_snapshot_id is None or self.interval_start is None
+            ):
+                raise ValueError("capacity estimate requires a positive measured interval")
+        elif self.estimated_total_tokens is not None:
+            raise ValueError("unavailable capacity must not contain a predicted total")
+        return self
+
+
+class PricingPlanSample(BaseModel):
+    """One bounded interval of local request prices."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pricing_mode: Literal["standard_equivalent", "logged_tier", "launch_requested"] = "standard_equivalent"
+    catalog_version: str = Field(min_length=1)
+    catalog_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    interval_start: AwareDatetime
+    interval_end: AwareDatetime
+    entries: list[PricingUsageEntry] = Field(max_length=10000)
+    quotes: list[PricingQuoteResponse] = Field(max_length=10)
+    complete: bool = Field(strict=True)
+
+    @model_validator(mode="after")
+    def validate_sample(self) -> PricingPlanSample:
+        if self.interval_end < self.interval_start:
+            raise ValueError("pricing interval must not run backwards")
+        if any(entry.service_tier_source == "launch_requested" for entry in self.entries) != (
+            self.pricing_mode == "launch_requested"
+        ):
+            raise ValueError("launch-requested entries require an explicit launch-requested pricing mode")
+        requests = {entry.request.request_id: entry.request for entry in self.entries}
+        if len(requests) != len(self.entries):
+            raise ValueError("pricing sample request IDs must be unique")
+        if any(not self.interval_start < entry.occurred_at <= self.interval_end for entry in self.entries):
+            raise ValueError("pricing entries must lie inside (interval_start, interval_end]")
+        if self.pricing_mode == "standard_equivalent" and any(
+            request.service_tier not in {"standard", "default"} for request in requests.values()
+        ):
+            raise ValueError("standard equivalent mode requires the standard service tier")
+        items = [item for quote in self.quotes for item in quote.items]
+        if len(items) != len(requests) or {item.request_id for item in items} != requests.keys():
+            raise ValueError("pricing quotes must match each request exactly once")
+        for quote in self.quotes:
+            if not 1 <= len(quote.items) <= 1000:
+                raise ValueError("pricing quote chunks must contain between one and 1000 requests")
+            if quote.catalog_sha256 != self.catalog_sha256 or quote.catalog_version != self.catalog_version:
+                raise ValueError("pricing sample cannot mix catalog versions")
+        for item in items:
+            request = requests[item.request_id]
+            if item.model != request.model or item.service_tier != request.service_tier:
+                raise ValueError("pricing quote identity must match the observed request")
+            if item.rate_record is not None and (
+                item.rate_record.tier != {"default": "standard", "priority": "fast"}.get(
+                    request.service_tier, request.service_tier,
+                ) or item.rate_record.model != item.canonical_model
+                or request.input_tokens < item.rate_record.min_input_tokens
+                or (
+                    item.rate_record.max_input_tokens is not None
+                    and request.input_tokens > item.rate_record.max_input_tokens
+                )
+            ):
+                raise ValueError("pricing rate record must match the model, mode and request context")
+        if self.complete and any(not quote.complete for quote in self.quotes):
+            raise ValueError("an incomplete quote cannot make a complete pricing sample")
+        if self.complete and any(
+            entry.service_tier_source in {"standard_assumption", "launch_requested"} for entry in self.entries
+        ):
+            raise ValueError("assumed service tiers cannot make a complete pricing sample")
+        return self
+
+
+class PricingPlanSnapshot(BaseModel):
+    """Independent monetary evidence linked to a quota snapshot by identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    snapshot_id: str = Field(min_length=1)
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit_id: str = Field(min_length=1)
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+    resets_at: AwareDatetime
+    observed_at: AwareDatetime
+    used_percent: int = Field(strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"})
+    source: Literal["codex_local_logs"] = "codex_local_logs"
+    activity_scope: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    activity_binding_at: AwareDatetime | None = None
+    activity_usd: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    # Known prices accumulated for prediction; missing evidence contributes zero.
+    prediction_activity_usd: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    pricing: PricingPlanSample | None = None
+
+    @field_validator("activity_usd", "prediction_activity_usd", mode="before")
+    @classmethod
+    def validate_decimal_source(cls, value: Any) -> Any:
+        if value is not None and not isinstance(value, (str, Decimal)):
+            raise ValueError("plan values must be decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def validate_pricing_snapshot(self) -> PricingPlanSnapshot:
+        if self.prediction_activity_usd is not None and self.limit_id != "codex":
+            raise ValueError("prediction values require attributed main-bucket evidence")
+        if (self.activity_scope is None) != (self.activity_binding_at is None):
+            raise ValueError("pricing scope and binding must be supplied together")
+        if self.activity_binding_at is not None and self.activity_binding_at > self.observed_at:
+            raise ValueError("pricing binding must not be later than its observation")
+        if self.pricing is None:
+            if self.activity_usd is not None:
+                raise ValueError("sample values require pricing evidence")
+            return self
+        if self.activity_scope is None or self.activity_binding_at is None:
+            raise ValueError("pricing evidence requires its source binding")
+        if self.pricing.interval_end != self.observed_at or self.pricing.interval_start < self.activity_binding_at:
+            raise ValueError("pricing interval must match the bound allowance observation")
+        if not self.pricing.complete and self.activity_usd is not None:
+            raise ValueError("only complete pricing evidence may carry cumulative values")
+        return self
+
+
+class PricingPlanAnchorReset(BaseModel):
+    """Select the latest saved main-bucket observation on the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit_id: Literal["codex"]
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+
+
+class PricingPlanAnchor(BaseModel):
+    """Persistent manual statistics boundary, separate from immutable samples."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit_id: Literal["codex"]
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+    snapshot_id: str = Field(min_length=1)
+    observed_at: AwareDatetime
+    used_percent: int = Field(strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"})
+    resets_at: AwareDatetime
+    reset_at: AwareDatetime
+    revision: int = Field(strict=True, ge=1, json_schema_extra={"dimension": "count"})
+
+    @model_validator(mode="after")
+    def validate_boundary(self) -> PricingPlanAnchor:
+        if not self.observed_at <= self.reset_at < self.resets_at:
+            raise ValueError("a manual boundary requires a current saved observation")
+        return self
+
+
+class PricingPlanCapacityEstimate(BaseModel):
+    """Standard API-equivalent plan capacity for one local sample window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    price_verification: list[PricingVerificationSignal] = Field(default_factory=list)
+
+    assumed_tier_request_count: int | None = Field(
+        default=None, ge=0, strict=True, json_schema_extra={"dimension": "count"},
+    )
+    requested_tier_request_count: int | None = Field(
+        default=None, ge=0, strict=True, json_schema_extra={"dimension": "count"},
+    )
+    priced_request_count: int | None = Field(
+        default=None, ge=0, strict=True, json_schema_extra={"dimension": "count"},
+    )
+
+    account_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    limit_id: str = Field(min_length=1)
+    window_duration_ms: int = Field(strict=True, gt=0, json_schema_extra={"dimension": "duration_ms"})
+    resets_at: AwareDatetime
+    observed_at: AwareDatetime
+    used_percent: int | None = Field(strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"})
+    estimated_total_usd: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    delta_usd: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    last_estimated_total_usd: Decimal | None = Field(
+        default=None, ge=0, allow_inf_nan=False, json_schema_extra={"dimension": "money_usd"},
+    )
+    last_estimate_observed_at: AwareDatetime | None = None
+    delta_used_percent: int | None = Field(
+        default=None, strict=True, ge=0, le=100, json_schema_extra={"dimension": "percent"},
+    )
+    start_snapshot_id: str | None = None
+    end_snapshot_id: str
+    interval_start: AwareDatetime | None = None
+    status: Literal["estimated", "collecting", "unavailable", "expired"]
+    source: Literal["codex_local_logs"] = "codex_local_logs"
+    pricing_mode: Literal["standard_equivalent", "logged_tier", "launch_requested"] | None = None
+    prediction_basis: Literal["cycle_anchor_missing_zero"] | None = None
+    catalog_version: str | None = Field(default=None, min_length=1)
+    catalog_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    reason_code: Literal[
+        "local_usage_unavailable", "bucket_activity_unattributed", "pricing_unavailable", "pricing_incomplete",
+    ] | None = None
+
+    @field_validator("estimated_total_usd", "delta_usd", "last_estimated_total_usd", mode="before")
+    @classmethod
+    def validate_decimal_source(cls, value: Any) -> Any:
+        if value is not None and not isinstance(value, (str, Decimal)):
+            raise ValueError("plan values must be decimal strings")
+        return value
+
+    @model_validator(mode="after")
+    def validate_prediction(self) -> PricingPlanCapacityEstimate:
+        cycle_prediction = self.prediction_basis == "cycle_anchor_missing_zero"
+        metadata = (self.pricing_mode, self.catalog_version, self.catalog_sha256)
+        if any(value is not None for value in metadata) and not all(value is not None for value in metadata):
+            raise ValueError("pricing metadata must be present together")
+        if (self.last_estimated_total_usd is None) != (self.last_estimate_observed_at is None):
+            raise ValueError("previous estimate value and observation time must be present together")
+        if self.last_estimate_observed_at is not None and (
+            self.last_estimate_observed_at > self.observed_at or self.status == "expired"
+            or self.used_percent is None
+            or (not cycle_prediction and not all(value is not None for value in metadata))
+        ):
+            raise ValueError("previous estimate requires a current window and matching pricing metadata")
+        if not cycle_prediction and self.last_estimated_total_usd is not None and self.last_estimated_total_usd <= 0:
+            raise ValueError("previous legacy estimates require positive values")
+        if self.reason_code is not None and not (cycle_prediction and self.reason_code in (
+            "pricing_unavailable", "pricing_incomplete", "local_usage_unavailable",
+        )) and (
+            self.status != "unavailable" or any(value is not None for value in (
+                self.estimated_total_usd, self.delta_usd, self.delta_used_percent,
+                self.start_snapshot_id, self.interval_start,
+            ))
+        ):
+            raise ValueError("unavailable pricing cannot contain a derived interval")
+        if self.status == "estimated":
+            if (
+                self.estimated_total_usd is None or (not cycle_prediction and self.estimated_total_usd <= 0)
+                or self.delta_usd is None or (not cycle_prediction and self.delta_usd <= 0)
+                or self.delta_used_percent is None or self.delta_used_percent <= 0
+                or self.used_percent is None or self.start_snapshot_id is None or self.interval_start is None
+                or (not cycle_prediction and not all(value is not None for value in metadata))
+            ):
+                raise ValueError("capacity requires positive priced evidence and catalog metadata")
+        elif self.estimated_total_usd is not None:
+            raise ValueError("non-estimated pricing cannot contain total plan values")
+        if self.status == "expired" and self.used_percent is not None:
+            raise ValueError("expired pricing cannot claim a current percentage")
+        return self
+
+
+class CodexUsageTokens(BaseModel):
+    """Raw native_activity counters; missing is not zero and counters are not additive."""
+
+    model_config = ConfigDict(extra="forbid")
+    input_tokens: int | None = Field(default=None, strict=True, ge=0)
+    cached_input_tokens: int | None = Field(default=None, strict=True, ge=0)
+    cache_write_input_tokens: int | None = Field(default=None, strict=True, ge=0)
+    output_tokens: int | None = Field(default=None, strict=True, ge=0)
+    reasoning_output_tokens: int | None = Field(default=None, strict=True, ge=0)
+    total_tokens: int | None = Field(default=None, strict=True, ge=0)
+
+
+# External exec retains minimal native observations, independently of account billing.
+ExternalExecIdentifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$")]
+ExternalExecDiagnostic = Literal[
+    "missing_usage", "invalid_event", "invalid_usage", "oversized_event",
+    "spawn_failed", "signal_exit", "adapter_interrupted", "stream_incomplete",
+    "event_failure", "error_event", "missing_thread_id", "missing_turn_id", "api_unavailable",
+    "association_rejected", "association_quarantined", "parent_lost", "usage_zero_unverified",
+    "process_cleanup_unverified",
+]
+
+ExternalExecAssociationReason = Literal["project_not_found", "task_not_found", "task_project_mismatch"]
+ExternalExecAssociationStatus = Literal["unverified", "accepted", "rejected", "quarantined"]
+
+
+class ExternalExecRegistration(BaseModel):
+    """Explicit caller metadata; never inferred from login or working directory."""
+
+    model_config = ConfigDict(extra="forbid")
+    invocation_id: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    project_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    )
+    task_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    caller_harness: Literal["codex", "claude-code", "other", "unknown"] = "unknown"
+    caller_session_id: ExternalExecIdentifier | None = None
+    callee_harness: Literal["codex"] = "codex"
+    source_namespace: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ephemeral: bool = Field(default=False, strict=True)
+    started_at: AwareDatetime = Field(default_factory=utc_now)
+    requested_service_tier: CodexServiceTier | None = None
+    requested_model: ExternalExecIdentifier | None = None
+    requested_reasoning_effort: ExternalExecIdentifier | None = None
+    requested_metadata_source: Literal["wrapper_argv"] | None = None
+    exec_mode: Literal["new", "resume", "fork", "review", "unknown"] = "unknown"
+
+    @model_validator(mode="after")
+    def task_requires_project(self) -> ExternalExecRegistration:
+        if self.task_id is not None and self.project_id is None:
+            raise ValueError("task_id requires explicit project_id")
+        if self.requested_metadata_source is None and any((
+            self.requested_service_tier, self.requested_model, self.requested_reasoning_effort,
+        )):
+            raise ValueError("requested metadata requires launch provenance")
+        return self
+
+
+class ExternalExecReceipt(BaseModel):
+    """Native aggregate evidence, distinct from request and subscription counters."""
+
+    model_config = ConfigDict(extra="forbid")
+    receipt_id: ExternalExecIdentifier
+    thread_id: ExternalExecIdentifier | None = None
+    turn_id: ExternalExecIdentifier | None = None
+    counting_level: Literal["turn_aggregate", "thread_aggregate", "unknown"] = "unknown"
+    usage_evidence: Literal["reported", "zero_unverified"] = "reported"
+    usage: CodexUsageTokens | None = Field(
+        default=None, json_schema_extra={"dimension": "token", "metric": "native_activity"},
+    )
+    provider: ExternalExecIdentifier | None = None
+    model: ExternalExecIdentifier | None = None
+    service_tier: ExternalExecIdentifier | None = None
+    account_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    metadata_source: Literal["explicit_observation", "unknown"] = "unknown"
+    observed_at: AwareDatetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> ExternalExecReceipt:
+        if self.metadata_source == "unknown" and any((self.provider, self.model, self.service_tier, self.account_key)):
+            raise ValueError("pricing/account metadata requires explicit observation")
+        tokens = self.usage
+        if tokens is not None:
+            if (tokens.input_tokens is not None and tokens.cached_input_tokens is not None
+                    and tokens.cached_input_tokens > tokens.input_tokens):
+                raise ValueError("cached input is a subset of input")
+            if (tokens.output_tokens is not None and tokens.reasoning_output_tokens is not None
+                    and tokens.reasoning_output_tokens > tokens.output_tokens):
+                raise ValueError("reasoning output is a subset of output")
+        return self
+
+
+class ExternalExecFinish(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    thread_id: ExternalExecIdentifier | None = None
+    status: Literal["completed", "failed", "interrupted"]
+    exit_code: int | None = Field(default=None, strict=True)
+    finished_at: AwareDatetime = Field(default_factory=utc_now)
+    diagnostics: list[ExternalExecDiagnostic] = Field(default_factory=list, max_length=20)
+    receipt_ids: list[ExternalExecIdentifier] | None = Field(default=None, max_length=10000)
+
+
+class ExternalExecInvocation(ExternalExecRegistration):
+    thread_id: ExternalExecIdentifier | None = None
+    status: Literal["running", "completed", "failed", "interrupted"] = "running"
+    exit_code: int | None = Field(default=None, strict=True)
+    finished_at: AwareDatetime | None = None
+    revision: int = Field(default=1, ge=1, strict=True)
+    receipts: dict[ExternalExecIdentifier, ExternalExecReceipt] = Field(default_factory=dict, max_length=10000)
+    diagnostics: list[ExternalExecDiagnostic] = Field(default_factory=list, max_length=20)
+    association_status: ExternalExecAssociationStatus = "unverified"
+    association_reason: ExternalExecAssociationReason | None = None
+    requested_project_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    )
+    requested_task_id: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    )
+
+
+
+class ExternalExecQuarantineRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    registration: ExternalExecRegistration
+    reason_code: ExternalExecAssociationReason
+
+
+ExternalExecReconciliationBucket = Literal[
+    "unregistered_threads", "finished_without_usage", "tokens_without_complete_pricing",
+    "external_without_journal", "registered_without_evidence", "running_invocations",
+    "journal_project_unknown", "quarantined_invocations", "pricing_metadata_unverified",
+]
+
+
+class ExternalExecReconciliationItem(BaseModel):
+    """Minimum identity facts only; no prompts, paths, tool output or credentials."""
+    model_config = ConfigDict(extra="forbid")
+    thread_id: ExternalExecIdentifier | None = None
+    source_namespace: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    source: Literal["journal", "external_exec"] | None = None
+    invocation_id: ExternalExecIdentifier | None = None
+    agent_id: ExternalExecIdentifier | None = None
+    status: Literal["running", "completed", "failed", "interrupted"] | None = None
+    ephemeral: bool | None = None
+    registered_globally: bool | None = None
+    reasons: list[str] = Field(default_factory=list, max_length=16)
+    association_reason: ExternalExecAssociationReason | None = None
+    requested_project_id: ExternalExecIdentifier | None = None
+    requested_task_id: ExternalExecIdentifier | None = None
+
+
+class ExternalExecReconciliationScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: ExternalExecIdentifier | None = None
+    source_namespace: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    since: AwareDatetime | None = None
+    until: AwareDatetime | None = None
+    journal_project_attribution: Literal["unknown"] = "unknown"
+    history: Literal["saved_evidence_only"] = "saved_evidence_only"
+    registration_existence: Literal["global_all_saved_evidence"] = "global_all_saved_evidence"
+    agent_source_namespace: Literal["unknown"] = "unknown"
+    time_basis: dict[Literal["journal", "agents", "invocations"], str]
+
+
+class ExternalExecReconciliationCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    journal_observations: int = Field(ge=0)
+    journal_threads: int = Field(ge=0)
+    registered_codex_agents: int = Field(ge=0)
+    external_invocations: int = Field(ge=0)
+    discovered_threads: int = Field(ge=0)
+    overlap_threads: int = Field(ge=0)
+
+
+class ExternalExecReconciliationJournalStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cursor_count: int = Field(ge=0)
+    incomplete_cursors: int = Field(ge=0)
+    unknown_observation_times_in_sample: bool
+
+
+class ExternalExecReconciliation(BaseModel):
+    """Source counts are SQL totals; buckets/threads are bounded scan evidence."""
+    model_config = ConfigDict(extra="forbid")
+    observed_at: AwareDatetime
+    scope: ExternalExecReconciliationScope
+    counts: ExternalExecReconciliationCounts
+    buckets: dict[ExternalExecReconciliationBucket, list[ExternalExecReconciliationItem]]
+    bucket_counts: dict[ExternalExecReconciliationBucket, int]
+    bucket_truncated: dict[ExternalExecReconciliationBucket, bool]
+    bucket_offset: int = Field(ge=0)
+    bucket_limit: int = Field(ge=0, le=50)
+    sample_limit: int = Field(ge=1, le=500)
+    summary: bool = False
+    truncated: dict[Literal["journal", "agents", "invocations", "cursors"], bool]
+    journal_status: ExternalExecReconciliationJournalStatus
+    statements: list[str] = Field(max_length=12)
+
+
+class ExternalExecInvocationCompact(ExternalExecRegistration):
+    """SQL light projection for lists and paginated details."""
+    thread_id: ExternalExecIdentifier | None = None
+    status: Literal["running", "completed", "failed", "interrupted"] = "running"
+    exit_code: int | None = None
+    finished_at: AwareDatetime | None = None
+    revision: int = Field(ge=1)
+    association_status: ExternalExecAssociationStatus = "unverified"
+    association_reason: ExternalExecAssociationReason | None = None
+    requested_project_id: ExternalExecIdentifier | None = None
+    requested_task_id: ExternalExecIdentifier | None = None
+    diagnostics: list[ExternalExecDiagnostic] = Field(default_factory=list, max_length=20)
+    receipts_count: int = Field(ge=0)
+    usage_observed: bool
+    receipts: dict[ExternalExecIdentifier, ExternalExecReceipt] = Field(default_factory=dict, max_length=100)
+    receipts_offset: int = Field(default=0, ge=0)
+    receipts_limit: int = Field(default=0, ge=0, le=100)
+    receipts_truncated: bool = False
+
+
+class CodexExecLaunchObservation(BaseModel):
+    """Minimal CC Bash launch intent; a plan is not evidence of process startup."""
+
+    model_config = ConfigDict(extra="forbid")
+    launch_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    project_id: str | None = None
+    caller_session_id: ExternalExecIdentifier
+    tool_use_id: ExternalExecIdentifier
+    command_index: int = Field(default=0, ge=0, strict=True)
+    exec_mode: Literal["new", "resume", "fork", "review", "unknown"] = "unknown"
+    requested_service_tier: CodexServiceTier | None = None
+    requested_model: ExternalExecIdentifier | None = None
+    requested_reasoning_effort: ExternalExecIdentifier | None = None
+    requested_metadata_source: Literal["cc_bash_command"] = "cc_bash_command"
+    state: Literal["planned", "unbound", "bound", "failed"] = "planned"
+    binding_reason: Literal[
+        "awaiting_completion", "complex_shell", "background_or_redirect", "not_json", "ephemeral",
+        "missing_thread_started", "native_thread_unverified", "tool_failed", "multiple_launches",
+        "missing_pre_event", "conflicting_thread", "dynamic_shell", "bound",
+        "output_pending", "unsafe_output_file", "invalid_output_header", "stale_output_file", "output_path_conflict",
+    ] = "awaiting_completion"
+    pre_seen: bool = False
+    execution_failed: bool = False
+    background: bool = False
+    source_namespace: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    thread_id: ExternalExecIdentifier | None = None
+    turn_ids: list[ExternalExecIdentifier] = Field(default_factory=list, max_length=100)
+    output_path: str | None = Field(default=None, max_length=2048)
+    codex_home: str | None = Field(default=None, max_length=2048)
+    output_file_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    started_at: AwareDatetime
+    finished_at: AwareDatetime | None = None
+
+
+class CodexLaunchTierEvidence(BaseModel):
+    """A launch request with an exact owning native thread; never server tier proof."""
+
+    model_config = ConfigDict(extra="forbid")
+    launch_id: str = Field(min_length=1, max_length=256)
+    source_namespace: str = Field(pattern=r"^[0-9a-f]{64}$")
+    thread_id: ExternalExecIdentifier
+    requested_service_tier: CodexServiceTier
+    started_at: AwareDatetime
+    finished_at: AwareDatetime | None = None
+    turn_ids: list[ExternalExecIdentifier] = Field(default_factory=list, max_length=10000)
+    binding_source: Literal["wrapper_thread_started", "cc_stdout_thread_started", "cc_output_header"]
+
+    @model_validator(mode="after")
+    def validate_launch_interval(self) -> CodexLaunchTierEvidence:
+        if self.finished_at is not None and self.finished_at < self.started_at:
+            raise ValueError("launch interval must not run backwards")
+        return self
+
+
+class CodexUsageContext(BaseModel):
+    """Minimal parse context, with no authentication or conversation content."""
+
+    model_config = ConfigDict(extra="forbid")
+    session_id: str | None = Field(default=None, max_length=256)
+    parent_thread_id: str | None = Field(default=None, max_length=256)
+    provider: str | None = Field(default=None, max_length=256)
+    turn_id: str | None = Field(default=None, max_length=256)
+    # Missing in old persisted cursors: unknown must not imply no turn began.
+    turn_context_seen: bool | None = Field(default=None, strict=True)
+    # A pending pair expires on the very next record; old cursors cannot infer it.
+    initial_settings_turn_at: AwareDatetime | None = None
+    usage_seen: bool | None = Field(default=None, strict=True)
+    model: str | None = Field(default=None, max_length=256)
+    service_tier: str | None = Field(default=None, max_length=256)
+    service_tier_source: Literal["payload", "matching_turn_context", "thread_settings", "session_meta"] | None = None
+    service_tier_turn_id: str | None = Field(default=None, max_length=256)
+    thread_service_tier: str | None = Field(default=None, max_length=256)
+    thread_service_tier_source: Literal["thread_settings", "session_meta"] | None = None
+
+
+class CodexUsageObservation(BaseModel):
+    """Immutable local facts, not priced requests or account attribution."""
+
+    model_config = ConfigDict(extra="forbid")
+    observation_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_namespace: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    generation: int = Field(ge=0, strict=True)
+    byte_start: int = Field(ge=0, strict=True)
+    byte_end: int = Field(gt=0, strict=True)
+    line_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    kind: Literal["ledger", "legacy", "diagnostic"]
+    occurred_at: AwareDatetime | None = None
+    saved_at: AwareDatetime = Field(default_factory=utc_now)
+    response_id: str | None = Field(default=None, max_length=256)
+    session_id: str | None = Field(default=None, max_length=256)
+    thread_id: str | None = Field(default=None, max_length=256)
+    parent_thread_id: str | None = Field(default=None, max_length=256)
+    turn_id: str | None = Field(default=None, max_length=256)
+    provider: str | None = Field(default=None, max_length=256)
+    model: str | None = Field(default=None, max_length=256)
+    model_source: Literal["payload", "matching_turn_context"] | None = None
+    service_tier: str | None = Field(default=None, max_length=256)
+    service_tier_source: Literal["payload", "matching_turn_context", "thread_settings", "session_meta"] | None = None
+    usage: CodexUsageTokens | None = None
+    total_token_usage: CodexUsageTokens | None = None
+    last_token_usage: CodexUsageTokens | None = None
+    diagnostics: list[Literal[
+        "invalid_json", "invalid_schema", "invalid_timestamp", "invalid_tokens",
+        "oversized_line", "missing_model", "missing_provider", "missing_response_id", "missing_service_tier",
+    ]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> CodexUsageObservation:
+        if self.byte_end <= self.byte_start:
+            raise ValueError("a journal observation requires a complete byte range")
+        return self
+
+
+class CodexUsageSourceCursor(BaseModel):
+    """CAS checkpoint; incomplete ordinary lines never advance offset."""
+
+    model_config = ConfigDict(extra="forbid")
+    source_namespace: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    revision: int = Field(ge=0, strict=True)
+    generation: int = Field(default=0, ge=0, strict=True)
+    offset: int = Field(default=0, ge=0, strict=True)
+    chain_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    checkpoint_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prefix_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prefix_length: int = Field(default=0, ge=0, le=4096, strict=True)
+    pending_bytes: int = Field(default=0, ge=0, strict=True)
+    pending_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    context: CodexUsageContext = Field(default_factory=CodexUsageContext)
+    status: Literal["caught_up", "partial_tail", "scan_limited"] = "caught_up"
+    checked_at: AwareDatetime = Field(default_factory=utc_now)
+
+
+class CodexUsageScanBatch(BaseModel):
+    """A bounded scan and the exact cursor revision it may replace."""
+
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int | None = Field(default=None, ge=0, strict=True)
+    cursor: CodexUsageSourceCursor
+    observations: list[CodexUsageObservation] = Field(default_factory=list)
+    bytes_read: int = Field(default=0, ge=0, strict=True)

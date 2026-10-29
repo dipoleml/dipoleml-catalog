@@ -1,0 +1,177 @@
+# Active Context — kordoc 본체
+
+**마지막 업데이트**: 2026-07-06 (12차 맥미니: 결재란 트랙 종결 → **v3.17.0 릴리스**)
+**상태**: 테스트 802/802. 게이트: score 품질·roundtrip·pdf-table·formats·fuzz PASS (⚠️맥미니 한정 — score 모수 하한·verify-reflow는 코퍼스 구본이라 불가, 아래 12차 참조)
+
+## 이번 세션 완료 (2026-07-06 12차 — 결재란 트랙 종결 → v3.17.0)
+
+> 참고: v3.14.0~v3.16.2(다페이지·Tier-2 reflow·도장·차트·플러그인·시각오라클)는 다른 PC 세션들 진행분 —
+> 이 파일 미갱신 구간. 상세는 CHANGELOG + `.claude/plans/next-session-viewer-unification.md`.
+
+- **결재란 겹침 트랙 완결**: `docs/gyeoljaeran-overlap-handoff` 4커밋(2423a0a 폰트·중첩표셀높이·다구역 / ddc98cd 조사 / 6ff0856 reflow textpos 폴백 0 / 0a08e1c landscape 스왑+v0 페이지분할) main ff 머지 → **v3.17.0** (npm+gh release, 361b26e)
+- **루트코즈**: 실텍스트 0 문단의 합성 lineseg textpos가 chars.length 폴백 → advanceTo 가로 전진에서 인라인 개체 배제 → 결재란 라벨표·스탬프표 같은 x 포개짐. 조사 가설 A(objBottom 세로누적)는 오답 — 한컴 정답은 나란히 배치
+- **한컴 오라클 없이 검증(사용자 승인)**: 코퍼스 75 hwpx × 3점(main/픽스전/픽스후) × cached·reflow 스윕(`bench/out/sweep-render.mjs`) — 픽스 단독 cached 71/75 byte-identical + 변경 4건 전부 의도 개선(NARROWLY 스왑 2건 육안, 페이지 분리 2건), reflow 개선 5/실질 악화 0. Chrome headless 스크린샷 3쌍 육안 확정
+- **⚠️맥미니 환경 실측**: 한컴 미설치(bench:visual 불가) / `bench/corpus/seoul` 부재(verify-reflow 불가) / 코퍼스 구본 hwpx 85·쌍 10 (정본 2026-07-05 실측 347·23) → score 모수 하한 미달. **seoul/ 포함 rsync 역동기화 필요**
+
+백로그 A(ice-geomjeong) + B(hml bizinfo) 각개 격파, eval-perf-2024 재분류:
+
+- **① ice-geomjeong 라벨탭 병리 → 프로즈 박스 감지** (`page-blocks.ts`): 상단 라벨탭
+  글상자가 박스 테두리에 걸쳐 만든 짧은 수직선(66.8/301.8)이 가짜 열이 되어, 그 열
+  셀이 키 큰 프로즈 행으로 rowspan 누수해 본문을 조각냄. **판정 = 기하(내부 구분선
+  없는 전폭 행이 표 높이 60%+) × 텍스트(80자+ 긴 셀 3개+·채운 셀 40%+) 교집합**.
+  프로즈 박스면 표를 버리고 아이템을 프로즈 폴백(자연 읽기순)으로 재추출.
+  0.99611→0.99724, 부수 개선 eval-perf-2025 +0.00294 등 pdf 7파일(개선/중립),
+  pairs·review 무변경, pdf표GT 기준선 유지
+  - **폐기한 접근(재론 금지)**: ⓐ열 지지도(union y-커버리지) 필터 — 정당 조밀 표의
+    병합 열(0.031~0.048)이 노치(0.04~0.07)보다 낮아 **원리적으로 분리 불가**.
+    ⓑ전폭-행-지배 단독 — 다줄셀 정규표(pair05/06) 오강등. ⓒ긴 셀 단독 — 서술형
+    2열표(khs-budget·korean-press-guide) 오강등. **교집합만이 직교적으로 분리**
+- **② hml bizinfo 표 캡션 누락 → SHAPEOBJECT 캡션 추출** (`hwpml/parser.ts`):
+  `TABLE > SHAPEOBJECT > CAPTION` 텍스트를 `collectCharText`가 SHAPEOBJECT 스킵으로
+  통째로 버림. `extractShapeCaption`으로 캡션을 별도 문단 보존(Side=Top/Left면 앞,
+  그 외 뒤). bizinfo 0.9727→0.9857(개별 floor 통과), hmlRecall 0.9960→0.9965
+- **③ eval-perf-2024 → 원리적 수용 재분류** (plan 전제 정정): "벡터아웃라인 OCR"은
+  **오진** — 실측 벡터아웃라인 페이지 **0개**(pdftotext/pdfjs 대조). 1392 miss는
+  전부 **성과체계도(박스-화살표 다이어그램) 찢김**(p5=선 0개·셀 61% 빈칸). 클러스터
+  감지에 다이어그램 가드 실험 → **강등해도 coverage 변화 0**(비선형 박스는 표든
+  프로즈든 pdftotext 읽기순과 불일치, linearize 불가) + hampyeong −4e-5 → 리버트.
+  파서 버그도 OCR도 아닌 원리적 잔여
+
+## 뷰어 통합 트랙 (2026-07-04 신설 — 대형 차기)
+
+**목표**: `src/render/`를 **순수 TS·벡터(SVG)·reflow 가능·전 한글포맷** 뷰어로 승화 =
+"유일무이한 원탑 뷰어". 상세 계획 = **`.claude/plans/next-session-viewer-unification.md`**
+(트리거 "kordoc 뷰어"). 다른 PC에서 이 트랙 이어가려면 그 파일부터 정독.
+
+- **해자 4**: 순수 TS(WASM 의존 0) / SVG 벡터(텍스트 선택·검색·무한확대 선명, canvas
+  대비 구조적 우위) / 듀얼모드(캐시재생+reflow) / 전 포맷(HWPX·HWP5/3·HWPML·IR 경유)
+- **대비 대상 claw-hwp**(DoHyun468, Claude Code 플러그인) = rhwp WASM + Canvas 브라우저,
+  `reflowLinesegs`로 stale 캐시 재계산. **뿌리(rhwp) 공유**(우리가 일부 포팅)하나 우리는
+  순수 TS·SVG·서버렌더. claw-hwp의 유일 강점(reflow)을 Tier-2로 흡수 = 원탑
+- **2-Tier**: Tier-1(캐시 재생, 있음·견고: 좌표산식·표솔버·charPr·borderFill 실측검증)
+  + **Tier-2 reflow 엔진(신규 핵심)** — 캐시 없/stale(markdownToHwpx·에이전트본) 시
+  paraPr·charPr·`text-metrics`(함초롬 hmtx)로 줄배치 재계산 → linesegarray 생성 → Tier-1 재사용
+- **검증 열쇠 = 자기일관성**: 한컴본 캐시 strip → reflow → Tier-1과 기하 diff. 한컴 없이
+  reflow를 진리값 대비 게이트(코퍼스 85 hwpx). 순수 TS·SVG·Tier-1 무회귀가 절대 원칙
+- **진척(v3.14.0, 다른 PC)**: Tier-1에 **다페이지 스택**(Phase 1 다페이지 완료) +
+  검색어 형광펜 + 슬롯스트림 textpos 정합 + 이미지 크롭 정정. **Tier-2 reflow(해자)는
+  아직 미착수** — 이게 남은 핵심
+- **1순위**: Phase 0(통합계획 확정 + reflow POC "성립 판정", findings.md 패턴) → **Tier-2
+  reflow 착수**(다페이지는 v3.14.0에 있으니 Phase 1 잔여는 머리말/꼬리말 소품뿐).
+  소액 백로그(A-5·hwp3)는 이 트랙 뒤로
+
+## 직전 세션 (2026-07-03 연속 10차)
+
+미매칭 7건 인벤토리 각개 격파 — 매칭 90.28→**98.55%** (69모수 중 잔여 1 수용):
+
+- **① pair07 ref#1(3x3) 해부 → 강등 가드**: 그리드·셀 추출은 완벽했고 범인은
+  `shouldDemoteTable`의 마커 규칙(≤3x3 + ○ 포함 → 텍스트 박스). 본문 셀의 ○는
+  행정문서 표 관행 — **라벨 헤더 가드** 신설(2행2열+ + 첫 행 전체가 마커 없는
+  ≤12자 라벨 + 본문 내용 ≥1셀 → 강등 면제). pdf 코퍼스 7파일 문단→표 복구
+- **② pair06 문의처 → 체인 뷰**: 중간 괘선이 셀 단위 4세그먼트(×3겹)로 분절돼
+  끝점 정렬 그룹에서 탈락 → `closeOpenTableEdges` 판정만 체인 뷰(같은 y ±1.5pt
+  콜리니어 세그먼트 gap≤3pt 연결한 논리 괘선) 기준으로 전환. **물리 병합 아님**
+  (9차 폐기 실험과 구분 — 부작용 채널이 합성 수직선뿐). 2x4 EXACT 완치.
+  pdf 17파일 영향 전수 대조: coverage 후퇴 0·개선 7건, changwon 라벨 열 복구
+- **③ pair06 결격사유 → 채점기 2픽스**:
+  ⓐ**bag 교집합 0 매칭 차단** — dims-only(0.25) 누수가 MIN_SIM(0.2) 넘겨 진짜
+    짝 선점+순서구제 봉쇄 (ref#6이 ir#7 스틸 → ref#8 미아). pair11 잡매칭
+    (자가진단표↔개인정보동의서 치수 우연)도 제거 (매칭 정직 −1)
+  ⓑ**전체 텍스트 접두 유사도 폴백** — 프로즈 박스 세밀 분할(3x2→18x3)로 셀 키
+    교집합 붕괴 시, row-major 조인의 접두 NED(≥0.85, 양쪽 ≥80자, 커버 ≥40%)로
+    구제. 결격사유 pdf측은 상단 55%만 표(후반은 1열 표로 모수 밖) — 접두 비교가
+    정확히 맞음. 오발동 0
+- **④ pair10 ref#11(2x3 양식) → 가드 일반화**: 빈 기입란(2/6 빈 셀)이 30% 규칙에
+  걸림 → 가드의 '전셀 채움'을 '본문 내용 ≥1셀'로 완화. pdf 7파일 추가 복구
+- **⑤ pair11 ref#15(19x14→5x2 f1=0) 해부 → 오매칭 아님**: 같은 가족채용확인서의
+  정당한 부분 포착. pdf p16 선이 15H/10V뿐(hwpx 체크박스 서식의 14열 기하가
+  pdf에 없음) — 파서 구제 불가급, 수용. 동의서류 평탄화와 같은 계열
+- **⑥ 모수 예외 (사용자 승인)**: 흐름띠(화살표 단독 셀 ≥2, pair10/11)·거의 빈 표
+  (비공백 ≤1셀, pair10 스캐폴딩+pdf측 1x1) — hwpx가 표를 레이아웃 도구로 쓴
+  표현 차. 양측 대칭 제외, 모수 72→69
+- **⑦ 릴리스 v3.12.0**: feat 4커밋+bench 2커밋 → release a64d7aa + 태그 + npm
+  publish + gh release. 게이트 재잠금 매칭 0.98/exact 0.65/F1 0.72/cellExact
+  0.69/NED 0.52
+
+## 지표 대시보드 (2026-07-04 연속 11차 종료 — v3.13.0)
+
+| 트랙 | 지표 | 값 | 게이트 | 비고 |
+|---|---|---|---|---|
+| hwpx(85) | recallMicro / phantom | **1.0** / 0.000054 | 0.999 / 0.005 | |
+| hwpx | 표 exact / cellF1 | **611/611** / 1.0 | 0.99 / 0.999 | |
+| pdf(48) | coverage(micro) | **0.99619** | 0.985 | 10차 0.99609 → +1e-4 (프로즈 박스 감지 7파일) |
+| hwp쌍(10) | 유사도 / 커버 | **0.9946 / 0.9929** | 0.99 / 0.99 | |
+| formats | docx/xlsxStr/hml | 0.998903/**1.0**/**0.996532** | 0.998/0.999/0.995 | hml +5e-4 (표 캡션 보존) |
+| roundtrip | fwd / bwd / 헤딩 / 수식 / 줄 | **0.999632 / 0.99915** / 0 / 0 / 0 | 0.999/0.998/0/0/0 | |
+| pdf표GT(6쌍) | 매칭/exact/cellF1 | **0.9855/0.6522/0.7240** | **0.98/0.65/0.72** ↑재잠금 | cellExact 0.6977(0.69)·NED 0.5237(0.52). 모수 69 |
+| fuzz(792런) | crash/hang/noCode/slow/genInvalid | **0/0/0/0/0** | 전부 0 | |
+| 렌더 | 코퍼스 hwpx 스모크 | **85/85** 크래시·NaN 0 | 테스트 10/10 | |
+| 테스트/tsc | **683/683** / 13(기존 — 신규 0) | — | — | |
+
+### pdf표GT 쌍별 (v3.11.0 → v3.12.0, 모수 재정의 반영)
+
+| pair | 매칭 | exact | F1 | NED |
+|---|---|---|---|---|
+| 05 해외통계 | 9/9 | 5 | 0.613 | 0.417 |
+| 06 인구주택 | 12→**14/14** | 10→**11** | 0.715→**0.792** | 0.423→0.441 |
+| 07 경제총조사 | 5→**6/6** | 3→**4** | 0.516→**0.682** | 0.570→**0.705** |
+| 08 가계금융 | 8/8 | 5 | 0.787 | 0.534 |
+| 10 부여채용 | 16→**17/17** | 9→**10** | 0.590→**0.718** | 0.483→0.511 |
+| 11 중원채용 | 15→14/15 | 10 | 0.675→0.717 | 0.546→0.575 |
+
+(pair11 매칭 −1 = 잡매칭 제거의 정직한 하락. 잔여 미매칭 1 = ref#14 자가진단표
+12x6 — pdf에 수직선 4개뿐, 수용)
+
+## 이번 세션 신규 재론 금지
+
+- **라벨 헤더 가드 완화 재론 주의**: 첫 행 라벨 조건(≤12자·마커 없음·전셀 비공백)을
+  더 풀면 진짜 텍스트 박스가 표로 살아남. 현 조건은 pdf 코퍼스 14파일 검수로 검증
+- **체인 뷰를 물리 병합으로 되돌리기 금지** — 9차 pair07 셀 변질 실측. 판정 전용
+  유지. CHAIN_Y_TOL 1.5/CHAIN_GAP 3
+- **접두 유사도 폴백 가드 완화 금지** (80자/40%/0.85) — 낮추면 우연 접두 잡매칭 위험
+- **흐름띠·빈 표 모수 예외는 사용자 승인 완료** (2026-07-03) — 화살표 단독 셀 ≥2 /
+  비공백 ≤1셀, 양측 대칭. 재론 불요
+- **pair11 자가진단표(12x6)·가족채용확인서(19x14) 구제 시도 금지** — pdf 기하
+  자체가 없음 (V 4개 / 15H·10V). 컴포넌트 합성 확대는 demote 연쇄 재론 금지 대상
+
+## 다음 세션 후보
+
+- **맥미니 코퍼스 rsync 역동기화** (seoul/ 포함 — verify-reflow·score 모수 하한 해소).
+  (선택) 회사 Mac에서 v3.17.0 main으로 bench:visual 1회 — 결재란 트랙 오라클 재확인
+- 뷰어 통합 트랙 잔여는 `.claude/plans/next-session-viewer-unification.md` 기준으로 재평가
+  (Tier-2 reflow는 v3.15.0에 랜딩됨 — 플랜 문서의 "미착수" 표기는 스테일)
+- 남은 소액 백로그: **A-5 폼 정오**(코퍼스에 실체 미확인 — 플랜 메모 모호, 재정의
+  필요) / **hwp3 합성 픽스처**(유효 HWP3 바이너리 합성 = 비자명, 테스트 커버리지용)
+- 잔존 저커버 pdf는 대부분 **비선형 도식**(성과체계도·조직도)·병합 열 표현 차 —
+  원리적 잔여로 분류. pdf 쪽 새 증거 없으면 착수 금지
+
+## 재론 금지 (기존 유지)
+
+- LINE_SEG 원본 유지 / 공문서 장평 95%·한컴 빈 문단 생략형 / PDF 머리글 y-클러스터 재도입 금지
+- PDF coverage perLine trigram / hidden text 회전 예외 / extractLines CTM 추적 / pdfjs cMap 자산
+- findTwoColumnProseCutX fullPage만 + finite 가드·상한 400 / align Pass 1 본문문자 우선
+- 셀 장식 관용은 heading paraPr 마킹 줄에만 / changwon 성능 재론 금지
+- formats 추출기 = 파서 경계 미러 / xlsx 시트 순서 = workbook 순서 / UNIT_CAP 5만
+- pdf-table-gt 모수 = 최상위 2×2+ (10차: 흐름띠·빈 표 예외 추가) / docx vMerge val 없음=계속 셀
+- **pdf 헤어라인 tolerance 완화 금지** (6차 실험 — GT 양방향 회귀)
+- **수식 왕복 정합 유지** (고정점 테스트 잠금, 예약어 따옴표는 변환 전 원문에만)
+- **렌더**: SVG width/height pt 단위(px=25% 축소) / horzsize=줄 영역 폭 / 한컴 저장본 전용
+- 분할병합 rowsSum 관용 재론 금지(발동 대상 없음 실측) / bagExtra는 매칭 전용
+- ⚠ hash-sweep EXTS에 .hml 미포함 — hml 파서 검증은 md 해시 별도 대조
+
+## 코퍼스/도구 메모
+
+- 실파일 코퍼스(gitignore): review/ 45 · hwp5/ 13+30 · pdf/ 42 · pairs/ 26 · formats/ 27
+- 게이트 일괄: `npm run bench:gate`(5체인) / PDF표: `node bench/pdf-table-gt.mjs`
+  (`--verbose`로 details → bench/out/pdf-table.json)
+- **진단 도구**(bench/out/, gitignore): `diag-lines.mts`(선 추출→전처리→그리드 계측,
+  ⚠closeOpenTableEdges 미포함), `diag-grid2ir.mts`(10차 — 합성 포함 프로덕션 경로 +
+  extractCells + 스킵 경로 표시), `diag-raw.mts`, `diag-ops.mts`
+- 파서 수정 검증 절차(10차 확립): ①git stash로 before hash-sweep(pdf/pairs/review
+  3디렉토리) ②after sweep diff → 변경 파일 목록 ③score.mjs docsDetail 파일별
+  coverage delta ④변경 파일 마크다운 before/after diff 표본 검수 ⑤bench:gate+683
+- npm publish: `~/.npmrc` bypass 2FA granular 토큰 유효. 릴리스 관례 = feat 커밋 →
+  release 커밋(CHANGELOG+README `## vX.Y.Z 변경사항`+package.json) + 경량 태그 +
+  npm publish + gh release
+- 렌더 재현: `node dist/cli.js render <hwpx> -o out.svg` → headless Chrome
+  `--window-size=794,1123` 스크린샷

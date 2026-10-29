@@ -1,0 +1,10 @@
+{
+  "name": "T3Env",
+  "description": "Validate process.env at build time (catch missing/wrong env vars before runtime).",
+  "phase": "add-on",
+  "link": "https://github.com/t3-oss/t3-env",
+  "type": "add-on",
+  "category": "tooling",
+  "color": "#6366F1",
+  "modes": ["file-router", "code-router"]
+}

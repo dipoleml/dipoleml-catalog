@@ -1,0 +1,1094 @@
+#!/usr/bin/env node
+/**
+ * clawo CLI — connects to the Claw Orchestrator embedded server (auto-started by the plugin)
+ *
+ * When the plugin is installed, the embedded server starts automatically.
+ * This CLI is just an HTTP client — zero configuration needed.
+ *
+ * For standalone use (no OpenClaw), run: clawo serve
+ */
+
+import { Command } from 'commander';
+import { createRequire } from 'node:module';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+function getBaseUrl(): string {
+  return process.env.CLAWO_API_URL || process.env.CLAUDE_CODE_API_URL || 'http://127.0.0.1:18796';
+}
+
+/**
+ * Locate the auth token the embedded server requires (3.5.6+):
+ *   1. CLAWO_AUTH_TOKEN env (explicit override)
+ *   2. OPENCLAW_SERVER_TOKEN env (same env the server reads — handy when both
+ *      processes share the same shell)
+ *   3. ~/.openclaw/server-token file (the server writes this at startup)
+ * Returns null if nothing is found — caller falls through to an unauthenticated
+ * request, which the server will reject with 401 unless `OPENCLAW_SERVER_TOKEN=disabled`.
+ */
+function getAuthToken(): string | null {
+  const envToken = process.env.CLAWO_AUTH_TOKEN || process.env.OPENCLAW_SERVER_TOKEN;
+  if (envToken && envToken !== 'disabled') return envToken;
+  try {
+    const filePath = path.join(os.homedir(), '.openclaw', 'server-token');
+    const t = fs.readFileSync(filePath, 'utf-8').trim();
+    return t || null;
+  } catch {
+    return null;
+  }
+}
+
+function getCliVersion(): string {
+  try {
+    const _require = createRequire(import.meta.url);
+    // From dist/bin/cli.js, package.json sits two levels up (dist/bin/ → dist/ → root).
+    const pkg = _require('../../package.json') as { version?: string };
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+// ─── HTTP Client ─────────────────────────────────────────────────────────────
+
+async function api(path: string, method = 'GET', body?: unknown): Promise<Record<string, unknown>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getAuthToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const opts: RequestInit = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const base = getBaseUrl();
+    const resp = await fetch(`${base}${path}`, opts);
+    return (await resp.json()) as Record<string, unknown>;
+  } catch {
+    return { ok: false, error: `Cannot connect to ${getBaseUrl()} — is the plugin running?` };
+  }
+}
+
+// ─── CLI ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Print an API failure the same way every command does, and exit non-zero so a
+ * script can tell: a command that could not reach the server used to exit 0.
+ */
+function fail(r: unknown): void {
+  const error = r && typeof r === 'object' && 'error' in r ? (r as { error?: unknown }).error : r;
+  console.error(`Failed: ${String(error)}`);
+  process.exitCode = 1;
+}
+
+/** A usage error: said on stderr, and a non-zero exit like every other failure. */
+function usage(message: string): void {
+  console.error(`Error: ${message}`);
+  process.exitCode = 1;
+}
+
+const program = new Command();
+program.name('clawo').description('Claw Orchestrator CLI').version(getCliVersion());
+
+// `clawo acp` runs the `clawo-acp` entry point in this process. It exists so the
+// server is discoverable from `clawo --help`, and so an ACP client can be
+// configured with a single command name. The ACP entry point must own stdout
+// from its first line, so nothing in this file may print before this action
+// runs — anything printed first would land inside the protocol stream.
+program
+  .command('acp')
+  .description('Run as an Agent Client Protocol agent over stdio (for Zed, JetBrains, dsh, …)')
+  .allowUnknownOption()
+  .action(async () => {
+    await import('./acp-server.js');
+  });
+
+// Serve (standalone mode — no OpenClaw needed)
+program
+  .command('serve')
+  .description('Start standalone embedded server (for use without OpenClaw)')
+  .option('-p, --port <port>', 'Port', '18796')
+  .option('-H, --host <host>', 'Bind address (default: 127.0.0.1, use 0.0.0.0 for remote access)')
+  .option(
+    '--ultraapp-runtime <mode>',
+    "ultraapp runtime mode: 'host' (default; spawns Node directly, no Docker) or 'docker' (uses docker build/run for isolation)",
+    'host',
+  )
+  .action(async (opts) => {
+    const { SessionManager } = await import('../src/session-manager.js');
+    const { EmbeddedServer } = await import('../src/embedded-server.js');
+    const { UltraappRouter } = await import('../src/ultraapp/router.js');
+    const { defaultStoreRoot } = await import('../src/ultraapp/store.js');
+    const path = await import('node:path');
+    // Serve mode targets long-running multi-caller setups (OpenAI-compat
+    // bridge for OpenClaw main agent + cron + subagents + webchat). Default
+    // bumps over the in-plugin defaults are intentional:
+    //   - maxConcurrentSessions=32: each distinct caller gets its own
+    //     sys-<hash> session, 5 is too low for prod multi-caller use.
+    //   - sessionTtlMinutes=60: faster reaping of idle one-off callers.
+    // Both env-overridable so ops can tune without a code change.
+    const maxSessions = parseInt(process.env.OPENCLAW_SERVE_MAX_SESSIONS || '', 10) || 32;
+    const ttlMinutes = parseInt(process.env.OPENCLAW_SERVE_TTL_MINUTES || '', 10) || 60;
+    const manager = new SessionManager({
+      maxConcurrentSessions: maxSessions,
+      sessionTtlMinutes: ttlMinutes,
+    });
+
+    // ultraapp runtime mode (host = default, docker = opt-in for isolation)
+    const runtimeMode: 'host' | 'docker' = opts.ultraappRuntime === 'docker' ? 'docker' : 'host';
+    manager.setUltraappRuntimeMode(runtimeMode);
+    console.log(`[ultraapp] runtime mode: ${runtimeMode}`);
+
+    // Boot the ultraapp reverse-proxy router on port 19000 (with fallbacks).
+    // Best-effort — failure here doesn't block serve mode; ultraapp builds
+    // will simply rest at build-complete instead of progressing to deploy.
+    const router = new UltraappRouter({
+      port: 19000,
+      mapPath: path.join(defaultStoreRoot(), '_router.json'),
+    });
+    let routerStartedPort: number | null = null;
+    try {
+      routerStartedPort = await router.start();
+      manager.setUltraappRouter(router);
+      console.log(`[ultraapp] router on http://127.0.0.1:${routerStartedPort}/forge/<slug>/`);
+    } catch (err) {
+      console.warn(`[ultraapp] router failed to start: ${(err as Error).message} — deploys will be skipped`);
+    }
+
+    const server = new EmbeddedServer(manager, parseInt(opts.port), opts.host);
+    const port = await server.start();
+    // start() resolves 0 when the port is taken, which lets the plugin defer to
+    // a server already running. Here nothing else would serve, and the router
+    // and the manager's timer would keep the process alive doing nothing.
+    if (!port) {
+      console.error(
+        `Error: port ${opts.port} is already in use; stop the server holding it or pick another port with -p`,
+      );
+      if (routerStartedPort !== null) await router.stop().catch(() => {});
+      await manager.shutdown();
+      process.exit(1);
+    }
+    console.log(`Standalone server running on http://127.0.0.1:${port}`);
+    console.log('Press Ctrl+C to stop');
+    const shutdown = async () => {
+      await server.stop();
+      if (routerStartedPort !== null) await router.stop().catch(() => {});
+      await manager.shutdown();
+      process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  });
+
+// Session commands
+program
+  .command('session-start [name]')
+  .description(
+    'Start a persistent coding session (Claude Code, Codex, Antigravity, Grok Build, OpenCode, an ACP agent, or a custom engine preset)',
+  )
+  .option('-d, --cwd <dir>', 'Working directory')
+  .option('-e, --engine <engine>', 'Engine: claude (default), codex, codex-app, agy, grok, opencode, acp, or custom')
+  .option('-m, --model <model>', 'Model to use')
+  .option('--permission-mode <mode>', 'Permission mode', 'acceptEdits')
+  .option('--effort <level>', 'Effort level')
+  .option('--allowed-tools <tools>', 'Comma-separated tools to auto-approve')
+  .option('--disallowed-tools <tools>', 'Comma-separated tools to deny')
+  .option('--max-turns <n>', 'Max agent loop turns')
+  .option('--max-budget <usd>', 'Max API spend')
+  .option('--system-prompt <prompt>', 'Replace system prompt')
+  .option('--append-system-prompt <prompt>', 'Append to system prompt')
+  .option('--agents <json>', 'Custom sub-agents JSON')
+  .option('--agent <name>', 'Default agent')
+  .option('--bare', 'Minimal mode')
+  .option('-w, --worktree [name]', 'Git worktree')
+  .option('--fallback-model <model>', 'Fallback model')
+  .option('--json-schema <schema>', 'JSON Schema for structured output')
+  .option('--mcp-config <paths>', 'MCP config files')
+  .option('--settings <pathOrJson>', 'Settings.json')
+  .option('--skip-persistence', 'Disable session persistence')
+  .option('--betas <headers>', 'Custom beta headers')
+  .option('--enable-agent-teams', 'Enable agent teams')
+  .option('--enable-auto-mode', 'Enable auto permission mode')
+  .option('--resume-session-id <id>', 'Resume existing session by ID')
+  .option('--base-url <url>', 'Custom API endpoint (for proxy)')
+  .option('--add-dir <dirs>', 'Comma-separated additional working directories')
+  .option(
+    '--custom-engine <preset>',
+    'With -e custom: the id of a bundled engine preset (see `clawo engines`). Inline configs are not accepted here — that is what presets are for',
+  )
+  .option('--acp-agent <preset>', 'With -e acp: the id of a bundled ACP agent preset (see `clawo engines`)')
+  .action(async (name, opts) => {
+    const body: Record<string, unknown> = { name: name || `session-${Date.now()}` };
+    if (opts.cwd) body.cwd = opts.cwd;
+    if (opts.engine) body.engine = opts.engine;
+    // Only a preset id. An inline config names a binary and its arguments, and
+    // this command reaches the session through the same HTTP surface that
+    // refuses those — see `clawo engines` for what is available.
+    if (opts.customEngine) body.customEngine = opts.customEngine;
+    if (opts.acpAgent) body.acpAgent = opts.acpAgent;
+    if (opts.model) body.model = opts.model;
+    if (opts.permissionMode) body.permissionMode = opts.permissionMode;
+    if (opts.effort) body.effort = opts.effort;
+    if (opts.allowedTools)
+      body.allowedTools = opts.allowedTools
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    if (opts.disallowedTools)
+      body.disallowedTools = opts.disallowedTools
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    if (opts.resumeSessionId) body.resumeSessionId = opts.resumeSessionId;
+    if (opts.baseUrl) body.baseUrl = opts.baseUrl;
+    if (opts.addDir)
+      body.addDir = opts.addDir
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    if (opts.enableAutoMode) body.enableAutoMode = true;
+    if (opts.maxTurns) {
+      const v = parseInt(opts.maxTurns);
+      if (isNaN(v) || v <= 0) {
+        console.error('--max-turns must be a positive integer');
+        process.exit(1);
+      }
+      body.maxTurns = v;
+    }
+    if (opts.maxBudget) {
+      const v = parseFloat(opts.maxBudget);
+      if (isNaN(v) || v <= 0) {
+        console.error('--max-budget must be a positive number');
+        process.exit(1);
+      }
+      body.maxBudgetUsd = v;
+    }
+    if (opts.systemPrompt) body.systemPrompt = opts.systemPrompt;
+    if (opts.appendSystemPrompt) body.appendSystemPrompt = opts.appendSystemPrompt;
+    if (opts.agents) {
+      try {
+        body.agents = JSON.parse(opts.agents);
+      } catch (e) {
+        console.error(`Invalid JSON in --agents: ${(e as Error).message}`);
+        process.exit(1);
+      }
+    }
+    if (opts.agent) body.agent = opts.agent;
+    if (opts.bare) body.bare = true;
+    if (opts.worktree !== undefined) body.worktree = typeof opts.worktree === 'string' ? opts.worktree : true;
+    if (opts.fallbackModel) body.fallbackModel = opts.fallbackModel;
+    if (opts.jsonSchema) body.jsonSchema = opts.jsonSchema;
+    if (opts.mcpConfig)
+      body.mcpConfig = opts.mcpConfig
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    if (opts.settings) body.settings = opts.settings;
+    if (opts.skipPersistence) body.noSessionPersistence = true;
+    if (opts.betas)
+      body.betas = opts.betas
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    if (opts.enableAgentTeams) body.enableAgentTeams = true;
+
+    const result = await api('/session/start', 'POST', body);
+    if (result.ok) {
+      console.log(`Session '${body.name}' started!`);
+      if (result.claudeSessionId) console.log(`Engine session ID: ${result.claudeSessionId}`);
+    } else fail(result.error);
+  });
+
+program
+  .command('session-send <name> [message]')
+  .description('Send a message to a session')
+  .option('--message-file <file>', 'Read the message from a file (for long or dash-leading text)')
+  .option('--effort <level>', 'Effort level')
+  .option('--plan', 'Plan mode')
+  .option('-t, --timeout <ms>', 'Timeout', '300000')
+  // Kept so scripts that pass it still parse: /session/send answers when the
+  // turn ends and has no streamed form.
+  .option('-s, --stream', 'No effect: the reply arrives when the turn ends')
+  .option('--json', 'Print the whole result as JSON')
+  .action(async (name, messageArg, opts) => {
+    const message = opts.messageFile ? fs.readFileSync(opts.messageFile, 'utf-8') : messageArg;
+    if (!message) {
+      fail('give a message, or --message-file');
+      return;
+    }
+    const result = await api('/session/send', 'POST', {
+      name,
+      message,
+      effort: opts.effort,
+      plan: opts.plan,
+      timeout: parseInt(opts.timeout),
+    });
+    if (opts.json) {
+      console.log(JSON.stringify(result));
+      if (!result.ok) process.exitCode = 1;
+    } else if (result.ok) {
+      console.log(result.output);
+    } else fail(result.error);
+  });
+
+program
+  .command('session-stop <name>')
+  .description('Stop a session')
+  .action(async (name) => {
+    const r = await api('/session/stop', 'POST', { name });
+    if (r.ok) console.log(`Session '${name}' stopped.`);
+    else fail(r.error);
+  });
+
+program
+  .command('session-list')
+  .description('List sessions')
+  .action(async () => {
+    const r = await api('/session/list');
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    const sessions = r.sessions as Array<{ name: string; model?: string; cwd: string }>;
+    if (!sessions.length) {
+      console.log('No active sessions.');
+      return;
+    }
+    for (const s of sessions) console.log(`  ${s.name} — ${s.model || 'default'} (${s.cwd})`);
+  });
+
+program
+  .command('session-status <name>')
+  .description('Get session status')
+  .option('--json', 'Print the whole status as JSON')
+  .action(async (name, opts) => {
+    const r = await api('/session/status', 'POST', { name });
+    if (opts.json) {
+      console.log(JSON.stringify(r));
+      if (!r.ok) process.exitCode = 1;
+      return;
+    }
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    const s = r.stats as Record<string, unknown>;
+    console.log(`Session: ${name}`);
+    console.log(`  Turns: ${s.turns}, Tools: ${s.toolCalls}, Cost: $${s.costUsd}`);
+    console.log(`  Tokens: ${s.tokensIn} in / ${s.tokensOut} out`);
+    console.log(`  Uptime: ${s.uptime}s`);
+  });
+
+program
+  .command('engines')
+  .description('List the community engine presets bundled with this package')
+  .option('--json', 'Emit raw JSON instead of a table')
+  .action(async (opts) => {
+    // Read locally rather than over HTTP: this is a property of the installed
+    // package, and it has to work whether or not a server is running.
+    const { listEnginePresets } = await import('../src/engine-presets.js');
+    const presets = listEnginePresets();
+    if (opts.json) {
+      console.log(JSON.stringify(presets, null, 2));
+      return;
+    }
+    if (!presets.length) {
+      console.log('No engine presets are bundled with this build.');
+      return;
+    }
+    console.log('Community presets — schema-validated here, but not run here.');
+    console.log("What each one claims is its maintainer's dated attestation:\n");
+    for (const p of presets) {
+      console.log(`  ${p.id}`);
+      console.log(`    ${p.description}`);
+      console.log(
+        `    verified by ${p.provenance.maintainer} against ${p.provenance.verifiedAgainst} on ${p.provenance.verifiedOn}`,
+      );
+      if (p.provenance.smokeUrl) console.log(`    smoke: ${p.provenance.smokeUrl}`);
+      console.log(
+        p.acp
+          ? `    use:   clawo session-start my-session -e acp --acp-agent ${p.id}`
+          : `    use:   clawo session-start my-session -e custom --custom-engine ${p.id}`,
+      );
+      console.log('');
+    }
+  });
+
+program
+  .command('runs')
+  .description('Show the durable run ledger — one row per turn, across engines, surviving restarts')
+  .option('-s, --since <window>', 'Only turns since this point: 30m / 24h / 7d, or an ISO timestamp', '24h')
+  .option('-n, --limit <n>', 'Max rows', '50')
+  .option('--session <name>', 'Filter by session name')
+  .option('--engine <engine>', 'Filter by engine')
+  .option('--parent <id>', 'Filter by council / fanout / autoloop / workflow run id')
+  .option('--verified', 'Only turns whose acceptance contract passed')
+  .option('--refuted', 'Only turns whose acceptance contract failed')
+  .option('--json', 'Emit raw JSON instead of a table')
+  .action(async (opts) => {
+    const params = new URLSearchParams({ since: opts.since, limit: String(parseInt(opts.limit, 10) || 50) });
+    if (opts.session) params.set('session', opts.session);
+    if (opts.engine) params.set('engine', opts.engine);
+    if (opts.parent) params.set('parent', opts.parent);
+    if (opts.verified) params.set('verified', 'true');
+    if (opts.refuted) params.set('verified', 'false');
+    const r = await api(`/runs?${params.toString()}`);
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify({ rows: r.rows, summary: r.summary }, null, 2));
+      return;
+    }
+    const { formatRunTable } = await import('../src/run-ledger.js');
+    console.log(formatRunTable((r.rows || []) as Parameters<typeof formatRunTable>[0]));
+  });
+
+program
+  .command('session-grep <name> <pattern>')
+  .description('Search session history')
+  .option('-n, --limit <n>', 'Max results', '50')
+  .action(async (name, pattern, opts) => {
+    const r = await api('/session/grep', 'POST', { name, pattern, limit: parseInt(opts.limit) });
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    console.log(`Found ${r.count} match(es)`);
+    for (const m of r.matches as Array<Record<string, string>>) console.log(`  [${m.time}] ${m.type}`);
+  });
+
+program
+  .command('session-compact <name>')
+  .description('Compact session')
+  .option('--summary <text>', 'Custom summary')
+  .action(async (name, opts) => {
+    const r = await api('/session/compact', 'POST', { name, summary: opts.summary });
+    if (r.ok) console.log('Compacted.');
+    else fail(r.error);
+  });
+
+// Agent management
+program
+  .command('agents-list')
+  .description('List agents')
+  .option('-d, --cwd <dir>')
+  .action(async (opts) => {
+    const q = opts.cwd ? `?cwd=${encodeURIComponent(opts.cwd)}` : '';
+    const r = await api(`/agents${q}`);
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    const agents = r.agents as Array<{ name: string; description: string }>;
+    if (!agents.length) {
+      console.log('No agents found.');
+      return;
+    }
+    for (const a of agents) console.log(`  ${a.name}${a.description ? ` — ${a.description}` : ''}`);
+  });
+
+program
+  .command('agents-create <name>')
+  .description('Create agent')
+  .option('-d, --cwd <dir>')
+  .option('--description <desc>')
+  .option('--prompt <prompt>')
+  .action(async (name, opts) => {
+    const r = await api('/agents/create', 'POST', {
+      name,
+      cwd: opts.cwd,
+      description: opts.description,
+      prompt: opts.prompt,
+    });
+    if (r.ok) console.log(`Agent '${name}' created at: ${r.path}`);
+    else fail(r.error);
+  });
+
+// Skills
+program
+  .command('skills-list')
+  .description('List skills')
+  .option('-d, --cwd <dir>')
+  .action(async (opts) => {
+    const q = opts.cwd ? `?cwd=${encodeURIComponent(opts.cwd)}` : '';
+    const r = await api(`/skills${q}`);
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    const skills = r.skills as Array<{ name: string; description: string }>;
+    if (!skills.length) {
+      console.log('No skills found.');
+      return;
+    }
+    for (const s of skills) console.log(`  ${s.name}${s.description ? ` — ${s.description}` : ''}`);
+  });
+
+program
+  .command('skills-create <name>')
+  .description('Create skill')
+  .option('-d, --cwd <dir>')
+  .option('--description <desc>')
+  .option('--prompt <prompt>')
+  .option('--trigger <t>')
+  .action(async (name, opts) => {
+    const r = await api('/skills/create', 'POST', {
+      name,
+      cwd: opts.cwd,
+      description: opts.description,
+      prompt: opts.prompt,
+      trigger: opts.trigger,
+    });
+    if (r.ok) console.log(`Skill '${name}' created at: ${r.path}`);
+    else fail(r.error);
+  });
+
+// Rules
+program
+  .command('rules-list')
+  .description('List rules')
+  .option('-d, --cwd <dir>')
+  .action(async (opts) => {
+    const q = opts.cwd ? `?cwd=${encodeURIComponent(opts.cwd)}` : '';
+    const r = await api(`/rules${q}`);
+    if (!r.ok) {
+      fail(r.error);
+      return;
+    }
+    const rules = r.rules as Array<{ name: string; description: string; paths: string; condition: string }>;
+    if (!rules.length) {
+      console.log('No rules found.');
+      return;
+    }
+    for (const rule of rules) {
+      let info = `  ${rule.name}`;
+      if (rule.description) info += ` — ${rule.description}`;
+      if (rule.paths) info += ` [paths: ${rule.paths}]`;
+      if (rule.condition) info += ` [if: ${rule.condition}]`;
+      console.log(info);
+    }
+  });
+
+program
+  .command('rules-create <name>')
+  .description('Create rule')
+  .option('-d, --cwd <dir>')
+  .option('--description <desc>')
+  .option('--content <text>')
+  .option('--paths <glob>')
+  .option('--condition <expr>')
+  .action(async (name, opts) => {
+    const r = await api('/rules/create', 'POST', {
+      name,
+      cwd: opts.cwd,
+      description: opts.description,
+      content: opts.content,
+      paths: opts.paths,
+      condition: opts.condition,
+    });
+    if (r.ok) console.log(`Rule '${name}' created at: ${r.path}`);
+    else fail(r.error);
+  });
+
+// Agent teams
+program
+  .command('session-team-list <name>')
+  .description('List teammates')
+  .action(async (name) => {
+    const r = await api('/session/team-list', 'POST', { name });
+    if (r.ok) console.log(r.response || 'No team info');
+    else fail(r.error);
+  });
+
+program
+  .command('session-team-send <name> <teammate> <message>')
+  .description('Message teammate')
+  .action(async (name, teammate, message) => {
+    const r = await api('/session/team-send', 'POST', { name, teammate, message });
+    if (r.ok) console.log(r.output || 'Sent');
+    else fail(r.error);
+  });
+
+// ─── workflow / verify ──────────────────────────────────────────────────────
+
+program
+  .command('workflow')
+  .description('List, inspect, and control durable workflow runs')
+  .argument('<action>', 'list | show | cancel | resume | steer | approve')
+  .argument('[runId]', 'Run id (not needed for `list`)')
+  .argument('[text]', 'Steer text, or approve/reject for `approve`')
+  .option('--state <state>', 'Filter by run state (list)')
+  .option('--workflow <name>', 'Filter by workflow name (list)')
+  .option('--limit <n>', 'Max rows (list)', '25')
+  .option('--json', 'Raw JSON output')
+  .action(async (action: string, runId: string | undefined, text: string | undefined, opts) => {
+    if (action === 'list') {
+      const params = new URLSearchParams();
+      if (opts.state) params.set('state', opts.state);
+      if (opts.workflow) params.set('workflow', opts.workflow);
+      params.set('limit', String(opts.limit));
+      const r = await api(`/workflow/list?${params}`);
+      if (!r.ok) return fail(r);
+      if (opts.json) return console.log(JSON.stringify(r.runs, null, 2));
+      const runs = r.runs as Array<Record<string, string>>;
+      if (runs.length === 0) return console.log('No workflow runs recorded.');
+      for (const run of runs) {
+        // Three outcomes, printed as three things: `unverified` is not a
+        // failure, it means no contract was declared and nothing checked it.
+        const mark = run.outcome === 'verified' ? 'verified' : run.outcome === 'refuted' ? 'REFUTED' : 'unchecked';
+        console.log(
+          `${run.runId.padEnd(26)} ${String(run.workflow).padEnd(12)} ${String(run.state).padEnd(15)} ${mark.padEnd(10)} ${run.createdAt}`,
+        );
+      }
+      return;
+    }
+
+    if (!runId) return usage('runId is required for this action');
+
+    if (action === 'show') {
+      const r = await api(`/workflow/${encodeURIComponent(runId)}/state`);
+      if (!r.ok) return fail(r);
+      if (opts.json) return console.log(JSON.stringify(r.run, null, 2));
+      // `Record<string, never>` typed every access as the bottom type, which is
+      // assignable to anything — `run.workflw` would have compiled too.
+      const run = r.run as Record<string, unknown>;
+      console.log(`${String(run.runId)}  ${String(run.workflow)}  ${String(run.state)} / ${String(run.outcome)}`);
+      if (run.error) console.log(`error: ${String(run.error)}`);
+      for (const node of Object.values(run.nodes as Record<string, Record<string, unknown>>)) {
+        console.log(`  ${String(node.id).padEnd(18)} ${String(node.kind).padEnd(11)} ${String(node.state)}`);
+        // A goal runs for hours; its checkpoint is the only progress there is.
+        const g = node.kind === 'goal' ? (node.data as Record<string, unknown> | undefined) : undefined;
+        if (g) {
+          const err = g.lastError as { code?: string; message?: string } | undefined;
+          console.log(
+            `    goal ${String(g.status)}  ${String(g.tokensUsed)} tokens  ${String(g.timeUsedSeconds)}s  ` +
+              `resumes ${String(g.resumes)}  thread ${String(g.threadId)}` +
+              (err ? `\n    last error: ${err.code ?? err.message}` : ''),
+          );
+        }
+      }
+      return;
+    }
+
+    if (action === 'cancel' || action === 'resume') {
+      const r = await api(`/workflow/${encodeURIComponent(runId)}/${action}`, 'POST', {});
+      if (!r.ok) return fail(r);
+      console.log(JSON.stringify(r, null, 2));
+      return;
+    }
+
+    if (action === 'steer') {
+      if (!text) return usage('steer needs text');
+      const r = await api(`/workflow/${encodeURIComponent(runId)}/steer`, 'POST', { text });
+      if (!r.ok) return fail(r);
+      console.log(r.steered ? 'Steer queued.' : 'Run is not live here; nothing queued.');
+      return;
+    }
+
+    if (action === 'approve') {
+      const approved = text !== 'reject' && text !== 'false' && text !== 'no';
+      const r = await api(`/workflow/${encodeURIComponent(runId)}/approve`, 'POST', { approved });
+      if (!r.ok) return fail(r);
+      console.log(r.answered ? `Gate ${approved ? 'approved' : 'rejected'}.` : 'No gate is waiting on this run.');
+      return;
+    }
+
+    usage(`unknown action '${action}'. Use list | show | cancel | resume | steer | approve.`);
+  });
+
+program
+  .command('verify')
+  .description("Show a workflow run's evidence bundle — what the runtime actually checked")
+  .argument('<runId>')
+  .option('--evidence <id>', "A specific bundle (default: the run's latest)")
+  .option('--json', 'Raw JSON output')
+  .action(async (runId: string, opts) => {
+    const params = new URLSearchParams();
+    if (opts.evidence) params.set('evidenceId', opts.evidence);
+    const r = await api(`/workflow/${encodeURIComponent(runId)}/evidence?${params}`);
+    if (!r.ok) return fail(r);
+    if (opts.json) return console.log(JSON.stringify(r.evidence, null, 2));
+    const { formatEvidence } = await import('../src/verify/evidence.js');
+    console.log(formatEvidence(r.evidence as never));
+  });
+
+// ─── solve / fanout — start a built-in workflow from the terminal ───────────
+
+type AgentBindingArg = { name: string; engine?: string; model?: string; acpAgent?: string };
+
+/**
+ * `claude`, `codex:gpt-6.1-sol` → an agent binding. Names are made unique. For
+ * `acp` the part after the colon names the agent rather than a model —
+ * `acp:kimi-code` — because an ACP agent picks its own model.
+ */
+function parseAgentList(list: string, seen = new Map<string, number>()): AgentBindingArg[] {
+  return list
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const i = item.indexOf(':');
+      const engine = i === -1 ? item : item.slice(0, i);
+      const rest = i === -1 ? undefined : item.slice(i + 1) || undefined;
+      const acpAgent = engine === 'acp' ? rest : undefined;
+      const model = engine === 'acp' ? undefined : rest;
+      const base = acpAgent ?? engine;
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      return {
+        name: n === 1 ? base : `${base}-${n}`,
+        engine,
+        ...(model ? { model } : {}),
+        ...(acpAgent ? { acpAgent } : {}),
+      };
+    });
+}
+
+/** Refuse an unknown engine here rather than as a failed node a minute later. */
+async function enginesKnown(agents: AgentBindingArg[]): Promise<boolean> {
+  const { ENGINE_TYPES } = await import('../src/types.js');
+  const known = ENGINE_TYPES as readonly string[];
+  const bad = agents.filter((a) => !a.engine || !known.includes(a.engine)).map((a) => a.engine || '(empty)');
+  if (bad.length) {
+    console.error(`Error: unknown engine ${bad.join(', ')}. Known: ${known.join(', ')}`);
+    process.exitCode = 1;
+    return false;
+  }
+  if (agents.some((a) => a.engine === 'acp' && !a.acpAgent)) {
+    console.error('Error: engine acp needs the agent: write acp:<preset>, e.g. acp:kimi-code (see `clawo engines`)');
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
+}
+
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+/**
+ * `--check "node --test"` → a command check. Split on whitespace and run as
+ * argv, never through a shell; anything that needs quoting goes in `--contract`.
+ */
+function buildContract(
+  checks: string[],
+  contractFile: string | undefined,
+  timeoutMs?: number,
+): Record<string, unknown> | undefined {
+  if (contractFile) {
+    const raw = JSON.parse(fs.readFileSync(contractFile, 'utf-8')) as Record<string, unknown>;
+    if (!checks.length) return raw;
+    return { ...raw, checks: [...((raw.checks as unknown[]) ?? []), ...checksFromFlags(checks, timeoutMs)] };
+  }
+  return checks.length ? { checks: checksFromFlags(checks, timeoutMs) } : undefined;
+}
+
+function checksFromFlags(checks: string[], timeoutMs?: number): Array<Record<string, unknown>> {
+  return checks.map((c, i) => {
+    const [cmd, ...args] = c.trim().split(/\s+/);
+    return { id: `check-${i + 1}`, type: 'command', cmd, args, ...(timeoutMs ? { timeoutMs } : {}) };
+  });
+}
+
+type RunSnapshot = {
+  state: string;
+  outcome: string;
+  error?: string;
+  outcomeReason?: string;
+  costUsd?: number;
+  nodes: Record<string, { id: string; kind: string; state: string; startedAt?: string; endedAt?: string }>;
+};
+
+const RUN_DONE = new Set(['completed', 'failed', 'cancelled']);
+
+async function runState(runId: string): Promise<RunSnapshot | undefined> {
+  const r = await api(`/workflow/${encodeURIComponent(runId)}/state`);
+  if (!r.ok) {
+    fail(r);
+    return undefined;
+  }
+  return r.run as RunSnapshot;
+}
+
+/** Print the verdict line and return the exit code: 0 only for a completed run. */
+function printVerdict(runId: string, run: RunSnapshot): number {
+  const verdict = run.outcome === 'refuted' ? 'REFUTED' : run.outcome;
+  const cost = typeof run.costUsd === 'number' ? `  $${run.costUsd.toFixed(4)}` : '';
+  console.log(`\n${runId}  ${run.state} / ${verdict}${cost}`);
+  if (run.outcomeReason) console.log(run.outcomeReason);
+  if (run.error) console.log(`error: ${run.error}`);
+  if (run.outcome !== 'unverified') console.log(`evidence: clawo verify ${runId}`);
+  return run.state === 'completed' ? 0 : 1;
+}
+
+/**
+ * Follow a run until it ends, printing each node transition in the order it
+ * happened. Reads the run's event stream: polling the state missed transitions
+ * that came and went between two polls — a failed check and the repair it
+ * triggered printed as one line, in node order rather than time order.
+ */
+async function followRun(runId: string): Promise<number> {
+  const first = await runState(runId);
+  if (!first) return 1;
+  const kinds = new Map(Object.values(first.nodes).map((n) => [n.id, n.kind]));
+  const last = new Map<string, string>();
+  const line = (node: string, state: string): void => {
+    if (last.get(node) === state) return;
+    last.set(node, state);
+    console.log(`  ${node.padEnd(18)} ${(kinds.get(node) ?? '').padEnd(11)} ${state}`);
+  };
+  // What already happened before the stream was open, oldest first.
+  const stamp = (n: RunSnapshot['nodes'][string]): string => n.endedAt ?? n.startedAt ?? '';
+  for (const n of Object.values(first.nodes)
+    .filter((x) => x.state !== 'pending')
+    .sort((x, y) => stamp(x).localeCompare(stamp(y)))) {
+    line(n.id, n.state);
+  }
+  if (RUN_DONE.has(first.state)) return printVerdict(runId, first);
+
+  const headers: Record<string, string> = {};
+  const token = getAuthToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const ctrl = new AbortController();
+  let ended = false;
+  let wake: () => void = () => {};
+  // The stream carries the transitions; a slow poll is what decides the run is
+  // over, so a dropped connection or a missed final event cannot hang the CLI.
+  const watch = (async () => {
+    while (!ended) {
+      await new Promise<void>((res) => {
+        const t = setTimeout(res, 5000);
+        wake = () => {
+          clearTimeout(t);
+          res();
+        };
+      });
+      if (ended) break;
+      const s = await runState(runId);
+      if (!s || RUN_DONE.has(s.state)) break;
+    }
+    ctrl.abort();
+  })();
+  try {
+    const res = await fetch(`${getBaseUrl()}/workflow/${encodeURIComponent(runId)}/events`, {
+      headers,
+      signal: ctrl.signal,
+    });
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (reader) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let cut: number;
+      while ((cut = buf.indexOf('\n\n')) !== -1) {
+        const block = buf.slice(0, cut);
+        buf = buf.slice(cut + 2);
+        if (!block.startsWith('event: workflow-event')) continue;
+        const data = block.slice(block.indexOf('data: ') + 6);
+        const e = JSON.parse(data) as { type: string; node?: string; state?: string };
+        if (e.type === 'node_state' && e.node && e.state) line(e.node, e.state);
+        if (e.type === 'run_state' && e.state && RUN_DONE.has(e.state)) ctrl.abort();
+      }
+    }
+  } catch {
+    // Aborted on purpose when the run ended, or the stream dropped: the final
+    // state below is read fresh either way.
+  }
+  ended = true;
+  wake();
+  await watch.catch(() => {});
+  const final = await runState(runId);
+  return final ? printVerdict(runId, final) : 1;
+}
+
+async function startWorkflow(
+  spec: unknown,
+  cwd: string,
+  contract: Record<string, unknown> | undefined,
+  opts: { wait?: boolean; json?: boolean },
+): Promise<string | undefined> {
+  const r = await api('/workflow/new', 'POST', { spec, cwd, contract });
+  if (!r.ok) {
+    fail(r);
+    process.exitCode = 1;
+    return undefined;
+  }
+  const runId = String(r.runId);
+  if (!opts.wait) {
+    if (opts.json) console.log(JSON.stringify({ runId, state: r.state }));
+    else console.log(`${runId} started. Follow it with: clawo workflow show ${runId}`);
+    return runId;
+  }
+  if (!opts.json) console.log(`${runId} started`);
+  process.exitCode = opts.json ? await waitQuietly(runId) : await followRun(runId);
+  if (opts.json) {
+    const s = await api(`/workflow/${encodeURIComponent(runId)}/state`);
+    console.log(JSON.stringify(s.run, null, 2));
+  }
+  return runId;
+}
+
+/** `--wait --json`: poll without printing, so stdout stays one JSON document. */
+async function waitQuietly(runId: string): Promise<number> {
+  for (;;) {
+    const r = await api(`/workflow/${encodeURIComponent(runId)}/state`);
+    const run = r.run as { state?: string } | undefined;
+    if (!r.ok || !run) return 1;
+    if (run.state === 'completed') return 0;
+    if (run.state === 'failed' || run.state === 'cancelled') return 1;
+    await new Promise((res) => setTimeout(res, 2000));
+  }
+}
+
+program
+  .command('solve')
+  .description('Fix something and have the runtime check it: triage → implement → verify → repair until green')
+  .argument('<task>', 'What to do')
+  .option(
+    '-e, --engine <engine[:model]>',
+    'Implementer engine, optionally with a model; acp:<preset> for an ACP agent',
+    'claude',
+  )
+  .option('--scouts <list>', 'Comma-separated triage agents, engine[:model] each (default: the implementer)')
+  .option('--reviewers <list>', 'Comma-separated reviewers, engine[:model] each')
+  .option(
+    '-c, --check <command>',
+    'Acceptance check the runtime runs itself, e.g. "npm test" (repeatable)',
+    collect,
+    [],
+  )
+  .option('--contract <file>', 'Acceptance contract JSON file (merged with --check)')
+  .option('--max-repairs <n>', 'Repair attempts while the checks are red', '3')
+  .option('--human-gate', 'Wait for `clawo workflow approve` before writing anything')
+  .option('--cwd <dir>', 'Project directory', process.cwd())
+  .option('-w, --wait', 'Follow the run until it ends; exit 1 unless it completes')
+  .option('--json', 'Machine-readable output')
+  .action(async (task: string, opts) => {
+    const { solveWorkflow } = await import('../src/kernel/templates/index.js');
+    const [implementer] = parseAgentList(opts.engine);
+    const scouts = opts.scouts ? parseAgentList(opts.scouts) : [{ ...implementer }];
+    const reviewers = opts.reviewers ? parseAgentList(opts.reviewers) : undefined;
+    if (!(await enginesKnown([implementer, ...scouts, ...(reviewers ?? [])]))) return;
+    const cwd = path.resolve(opts.cwd);
+    const spec = solveWorkflow({
+      task,
+      cwd,
+      scouts: scouts as never,
+      implementer: { engine: implementer.engine as never, model: implementer.model, acpAgent: implementer.acpAgent },
+      reviewers: reviewers as never,
+      humanGate: opts.humanGate,
+      maxRepairs: Math.max(0, parseInt(opts.maxRepairs, 10) || 0),
+    });
+    await startWorkflow(spec, cwd, buildContract(opts.check, opts.contract), opts);
+  });
+
+program
+  .command('fanout')
+  .description('Ask several engines the same thing in parallel, optionally with a synthesis pass')
+  .argument('<task>', 'The prompt every agent gets')
+  .option(
+    '-e, --engines <list>',
+    'Comma-separated agents, engine[:model] each; acp:<preset> for an ACP agent',
+    'claude,codex',
+  )
+  .option('-s, --synthesize', 'Merge the answers in a final pass (needs two or more agents)')
+  .option('-c, --check <command>', 'Acceptance check the runtime runs afterwards (repeatable)', collect, [])
+  .option('--contract <file>', 'Acceptance contract JSON file (merged with --check)')
+  .option('--cwd <dir>', 'Project directory', process.cwd())
+  .option('-w, --wait', 'Follow the run until it ends, then print every answer')
+  .option('--json', 'Machine-readable output')
+  .action(async (task: string, opts) => {
+    const { fanoutWorkflow } = await import('../src/kernel/templates/index.js');
+    const agents = parseAgentList(opts.engines);
+    if (!agents.length) {
+      console.error('Error: --engines needs at least one engine');
+      process.exitCode = 1;
+      return;
+    }
+    if (!(await enginesKnown(agents))) return;
+    const cwd = path.resolve(opts.cwd);
+    const spec = fanoutWorkflow({ task, cwd, agents: agents as never, synthesize: !!opts.synthesize });
+    const runId = await startWorkflow(spec, cwd, buildContract(opts.check, opts.contract), opts);
+    if (!runId || !opts.wait || opts.json) return;
+    const s = await api(`/workflow/${encodeURIComponent(runId)}/state`);
+    const node = (s.run as { nodes?: Record<string, { output?: string }> } | undefined)?.nodes?.fanout;
+    if (node?.output) console.log(`\n${node.output}`);
+  });
+
+program
+  .command('goal')
+  .description(
+    'Run a /goal on one thread (Codex or Claude Code), then have the runtime check it: goal → verify → repair',
+  )
+  .argument('[objective]', 'What the agent should achieve (or use --objective-file)')
+  .option('--objective-file <file>', 'Read the objective from a file')
+  .option('-e, --engine <engine>', 'Who runs the goal: codex | claude', 'codex')
+  .option('-m, --model <model>', "Model (default: the engine's own)")
+  .option('--effort <level>', 'Reasoning effort')
+  .option('--sandbox <mode>', "Codex's own sandbox: read-only | workspace-write | danger-full-access")
+  .option(
+    '--launcher <arg>',
+    'Run the engine under this command, one argv element per flag, e.g. --launcher ./sandbox.sh --launcher task --launcher "0 1"',
+    collect,
+    [],
+  )
+  .option(
+    '--thread <id>',
+    'Start on this existing codex thread or claude session: its goal is replaced, its history kept',
+  )
+  .option('--token-budget <n>', 'Tokens the goal may spend before it stops as budgetLimited')
+  .option('--goal-timeout <minutes>', 'Wall-clock budget for one goal pass (default: none)')
+  .option('-c, --check <command>', 'Acceptance check the runtime runs after the goal (repeatable)', collect, [])
+  .option('--check-timeout <minutes>', 'Timeout for each --check (default 10)')
+  .option('--contract <file>', 'Acceptance contract JSON file (merged with --check)')
+  .option('--max-repairs <n>', 'Times a red verdict sends the goal back to the same thread', '1')
+  .option('--cwd <dir>', 'Project directory', process.cwd())
+  .option('-w, --wait', 'Follow the run until it ends; exit 1 unless it completes')
+  .option('--json', 'Machine-readable output')
+  .action(async (objectiveArg: string | undefined, opts) => {
+    const { goalWorkflow } = await import('../src/kernel/templates/index.js');
+    const { GOAL_OBJECTIVE_MAX_CHARS } = await import('../src/kernel/nodes/goal.js');
+    if (opts.engine !== 'codex' && opts.engine !== 'claude') {
+      console.error(`Error: --engine must be codex or claude, not ${opts.engine}`);
+      process.exitCode = 1;
+      return;
+    }
+    const objective = opts.objectiveFile ? fs.readFileSync(opts.objectiveFile, 'utf-8').trim() : objectiveArg?.trim();
+    if (!objective) {
+      console.error('Error: give an objective, or --objective-file');
+      process.exitCode = 1;
+      return;
+    }
+    if ([...objective].length > GOAL_OBJECTIVE_MAX_CHARS) {
+      console.error(
+        `Error: the objective is ${[...objective].length} characters; a goal accepts at most ${GOAL_OBJECTIVE_MAX_CHARS}. ` +
+          'Put the full brief in a file in the working directory and name that file in the objective.',
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const minutes = (v: string | undefined) => (v ? Math.max(1, parseFloat(v)) * 60_000 : undefined);
+    const cwd = path.resolve(opts.cwd);
+    const contract = buildContract(opts.check, opts.contract, minutes(opts.checkTimeout));
+    const spec = goalWorkflow({
+      task: objective,
+      cwd,
+      contract: contract as never,
+      engine: opts.engine,
+      model: opts.model,
+      effort: opts.effort,
+      sandboxMode: opts.sandbox,
+      launcher: opts.launcher.length ? opts.launcher : undefined,
+      threadId: opts.thread,
+      tokenBudget: opts.tokenBudget ? parseInt(opts.tokenBudget, 10) : undefined,
+      goalTimeoutMs: minutes(opts.goalTimeout),
+      maxRepairs: Math.max(0, parseInt(opts.maxRepairs, 10) || 0),
+    });
+    await startWorkflow(spec, cwd, contract, opts);
+  });
+
+// An action that throws (an unreadable --message-file, a contract that is not
+// JSON) is reported like any other failure, not as a stack trace.
+program.parseAsync().catch((e: unknown) => fail(e instanceof Error ? e.message : e));

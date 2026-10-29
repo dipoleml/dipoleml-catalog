@@ -1,0 +1,413 @@
+{
+  "manifest_version": "0.4",
+  "name": "seo-monster",
+  "display_name": "SEOMonster",
+  "version": "0.9.3",
+  "description": "Local, user-credential-driven MCP server for SEO workflows over Google Search Console, GA4, PageSpeed Insights (PSI), Cloudflare, IndexNow, Chrome UX Report (CrUX), and technical-SEO HTTP primitives.",
+  "long_description": "SEOMonster is an open-source MCP server that exposes strictly SEO-focused tools across Google Search Console, Google Analytics 4, PageSpeed Insights (PSI), Cloudflare, IndexNow, the Chrome UX Report (CrUX) History API, and a built-in HTTP client for technical-SEO checks (inspect_meta, check_canonical, redirect_chain_audit, mixed_content_check, robots_txt_validate, sitemap_validate, sitemap_health). All credentials are user-supplied and stay on your machine: nothing is shared with any third party. Reads are always available; the two routine SEO writes (sitemap submit, indexing request) and IndexNow notifications are available by default; only Cloudflare cache-purge tools are gated behind an explicit opt-in. v0.9 adds AI/GEO citation tools (ai_citation_readiness, ai_referral_overview, ai_citation_track), net-new keyword discovery (gsc_keyword_expand, serp_adjacency_expand, keyword_universe), data-wired content briefs + topic-cluster mapping, internal-link recommendations, rank-change attribution, and on-page SERP-gap analysis. The keyword/SERP/AI-engine providers (DataForSEO, Open PageRank, Perplexity/OpenAI/Anthropic/Gemini) are all optional and pluggable; the free GSC/GA4/HTTP core works without them.",
+  "author": {
+    "name": "AvanSaber Inc.",
+    "email": "support@avansaber.com",
+    "url": "https://seomonster.avansaber.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avansaber/seo-monster"
+  },
+  "homepage": "https://seomonster.avansaber.com",
+  "documentation": "https://seomonster.avansaber.com",
+  "support": "https://github.com/avansaber/seo-monster/issues",
+  "keywords": [
+    "seo",
+    "seomonster",
+    "search-console",
+    "ga4",
+    "pagespeed",
+    "cloudflare",
+    "mcp"
+  ],
+  "privacy_policies": [
+    "https://policies.google.com/privacy",
+    "https://www.cloudflare.com/privacypolicy/"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/seo_mcp/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "${__dirname}",
+        "seo-monster"
+      ],
+      "env": {
+        "SEO_MCP_GOOGLE_OAUTH_CLIENT": "${user_config.google_oauth_client}",
+        "SEO_MCP_GOOGLE_TOKEN": "${user_config.google_token}",
+        "SEO_MCP_GSC_DEFAULT_SITE": "${user_config.gsc_default_site}",
+        "SEO_MCP_GA4_PROPERTY_ID": "${user_config.ga4_property_id}",
+        "PSI_API_KEY": "${user_config.psi_api_key}",
+        "CF_API_TOKEN": "${user_config.cf_api_token}",
+        "CF_ZONE": "${user_config.cf_zone}",
+        "SEO_MCP_INDEXNOW_KEY": "${user_config.indexnow_key}",
+        "SEO_MCP_INDEXNOW_KEY_LOCATION": "${user_config.indexnow_key_location}"
+      }
+    }
+  },
+  "user_config": {
+    "google_oauth_client": {
+      "type": "file",
+      "title": "Google OAuth Client Secrets JSON",
+      "description": "Path to your Desktop-app OAuth client-secrets JSON, downloaded from Google Cloud Console (APIs & Services > Credentials > Create credentials > OAuth client ID > Desktop app). Required for Search Console, Indexing, and GA4 tools.",
+      "required": true
+    },
+    "google_token": {
+      "type": "string",
+      "title": "Google OAuth Token Cache Path",
+      "description": "Writable path where the cached OAuth token is stored. On first use, a browser opens for one-time consent and the token is written here. Default places it in your home config directory.",
+      "required": true,
+      "default": "${HOME}/.config/seo-monster/token.json"
+    },
+    "gsc_default_site": {
+      "type": "string",
+      "title": "GSC Default Property (optional)",
+      "description": "Default Search Console property for the GSC tools, e.g. 'sc-domain:example.com' or 'https://www.example.com/'. You can also pass site_url per call.",
+      "required": false
+    },
+    "ga4_property_id": {
+      "type": "string",
+      "title": "GA4 Default Property ID (optional)",
+      "description": "Default GA4 property for the GA4 tools, e.g. 'properties/123456789' or bare '123456789'. You can also pass property_id per call.",
+      "required": false
+    },
+    "psi_api_key": {
+      "type": "string",
+      "title": "PageSpeed Insights API Key (optional)",
+      "description": "Optional. PSI works anonymously; a key only raises rate limits. Create one in Google Cloud Console after enabling the PageSpeed Insights API.",
+      "required": false,
+      "sensitive": true
+    },
+    "cf_api_token": {
+      "type": "string",
+      "title": "Cloudflare API Token (optional)",
+      "description": "Bearer token for the Cloudflare tools. Generate at dash.cloudflare.com > My Profile > API Tokens with Zone:Read, DNS:Read, Account Analytics:Read, and (only if you enable destructive mode) Cache Purge:Purge, Single Redirect:Edit, Zone Settings:Edit, and (for bulk redirects) Account Rulesets:Edit + Account Filter Lists:Edit.",
+      "required": false,
+      "sensitive": true
+    },
+    "cf_zone": {
+      "type": "string",
+      "title": "Cloudflare Default Zone Hostname (optional)",
+      "description": "Default zone hostname for the Cloudflare tools, e.g. 'example.com'. You can also pass zone per call.",
+      "required": false
+    },
+    "indexnow_key": {
+      "type": "string",
+      "title": "IndexNow Key (optional)",
+      "description": "Shared key used to submit URLs to Bing/Yandex/Naver/Seznam/Yep via IndexNow. Any 8-128 hex string you generate; engines verify ownership by fetching https://<your-host>/<key>.txt. See https://www.indexnow.org/documentation. Required only if you want to use indexnow_submit / indexnow_bulk_submit.",
+      "required": false,
+      "sensitive": true
+    },
+    "indexnow_key_location": {
+      "type": "string",
+      "title": "IndexNow Key File URL (optional)",
+      "description": "Override the default verification location (https://<host>/<key>.txt). Set only if you host the key file at a non-standard path.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  },
+  "tools_generated": false,
+  "prompts_generated": false,
+  "tools": [
+    {
+      "name": "system_status",
+      "description": "Discovery tool. Reports which services are configured/reachable, the Google auth method and scopes, whether destructive mode is on, and the full tool catalog. Call this first when unsure of the setup."
+    },
+    {
+      "name": "gsc_list_properties",
+      "description": "List every Search Console property the configured credentials can see, with each property's permission level."
+    },
+    {
+      "name": "gsc_search_analytics",
+      "description": "The workhorse GSC tool: clicks, impressions, CTR, and position by dimensions, date range, dimension filters, and data_state."
+    },
+    {
+      "name": "gsc_top_queries",
+      "description": "Convenience wrapper: top queries for a property by clicks over the last N days."
+    },
+    {
+      "name": "gsc_top_pages",
+      "description": "Convenience wrapper: top pages for a property by clicks over the last N days."
+    },
+    {
+      "name": "gsc_compare_periods",
+      "description": "Compare two equal-length time windows (current vs prior) and return per-key deltas in clicks, impressions, CTR, and position, plus keys present in only one window."
+    },
+    {
+      "name": "gsc_inspect_url",
+      "description": "Inspect a single URL via the URL Inspection API: index verdict, coverage state, crawl info, canonicals, and mobile/rich-results summaries when present."
+    },
+    {
+      "name": "gsc_batch_inspect_urls",
+      "description": "Inspect up to 25 URLs in one call. Per-URL failures are collected so a transient error does not fail the whole batch."
+    },
+    {
+      "name": "gsc_list_sitemaps",
+      "description": "List the sitemaps Google knows about for a property, with submission and indexing status."
+    },
+    {
+      "name": "gsc_submit_sitemap",
+      "description": "Submit a sitemap to Search Console. Routine SEO write, available by default; requires the writable webmasters scope."
+    },
+    {
+      "name": "gsc_request_indexing",
+      "description": "Request (re)crawl of one or more URLs via the Indexing API (URL_UPDATED). Routine SEO write, available by default; requires the indexing scope."
+    },
+    {
+      "name": "ga4_run_report",
+      "description": "Workhorse GA4 tool: run a Google Analytics 4 report with arbitrary dimensions, metrics, date range, optional dimension filter, and ordering."
+    },
+    {
+      "name": "ga4_top_landing_pages",
+      "description": "Convenience: top landing pages by sessions, filtered to organic search by default. Returns engagement rate and conversions alongside sessions."
+    },
+    {
+      "name": "ga4_traffic_by_channel",
+      "description": "Convenience: sessions, engaged sessions, and conversions broken down by default channel group. Separates organic from paid / referral / direct at a glance."
+    },
+    {
+      "name": "ga4_organic_search_overview",
+      "description": "Organic-search health: window totals (sessions, engaged sessions, engagement rate, average session duration, conversions) plus a day-by-day trend."
+    },
+    {
+      "name": "psi_analyze",
+      "description": "Run PageSpeed Insights on a URL. Returns Lighthouse category scores, lab Core Web Vitals, and field Core Web Vitals (CrUX) when available."
+    },
+    {
+      "name": "cf_list_zones",
+      "description": "List the Cloudflare zones the API token can see, with status, plan, and id."
+    },
+    {
+      "name": "cf_zone_info",
+      "description": "Zone overview for a hostname: status, plan, paused, name servers, created and modified timestamps."
+    },
+    {
+      "name": "cf_list_dns",
+      "description": "List DNS records for a zone (read-only). Useful for verifying the canonical host and TXT verification records during SEO migrations."
+    },
+    {
+      "name": "cf_web_analytics",
+      "description": "Read-only Cloudflare Web Analytics (edge RUM). Lists all account sites or returns a single site by hostname or tag. Complements GA4 with edge-measured visits."
+    },
+    {
+      "name": "cf_purge_cache",
+      "description": "Purge specific URLs from the Cloudflare cache so crawlers refetch updated content. Gated: requires SEO_MCP_ALLOW_DESTRUCTIVE=true."
+    },
+    {
+      "name": "cf_purge_cache_all",
+      "description": "Purge the entire Cloudflare cache for a zone. Gated: requires SEO_MCP_ALLOW_DESTRUCTIVE=true AND a confirm value equal to the resolved zone hostname."
+    },
+    {
+      "name": "cf_list_redirects",
+      "description": "List a zone's single (dynamic) redirect rules (source, target, status code, rule id). Read-only; call before creating/deleting redirects."
+    },
+    {
+      "name": "cf_create_redirect",
+      "description": "Create one edge redirect (default 301) for a renamed/migrated URL. Gated: requires SEO_MCP_ALLOW_DESTRUCTIVE=true. Pre-flights the target, refuses loops/duplicates, supports dry_run."
+    },
+    {
+      "name": "cf_delete_redirect",
+      "description": "Delete a single (dynamic) redirect rule by id (rollback for cf_create_redirect). Gated: requires SEO_MCP_ALLOW_DESTRUCTIVE=true."
+    },
+    {
+      "name": "cf_bulk_redirect_upsert",
+      "description": "Create/append many redirects at once via an account-level Bulk Redirect List (for migrations). Gated: requires SEO_MCP_ALLOW_DESTRUCTIVE=true and a confirm value equal to list_name. Validates all items locally first; supports dry_run."
+    },
+    {
+      "name": "cf_settings_update",
+      "description": "Write the SEO/crawl/security zone settings cf_settings_audit grades (SSL mode, Always-Use-HTTPS, Automatic HTTPS Rewrites, Brotli, browser cache TTL, HSTS). Gated: requires SEO_MCP_ALLOW_DESTRUCTIVE=true; ssl_mode or HSTS-raise also need confirm=<zone> (HSTS-raise also acknowledge_hsts_risk=true). Validates locally; supports dry_run."
+    },
+    {
+      "name": "indexnow_submit",
+      "description": "Submit a single URL to IndexNow (Bing + Yandex + Naver + Seznam + Yep). Complements gsc_request_indexing for the non-Google engines."
+    },
+    {
+      "name": "indexnow_bulk_submit",
+      "description": "Submit up to 10,000 URLs sharing the same host to IndexNow in one batched request."
+    },
+    {
+      "name": "gsc_query_opportunities",
+      "description": "Queries already ranking in the top N positions but with below-target CTR. Title and meta optimization candidates."
+    },
+    {
+      "name": "gsc_query_gaps",
+      "description": "Queries that draw impressions but barely any clicks. Content opportunity signal."
+    },
+    {
+      "name": "gsc_new_queries",
+      "description": "Queries with impressions in the current window and zero impressions in the prior window. Emerging topics."
+    },
+    {
+      "name": "gsc_top_pages_by_query",
+      "description": "Which pages rank for a specific query. The cannibalization audit input."
+    },
+    {
+      "name": "inspect_meta",
+      "description": "Fetch a URL and return its on-page SEO surface: title, meta description, robots, canonical, OG/Twitter cards, hreflang, H1 count."
+    },
+    {
+      "name": "check_canonical",
+      "description": "Analyse a page's canonical link tag: self-referential? cross-host? protocol-mismatched? trailing-slash drift? canonical target reachable?"
+    },
+    {
+      "name": "mixed_content_check",
+      "description": "Fetch an HTTPS page and report any http:// sub-resource references (img/script/iframe/form). No-op for http:// pages."
+    },
+    {
+      "name": "redirect_chain_audit",
+      "description": "Walk a URL's redirect chain hop by hop. Flag long chains, protocol downgrades, loops, and non-2xx terminus."
+    },
+    {
+      "name": "robots_txt_validate",
+      "description": "Parse robots.txt: per-group rules + sitemaps. Optionally verdict a list of (user_agent, url) probes using RFC 9309 longest-match semantics."
+    },
+    {
+      "name": "sitemap_validate",
+      "description": "Validate a sitemap or sitemap-index XML, count entries, flag oversize (>50k URLs or >50 MiB), cross-host entries, and missing lastmod. .gz transparent."
+    },
+    {
+      "name": "sitemap_health",
+      "description": "Sample N URLs from a sitemap (or index), HEAD-check each, return a status histogram and the first non-2xx examples."
+    },
+    {
+      "name": "crux_history",
+      "description": "Return the last 25 weekly periods of Core Web Vitals at p75 (LCP, INP, CLS, ...) for a URL or origin via the Chrome UX Report History API."
+    },
+    {
+      "name": "inspect_schema",
+      "description": "Extract every JSON-LD block from a page and report schema.org @type counts plus a sample entity per type."
+    },
+    {
+      "name": "validate_schema",
+      "description": "Validate JSON-LD blocks against the Google Rich Results required-field set. Covers Article, Product, FAQPage, BreadcrumbList, Organization, LocalBusiness, Event, Review, Recipe."
+    },
+    {
+      "name": "hreflang_consistency_check",
+      "description": "Cross-page hreflang audit. Flags missing reciprocity, broken targets, duplicate hreflang, missing self-link, missing x-default."
+    },
+    {
+      "name": "internal_link_graph",
+      "description": "Small BFS crawl from a starting URL within the same host. Returns per-page in/out-degree, orphans, broken internal links, depth distribution."
+    },
+    {
+      "name": "lighthouse_budget",
+      "description": "Run PSI and verdict the results against a performance budget (Lighthouse scores + lab Core Web Vitals). Per-metric pass/fail plus overall verdict."
+    },
+    {
+      "name": "gsc_portfolio_summary",
+      "description": "Multi-property fleet view. Per-property one-row summary (clicks, impressions, CTR, position) over the last N days, plus a portfolio-level rollup. Honors include/exclude filters."
+    },
+    {
+      "name": "gsc_trending_pages",
+      "description": "Pages whose impressions grew most over the last N days vs the prior N days. Wrapper on gsc_compare_periods with dimensions=['page'], sort_by='delta_impressions', sort_dir='desc'."
+    },
+    {
+      "name": "gsc_decaying_pages",
+      "description": "Pages whose impressions fell most over the last N days vs the prior N days. Same wrapper as trending_pages but ascending sort."
+    },
+    {
+      "name": "gsc_coverage_audit",
+      "description": "Heuristic coverage audit (GSC Index Coverage report is not exposed in the API). Bulk-inspects user-supplied URLs, returns per-URL verdict and rollup verdict_counts + coverage_state_counts."
+    },
+    {
+      "name": "robots_ai_posture",
+      "description": "Recommend a Content-Signals posture (search / ai-input / ai-train) from a business goal and emit a ready-to-apply artifact: the Content-Signal directive line plus a full suggested robots.txt. Read-only, offline, deterministic. Always returns the trade-off alternatives and the mandatory caveat that Content-Signal is honored only by adopting crawlers, is ignored by Googlebot, and is not a ranking factor."
+    },
+    {
+      "name": "cf_managed_robots",
+      "description": "Get / configure / disable Cloudflare's managed robots.txt and Content-Signals policy on a zone (rides on the Bot Management config). action=get reads state (un-gated); action=configure sets is_robots_txt_managed, cf_robots_variant (off/policy_only), and the AI-bot blocking levers; action=disable turns them off. Writes are gated (SEO_MCP_ALLOW_DESTRUCTIVE) and need confirm=<zone>; supports dry_run. Returns a caveat separating stated-preference signals from the levers that enforce at the edge."
+    },
+    {
+      "name": "ai_citation_readiness",
+      "description": "Score whether a page is structured to be extracted/cited by LLM answer engines. Leads with a render-blindness check (AI crawlers don't run JS), then scores evidence-backed signals (statistics, quotations, cited sources, no keyword-stuffing); reports schema.org/FAQ/llms.txt as informational only (2026 evidence: not AI-citation drivers). Free, HTTP-only. (v0.9.0)"
+    },
+    {
+      "name": "ai_referral_overview",
+      "description": "First-party view of AI traffic: GA4 referral sessions from AI apps (ChatGPT/Perplexity/Gemini/Copilot/Claude) via the native ai-assistant channel + a source-host regex, plus AI-crawler robots coverage (GPTBot/ClaudeBot/PerplexityBot...). Surfaces the ~70% dark-traffic undercount; keeps AI-Overview clicks (Organic) separate. Free. (v0.9.0)"
+    },
+    {
+      "name": "ai_citation_track",
+      "description": "Sampled brand mention + citation share-of-voice across AI answer engines (Perplexity/OpenAI/Anthropic/Gemini APIs + Google AI Overviews via DataForSEO) for a managed prompt set, vs competitors. N samples/prompt with a 95% CI, share-of-voice, and run-to-run volatility -- NOT an 'AI rank'. Discloses API-vs-UI and AIO-no-API caveats. Paid + non-deterministic. (v0.9.0)"
+    },
+    {
+      "name": "gsc_keyword_expand",
+      "description": "Ground host-brainstormed keyword candidates against your own Search Console data to find net-new terms with no current footprint. Per candidate: footprint (covered/thin/none) + a sibling-strength confidence band. 'none' = no VISIBLE footprint (GSC hides ~75% of impressions); net-new terms are scored hypotheses. Free. (v0.9.0)"
+    },
+    {
+      "name": "serp_adjacency_expand",
+      "description": "Expand seed terms into adjacent terms. FREE core: Google Autocomplete (no key). Optional People-Also-Ask + related searches via DataForSEO. Returns per-seed suggestions + aggregated net-new terms; degrades gracefully without a key. (v0.9.0)"
+    },
+    {
+      "name": "keyword_universe",
+      "description": "Optional external keyword data: competitor keyword GAP (DataForSEO Domain Intersection; no Google equivalent) + search volume/difficulty/intent via a provider chain (DataForSEO, else Google Ads volume-only). External volume is a degraded directional signal -- a tiebreaker, never a gate. Requires DataForSEO and/or Google Ads. (v0.9.0)"
+    },
+    {
+      "name": "content_brief_data",
+      "description": "Data-wired backing for a content brief: fetches competitor (or your own GSC-ranking) pages and returns heading union, median word-count floor, schema types, entity coverage, plus 2026 GEO writing directives. The host writes the prose. Free (own pages) / competitor_urls. (v0.9.0)"
+    },
+    {
+      "name": "topic_cluster_map",
+      "description": "Map a content cluster from your own GSC data and surface missing subtopics. Classifies each cluster query into defend/optimize/create/monitor by demand and best position; the create quadrant = missing-subtopic candidates. Flags cannibalization. Free, GSC-only. (v0.9.0)"
+    },
+    {
+      "name": "internal_link_recommend",
+      "description": "Recommend specific source->target internal links from high-authority pages to GSC striking-distance pages (default position 8-20), with anchor text, relevance floor, per-source cap, and anchor-dedupe guards; never suggests nofollow. Free (crawl + GSC). (v0.9.0)"
+    },
+    {
+      "name": "rank_change_attribution",
+      "description": "Estimate whether an on-site change moved a page's clicks via difference-in-differences against a matched control group (never a naked before/after). Returns an estimated lift + 95% CI + a three-state verdict + a confounders block that auto-detects the 2025 GSC data-regime breaks. Observational, not causal. Free, GSC-only. (v0.9.0)"
+    },
+    {
+      "name": "onpage_serp_gap",
+      "description": "Headings/entities/schema the top SERP results have that a target page lacks -> on-page actions. FREE with caller competitor_urls, or DataForSEO SERP auto-fetch by query (which also returns SERP-composition zero-click-risk signals + Open PageRank competitor authority). Surfaces information gain, not just parity. (v0.9.0)"
+    },
+    {
+      "name": "ga4_setup_audit",
+      "description": "Audit a GA4 property's configuration for SEO-measurement readiness (read-only): is a web data stream present, are key events / conversions defined, is data retention long enough for year-over-year analysis, are content-group custom dimensions set, and (via v1alpha) is enhanced measurement on and wha"
+    },
+    {
+      "name": "ga4_site_search",
+      "description": "Internal site-search terms over the last N days: what visitors typed into the on-site search box (GA4 'searchTerm'), by event count and sessions. A direct content-gap signal. If the property has no site-search data (no search box, or enhanced-measurement site search is off), the tool says so honestl"
+    },
+    {
+      "name": "ga4_landing_page_conversions",
+      "description": "Landing pages with their conversions / key events over the last N days, broken down by channel group and sorted by conversions descending. Filtered to organic search by default (the SEO view) so you see which entry pages actually drive organic outcomes. Convenience wrapper over ga4_run_report."
+    },
+    {
+      "name": "psi_opportunities",
+      "description": "Run PageSpeed Insights and return the actionable Lighthouse opportunity audits (estimated load-time savings) plus the Lighthouse SEO-category audits graded by severity (critical/high/medium/low). Lab data only; does not use field/CrUX data (use crux_snapshot / crux_history for real-user metrics). De"
+    },
+    {
+      "name": "cf_settings_audit",
+      "description": "Audit a Cloudflare zone's settings for SEO and crawl/index safety (read-only): SSL/TLS mode, Always Use HTTPS, HSTS, Automatic HTTPS Rewrites, Brotli, and browser cache TTL. Findings are severity-graded with the reason and a benign exception each. Cloudflare cannot see the origin, so the SSL and Alw"
+    },
+    {
+      "name": "crux_snapshot",
+      "description": "Return the CURRENT (latest 28-day) p75 Core Web Vitals snapshot (LCP, INP, CLS, FCP, TTFB) for a URL or origin via the Chrome UX Report queryRecord API, with each metric's GOOD/NEEDS_IMPROVEMENT/POOR category and an overall verdict. Use crux_history for the 25-week trend. Small pages/origins legitim"
+    },
+    {
+      "name": "content_opportunities",
+      "description": "Rank data-grounded content/blog topics from your own Search Console data. Fuses CTR-vs-expected gap, striking-distance position, demand volume, and momentum into a transparent opportunity score, flags cannibalization, and reports the click upside plus the score's components. Read-only. It prioritize"
+    }
+  ]
+}

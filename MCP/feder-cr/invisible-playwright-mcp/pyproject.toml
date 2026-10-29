@@ -1,0 +1,257 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "invisible-playwright-mcp"
+version = "0.73.0"
+description = "Anti detect browser and web browsing agent: undetected, no captchas, no blocks"
+readme = "README.md"
+requires-python = ">=3.11"
+# The README says MIT and nothing here did, so the PyPI page showed no licence
+# at all. Both siblings declare theirs.
+license = "MIT"
+license-files = ["LICENSE"]
+# The engine ships binaries for these two only, so a mac reader finds out at
+# the first browser call unless the index says so first.
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+authors = [{ name = "feder-cr", email = "85809106+feder-cr@users.noreply.github.com" }]
+dependencies = [
+    # The MCP server is part of this package since 0.10.0, and since 0.11.0 it
+    # is what `invisible_playwright_mcp` runs with no subcommand: `uvx invisible-playwright-mcp` for a client,
+    # `python -m invisible_playwright_mcp` from a checkout. It was the separate package
+    # invisible-playwright-mcp until 0.15.2; that name lives on as a shim
+    # that depends on this one, so every registered client keeps working.
+    # >=1.8, because main() offers the streamable HTTP transport and the SDK
+    # gained it in 1.8.0 (measured on the wheels: 1.7.1 has no streamable_http
+    # module, 1.8.0 does). <2 because the server constructs FastMCP directly.
+    "mcp>=1.8,<2",
+    # >=0.9.0 and not lower, because the server's own behaviour depends on
+    # the fix in it: browser_click_at holds a button down with
+    # wait_for_timeout, and in every earlier version that wait returned
+    # instantly, so hold_seconds never held. >=0.13.0 because browser_watch
+    # and the live pane are built on page.screencast, which arrived there.
+    # >=0.13.2 because browser_navigate reports the HTTP status and the landed
+    # url, and both are read off what page.goto() answers. Until 0.13.2 that
+    # was hardcoded to None on every navigation, so on an older wheel the tool
+    # would tell a model "no HTTP response" for every page it ever visited.
+    #
+    # ⛔ >=0.22.1 BECAUSE BELOW IT A CLICK IS NOT DELIVERED ONCE, AND THE FLOOR
+    # IS THE ONLY THING THAT SAYS SO. Up to 0.22.0 the driver read the hit
+    # target again AFTER the event and turned what it found into a retry, so
+    # any control that stops being hittable by its own effect was pressed
+    # again: measured, a button that hides itself took 1068 clicks across 30
+    # calls and every call then reported failure, and a toggle was flipped
+    # twice by one call and reported success. That is a modal's close, a
+    # cookie banner's accept, a menu item, a submit that becomes a spinner.
+    #
+    # A floor and not a pin, like every line above it - but this one is the
+    # reason the floor moved at all. Somebody who already had 0.22.0 installed
+    # would otherwise update this package and keep the defect, which is the
+    # shape of every dependency bug that survives its own fix.
+    #
+    # Moved again to 0.25.6 on 2026-09-25, for the worst instance of that
+    # shape: under Claude Desktop on Windows, an MSIX package, the engine was
+    # downloaded into the package's redirected AppData and could not be
+    # started from there (14001), so the first `browser_open` of every session
+    # failed. Fixed in invisible-core 34.30.0, which 0.25.6 pins. A cached uvx
+    # environment keeps what it resolved; only a floor makes it resolve again.
+    #
+    # And to 0.25.7 the same day: `browser_navigate` to YouTube, Reddit or
+    # any page that replaces itself from script while it loads waited 45 s
+    # for a navigation that was gone, and the browser froze in a long
+    # session once Firefox had written a pipe buffer of output.
+    #
+    # And to 0.25.8 for browser_upload_files: below it, a file chooser opened
+    # for a hidden <input type=file>, by the label or button in front of it,
+    # timed out asking the hidden input for a box to point at, after the
+    # chooser had already opened. That is the commonest upload widget, and
+    # every upload here goes through a chooser.
+    #
+    # And to 0.25.12, where `FileChooser.set_files` itself waits the time a
+    # person takes to pick a file, and the wrapper stopped exporting the
+    # `hesitation` helper this server used to draw that pause with: nothing is
+    # added to Playwright's own API.
+    #
+    # And to 0.26.0, the firefox-36 engine through invisible-core 36.32.0:
+    # go_back over a page a script left, a routed POST's body, Accept-Language
+    # as retail Firefox sends it, ignore_https_errors per context, and the
+    # session language decided once by the core (an Australian egress reports
+    # en-US everywhere instead of en-AU in some values).
+    #
+    # And to 0.27.0, through invisible-core 36.33.0: locale="auto" declares
+    # the real Firefox of the egress country, one of the builds people there
+    # run in their measured share, picked by the egress IP; an explicit locale
+    # is navigator.language ("en-AU" reports en-AU, en-US, en).
+    #
+    # And to 0.28.0, through invisible-core 37.33.0 and firefox-37: the screen
+    # a page reads is in CSS pixels (a 1920x1080 panel at 125% reads
+    # 1536x864, as Firefox reports it), service workers can be blocked per
+    # context inside the engine, an empty request header survives a route,
+    # and on Linux the virtual display keeps X access control on.
+    #
+    # And to 0.29.0, through invisible-core 38.33.0 and firefox-38: the window
+    # a page reads is the one Windows Firefox draws - a maximized window a
+    # resize border off the screen and two borders wider than the work area,
+    # its content where retail's starts at every display scale, and a popup
+    # with its own size, frame and position.
+    #
+    # And to 0.30.0, through invisible-core 38.34.0: the Juggler client the
+    # wrapper drives the browser with lives in the core, shared with
+    # invisible-selenium and invisible-puppeteer, and the wrapper's private
+    # `_behaviour`, `_motion` and `_pacing` modules are gone with it.
+    #
+    # And to 0.31.0, through invisible-core 39.34.0 and firefox-39: a pointer
+    # event is answered once the page has handled it, so the tool that clicks
+    # and the tool that reads the page after it see the same page.
+    #
+    # And to 0.32.0, through invisible-core 39.35.0: a session ends with its
+    # last process (no profile left in the temporary directory), characters
+    # that need Shift are typed with Shift, and the hand pauses before a click.
+    #
+    # And to 0.35.0, through invisible-core 41.36.0: a read made right after
+    # browser_navigate on a page that replaces itself answers with the page
+    # instead of "Failed to find execution context", and a navigation the
+    # previous page's own redirect beats answers at once, naming where the
+    # browser went, instead of after the 45 s timeout. read_text's
+    # one-command read (`all_inner_texts`) is what the tests here measured.
+    #
+    # And to 0.35.2, through invisible-core 41.38.0: the model's code
+    # (browser_evaluate) runs once when its page navigates while it waits, and
+    # raises Playwright's navigation error instead of running again in the new
+    # page; the snapshot and read_html, reads without effects, ask
+    # `page.evaluate_read`, which reads again on the page that replaced the
+    # one they went to.
+    #
+    # And to 0.35.4, through invisible-core 42.39.0 and firefox-42: a page that
+    # replaces itself keeps its main world (B286). Below it the engine could
+    # announce only the utility world of the new document, and a read in the
+    # page's own world (the snapshot and read_html, through evaluate_read)
+    # waited 30 s and failed with "the main world never appeared"; measured in
+    # this package's e2e on 0.35.2, the first read after a navigation onto
+    # a page that rewrites itself in its head.
+    #
+    # And to 0.37.0, through invisible-core 49.44.0 and firefox-49: the
+    # snapshot and every read of this package run in the caller's own world,
+    # where a name the standard defines is the browser's own whatever the page
+    # did to it (B322). A page that replaced getBoundingClientRect used to
+    # hide its elements from the snapshot or turn them into a count; on
+    # 0.37.0 they are measured with the real method and listed, and the page
+    # never sees the call (B335 in the engine's docs).
+    #
+    # And to 0.41.0, through invisible-core 51.48.0 and firefox-51: the canvas
+    # noise is edge-aware (B363). On firefox-50 and earlier a flat clear did
+    # not read back as cleared (4096 of 4096 pixels differed in the
+    # measurement), a readback signature that a page probing the canvas can
+    # tell from a real device. On firefox-51 a flat region and a blend of two
+    # colours read back exact, and only real variation is perturbed per seed.
+    # The tools of this package drive pages that can probe the canvas, so the
+    # floor rises to the first wrapper sealed to firefox-51.
+    "invisible-playwright>=0.41.0",
+    # HTML parsing for browser_read_html. Chosen over lxml by measurement: on
+    # six real pages both found byte-identical sets of interactive elements,
+    # so correctness did not separate them, and selectolax then parsed 3-5x
+    # faster and needs no second package for CSS selection (lxml wants
+    # cssselect). Its engine, lexbor, implements the spec HTML5 parsing
+    # algorithm, the same one a browser runs on the same malformed markup.
+    "selectolax>=0.3.21",
+    # Declared rather than inherited. It arrives transitively through mcp today,
+    # and a transitive dependency is one somebody else can drop in a minor
+    # release without telling us.
+    "python-dotenv>=1",
+    "openai>=1.30",
+    "click>=8.1",
+    # Declared even though `mcp` already pulls both in for streamable-http. This
+    # package now serves its own app rather than riding somebody else's, so it
+    # imports them directly, and a dependency you import is one you declare: the
+    # day mcp stops needing them, the failure would otherwise land here.
+    "starlette>=0.37",
+    "uvicorn>=0.30",
+    # ⛔ AND THE SAME RULE HAD BEEN WRITTEN TWICE ABOVE AND NOT APPLIED HERE.
+    # `mcp/server.py` says `from pydantic import Field` to build the tool
+    # parameter types, and nothing declared pydantic: it arrived through `mcp`,
+    # which requires >=2.11,<3. So the day mcp stops needing it, or moves to a
+    # major this cannot use, `import invisible_playwright_mcp` fails for everybody with a
+    # traceback naming pydantic and a cause nowhere near it - and no test could
+    # see it first, because every environment that has mcp has pydantic.
+    #
+    # >=2 and no ceiling: `Field` is what is used, it has been in v2 since the
+    # first release, and a tighter pin here would fight mcp's without adding
+    # anything true. `tests/test_what_is_imported_is_declared.py` now holds the
+    # rule for the whole package, because this file knew it in two places and
+    # missed the third anyway.
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+# httpx is declared for the same reason as pydantic above: the test that drives
+# a REAL server through the routes uses `httpx.ASGITransport` to reach the app
+# inside the test's own event loop, and it was arriving through mcp.
+# ⛔ `invisible-core` IS DECLARED HERE BECAUSE THE SUITE IMPORTS IT DIRECTLY,
+# not because it was missing: it already arrives through `invisible-playwright`.
+# Since 30.23.0 the language gate is `invisible_core.english`, and two test
+# files import it - the one that drives the gate, and the one that reads its
+# Italian word list to check the tool descriptions. An import that relies on a
+# TRANSITIVE dependency works until the day the wrapper stops needing the core,
+# and then breaks here for a reason that names neither repository. The gate
+# `test_the_suite_declares_everything_it_imports` caught this on the first run
+# against the published stack, which is what it is for.
+test = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27",
+        "invisible-core>=34.31.0"]
+
+# ⛔ NARROW ON PURPOSE, AND IT IS HERE SO THE CI JOB AND A DEVELOPER RUN THE
+# SAME THING. `F` is pyflakes: a name that is not defined, an import nobody
+# uses, a variable assigned and never read. Nothing about style, so this can
+# never become an argument about formatting, and a new ruff release cannot
+# turn the tree red by adding opinions.
+#
+# It earns its place by measurement rather than taste: on 2026-09-11 a
+# dropped `from mcp.types import ImageContent` reached CI as a NameError,
+# because the file it was in only runs in the e2e job - `py_compile` and
+# `--collect-only` both pass an undefined name inside a function body, and
+# the suite never imported that module. One run of this finds it in under a
+# second. A first run over the whole tree found fifteen real things.
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F"]
+
+[project.scripts]
+invisible-playwright-mcp = "invisible_playwright_mcp.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/invisible_playwright_mcp"]
+
+[tool.pytest.ini_options]
+# ⛔ SO A CHECKOUT GATES ITSELF. Without this, pytest imports whatever the
+# interpreter's installation points at, which is not necessarily this tree:
+# measured 2026-08-29 on a sibling package, an editable install resolved to a
+# SECOND working copy of the same repository on an older branch, so a fix just
+# written did not move the test exercising it. Resolved against this
+# pyproject.toml, so every checkout points at itself.
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# `ui` tests launch a real browser through a real MCP server. They are slow,
+# they must run serially, and two of them running at once give false results,
+# so they are deselected by default and asked for by name:
+#     pytest -m ui -q tests/test_ui_drive.py
+markers = [
+    "ui: drives a real browser through a real MCP server (slow, serial, opt-in)",
+    "e2e: the server's tests that start a real engine, downloading it when the cache is empty (slow, opt-in: pytest -m e2e tests/mcp_server)",
+]
+addopts = "-m 'not ui and not e2e'"
+# ⛔ A HUNG TEST NAMES ITSELF INSTEAD OF BURNING THE JOB. Without this, the
+# suite stopped at 64% on every CI runner and stayed there until GitHub
+# killed it at six hours - three times - and the log held not one word about
+# which test it was, because the dots stop and nothing else is ever printed.
+# This dumps every thread's stack after five minutes on a single test, which
+# is a hundred times the whole suite. Measured 2026-09-11.
+faulthandler_timeout = 300

@@ -1,0 +1,1549 @@
+# Changelog
+
+## [0.29.0] - 2026-10-28
+
+### 📋 Release Summary
+
+Remote LanceDB support is now enabled. Graph table handles refresh after appends, and MCP structural search source rendering is corrected.
+
+### ✨ New Features & Enhancements
+
+- **lancedb**: enable remote LanceDB support `051fcd27`
+
+### 🔧 Improvements & Optimizations
+
+- **store**: cover graph and batch append behavior `45b40370`
+- **dependencies**: upgrade project dependencies `e88e283c`
+- **dependencies**: update registry dependencies `ca64a302`
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: refresh table handles after graph appends `7652d045`
+- **mcp**: fix structural search source rendering `e63a5c19`
+
+## [0.28.1] - 2026-10-25
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: update locked dependency versions `b6c92319`
+- **mcp**: update rmcp and clarify transport comment `d340fd93`
+- **dependencies**: refresh locked dependency versions `06168e8e`
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.28.0] - 2026-10-24
+
+### 📋 Release Summary
+
+Release versioning now supports plain version files.
+
+### 🚨 Breaking Changes
+
+- support model-purpose routing and CLI co-authors `02c6bf18`
+
+### ✨ New Features & Enhancements
+
+- **release**: support plain version files `4c0800fe`
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: refresh locked dependency versions `7e24a9df`
+
+## [0.27.0] - 2026-10-21
+
+### 📋 Release Summary
+
+Co-authored-by trailers are now configurable, and co-authored-by examples use generic names and email addresses.
+
+### ✨ New Features & Enhancements
+
+- **commits**: configurable Co-authored-by trailers `7a1ed25e`
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: update Rust dependency lockfile `85446295`
+- format Rust code at 120 columns `08c752a0`
+- **dependencies**: upgrade octolib requirement to 0.43.1 `37edec01`
+- **release**: inherit secrets in release workflow `eea3a187`
+- **dependencies**: refresh locked Rust dependencies `938e9fef`
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.26.7] - 2026-10-11
+
+### 📋 Release Summary
+
+MCP requests are now routed according to the session directory.
+
+### ✨ New Features & Enhancements
+
+- **mcp**: route MCP requests by session directory `4874176f`
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.26.6] - 2026-10-08
+
+### 📋 Release Summary
+
+Metal acceleration is available through build features and is now enabled by default. Release projects can now support Chrome extensions.
+
+### ✨ New Features & Enhancements
+
+- **embedding**: expose opt-in Metal acceleration `d5875a24`
+- **release**: support Chrome extension release projects `558df349`
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: update locked dependency versions `0749c232`
+- **workflows**: upgrade Rust toolchain to 1.99.0 `43d3ca35`
+- **dependencies**: use registry octolib dependency `fc02beb3`
+- **features**: enable metal by default `20874548`
+- **ci**: separate macOS all-features step `fee0279a`
+
+## [0.26.5] - 2026-10-06
+
+### 📋 Release Summary
+
+Together provider support has been removed. Octolib and locked dependencies were updated.
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: update octolib and locked dependencies `e694df06`
+
+### 🐛 Bug Fixes & Stability
+
+- **models**: remove Together provider support `228fc222`
+
+## [0.26.4] - 2026-09-30
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: refresh locked dependencies `45133528`
+
+## [0.26.3] - 2026-09-27
+
+### 📋 Release Summary
+
+MCP tool listings now include cache hints and use the current server configuration type. Commit headers drop scopes that exceed the header limit, generated claims are audited against source material, and indexing, search, and commit/release flows have been changed.
+
+### 🔧 Improvements & Optimizations
+
+- **dependencies**: upgrade octolib dependency to 0.40.0 `d5a0dd3a`
+- optimize indexing and search performance `1ddae09a`
+- **commit**: unify commit and release flows `d09c4177`
+
+### 🐛 Bug Fixes & Stability
+
+- **mcp**: include cache hints in tool listings `a548b25e`
+- **commit**: drop scopes that exceed the header limit `c34a8c73`
+- **mcp**: use the current server configuration type `b6ebaf13`
+- **commands**: audit generated claims against source material `385c6f48`
+
+## [0.26.2] - 2026-09-18
+
+### 📋 Release Summary
+
+This release adds per-file and per-batch indexing progress when using verbose mode (9a358956). Indexing reliability is improved through checkpointing after stored batches, alongside refreshed usage guidance and repository documentation (5c7922ac, 8178cdd, 1cd286e2). Dependency updates keep the project current (51621b97, eeadb186).
+
+
+### ✨ New Features & Enhancements
+
+- **index**: print per-file and per-batch progress with -v `9a358956`
+
+### 🐛 Bug Fixes & Stability
+
+- **index**: checkpoint commit indexing after each stored batch `5c7922ac`
+
+### 📚 Documentation & Examples
+
+- **agents**: consolidate repository guidance `8178cdd8`
+- refresh current usage guidance `1cd286e2`
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.26.1] - 2026-09-15
+
+### 📋 Release Summary
+
+Updated Rust dependencies to newer versions, improving the project’s maintenance and compatibility.
+
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.26.0] - 2026-09-14
+
+### 📋 Release Summary
+
+This release adds support for listing and parsing ONNX providers (86a76b8a). Embedding providers can now be shared across processes for improved reuse and consistency (407dc05a), alongside updated dependencies (63d2e82c).
+
+
+### ✨ New Features & Enhancements
+
+- **models**: support ONNX provider listing and parsing `86a76b8a`
+- **embedding**: share providers across processes `407dc05a`
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.25.1] - 2026-09-11
+
+### 📋 Release Summary
+
+Updated project dependencies to refreshed versions for improved compatibility and maintenance (e6c586bd, bd7a8a5c).
+
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.25.0] - 2026-09-05
+
+### 📋 Release Summary
+
+Configuration now uses typed reasoning-effort settings, and ranking can be tuned with a configurable thinking budget (40a3c58e, a5762cf7). Cross-platform path handling was improved, including Windows environments and missing symlinked paths, with expanded test coverage for greater reliability (8eb1ddf7, 73703bc0, 409c22a3, cc0b0ecc, aee6065a, 122eeb18). Website deployment has been removed from the project (dbc9a5f1).
+
+
+### 🚨 Breaking Changes
+
+⚠️ **Important**: This release contains breaking changes that may require code updates.
+
+- **config**: type reasoning effort settings `40a3c58e`
+- **website**: remove site deployment `dbc9a5f1`
+
+### ✨ New Features & Enhancements
+
+- **reasoning**: configure ranking thinking budget `a5762cf7`
+
+### 🔧 Improvements & Optimizations
+
+- **config**: update expected loader version `fca8b064`
+- **indexer**: cover symlinked root path handling `2bfc29f5`
+
+### 🐛 Bug Fixes & Stability
+
+- **indexer**: use forward slashes in node ID tests `8eb1ddf7`
+- **paths**: normalize cross-platform paths `73703bc0`
+- **tests**: support Windows Python and paths `409c22a3`
+- **indexer**: handle missing symlinked paths `cc0b0ecc`
+- **tests**: add more tests to expand coverage beyond 80%+ `aee6065a`
+- **tests**: expand test coverage `122eeb18`
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.24.0] - 2026-09-02
+
+### 📋 Release Summary
+
+This release includes a breaking change to file registry behavior (5bed72b2) and adds support for indexing nested Svelte code regions (49db8a21). Graph-based code understanding and reindexing were improved, with more reliable local call/import resolution and more accurate parsing of comments and code fences (ee668c0d, c5997d7d, 1793c982, 0e5db1b2, bcd723b4, da60d04b). Performance and dependency updates further improve indexing and metadata storage (ab04950a, 5b3e95a8).
+
+
+### 🚨 Breaking Changes
+
+⚠️ **Important**: This release contains breaking changes that may require code updates.
+
+- **indexer**: share file registry `5bed72b2`
+
+### ✨ New Features & Enhancements
+
+- **svelte**: index nested code regions `49db8a21`
+
+### 🔧 Improvements & Optimizations
+
+- **graphrag**: resolve edges at runtime `c5997d7d`
+- **registry**: pass refs directly to resolvers `da60d04b`
+- **store**: batch file metadata writes `ab04950a`
+- **graphrag**: streamline reindexing `1793c982`
+- **indexer**: rework parsing and chunking `0e5db1b2`
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: resolve local calls and imports `ee668c0d`
+- **indexer**: improve comment and fence parsing `bcd723b4`
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.23.1] - 2026-08-31
+
+### 📋 Release Summary
+
+Indexing behavior was improved by assigning processing status consistently across branches (bd6ca299). Underlying dependencies, Rust tooling, and coverage workflows were updated to support ongoing reliability and maintenance (b30fb645, a5d19f1e, 80d2f75f, f89a24d0, 88a676c7).
+
+
+### 🔧 Improvements & Optimizations
+
+- **indexer**: assign processing status from branches `bd6ca299`
+- **coverage**: generate and publish coverage reports `f89a24d0`
+
+### 🔄 Other Changes
+
+4 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.23.0] - 2026-08-29
+
+### 📋 Release Summary
+
+This release extends Elixir indexing support and adds automatic single- or multi-mode operation for the built-in MCP server (52c3b973, e6ba3777, fc83832b). It improves graph and indexer correctness, handles stringified JSON arrays in semantic search, updates dependencies, and refreshes project setup guidance and documentation (34061a85, d423d02d, b0e95969, 0726c3f8, 36863c13, d98decf7, 80a35f2f, 0e91665f, 4b2d5eaa).
+
+
+### ✨ New Features & Enhancements
+
+- **elixir**: extend Elixir indexing support `52c3b973`
+- **elixir**: add language indexing support `e6ba3777`
+- **mcp**: add automatic single or multi mode `fc83832b`
+
+### 🔧 Improvements & Optimizations
+
+- **commit**: condense synthesized change bullets `283e9ba2`
+- **mcp**: move parse_query_arg to module level `87792abb`
+- **mcp**: add annotations to server tools `dd409e7e`
+- **mcp**: reformat type collapse logic `dcff1003`
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: correct protocol relationship test target `34061a85`
+- **indexer**: normalize graph path test IDs `d423d02d`
+- **elixir**: match metavariables and impl targets `b0e95969`
+- **mcp**: handle stringified JSON arrays in semantic search `0726c3f8`
+
+### 📚 Documentation & Examples
+
+- **readme**: update project links and setup guidance `4b2d5eaa`
+
+### 🔄 Other Changes
+
+4 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.22.0] - 2026-08-22
+
+### 📋 Release Summary
+
+This release introduces project file associations for the indexer (110a0c46) and refined tool schemas for the MCP server (c423ac8a). LLM grounding and prompt accuracy were enhanced (bea6c7dd, 7a7d4122), alongside general dependency updates (04d1b842, 7c3523ae).
+
+
+### ✨ New Features & Enhancements
+
+- **mcp**: implement null variant stripping in tool schemas `c423ac8a`
+- **indexer**: support project file associations `110a0c46`
+- **commit**: enhance LLM grounding and prompt accuracy `bea6c7dd`
+
+### 🔧 Improvements & Optimizations
+
+- **commit**: introduce CommitPromptContext for prompt data `7a7d4122`
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.21.0] - 2026-08-17
+
+### 📋 Release Summary
+
+This release significantly enhances code intelligence through improved symbol resolution, indexing, and the introduction of a runtime structural graph builder (9974cfd1, d06eb11d, f6304eb6, 9de1cc8d, aedb2bde). The MCP server now features streamlined search path configuration and improved structural search validation (0a14b173, e23d04a2). Additionally, several fixes optimize symbol detection and prevent indexing inflation for better system stability (60776a09, 3b289751).
+
+
+### ✨ New Features & Enhancements
+
+- **graphrag**: enhance symbol resolution and indexing `9974cfd1`
+- **graphrag**: implement runtime structural graph builder `d06eb11d`
+- **indexer**: implement language-specific symbol kinds `aedb2bde`
+- **graphrag**: implement symbol-tier node extraction `f6304eb6`
+- **graphrag**: implement symbol-tier extraction and provenance `9de1cc8d`
+- **mcp**: allow single string for search paths `0a14b173`
+- **mcp**: improve structural search validation `e23d04a2`
+
+### 🔧 Improvements & Optimizations
+
+- **indexer**: remove redundant trim before split `45d8aab9`
+- **config**: relax backup filename assertions `b4af3a86`
+- **release**: add npm publishing step to workflow `d07fd242`
+
+### 🐛 Bug Fixes & Stability
+
+- **indexer**: restrict function detection to init prefix `60776a09`
+- **indexer**: prevent symbol inflation and path explosion `3b289751`
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.20.2] - 2026-08-04
+
+### 📋 Release Summary
+
+This release includes routine dependency updates to ensure optimal system stability and security (9c07b66e).
+
+
+### 🔄 Other Changes
+
+1 maintenance, dependency, and tooling update not listed individually.
+
+## [0.20.1] - 2026-08-03
+
+### 📋 Release Summary
+
+This release introduces branch-aware indexing to provide more accurate codebase intelligence across different git branches (eabff34a). Additionally, improvements to the MCP server enhance how branch context is detected for a more seamless AI assistant experience (c9573f44).
+
+
+### ✨ New Features & Enhancements
+
+- **indexer**: implement branch-aware indexing `eabff34a`
+
+### 🔧 Improvements & Optimizations
+
+- **mcp**: simplify branch context detection `c9573f44`
+
+## [0.20.0] - 2026-08-01
+
+### 📋 Release Summary
+
+This release expands GraphRAG capabilities by integrating Markdown files and supporting cross-reference links to create a more comprehensive codebase knowledge graph (039e9abc, 3388971d, e378fa07, b76c469f). Significant performance gains were achieved through relationship deduplication and updated dependencies (2de790b7, bd175192, 6478621d), while documentation was improved for LSP tools and LLM configurations (94257493, 64d74deb, 95db6db9). Several bug fixes enhance data consistency and indexing reliability across various file types (9bf71681, 3bc30517, aa68419c, 4aecc80b, 21f22491, d16e7fc1).
+
+
+### ✨ New Features & Enhancements
+
+- **graphrag**: use References type for markdown cross-links `039e9abc`
+- **indexer**: include markdown files in GraphRAG pipeline `3388971d`
+- **markdown**: extract cross-reference links as imports for GraphRAG `e378fa07`
+- **graphrag**: add References relationship type for document cross-links `b76c469f`
+
+### 🔧 Improvements & Optimizations
+
+- **graphrag**: deduplicate relationships on load (575K → 288K unique) `2de790b7`
+- **config**: migrate file and migration logic to octolib `e6f41dac`
+- **mcp**: upgrade rmcp to v3.0.0 `6478621d`
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: exclude markdown from symbol indexing `9bf71681`
+- **indexer**: support .markdown file extensions `3bc30517`
+- **graphrag**: finalize markdown references for current master `aa68419c`
+- **store**: concatenate all LanceDB batches when reading relationships `4aecc80b`
+- **graphrag**: route markdown nodes through path-based import resolution in efficient discovery `21f22491`
+- **graphrag**: include markdown files from document_blocks in build_from_existing_database `d16e7fc1`
+
+### 📚 Documentation & Examples
+
+- **readme**: document LSP tools and expanded language support `94257493`
+- make OpenAI-compatible setup vendor-neutral `64d74deb`
+- explain OpenAI-compatible LLM setup `95db6db9`
+
+### 🔄 Other Changes
+
+4 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.19.0] - 2026-07-26
+
+### 📋 Release Summary
+
+This release introduces advanced AI-driven search capabilities, featuring LLM-powered reasoning and improved result ranking for more accurate code retrieval (e3d03632, e467123f, 5362fb44, f5e171a9). System performance has been enhanced through optimized memory allocation and a modernized configuration system (f788fa2a, 2139c9b9, 1c3a5f75). Additionally, several fixes improve LSP process stability and expand MCP server compatibility (6fc68e5b, 7134786d).
+
+
+### ✨ New Features & Enhancements
+
+- **config**: implement atomic updates and v2 migration `2139c9b9`
+- **search**: implement reasoning retrieval and refine config `e3d03632`
+- **reasoning**: implement weighted RRF for result fusion `e467123f`
+- **search**: implement LLM reasoning for code ranking `5362fb44`
+- **search**: implement RRF and refine GraphRAG expansion `f5e171a9`
+
+### 🔧 Improvements & Optimizations
+
+- **config**: optimize loading and harden file writes `1c3a5f75`
+- **indexer**: optimize memory and allocation efficiency `f788fa2a`
+
+### 🐛 Bug Fixes & Stability
+
+- **lsp**: ensure deterministic process lifecycle and reaping `6fc68e5b`
+- **mcp**: relax git requirement for read-only index `7134786d`
+
+### 📚 Documentation & Examples
+
+- **root**: rename instructions to agents `d9f2f9d1`
+
+### 🔄 Other Changes
+
+3 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.18.1] - 2026-07-11
+
+### 📋 Release Summary
+
+This release significantly improves indexer stability and overall system reliability (e42fc07f, 4bb402aa, ca8ac82e). It also streamlines the MCP registry publishing process and updates core dependencies to enhance performance and compatibility (f18181e1, 7b960333, 1918750d, 61838ab8).
+
+
+### 🔧 Improvements & Optimizations
+
+- **release**: add permissions for MCP registry publish `f18181e1`
+- **release**: simplify semver validation logic `ee222ce1`
+- **config**: remove obsolete server packages `28cef396`
+- **release**: automate MCPB bundle publishing `7b960333`
+- **indexer**: cover C++ module extensions `c8036fab`
+
+### 🐛 Bug Fixes & Stability
+
+- **core**: improve indexer stability and data handling `e42fc07f`
+- **core**: improve stability and indexing reliability `4bb402aa`
+- **core**: resolve stability and indexing issues `ca8ac82e`
+
+### 🔄 Other Changes
+
+3 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.18.0] - 2026-06-27
+
+### 📋 Release Summary
+
+This release enhances code intelligence with GraphRAG file-level expansion for more comprehensive searches and introduces new benchmarking tools to measure retrieval accuracy (be7eb569, 19467d0b). Additionally, updates to the MCP server schema and core dependencies improve overall system integration and stability (c0364781, d925c575, 101297c8).
+
+
+### ✨ New Features & Enhancements
+
+- **benchmark**: implement Loc-Bench and retrieval matrix `19467d0b`
+- **search**: add GraphRAG file-level expansion `be7eb569`
+
+### 🔧 Improvements & Optimizations
+
+- **mcp**: update registry metadata and server schema `c0364781`
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.17.1] - 2026-06-17
+
+### 📋 Release Summary
+
+This release includes a fix to improve the reliability of local embedding probes (4ed25fe5). These changes ensure more stable performance when processing codebase intelligence locally.
+
+
+### 🐛 Bug Fixes & Stability
+
+- **embedding**: resolve local probe issue `4ed25fe5`
+
+## [0.17.0] - 2026-06-17
+
+### 📋 Release Summary
+
+This release introduces support for local embedding providers and expanded configuration options for the MCP server, including flexible file signature views and an optional in-process indexing toggle (6a2282b7, a168165d, 5430285a). General system stability and performance have been improved through updated dependencies and streamlined CI workflows (7ad0102e, 344abc84, ba32e4d3, d75e06ed, 8a4eae9d).
+
+
+### ✨ New Features & Enhancements
+
+- **models**: add local embedding provider support `6a2282b7`
+- **mcp**: add optional in-process indexing toggle `a168165d`
+- **mcp**: allow single string for view signatures files `5430285a`
+
+### 🔧 Improvements & Optimizations
+
+- **mcp**: remove hardcoded tool definitions `8a4eae9d`
+- **workflow**: migrate pipelines to shared workflows `d75e06ed`
+
+### 🔄 Other Changes
+
+3 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.16.1] - 2026-06-11
+
+### 📋 Release Summary
+
+This release introduces advanced structural and symbol search capabilities to the MCP server, enhancing how AI assistants navigate your codebase (47e1551f). Additionally, updates to Docker image builds and improved error handling ensure a more stable and efficient deployment experience (cd06bbec, eae97a24).
+
+
+### ✨ New Features & Enhancements
+
+- **mcp**: implement advanced structural and symbol search `47e1551f`
+
+### 🔧 Improvements & Optimizations
+
+- **docker**: use pre-built binaries for images `cd06bbec`
+
+### 🐛 Bug Fixes & Stability
+
+- **grep**: specify error type in dispatch_lang closures `eae97a24`
+
+## [0.16.0] - 2026-06-07
+
+### 📋 Release Summary
+
+This release introduces a new multi-repository server mode, replacing the previous mcp-proxy (2c3c5600, 1855284a), and expands language support to include Swift for both indexing and grep (dfb2c5b6, 8f2565c4). Users can now specify custom configuration paths via environment variables (f2d05d52) alongside general improvements to storage security and build stability (0c4f42aa, 489c0c7e, ee85729c).
+
+
+### 🚨 Breaking Changes
+
+⚠️ **Important**: This release contains breaking changes that may require code updates.
+
+- **mcp**: replace mcp-proxy with multi-repo mode `2c3c5600`
+
+### ✨ New Features & Enhancements
+
+- **config**: allow custom config path via env var `f2d05d52`
+- **mcp**: implement multi-repository server mode `1855284a`
+- **indexer**: add Swift language support `dfb2c5b6`
+- **grep**: add Swift language support `8f2565c4`
+
+### 🔧 Improvements & Optimizations
+
+- **storage**: remove normalize_git_url test `595d0d66`
+- **storage**: delegate project identification to octolib `a185f09e`
+- **indexer**: introduce DetailSearchOptions struct `9c5f5af2`
+- **store**: centralize table names and secure SQL queries `ee85729c`
+
+### 🐛 Bug Fixes & Stability
+
+- **storage**: ignore git URL credentials during normalization `0c4f42aa`
+- **build**: correct onnxruntime architecture name `489c0c7e`
+
+### 🔄 Other Changes
+
+3 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.15.0] - 2026-05-22
+
+### 📋 Release Summary
+
+This release significantly enhances code intelligence through the introduction of hybrid search, weighted reranking, and advanced GraphRAG capabilities for better type and inheritance discovery (0a5b3d13, 1023fb93, 0f88b59e, aef744d6). Users will benefit from improved search precision via smart structural grep, expanded C++20 support, and new dataset import/export functionality (83ffcb66, b186cbe6, a0ffdfd0). General stability and performance have been increased through optimized database indexing and various reliability fixes across the store and indexer (1042b2fe, dcba3dcc, 467ea6c8).
+
+
+### ✨ New Features & Enhancements
+
+- **commands**: implement dataset export and import `a0ffdfd0`
+- **indexer**: implement coherent branch delta tracking `ac33edde`
+- **constants**: increase maximum allowed queries `70da432b`
+- **cpp**: add support for C++20 module extensions `b186cbe6`
+- **indexer**: implement weighted hybrid search reranking `0a5b3d13`
+- **indexer**: improve symbol tracking and prompt context `2447591a`
+- **indexer**: enrich method symbols with parent type and split large class containers `62c38e94`
+- **grep**: truncate multi-line match bodies `d4a3bff6`
+- **search**: enhance tree-sitter mapping and search reranking `1023fb93`
+- **grep**: implement smart structural search with fallback strategies `83ffcb66`
+- **search**: strip preambles and normalize search scores `e90b54ba`
+- **graphrag**: add type inheritance and implementation discovery `0f88b59e`
+- **indexer**: implement global ranking for all-mode search `76a261af`
+- **indexer**: implement hybrid search support `aef744d6`
+- **indexer**: persist enriched content for hybrid search `6e4fb231`
+
+### 🔧 Improvements & Optimizations
+
+- **config**: remove unused keyword weights from hybrid search `d0d2efd8`
+- **config**: set default search and embedding models `8802ffd8`
+- **store**: optimize database maintenance and indexing `1042b2fe`
+- **workflows**: migrate pr brief to reusable workflow `ba21b4ce`
+- **windows**: fix MSVC runtime library mismatches `8ce943fb`
+- **windows**: force dynamic CRT for MSVC builds `159f1d41`
+- **workflow**: install protoc for alpine builds `d47f2b1b`
+- **github**: fix macos toolchain and coverage engine `36139802`
+- **build**: implement static ONNX Runtime builds and musl support `bf53a631`
+- **build**: optimize binary size and bump deps `4f040479`
+- **grep**: replace fragile patterns with kind-based search `21300a29`
+- **mcp**: improve structural search robustness and diagnostics `f7548719`
+- **mcp**: optimize file resolution in view_signatures `5a2b4033`
+- **search**: unify embedding logic and implement RRF `1ae00882`
+- use idiomatic Rust patterns across codebase `0f9ceaea`
+
+### 🐛 Bug Fixes & Stability
+
+- **config**: correct embedding provider test expectations `7c9d62b3`
+- **indexer**: reset GraphRAG blocks and pin delta base `dcba3dcc`
+- **store**: improve indexer reliability and scoring logic `467ea6c8`
+- **store**: prevent FTS errors on empty tables `47358e69`
+- **store**: refresh table cache after fts creation `feb6ae5e`
+
+### 📚 Documentation & Examples
+
+- **instructions**: rewrite development guide for v0.14.x `a2fff72d`
+- **instructions**: link external model documentation `f91aed6e`
+- update MCP modes and embedding model defaults `164b0f62`
+
+### 🔄 Other Changes
+
+4 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.14.1] - 2026-04-21
+
+### 📋 Release Summary
+
+This update enhances overall system stability and performance through significant upgrades to core engine dependencies (9d872d61, 378effe8). Build and deployment processes have also been optimized to ensure faster, more efficient Docker environments (1d6e752a).
+
+
+### 🔧 Improvements & Optimizations
+
+- **build**: optimize CI and Docker build performance `1d6e752a`
+
+### 🔄 Other Changes
+
+2 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.14.0] - 2026-04-13
+
+### 📋 Release Summary
+
+This release introduces a unified search architecture alongside powerful AST-based structural code search and rewriting capabilities (1c33c779, 07fbd5f2, 8abed697). Key improvements include branch-aware delta indexing, automatic repository indexing for MCP, and expanded support for high-performance embedding models (7c515998, a9690903, 09558952). System reliability is further enhanced through strict structured LLM outputs and optimized batch processing with automated retries (fb0196a3, d40f641c, 5739cb1b).
+
+
+### 🚨 Breaking Changes
+
+⚠️ **Important**: This release contains breaking changes that may require code updates.
+
+- **search**: unify search and add tests `1c33c779`
+
+### ✨ New Features & Enhancements
+
+- **embeddings**: add mpnet and jinabert qk embedding support `09558952`
+- **server**: enhance MCP tool schemas and add new tools `6b7d4e65`
+- **clear**: add commits and graphrag clear modes `e793d8d5`
+- **grep**: add code rewrite with AST templates `07fbd5f2`
+- **grep**: add AST structural code search `8abed697`
+- **indexer**: add last segment matching for imports `ca7fcd10`
+- **grep**: add AST-based structural code search `c15dcddf`
+- **indexer**: add AST-based function call extraction `c698904d`
+- **graphrag**: add branch-aware filtering and merging `09e6337c`
+- **llm**: enable strict mode for structured output `fb0196a3`
+- **graphrag**: validate description model structured output `e4344d71`
+- **benchmark**: add retrieval quality benchmark infrastructure `e1095d2d`
+- **indexer**: add retries and improve batching `d40f641c`
+- **mcp**: add automatic repository indexing `a9690903`
+- **git**: add branch-aware delta indexing `7c515998`
+- **branding**: add project logo to readme `fb536f29`
+- **assets**: add svg icon to readme header `7449dece`
+
+### 🔧 Improvements & Optimizations
+
+- **mcp**: replace handlers module with rmcp transport `bb5f929b`
+- **docs**: standardize LLM config and model format `0c25e456`
+- **llm**: consolidate JSON completion methods `4f2a756d`
+- **indexer**: move LLM structured output validation to index start `d5bce043`
+- **graphrag**: use structured JSON output for LLM calls `25d596d9`
+- **benchmark**: clean up config comments `ff24fb59`
+- **mcp**: use is_some_and for task check `d1469db7`
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: detect partial indexing when relationships missing `e51fe5fb`
+- **graphrag**: clarify architectural analysis JSON response format `d3f9fb96`
+- **graphrag**: clarify JSON response format for file descriptions `872b8ca6`
+- **clippy**: resolve lint warnings in grep and tests `c6f80587`
+- **graphrag**: ensure deleted files don't break processing `0c105ffa`
+- **docs**: swap code and docs search mode labels `ab4fbc2b`
+- **graphrag**: add error context to batch retry logs `b1771ba4`
+- **graphrag**: add retries for batch AI operations `5739cb1b`
+
+### 📚 Documentation & Examples
+
+- update recommended text embedding model to MiniLM `5d5e7cfb`
+- add AI agent workflow docs and MCP setup `50448b99`
+- **grep**: document structural rewrite capability `d62fb98b`
+- fix anchor links in navigation bar `c521f047`
+- **readme**: clarify structural code analysis approach `d48033ab`
+
+### 🔄 Other Changes
+
+5 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.13.0] - 2026-04-03
+
+### 📋 Release Summary
+
+This update overhauls commit search with advanced filtering and introduces new CLI commands for diffing, explaining, and codebase statistics (35017166, 8273af18, 62a79992, b09059bc, ede5c6a8). AI-powered indexing is significantly enhanced with contextual chunking, quantization support, and new embedding providers to improve retrieval accuracy and reliability (4ae6b516, 0a822970, 2f408409, 31c47638, db73bad1, 91490c54). System stability and integration are further improved through an updated MCP server and various fixes to Git operations and relationship mapping (068949b5, 05b8286b, 25ae71f7, 05373ed6).
+
+
+### 🚨 Breaking Changes
+
+⚠️ **Important**: This release contains breaking changes that may require code updates.
+
+- **search**: add detail levels for commit results `35017166`
+
+### ✨ New Features & Enhancements
+
+- **search**: add commit search and overhaul system `8273af18`
+- **search**: rerank and filter commit results `62a79992`
+- **cli**: add diff, explain, and stats commands `b09059bc`
+- **indexing**: improve LLM reliability and retries `4ae6b516`
+- **indexer**: add contextual chunk enrichment `0a822970`
+- **search**: add lazy-loaded commits search `ede5c6a8`
+- **store**: add RaBitQ quantization support `2f408409`
+- **graphrag**: enhance node resolution and path finding `31c47638`
+- **release**: Add Info.plist version update for macOS/iOS `32a18ab4`
+- **models**: add OctoHub and Together embedding providers `db73bad1`
+- **models**: add OctoHub embedding provider support `91490c54`
+
+### 🔧 Improvements & Optimizations
+
+- **mcp**: migrate to official rmcp SDK with stdio and HTTP transports `068949b5`
+- **release**: improve changelog categorization and noise reduction `878df5c7`
+- **commit**: improve AI message synthesis for large diffs `03474689`
+
+### 🐛 Bug Fixes & Stability
+
+- **git**: resolve root commit diffing and lints `05b8286b`
+- **embedding**: use asymmetric retrieval types `25ae71f7`
+- **search**: defer similarity filtering on rerank `a8584805`
+- **commit**: clarify user guidance role in prompt `cd704f62`
+- **graphrag**: correct relationship batch progress counter `05373ed6`
+
+### 🔄 Other Changes
+
+5 maintenance, dependency, and tooling updates not listed individually.
+
+## [0.12.2] - 2026-03-22
+
+### 📋 Release Summary
+
+This release improves indexing reliability and overall system performance. Enhanced metadata handling ensures more consistent code analysis results, while dependency updates provide better stability and compatibility.
+
+
+### 🔧 Improvements & Optimizations
+
+- **indexer**: atomic metadata storage after batch `d35ebfb2`
+
+### 🔄 Other Changes
+
+- **deps**: bump octolib to 0.11.0 and update related dependencies `61fb0cd7`
+- **deps**: bump dependency versions in Cargo.lock `ec53cb04`
+- bump Rust toolchain from 1.92.0 to 1.94.0 `2d40e7e6`
+
+### 📊 Release Summary
+
+**Total commits**: 4 across 2 categories
+
+🔧 **1** improvement - *Better performance & code quality*
+🔄 **3** other changes - *Maintenance & tooling*
+
+## [0.12.1] - 2026-03-15
+
+### 📋 Release Summary
+
+This release fixes a search issue where queries could return no results when matching zero-vector embeddings.
+
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: resolve zero-vector search returning empty results `72ebbc7e`
+
+### 📊 Release Summary
+
+**Total commits**: 1 across 1 categories
+
+🐛 **1** bug fix - *Improved stability*
+
+## [0.12.0] - 2026-03-15
+
+### 📋 Release Summary
+
+This release adds Python project support and introduces hybrid vector-keyword search with reranking for more accurate code discovery. The Model Context Protocol server now offers richer configuration and graceful handling outside Git repositories. Multiple fixes improve import resolution across Go, Java, and PHP, while dependency upgrades and indexing refinements boost overall performance and stability.
+
+
+### ✨ New Features & Enhancements
+
+- **release**: add Python project support with pyproject.toml `62282928`
+- **release**: add server.json version update and staging `05846ca6`
+- **mcp**: add server configuration for Model Context Protocol `f0ac9e75`
+- **search**: add hybrid vector and keyword search `32e11448`
+- **models**: add OpenRouter embedding provider support `8f816c5d`
+- **commit**: add -c flag to rewrite existing commit messages `6463cb22`
+- **search**: add reranker support for improved relevance `0f8386b6`
+
+### 🔧 Improvements & Optimizations
+
+- **vector**: migrate from IVF_PQ to IVF_HNSW_SQ indexing `46b41014`
+- **graphrag**: simplify tool interface and remove token limits `dfc2b2e9`
+- **search**: replace tokenization with string queries `e767b195`
+- **search**: replace inline reranker with octolib integration `e8b5bc75`
+- **store**: add table cache to reduce open overhead `26132071`
+- **mcp**: split module into http and watcher packages `4eb9bd38`
+- **search**: extract symbol formatting logic into helper function `e78d920f`
+- **proxy**: extract shared handlers into module `fd41f15f`
+- **store**: extract generic block operations `9cd9a401`
+- **languages**: extract shared symbol helpers `f5049453`
+- **graphrag**: update octolib and token tracking `fa630ad9`
+
+### 🐛 Bug Fixes & Stability
+
+- **config**: correct github owner capitalization in server.json `c324c84c`
+- **indexer**: resolve imports for Go, Java, PHP `54ed6f53`
+- **search**: correct vector similarity threshold parameter `22f11d86`
+- **mcp**: ensure all background tasks abort on server drop `2211f5a5`
+- **mcp**: send indexer-disabled notification before initialize response `4c3ce3f3`
+- **mcp**: add graceful handling when running outside git repository `9c52f627`
+- **storage**: replace unwrap with proper error handling `0120341f`
+
+### 🔄 Other Changes
+
+- **release**: add homebrew tap notification job `bb745289`
+- add MCP server badge `f76180d2`
+- **deps**: bump octolib to 0.10.4 and update related dependencies `ffa5fdca`
+- **deps**: upgrade datafusion to 51.0.0 and lance to 2.0.0 `33cc387a`
+- **deps**: bump fastembed, image, moxcms and related crates `8cbde13f`
+- use protoc action for cross-platform protobuf installation `238fc033`
+- **deps**: upgrade octolib to 0.10.1 for openrouter embeddings `0d51e436`
+- **deps**: bump octolib to 0.10.0 `2c438f8b`
+- **deps**: bump cargo dependencies `055c106f`
+- **search**: add unit tests for format_symbols_for_display `d4693757`
+
+### 📊 Release Summary
+
+**Total commits**: 35 across 4 categories
+
+✨ **7** new features - *Enhanced functionality*
+🔧 **11** improvements - *Better performance & code quality*
+🐛 **7** bug fixes - *Improved stability*
+🔄 **10** other changes - *Maintenance & tooling*
+
+## [0.11.0] - 2026-02-13
+
+### 📋 Release Summary
+
+This release adds new AI providers for enhanced code analysis capabilities and delivers significant performance improvements through optimized graph traversal and query processing. Multiple bug fixes enhance system stability, improve text chunking accuracy, and ensure reliable metadata handling across the codebase.
+
+
+### ✨ New Features & Enhancements
+
+- **octolib**: add zai and minmax providers `fbe220a9`
+
+### 🔧 Improvements & Optimizations
+
+- **graphrag**: simplify nested if-else conditionals `d339b663`
+- **commands/commit**: enforce plain text format in AI prompts `af0e3ffd`
+- **review**: process JSON values directly `62992723`
+- **llm**: unify config and integrate octolib LlmClient `06aef91d`
+- **indexer**: simplify code embedding and unify logic `ba35f2d7`
+- **store**: simplify CacheStats struct initialization in test `f35032cd`
+- **graphrag**: add adjacency cache for graph traversal optimization `06480d97`
+- **graphrag**: improve queries with typed relations and pagination `52f2dab7`
+- **embedding**: replace providers with octolib integration `3db03b98`
+
+### 🐛 Bug Fixes & Stability
+
+- **config**: handle missing embedding provider in test `77704c9a`
+- **embedding**: handle parse_provider_model errors properly `8ef62370`
+- **indexer**: guarantee forward progress in text chunking loop `72c70303`
+- **indexer**: correct end_idx calculation in text chunking `9f75b3be`
+- **mcp**: handle JSON-RPC notifications without response `8251b243`
+- **zai**: resolve provider issue `a09718f6`
+- **utils**: handle single-line commit messages safely `979188b0`
+- **indexer**: flush store before saving metadata `2a135443`
+- **graphrag**: align batch schema field names for source_id handling `e653ee5b`
+- **docker**: update Rust base image to 1.91-slim `6d550f0c`
+- **octolib**: disable default features and enable embed by default `5d176da7`
+- **ci**: update cc crate and disable doctests on Windows `d46af3b8`
+
+### 🔄 Other Changes
+
+- upgrade Rust toolchain to 1.92.0 `0974150e`
+- **deps**: bump octolib to 0.8.1 `6b0d7648`
+- **deps**: upgrade octolib to 0.7.0 `63ae7cc0`
+- **deps**: update lance with geospatial support `c583b1a5`
+- **memory**: extract memory to separate binary `113f9753`
+- **deps**: bump octolib to v0.5.1 `a8fd0156`
+- **deps**: update octolib and zune-core `eee88b0c`
+- **release**: update macOS runner to 14 `5c6d7a22`
+- **deps**: upgrade reqwest and tree-sitter crates `6e58781c`
+- **deps**: bump dependency versions in Cargo.lock `afeaba6b`
+- **cargo**: bump deps and adapt to upstream API `9295417a`
+- **commands**: clarify breaking change policy in prompt `4626e1d8`
+- **deps**: update syn, http, and other dependencies `4b062e75`
+- **deps**: lock octolib to crates.io release version `78a9e7e6`
+- **deps**: update tracing-subscriber and core dependencies `eb6db5f5`
+
+### 📊 Release Summary
+
+**Total commits**: 37 across 4 categories
+
+✨ **1** new feature - *Enhanced functionality*
+🔧 **9** improvements - *Better performance & code quality*
+🐛 **12** bug fixes - *Improved stability*
+🔄 **15** other changes - *Maintenance & tooling*
+
+## [0.10.0] - 2025-09-14
+
+### 📋 Release Summary
+
+This release adds Java language support and enhances tokenization for improved semantic search (eae4107f, 4f463f07). Several bug fixes improve system stability, including better metadata handling, dependency updates, and LSP initialization (1574ac91, 48978d2a, 76e1410e, 11fb216b). Documentation and configuration guidance have also been updated for clearer usage and setup.
+
+
+### ✨ New Features & Enhancements
+
+- **indexer**: add Java language support `eae4107f`
+- **huggingface**: add BPE tokenizer support for RoBERTa-style models `4f463f07`
+
+### 🔧 Improvements & Optimizations
+
+- **java**: merge single-line nodes and deduplicate symbols `94d9e139`
+- **embedding, indexer**: fix code formatting and whitespace issues `a7823895`
+
+### 🐛 Bug Fixes & Stability
+
+- **indexer**: clarify git metadata storage condition message `1574ac91`
+- **lancedb**: update dependency to resolve aws_credential error `48978d2a`
+- **lsp**: resolve initialization and update issues with --with-lsp `76e1410e`
+- **embedding**: update fastembed to 5.0.2 and ensure thread safety `11fb216b`
+
+### 📚 Documentation & Examples
+
+- **config**: update embedding models and vector index guidance `7a6264d6`
+- **mcp**: clarify semantic search tool description for queries `2078ef8a`
+
+### 🔄 Other Changes
+
+- **deps**: upgrade dependencies to latest versions `deb779a7`
+
+### 📊 Release Summary
+
+**Total commits**: 11 across 5 categories
+
+✨ **2** new features - *Enhanced functionality*
+🔧 **2** improvements - *Better performance & code quality*
+🐛 **4** bug fixes - *Improved stability*
+📚 **2** documentation updates - *Better developer experience*
+🔄 **1** other change - *Maintenance & tooling*
+
+## [0.9.1] - 2025-08-14
+
+### 📋 Release Summary
+
+This release includes several bug fixes that enhance code indexing accuracy and stability, such as improved parsing of export statements, serialized indexing to prevent conflicts, refined method-level indexing for PHP, and better handling of code fences in markdown files (bd5bc26e, ae71a02e, 19acf3d4, 9df2c44d). Additionally, the initial release process now correctly uses the current version without requiring a manual bump (693e2fd7).
+
+
+### 🐛 Bug Fixes & Stability
+
+- **svelte**: improve parsing of export statements in indexer `bd5bc26e`
+- **lock**: serialize indexing with file-based lock `ae71a02e`
+- **php**: index classes by methods instead of whole class `19acf3d4`
+- **markdown**: prevent unrelated chunks from code fence splits `9df2c44d`
+- **release**: use current version for initial release without bump `693e2fd7`
+
+### 📊 Release Summary
+
+**Total commits**: 5 across 1 categories
+
+🐛 **5** bug fixes - *Improved stability*
+
+## [0.9.0] - 2025-08-10
+
+### 📋 Release Summary
+
+This release adds Lua language support and enhances code indexing with enriched context for improved search accuracy (60eeadca, 8e741cd4). Performance and responsiveness are improved through faster file counting and optimized memory handling (c891595a, f9ca0766). Several bug fixes address search threshold accuracy, code parsing, rendering issues, and stability across multiple components (9461b83a, 0d04a53c, 72f31414, b8e4eb43, fdd9e5d8, bae5806d, 0b927b2a).
+
+
+### ✨ New Features & Enhancements
+
+- **indexer**: enrich code block embeddings with file context `8e741cd4`
+- **parser**: add Lua language support with tree-sitter `60eeadca`
+
+### 🔧 Improvements & Optimizations
+
+- **indexer**: add fast file counting to optimize indexing performance `c891595a`
+- **store**: unify line indexing to zero-based internally `1c282523`
+- **cpp**: extract variable names from declarations alongside functions `bb941c5e`
+
+### 🐛 Bug Fixes & Stability
+
+- **graphrag**: load nodes from DB before relationship discovery `9461b83a`
+- **search**: correct threshold handling for -t parameter `0d04a53c`
+- **huggingface**: await async model init to prevent panic `72f31414`
+- **cpp**: correct import and export extraction logic `b8e4eb43`
+- **render**: correct line number display offset in outputs `fdd9e5d8`
+- **cpp**: handle function declarations in indexing and signatures `bae5806d`
+- **memory**: improve MCP responsiveness and indexing efficiency `f9ca0766`
+- **diff_chunker**: prevent panic on UTF-8 boundary slicing `0b927b2a`
+
+### 📊 Release Summary
+
+**Total commits**: 13 across 3 categories
+
+✨ **2** new features - *Enhanced functionality*
+🔧 **3** improvements - *Better performance & code quality*
+🐛 **8** bug fixes - *Improved stability*
+
+## [0.8.2] - 2025-08-03
+
+### 📋 Release Summary
+
+This release enhances indexing performance with improved caching and incremental file counting, alongside refined diff processing and AI-assisted commit message generation (07758f96, 32ab2c2c, 6ca8e2ee, 4f5a5241, fd32737d). Several bug fixes improve review accuracy, knowledge graph tracking, and overall system stability (270f80c5, 542836f9).
+
+
+### 🔧 Improvements & Optimizations
+
+- **commit**: add AI refinement for chunked commit messages `4f5a5241`
+- **diff_chunker**: improve diff chunking and response combination `fd32737d`
+- **indexer**: optimize .noindex detection with caching and targeted ... `07758f96`
+
+### 🐛 Bug Fixes & Stability
+
+- **review**: add file path and line number to review schema `270f80c5`
+- **indexer**: correct file counting for incremental indexing with git changes `32ab2c2c`
+- **diff_chunker**: add utility to split large diffs for chunked processing `6ca8e2ee`
+- **graphrag**: correctly increment graphrag_blocks counter `542836f9`
+
+### 📊 Release Summary
+
+**Total commits**: 7 across 2 categories
+
+🔧 **3** improvements - *Better performance & code quality*
+🐛 **4** bug fixes - *Improved stability*
+
+## [0.8.1] - 2025-07-25
+
+### 📋 Release Summary
+
+This release improves indexing accuracy and metadata handling while enhancing knowledge graph consistency for more reliable code search results (254b3ac2, 42fea8e4, 5219091d). Additionally, it fixes staging issues to ensure smoother commit workflows (86ce9f85).
+
+
+### 🐛 Bug Fixes & Stability
+
+- **indexer**: avoid .noindex errors by checking file existence `254b3ac2`
+- **indexer**: correct initial indexing and git metadata storage `42fea8e4`
+- **commit**: re-stage only originally staged files modified by pre-co... `86ce9f85`
+- **graphrag**: remove relationships by node IDs instead of file paths `5219091d`
+
+### 📊 Release Summary
+
+**Total commits**: 4 across 1 categories
+
+🐛 **4** bug fixes - *Improved stability*
+
+## [0.8.0] - 2025-07-11
+
+### 📋 Release Summary
+
+This release introduces enhanced multi-language import resolution and expanded semantic graph operations for improved code indexing and search (f53d5bc9, 10841fbe, c1e4e5f7). New AI architectural analysis settings and additional embedding providers, including OpenAI and Google models, offer greater flexibility and accuracy (386526a7, 3aec68da, e920ae56). Several bug fixes and refinements improve cross-platform stability, indexing reliability, and relationship extraction, enhancing overall system robustness (e6340d09, 2efe3df3, aed122e3, 8b648f71).
+
+
+### ✨ New Features & Enhancements
+
+- **graphrag**: add import resolver for multi-language imports `f53d5bc9`
+- **graphrag**: store relationships incrementally during processing `10841fbe`
+- **graphrag**: expand GraphRAG with node and path operations `c1e4e5f7`
+- **config**: add AI architectural analysis settings and prompts `386526a7`
+- **embedding**: add OpenAI as new embeddings provider `3aec68da`
+- **jina**: add new jina embedding models with dimensions `bd0d3146`
+- **embedding**: rename get_model_dimension and add Google models map `e726cdda`
+- **embedding**: add modular Google embedding provider and docs `e920ae56`
+- **models**: add dynamic model discovery and CLI commands `5beba7c0`
+- **markdown**: add signature extraction for markdown files `b27a50dc`
+
+### 🔧 Improvements & Optimizations
+
+- **rust**: unify file existence checks with helper method `0385c5e8`
+- **import**: remove legacy GraphRAG import resolver module `e8e8740f`
+- **models**: unify models list output format with dimensions `123be1db`
+- **fastembed**: use fully qualified model names in mapping and l... `e6f1647a`
+- **embedding**: unify huggingface prefix and improve model docs `4709ce2d`
+- **huggingface**: rename sentence transformers and fix URL resol... `ac193c4b`
+- **watch**: remove deprecated ignore patterns and config field `66df3c6c`
+
+### 🐛 Bug Fixes & Stability
+
+- **config**: remove deprecated top_k in favor of max_results `e6340d09`
+- **indexer**: prevent infinite recursion by disabling symlink follow `2efe3df3`
+- **test**: normalize paths to fix Windows test failures `83b415cd`
+- **indexer**: normalize paths and fix Windows tests for parent-child ... `510047b2`
+- **graphrag**: prevent duplicate nodes and clean up stale data `aed122e3`
+- **config**: correct confidence_threshold value in tests `b014ab7a`
+- **graphrag**: apply AI descriptions before node persistence `93f40ddf`
+- **graphrag**: improve AI relationship fetching criteria and logging `8b648f71`
+- **graphrag**: correctly update nodes with AI-generated descriptions `3ee81fd6`
+- **graphrag**: improve import/export extraction and relationship dete... `12d199a0`
+- **clear**: skip memory tables when clearing all data `b8075122`
+- **test**: simplify embedding provider tests to assume Voyage only `a6383b36`
+- **graphrag**: extract and display node relationships with correct in... `34bf6c3e`
+- **graphrag**: correct node indexing and display relationships `e93ea0cb`
+- **graphrag**: fix incremental indexing and cleanup for GraphRAG data `abc32e2b`
+- **graphrag**: fix graph_nodes persistence by unifying storage method `a9ab31af`
+- **store**: update file metadata using LanceDB UpdateBuilder API `e1d39b9a`
+- **search**: use config default for similarity threshold if unset `103ef056`
+- **website**: correct code block indentation in index.html `41676c9f`
+
+### 📚 Documentation & Examples
+
+- add import resolution and safe discovery details in docs `ded521dd`
+- **cli**: update model commands and GraphRAG usage details `57abf90d`
+- **readme**: remove accidental OpenAI promo from README `0aa869c6`
+- **commands**: expand Voyage models list and add OpenAI provider `1bff845a`
+- **mcp**: clarify view_signatures tool description and add Markdown ... `ea64de3e`
+
+### 🔄 Other Changes
+
+- **embedding**: add FastEmbed provider creation and validation tests `fb4b38ca`
+- **graphrag**: add edge case tests for import resolution `d84f90a5`
+- **graphrag**: upgrade config with LLM batching and fallback options `ea884005`
+- **release**: clarify purpose of crates upload release `86a490ad`
+
+### 📊 Release Summary
+
+**Total commits**: 45 across 5 categories
+
+✨ **10** new features - *Enhanced functionality*
+🔧 **7** improvements - *Better performance & code quality*
+🐛 **19** bug fixes - *Improved stability*
+📚 **5** documentation updates - *Better developer experience*
+🔄 **4** other changes - *Maintenance & tooling*
+
+## [0.7.1] - 2025-06-28
+
+### 📋 Release Summary
+
+This release is made exclusively for uploading the proper version to crates that had broken Rust indexing with an incorrect tree-sitter parser version.
+
+
+### 📚 Documentation & Examples
+
+- **ci**: fix markdown code block formatting in release workflow `39c0361e`
+
+### 📊 Release Summary
+
+**Total commits**: 1 across 1 categories
+
+📚 **1** documentation update - *Better developer experience*
+
+## [0.7.0] - 2025-06-27
+
+### 📋 Release Summary
+
+This release introduces enhanced search capabilities with distance-based result sorting and improved input handling, alongside streamlined environment configuration and automated changelog generation (97af3e9c, ea78232f, f3c50bbc, 9fab3f2c). Several bug fixes improve search accuracy, error handling, and repository detection (fa171584, 057c7832, e950d9c4). Additional updates include dependency upgrades, codebase optimizations, documentation fixes, and new website deployment.
+
+
+### ✨ New Features & Enhancements
+
+- **store**: include and sort search results by distance score `97af3e9c`
+- **embedding**: add input_type support with manual prefix injection `ea78232f`
+- **config**: load environment variables from .env file on startup `f3c50bbc`
+- **release**: enhance changelog generation and categorization `9fab3f2c`
+
+### 🔧 Improvements & Optimizations
+
+- **store**: unify vector search optimization with VectorOptimizer `3d9d4281`
+- **store**: replace deprecated nearest_to with vector_search API `867a65a9`
+- **commit**: add file-type checks to enforce docs type rules `ee523291`
+
+### 🐛 Bug Fixes & Stability
+
+- **mcp**: unify error handling in GraphRAG search execution `fa171584`
+- **search**: correct threshold conversion from similarity to distance `057c7832`
+- **cli**: use git root for repository detection in commands `e950d9c4`
+
+### 📚 Documentation & Examples
+
+- fix install script URLs to use master branch `8c304970`
+
+### 🔄 Other Changes
+
+- **deps**: upgrade notify, notify-debouncer-mini, dirs, and tree-si... `1d71d547`
+- **deps**: upgrade arrow crates to 55.2.0 for dependency updates `1ad07e85`
+- **ci**: update Rust version to 1.82 in Cargo.toml and clean workfl... `4bcc8d53`
+- **deps**: update Cargo `08a6c6cb`
+- Add website `7ace9672`
+- **release**: add GitHub Action job to publish crate to crates.io `84af3b80`
+
+### 📊 Release Summary
+
+**Total commits**: 17 across 5 categories
+
+✨ **4** new features - *Enhanced functionality*
+🔧 **3** improvements - *Better performance & code quality*
+🐛 **3** bug fixes - *Improved stability*
+📚 **1** documentation update - *Better developer experience*
+🔄 **6** other changes - *Maintenance & tooling*
+
+## [0.6.0] - 2025-06-24
+
+### 📋 Release Summary
+
+This release introduces new filtering options for code searches and limits output size to improve usability. Documentation has been updated for clearer build instructions, and indexing processes have been enhanced for better performance. Several bug fixes address search stability, language detection, and memory management.
+
+
+### ✨ Features
+
+- **mcp**: add max_tokens parameter to limit tool output size (ba81bd24)
+- **mcp**: add max_tokens limit to truncate large outputs in memory a... (0bce4ada)
+- **search**: add --language filter for code block searches (daeeb62a)
+
+### 🐛 Bug Fixes
+
+- **graphrag**: use quiet mode in GraphBuilder during search (44d4fd74)
+- **mcp**: remove redundant cwd changes and fix startup directory (5cb62cc5)
+- **indexer**: correct language detection for file extensions (bd6f0aeb)
+- **memory**: remove lock timeouts to prevent premature failures (d27a0987)
+
+### 🔧 Other Changes
+
+- **instructions**: clarify mandatory cargo build flags and usage (a14befc6)
+- **readme**: streamline and condense README key features section (bbe70ef2)
+- **indexer**: add batch processing and code region extraction mo... (43f50282)
+- **indexer**: extract markdown processing into dedicated module (17cc2ab5)
+- **indexer**: move signature extraction to dedicated module (a29fb64b)
+
+### 📊 Commit Summary
+
+**Total commits**: 12
+- ✨ 3 new features
+- 🐛 4 bug fixes
+- 🔧 5 other changes
+
+## [0.5.2] - 2025-06-22
+
+### 📋 Release Summary
+
+This release improves search accuracy with enhanced query validation and adjusts memory limits for better resource management. Performance optimizations streamline data processing, complemented by updated documentation to help users fine-tune vector indexing. Several bug fixes enhance overall system reliability and user experience.
+
+
+### 🐛 Bug Fixes
+
+- **search**: enforce stricter query validation and correct detail levels (9442589a)
+- **memory**: reduce max and default memories returned to 5 (50a84fe7)
+
+### 🔧 Other Changes
+
+- **store**: optimize sub-vector factor selection and milestone checks (98bdfdd1)
+- **store**: add LanceDB vector index tuning and performance guide (b2c2fa8d)
+- **constants**: extract MAX_QUERIES to shared constant (c2722c7c)
+
+### 📊 Commit Summary
+
+**Total commits**: 5
+- 🐛 2 bug fixes
+- 🔧 3 other changes
+
+## [0.5.1] - 2025-06-21
+
+### 📋 Release Summary
+
+This release includes several bug fixes that enhance command pattern recognition and improve code efficiency. These updates contribute to a smoother and more reliable user experience.
+
+
+### 🐛 Bug Fixes
+
+- **view**: resolve files with ./ prefix in view command patterns (4ecc5900)
+- **clippy**: reduntant conversion (c53c046b)
+
+### 📊 Commit Summary
+
+**Total commits**: 2
+- 🐛 2 bug fixes
+
+## [0.5.0] - 2025-06-21
+
+### 📋 Release Summary
+
+This release introduces enhanced search and memory features, including detailed output options and multi-query support, along with new CLI commands and expanded protocol integration. Additional language support and improved documentation provide a better user experience. Several bug fixes and refinements improve rendering accuracy and overall system stability.
+
+
+### ✨ Features
+
+- **search**: add detail level option for search output (8ade06ba)
+- **memory**: add multi-query support for memory retrieval (437e7d4f)
+- **docs**: add new CLI commands and usage examples to README (0fdfa552)
+- **mcp_proxy**: add HTTP proxy command for multiple MCP servers (26301f7b)
+- **mcp**: add HTTP server mode for MCP protocol integration (8ff10302)
+- **indexer**: add CSS/SCSS language support with tree-sitter parsers (fe88742a)
+
+### 🐛 Bug Fixes
+
+- **render_utils**: show first 2 and last 2 lines in signature renderings (6a46610f)
+- **render_utils**: correct new line rendering in markdown output (a6453c6d)
+- **indexer**: truncate signature text output to 5 lines with ellipsis (0f2fe910)
+
+### 🔧 Other Changes
+
+- **proxy**: restrict console logging to debug mode only (4199a6c0)
+- **search**: render docs with detail level matching code output (33db16a0)
+- **indexer**: extract file and git utilities into modules (03b8f495)
+- **svelte**: simplify symbol extraction to script/style only (367f99dd)
+
+### 📊 Commit Summary
+
+**Total commits**: 13
+- ✨ 6 new features
+- 🐛 3 bug fixes
+- 🔧 4 other changes
+
+## [0.4.1] - 2025-06-17
+
+### 📋 Release Summary
+
+This release includes several bug fixes that improve content accuracy and output formatting. Enhancements to search functionality and indexing provide more precise results, while performance optimizations reduce build times.
+
+
+### 🐛 Bug Fixes
+
+- **embedding**: include line ranges in content hash calculation (cf7c2d1b)
+- **indexer**: correct chunk merging to use sorted line numbers (2ec4d221)
+- **view**: correct output format handling for view command (6fe41063)
+
+### 🔧 Other Changes
+
+- **view, indexer**: add line numbers to text signature and searc... (981aeb8d)
+- **docker**: build release without default Cargo features (8d442bc0)
+
+### 📊 Commit Summary
+
+**Total commits**: 5
+- 🐛 3 bug fixes
+- 🔧 2 other changes
+
+## [0.4.0] - 2025-06-16
+
+### 📋 Release Summary
+
+This release introduces LSP integration with external server support and enhanced pre-commit hook automation for streamlined workflows. Documentation has been expanded with detailed usage examples and development instructions, while several refinements improve versioning prompts and semantic search clarity. Minor bug fixes address changelog formatting for better readability.
+
+
+### ✨ Features
+
+- **docs**: add LSP integration docs and CLI usage examples (7dfd5c20)
+- **mcp**: add LSP support with external server integration (29bbf98a)
+- **commit**: add automatic pre-commit hook integration with AI commi... (07a48fde)
+- **commit**: run pre-commit hooks before generating commit message (92aaf04a)
+- **release**: update versioning prompt and add lock file update (786e1fe3)
+
+### 🐛 Bug Fixes
+
+- **docs**: remove brackets from commit hashes in changelog (92bad9dd)
+
+### 🔧 Other Changes
+
+- **docker**: remove Cargo.lock from .dockerignore (d72ae449)
+- **cargo**: narrow Tokio and dependencies features for leaner build (3e6b6789)
+- add comprehensive Octocode development instructions (75c3add1)
+- **cli**: set version from Cargo.toml environment variable (6ad09c16)
+- **mcp/lsp**: simplify LSP tool inputs by replacing character wi... (616032e8)
+- **lsp**: simplify LSP responses to plain text format (5f8487a8)
+- **mcp**: clarify semantic search guidance in tool description (83551bba)
+- **mcp**: rename search_graphrag to graphrag_search for consistency (cf1d8428)
+- **mcp**: rename search_code tool to semantic_search to avoid AI... (93ca7008)
+- **commit**: clarify commit message rules and types (380cadcc)
+
+### 📊 Commit Summary
+
+**Total commits**: 16
+- ✨ 5 new features
+- 🐛 1 bug fix
+- 🔧 10 other changes
+
+## [0.3.0] - 2025-06-14
+
+### 📋 Release Summary
+
+This release enhances search functionality by increasing the maximum allowed queries and adding a text output format for results. Improvements to memory handling and command output formatting boost reliability and consistency. Additional fixes address changelog formatting, test stability, and performance optimizations across components.
+
+
+### ✨ Features
+
+- **indexer**: increase max allowed queries from 3 to 5 (9098d58e)
+- **commit,release**: improve handling of breaking changes in commands (67f06276)
+- **search**: add text output format for search results (b2cbbbfe)
+
+### 🐛 Bug Fixes
+
+- **release**: preserve trailing newline in changelog on update (cebc98e0)
+- **memory**: add UTF-8 sanitization and lock timeout handling (85cb6356)
+- **tests**: fix test failures and apply code formatting (7e645ae2)
+- **memory,commit,review**: use char count for truncation limits (4ed5e732)
+- **mcp**: use actually used original_dir variable for cwd restore (60ec9b77)
+
+### 🔧 Other Changes
+
+- **mcp**: reduce token usage in tool definitions and schemas (04db399f)
+- **semantic_code**: clarify multi-term search usage in tool descript... (0f931263)
+- **graphrag**: unify and improve text output formatting (27476075)
+- **memory**: unify memory formatting and remove sanitization (00e72942)
+- **commands**: unify output format handling with OutputFormat enum (9f95e7bc)
+- add Cargo.lock and track it in repo (b34051b2)
+- **changelog**: add initial release notes for v0.1.0 (91ae04ff)
+
+### 📝 All Commits
+
+- cebc98e0 fix(release): preserve trailing newline in changelog on update *by Don Hardman*
+- 9098d58e feat(indexer): increase max allowed queries from 3 to 5 *by Don Hardman*
+- 04db399f perf(mcp): reduce token usage in tool definitions and schemas *by Don Hardman*
+- 0f931263 docs(semantic_code): clarify multi-term search usage in tool descript... *by Don Hardman*
+- 27476075 refactor(graphrag): unify and improve text output formatting *by Don Hardman*
+- 85cb6356 fix(memory): add UTF-8 sanitization and lock timeout handling *by Don Hardman*
+- 67f06276 feat(commit,release): improve handling of breaking changes in commands *by Don Hardman*
+- 7e645ae2 fix(tests): fix test failures and apply code formatting *by Don Hardman*
+- 00e72942 refactor(memory): unify memory formatting and remove sanitization *by Don Hardman*
+- 4ed5e732 fix(memory,commit,review): use char count for truncation limits *by Don Hardman*
+- 9f95e7bc refactor(commands): unify output format handling with OutputFormat enum *by Don Hardman*
+- b2cbbbfe feat(search): add text output format for search results *by Don Hardman*
+- b34051b2 chore: add Cargo.lock and track it in repo *by Don Hardman*
+- 60ec9b77 fix(mcp): use actually used original_dir variable for cwd restore *by Don Hardman*
+- 91ae04ff docs(changelog): add initial release notes for v0.1.0 *by Don Hardman*
+
+All notable changes to this project will be documented in this file.
+
+## [0.2.0] - 2025-06-12
+
+### ✨ Features
+
+- add mode option to selectively clear tables
+- add multi-query search usage and support details
+- add hierarchical bottom-up chunking for docs
+- add show-file option to display file chunks
+- add --no-verify flag to skip git hooks
+- add GraphRAG data cleanup on file removal
+- improve UTF-8 slicing and path handling; build from D...
+- build GraphRAG from existing DB if enabled
+- add detailed multi-mode search with markdown output
+
+### 🐛 Bug Fixes
+
+- preserve formatting when updating version fields
+- merge tiny chunks to reduce excessive chunk creation
+- add optional context field to data schema
+- update default model names and versions
+- suppress MCP server logs during graph loading
+- properly handle .noindex ignore files
+- remove unnecessary timeouts on memory ops
+- update Rust version and copy config templates
+- require curl and update repo URLs to Muvon/octocode
+- fix variable interpolation in release workflow URLs
+
+### 🔧 Other Changes
+
+- docs: replace "reindex" with "index" for accuracy in docs
+- refactor: centralize search embeddings generation logic
+- docs: add AI-powered release management docs and CLI usage
+- refactor: unify GraphRAG config under graphrag section
+- refactor: use shared HTTP client with pooling
+- chore: update Apache License text to latest version
+- chore: add Rust formatting and linting hooks
+- refactor: move git file detection to utils module and clean code
+
+## [0.1.0] - 2025-06-06
+
+**Intelligent Code Indexer and Semantic Search Engine**
+
+### ✨ Core Features
+- **🔍 Semantic Code Search** - Natural language queries across your entire codebase
+- **🕸️ Knowledge Graph (GraphRAG)** - Automatic relationship discovery between files and modules
+- **🧠 AI Memory System** - Store and search project insights, decisions, and context
+- **🔌 MCP Server** - Built-in Model Context Protocol for AI assistant integration
+
+### 🌐 Language Support
+**11 Languages**: Rust, Python, JavaScript, TypeScript, Go, PHP, C++, Ruby, JSON, Bash, Markdown
+
+### 🛠️ AI-Powered Tools
+- Smart commit message generation
+- Code review with best practices analysis
+- Auto-reindexing with file watching
+- Multi-LLM support via OpenRouter
+
+### ⚡ Performance & Privacy
+- **Local-first option** (FastEmbed/SentenceTransformer on macOS)
+- **Cloud embeddings** (Voyage AI - 200M free tokens/month)
+- Respects `.gitignore` - never indexes sensitive files
+- Optimized batch processing with Lance columnar database

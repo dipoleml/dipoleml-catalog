@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.chubbyguan.chubbyskills",
+  "type": "mcp",
+  "name": "Chubbyskills",
+  "slug": "chubbyskills",
+  "vendor": "chubbyguan",
+  "description": "把中文全渠道内容（抖音 / B站 / 小红书 / 公众号 / X / 播客）采集进个人知识库的 14 个 AI Skill：图文存图、视频转文字稿、字幕优先免 GPU、RSS/YouTube 订阅调度与每日情报简报，附带知识库 MCP server。｜ Ingest Chinese content into your personal knowledge base — image/video routing, subtitle-first transcription, feed subscriptions with daily digests, and a KB MCP server.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/chubbyguan/chubbyskills",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-skills",
+    "bilibili",
+    "chinese",
+    "douyin",
+    "knowledge-base",
+    "obsidian",
+    "personal-knowledge-management",
+    "podcast"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "bilibili",
+    "chinese",
+    "claude-code",
+    "douyin",
+    "knowledge-base",
+    "mcp",
+    "obsidian",
+    "personal-knowledge-management",
+    "podcast",
+    "rss",
+    "second-brain",
+    "skills",
+    "transcription",
+    "wechat",
+    "xiaohongshu",
+    "youtube"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:46Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "chubbyguan/chubbyskills",
+    "url": "https://github.com/chubbyguan/chubbyskills",
+    "commit": "d066d7694d23045a39f8c3efc1b51ebb9ca7f867",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1285,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:22Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "chubbyskills"
+    ],
+    "env": [
+      "DASHSCOPE_API_KEY",
+      "GROQ_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "DASHSCOPE_API_KEY",
+      "GROQ_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

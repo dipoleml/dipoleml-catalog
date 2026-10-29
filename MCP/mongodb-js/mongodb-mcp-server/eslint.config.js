@@ -1,0 +1,130 @@
+import { defineConfig, globalIgnores } from "eslint/config";
+import js from "@eslint/js";
+import globals from "globals";
+import tseslint from "typescript-eslint";
+import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended";
+import vitestPlugin from "@vitest/eslint-plugin";
+import enforceZodV4 from "./eslint-rules/enforce-zod-v4.js";
+
+const sourceFiles = ["knip.ts", "packages/**/*.ts", "packages/**/*.tsx"];
+const testFiles = ["packages/**/*.test.ts", "packages/**/*.test.tsx"];
+
+export default defineConfig([
+    { files: sourceFiles, plugins: { js }, extends: ["js/recommended"] },
+    { files: sourceFiles, languageOptions: { globals: globals.node } },
+    {
+        files: testFiles,
+        plugins: {
+            vitest: vitestPlugin,
+        },
+        languageOptions: {
+            globals: {
+                ...globals.node,
+            },
+        },
+        rules: {
+            ...vitestPlugin.configs.recommended.rules,
+            "vitest/valid-title": "off",
+            "vitest/no-conditional-expect": "off",
+            "vitest/no-standalone-expect": "off",
+            "vitest/expect-expect": [
+                "error",
+                {
+                    assertFunctionNames: ["expect", "expectDefined", "verifyMockCalls", "expectForbiddenOperator"],
+                },
+            ],
+        },
+    },
+    {
+        files: sourceFiles,
+        extends: [tseslint.configs.recommendedTypeChecked],
+        languageOptions: {
+            parserOptions: {
+                projectService: true,
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+    },
+    {
+        files: sourceFiles,
+        rules: {
+            "@typescript-eslint/switch-exhaustiveness-check": ["error", { considerDefaultExhaustiveForUnions: true }],
+            "@typescript-eslint/no-non-null-assertion": "error",
+            "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],
+            "@typescript-eslint/consistent-type-exports": [
+                "error",
+                {
+                    fixMixedExportsWithInlineTypeSpecifier: false,
+                },
+            ],
+            eqeqeq: "error",
+            "no-self-compare": "error",
+            "no-unassigned-vars": "error",
+            "max-params": ["error", 2],
+            "@typescript-eslint/await-thenable": "error",
+            "@typescript-eslint/explicit-function-return-type": "error",
+        },
+    },
+    {
+        files: ["packages/mongodb-mcp-server/src/**/*.ts"],
+        plugins: {
+            "enforce-zod-v4": {
+                rules: {
+                    "enforce-zod-v4": enforceZodV4,
+                },
+            },
+        },
+        rules: {
+            "enforce-zod-v4/enforce-zod-v4": "error",
+            "no-restricted-imports": [
+                "error",
+                {
+                    paths: [
+                        {
+                            name: "assert",
+                            message:
+                                "Use explicit error handling or test framework assertions (e.g., vitest's expect) instead.",
+                        },
+                        {
+                            name: "node:assert",
+                            message:
+                                "Use explicit error handling or test framework assertions (e.g., vitest's expect) instead.",
+                        },
+                    ],
+                },
+            ],
+            "no-console": ["error"],
+        },
+    },
+    {
+        files: testFiles,
+        rules: {
+            /** Allow null assertions in test files */
+            "@typescript-eslint/no-non-null-assertion": "off",
+            /** Allow helpers/mock callbacks with more params in test files */
+            "max-params": "off",
+        },
+    },
+    globalIgnores([
+        "node_modules",
+        "**/dist/**",
+        "packages/atlas-api-client/openapi.d.ts",
+        ".claude/**",
+        "packages/ui/src/lib/**",
+        "coverage",
+        "global.d.ts",
+        "eslint.config.js",
+        "**/vitest.config.ts",
+        "**/vite*.config.ts",
+        "**/temp/**",
+        "**/*.tsbuildinfo",
+        "packages/browser-tests/polyfills/**",
+        "eslint-rules",
+        ".yalc",
+        "**/vitest.config.d.ts",
+        "**/vitest.config.js",
+        "**/vitest.config.js.map",
+        "**/vitest.config.d.ts.map",
+    ]),
+    eslintPluginPrettierRecommended,
+]);

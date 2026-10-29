@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.microsoft.azure-devops-mcp",
+  "type": "mcp",
+  "name": "Azure Devops MCP",
+  "slug": "azure-devops-mcp",
+  "vendor": "microsoft",
+  "description": "The MCP server for Azure DevOps, bringing the power of Azure DevOps directly to your agents.",
+  "version": "2.11.0",
+  "homepage": "https://github.com/microsoft/azure-devops-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "azure",
+    "brandName": "azure",
+    "source": "https://github.com/microsoft.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "microsoft/azure-devops-mcp",
+    "url": "https://github.com/microsoft/azure-devops-mcp",
+    "commit": "3ee829cb41536fd29aabfb27954fb6331b5e69ff",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2075,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:32Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@azure-devops/mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@azure-devops/mcp"
+    ],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+---
+title: "connect_to_jupyter"
+description: "Connect to a Jupyter server dynamically with URL and token."
+---
+
+# connect_to_jupyter
+
+Connect to a Jupyter server dynamically with URL and token.
+
+This tool allows you to connect to different Jupyter servers without needing to
+restart the MCP server or modify configuration files. Particularly useful when:
+- Working with multiple Jupyter servers with different ports/tokens
+- Jupyter server token changes dynamically
+- Need to switch between different Jupyter instances
+
+The server is checked first: the tool asks it for `/api/status` with the
+given token, and if it can't be reached, rejects the token or doesn't
+answer with a 200, the call fails and the previous connection stays in
+place. The `local` URL and non-Jupyter document providers are not checked.
+
+Example usage:
+- "Connect to http://localhost:8888 with token abc123"
+- "Connect to http://localhost:8889 without authentication"
+
+> destructive: **yes** · idempotent: **yes** · open-world: **no**
+
+## Parameters
+
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `jupyter_url` | string | yes | — | Jupyter server URL to connect to (e.g., 'http://localhost:8888') |
+| `jupyter_token` | string \| null | no | `null` | Jupyter server authentication token |
+| `document_provider` | string | no | `"jupyter"` | Which backend holds the notebook documents |
+
+## Output
+
+```json
+{
+  "properties": {
+    "kind": {
+      "description": "What this result is — 'cell.read', 'notebooks.list' and so on. Lets a client tell one answer from another without matching prose.",
+      "title": "Kind",
+      "type": "string"
+    },
+    "result": {
+      "default": null,
+      "description": "The answer itself: a message, the rows of a listing, or the outputs of an execution in order.",
+      "title": "Result"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object",
+  "additionalProperties": true,
+  "description": "What every tool of this server answers with.\n\nDeclared so the shape is *advertised* rather than merely produced. A tool\nthat returns structure without saying what it will return leaves a client\nnothing to validate against and the generated reference nothing to show —\nthe call works and the contract is invisible, which is the worst of both.\n\nExtra fields are allowed on purpose. A tool that already answers with a\nmapping keeps its own keys (see :func:`_default_shape`), and those are the\ninteresting part of its answer; forbidding them would mean either\nflattening every tool into one shape or declaring nothing at all.",
+  "title": "ToolAnswer"
+}
+```
+
+## Call it
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "connect_to_jupyter",
+    "arguments": {
+      "jupyter_url": "<jupyter_url>",
+      "jupyter_token": null,
+      "document_provider": "jupyter"
+    }
+  }
+}
+```
+
+```python
+result = await session.call_tool("connect_to_jupyter", arguments={"jupyter_url": "<jupyter_url>", "jupyter_token": None, "document_provider": "jupyter"})
+```
+
+## Source
+
+Registered by the `@mcp.tool` decorator on `connect_to_jupyter` in [`jupyter_mcp_server/server.py`](https://github.com/datalayer/jupyter-mcp-server/blob/main/jupyter_mcp_server/server.py).
+

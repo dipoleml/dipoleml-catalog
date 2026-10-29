@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.bethington.ghidra-mcp",
+  "type": "mcp",
+  "name": "Ghidra MCP",
+  "slug": "ghidra-mcp",
+  "vendor": "bethington",
+  "description": "Ghidra MCP Server — 200+ MCP tools for AI-powered reverse engineering. GUI plugin + headless server, lazy tool loading, convention enforcement, batch operations, Ghidra Server integration, and Docker deployment.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/bethington/ghidra-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "binary-analysis",
+    "ghidra",
+    "ghidra-extension",
+    "java",
+    "model-context-protocol",
+    "reverse-engineering",
+    "static-analysis"
+  ],
+  "tags": [
+    "ai",
+    "binary-analysis",
+    "ghidra",
+    "ghidra-extension",
+    "java",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "python",
+    "reverse-engineering",
+    "static-analysis"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "docker",
+    "brandName": "docker",
+    "source": "https://cdn.simpleicons.org/docker",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:43Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "bethington/ghidra-mcp",
+    "url": "https://github.com/bethington/ghidra-mcp",
+    "commit": "f86152842c81d774afe16d172a50d17bc418a8d7",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 5968,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "ghidra-mcp-bridge"
+    ],
+    "env": [
+      "GHIDRA_MCP_URL",
+      "GHIDRA_MCP_ALLOWED_HOSTS",
+      "GHIDRA_MCP_INBOUND_TOKEN",
+      "GHIDRA_MCP_AUTH_TOKEN",
+      "GHIDRA_DEBUGGER_URL",
+      "GHIDRA_MCP_ARCHIVE_URL",
+      "GHIDRA_MCP_PORT"
+    ],
+    "credentials": [
+      "GHIDRA_MCP_INBOUND_TOKEN",
+      "GHIDRA_MCP_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,869 @@
+/**
+ * Persistent Codex App-Server Session — wraps `codex app-server`
+ *
+ * Unlike `PersistentCodexSession` (which spawns `codex exec` per send), this
+ * session keeps a long-running `codex app-server --listen stdio://` subprocess
+ * and speaks Codex's v2 JSON-RPC 2.0 protocol over its stdin/stdout.
+ *
+ * The motivation is the `/goal` long-horizon objective system, which is
+ * exclusively available through the app-server protocol — `codex exec` has no
+ * access to it. The flag `goals` is feature-flagged in 0.128 (default off);
+ * we lift it per-session via `--enable goals` rather than touching global
+ * config.
+ *
+ * Protocol notes (verified against codex-cli 0.164.0):
+ *   - Frames are line-delimited JSON-RPC 2.0 messages over stdio.
+ *   - Lifecycle: `initialize` → `thread/start` (or `thread/resume`) →
+ *     `turn/start` (per send).
+ *   - Goals are typed RPCs: `thread/goal/set` (objective, status, tokenBudget),
+ *     `thread/goal/get`, `thread/goal/clear`. Setting an objective starts the
+ *     server's own turn loop, which runs until the goal leaves `active`; each
+ *     change arrives as `thread/goal/updated`. A thread resumed with an active
+ *     goal continues on its own.
+ *   - `error` notifications carry `{ error: { message, codexErrorInfo },
+ *     willRetry }`; `codexErrorInfo` names the failure (`serverOverloaded`,
+ *     `usageLimitExceeded`, …) so callers need not match message text.
+ */
+
+import { ChildProcess } from 'node:child_process';
+import { spawnEngine } from './engine-spawn.js';
+import { EventEmitter } from 'node:events';
+import * as readline from 'node:readline';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import type {
+  SessionConfig,
+  SessionStats,
+  EffortLevel,
+  GeneratedImage,
+  StreamEvent,
+  ISession,
+  SessionSendOptions,
+  TurnResult,
+  CostBreakdown,
+} from './types.js';
+import { getModelPricing, resolveAlias, getContextWindow } from './models.js';
+import { SESSION_EVENT, MAX_HISTORY_ITEMS, DEFAULT_HISTORY_LIMIT } from './constants.js';
+import { sanitizeSecrets } from './sanitize.js';
+import { codexReasoningEffort } from './persistent-codex-session.js';
+
+// ─── Hand-translated protocol types (subset we use) ────────────────────────
+//
+// Mirrors `codex app-server generate-ts` output. Kept inline because we only
+// touch a small slice; if upstream churn becomes painful, swap in the full
+// generated bindings under `src/generated/codex-app/`.
+
+type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+export type ThreadGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete';
+
+export interface ThreadGoal {
+  threadId: string;
+  objective: string;
+  status: ThreadGoalStatus;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** The last `error` notification, with the server's own classification. */
+export interface CodexAppError {
+  message: string;
+  /** `codexErrorInfo` as a name: a string variant, or the key of an object variant. */
+  code: string | null;
+  /** True when the server itself will retry the request. */
+  willRetry: boolean;
+  at: string;
+}
+
+/** Name of a `CodexErrorInfo` value: `'serverOverloaded'`, or `'httpConnectionFailed'` for `{ httpConnectionFailed: … }`. */
+function errorInfoName(info: unknown): string | null {
+  if (typeof info === 'string') return info;
+  if (info && typeof info === 'object') return Object.keys(info)[0] ?? null;
+  return null;
+}
+
+interface ThreadGoalUpdatedNotification {
+  goal: ThreadGoal;
+  threadId: string;
+  turnId?: string | null;
+}
+
+interface ThreadStartedNotification {
+  thread: { id: string; cwd?: string; status?: string };
+}
+
+interface TokenUsageBreakdown {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+interface ThreadTokenUsageUpdatedNotification {
+  threadId: string;
+  turnId: string;
+  tokenUsage: { total: TokenUsageBreakdown; last: TokenUsageBreakdown; modelContextWindow?: number | null };
+}
+
+interface ItemCompletedNotification {
+  threadId: string;
+  turnId: string;
+  item: { type: string; id?: string; text?: string; savedPath?: string | null; revisedPrompt?: string | null };
+}
+
+interface AgentMessageDeltaNotification {
+  threadId: string;
+  turnId: string;
+  itemId?: string;
+  delta?: string;
+}
+
+interface TurnCompletedNotification {
+  threadId: string;
+  turn: { id: string; status: string };
+}
+
+// ─── PersistentCodexAppServerSession ───────────────────────────────────────
+
+interface PendingRequest {
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+  method: string;
+}
+
+export class PersistentCodexAppServerSession extends EventEmitter implements ISession {
+  private options: SessionConfig;
+  private codexBin: string;
+  private proc: ChildProcess | null = null;
+  private _rl: readline.Interface | null = null;
+  private _isReady = false;
+  private _isPaused = false;
+  private _isBusy = false;
+  private _startTime: string | null = null;
+  private _nextRpcId = 1;
+  private pendingRequests = new Map<number, PendingRequest>();
+  private _history: Array<{ time: string; type: string; event: unknown }> = [];
+
+  // Per-session state populated by notifications
+  private threadId?: string;
+  /**
+   * Set when `start()` opened a fresh thread and `appendSystemPrompt` is set.
+   * Nothing passes it to `thread/start`, so the instructions ride on the first
+   * turn instead, as for the one-shot engines; a resumed thread already has them.
+   */
+  private _instructionsPending = false;
+  private currentTurnId?: string;
+  private currentGoal: ThreadGoal | null = null;
+  private _lastError: CodexAppError | null = null;
+
+  // Per-turn buffers (reset at each send)
+  private turnAssistantText = '';
+  /** Images saved by `imageGeneration` items in the current turn. */
+  private turnImages: GeneratedImage[] = [];
+  private turnResolve: ((r: TurnResult) => void) | null = null;
+  private turnReject: ((e: Error) => void) | null = null;
+
+  public sessionId?: string;
+  private _stats = {
+    turns: 0,
+    turnsSucceeded: 0,
+    toolCalls: 0,
+    toolErrors: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    cachedTokens: 0,
+    costUsd: 0,
+    lastActivity: null as string | null,
+  };
+
+  /** This turn's own prompt size, from `tokenUsage.last` — see _estimateContextPercent(). */
+  private _lastTurnTokensIn = 0;
+  /** The window the app-server is enforcing, from `tokenUsage.modelContextWindow`. */
+  private _modelContextWindow?: number;
+
+  /**
+   * The model the app-server reports for the thread. With no `model` param it
+   * runs the one in the user's `~/.codex/config.toml`, and pricing that thread
+   * at this wrapper's default misstates its cost.
+   */
+  private _reportedModel?: string;
+
+  constructor(config: SessionConfig, codexBin?: string) {
+    super();
+    this.codexBin = codexBin || process.env.CODEX_BIN || 'codex';
+    this.options = { ...config, permissionMode: config.permissionMode || 'bypassPermissions' };
+  }
+
+  // ── Property Accessors ─────────────────────────────────────────────────
+
+  get pid(): number | undefined {
+    return this.proc?.pid ?? undefined;
+  }
+  get isReady(): boolean {
+    return this._isReady;
+  }
+  get isPaused(): boolean {
+    return this._isPaused;
+  }
+  get isBusy(): boolean {
+    return this._isBusy;
+  }
+  get goal(): ThreadGoal | null {
+    return this.currentGoal;
+  }
+  get codexThreadId(): string | undefined {
+    return this.threadId;
+  }
+  /** The most recent `error` notification, or null. */
+  get lastError(): CodexAppError | null {
+    return this._lastError;
+  }
+  /** True while a turn is in flight on this thread, including the goal loop's own turns. */
+  get turnActive(): boolean {
+    return this.currentTurnId !== undefined;
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────
+
+  async start(): Promise<this> {
+    if (this.options.cwd) {
+      this.options.cwd = path.resolve(this.options.cwd);
+      if (!fs.existsSync(this.options.cwd)) fs.mkdirSync(this.options.cwd, { recursive: true });
+    }
+
+    const args = ['app-server', '--listen', 'stdio://', '--enable', 'goals'];
+    this.proc = spawnEngine(this.codexBin, args, {
+      launcher: this.options.launcher,
+      cwd: this.options.cwd,
+      env: { ...process.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    this._rl = readline.createInterface({ input: this.proc.stdout!, crlfDelay: Infinity });
+    this._rl.on('line', (line) => this._handleLine(line));
+
+    this.proc.stderr?.on('data', (data: Buffer) => {
+      this.emit(SESSION_EVENT.LOG, `[codex-app-stderr] ${sanitizeSecrets(data.toString())}`);
+    });
+
+    this.proc.on('exit', (code) => {
+      this._isReady = false;
+      // Reject any pending requests so callers don't hang.
+      for (const pending of this.pendingRequests.values()) {
+        pending.reject(new Error(`codex app-server exited (code=${code}) before responding`));
+      }
+      this.pendingRequests.clear();
+      if (this.turnReject) {
+        this.turnReject(new Error(`codex app-server exited mid-turn (code=${code})`));
+        this.turnReject = null;
+        this.turnResolve = null;
+      }
+      this.emit(SESSION_EVENT.CLOSE, code ?? 0);
+    });
+
+    // 1. initialize
+    await this._request('initialize', {
+      clientInfo: { name: 'claw-orchestrator', title: null, version: '3.0.0' },
+    });
+
+    // 2. thread/start — captures threadId both from the response and the
+    //    `thread/started` notification (which arrives before the response per
+    //    observed protocol semantics).
+    const effort = codexReasoningEffort(this.options.effort);
+    const startParams = {
+      cwd: this.options.cwd,
+      model: this.options.model,
+      sandbox: (this.options.sandboxMode || 'workspace-write') as SandboxMode,
+      // Nothing here can answer an approval prompt, so none may be asked: with
+      // the server's default (the user's config, often `on-request`) a command
+      // that wanted approval left the turn waiting forever. The sandbox mode is
+      // the boundary instead.
+      approvalPolicy: 'never',
+      // On the thread, not only on `turn/start`: the goal loop starts its own
+      // turns, and those read the thread's config.
+      ...(effort ? { config: { model_reasoning_effort: effort } } : {}),
+    };
+    // When resuming a known thread, use `thread/resume` (loads prior turns)
+    // instead of `thread/start` (which opens a fresh thread). A stale/unknown
+    // thread id (e.g. a wrong-engine id from auto-resume, or a thread that no
+    // longer exists) degrades gracefully to a fresh thread rather than failing
+    // the whole session.
+    const resumeId = this.options.resumeSessionId;
+    let threadResp: { thread?: { id?: string }; model?: unknown };
+    let resumed = false;
+    if (resumeId) {
+      try {
+        threadResp = (await this._request('thread/resume', { threadId: resumeId, ...startParams })) as {
+          thread?: { id?: string };
+          model?: unknown;
+        };
+        resumed = true;
+      } catch (err) {
+        this.emit(SESSION_EVENT.LOG, `[codex-app] thread/resume failed (${(err as Error).message}); starting fresh`);
+        threadResp = (await this._request('thread/start', startParams)) as typeof threadResp;
+      }
+    } else {
+      threadResp = (await this._request('thread/start', startParams)) as typeof threadResp;
+    }
+    if (!this.threadId && threadResp?.thread?.id) {
+      this.threadId = threadResp.thread.id;
+    }
+    if (!this.threadId) {
+      throw new Error('codex app-server did not return a thread id from thread/start');
+    }
+    if (typeof threadResp.model === 'string' && threadResp.model) this._reportedModel = threadResp.model;
+    this._instructionsPending = !resumed && !!this.options.appendSystemPrompt?.trim();
+
+    this.sessionId = `codex-app-${this.threadId.slice(0, 8)}-${Date.now().toString(36)}`;
+    this._startTime = new Date().toISOString();
+    this._isReady = true;
+    this.emit(SESSION_EVENT.READY);
+    this.emit(SESSION_EVENT.INIT, { type: 'system', subtype: 'init', session_id: this.sessionId });
+    return this;
+  }
+
+  stop(): void {
+    if (this._rl) {
+      this._rl.close();
+      this._rl = null;
+    }
+    if (this.proc) {
+      try {
+        this.proc.kill('SIGTERM');
+      } catch {
+        // Already gone.
+      }
+      this.proc = null;
+    }
+    this._isReady = false;
+    this._isPaused = false;
+  }
+
+  pause(): void {
+    this._isPaused = true;
+    this.emit(SESSION_EVENT.PAUSED, { sessionId: this.sessionId });
+  }
+  resume(): void {
+    this._isPaused = false;
+    this.emit(SESSION_EVENT.RESUMED, { sessionId: this.sessionId });
+  }
+
+  // ── send() ─────────────────────────────────────────────────────────────
+
+  async send(
+    message: string | unknown[],
+    options: SessionSendOptions = {},
+  ): Promise<TurnResult | { requestId: number; sent: boolean }> {
+    if (!this._isReady) throw new Error('Session not ready. Call start() first.');
+    if (!this.threadId) throw new Error('Session has no thread id (start() did not complete?)');
+    let text = typeof message === 'string' ? message : JSON.stringify(message);
+    const instructions = this._instructionsPending ? this.options.appendSystemPrompt?.trim() : undefined;
+    this._instructionsPending = false;
+    if (instructions) text = `${instructions}\n\n---\n\n${text}`;
+
+    if (!options.waitForComplete) {
+      this._fireAndForgetTurn(text, options).catch((err) => this._emitError(err as Error));
+      return { requestId: this._nextRpcId, sent: true };
+    }
+
+    this._isBusy = true;
+    try {
+      return await this._runTurn(text, options);
+    } finally {
+      this._isBusy = false;
+    }
+  }
+
+  private async _fireAndForgetTurn(text: string, options: SessionSendOptions): Promise<void> {
+    await this._request('turn/start', this._turnStartParams(text, options));
+  }
+
+  /** `turn/start` params. The effort holds for this turn and the ones after it. */
+  private _turnStartParams(text: string, options: SessionSendOptions): Record<string, unknown> {
+    const effort = codexReasoningEffort(options.effort ?? this.options.effort);
+    return {
+      threadId: this.threadId,
+      input: [{ type: 'text', text, text_elements: [] }],
+      ...(effort ? { effort } : {}),
+    };
+  }
+
+  private async _runTurn(text: string, options: SessionSendOptions): Promise<TurnResult> {
+    const timeout = options.timeout || 600_000;
+    this.turnAssistantText = '';
+    this.turnImages = [];
+
+    const turnPromise = new Promise<TurnResult>((resolve, reject) => {
+      this.turnResolve = resolve;
+      this.turnReject = reject;
+    });
+
+    // Wire up text streaming for this turn
+    const onText = (chunk: string) => {
+      try {
+        options.callbacks?.onText?.(chunk);
+      } catch {
+        // User callback errors are not fatal.
+      }
+    };
+    this.on(SESSION_EVENT.TEXT, onText);
+
+    const timer = setTimeout(() => {
+      if (this.turnReject) {
+        const r = this.turnReject;
+        this.turnResolve = null;
+        this.turnReject = null;
+        r(new Error('Timeout waiting for Codex app-server turn to complete'));
+      }
+    }, timeout);
+
+    try {
+      await this._request('turn/start', this._turnStartParams(text, options));
+      const result = await turnPromise;
+      return result;
+    } finally {
+      clearTimeout(timer);
+      this.removeListener(SESSION_EVENT.TEXT, onText);
+    }
+  }
+
+  // ── JSON-RPC plumbing ──────────────────────────────────────────────────
+
+  private _request(method: string, params: unknown): Promise<unknown> {
+    if (!this.proc?.stdin?.writable) {
+      return Promise.reject(new Error('codex app-server stdin not writable'));
+    }
+    const id = this._nextRpcId++;
+    const msg = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(id, { resolve, reject, method });
+      this.proc!.stdin!.write(msg, (err) => {
+        if (err) {
+          this.pendingRequests.delete(id);
+          reject(err);
+        }
+      });
+    });
+  }
+
+  private _reply(id: number | string, error: { code: number; message: string }): void {
+    if (!this.proc?.stdin?.writable) return;
+    this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, error }) + '\n');
+  }
+
+  private _handleLine(line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let msg: {
+      jsonrpc?: string;
+      id?: number | string | null;
+      method?: string;
+      params?: unknown;
+      result?: unknown;
+      error?: { code?: number; message?: string };
+    };
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      this.emit(SESSION_EVENT.LOG, `[codex-app-stdout] ${trimmed}`);
+      return;
+    }
+
+    this._addHistory({ time: new Date().toISOString(), type: 'event', event: msg });
+
+    // Response (has id, no method)
+    if (typeof msg.id === 'number' && msg.method === undefined) {
+      const pending = this.pendingRequests.get(msg.id);
+      if (!pending) return;
+      this.pendingRequests.delete(msg.id);
+      if (msg.error) {
+        pending.reject(new Error(`${pending.method} failed: ${msg.error.message ?? 'unknown error'}`));
+      } else {
+        pending.resolve(msg.result);
+      }
+      return;
+    }
+
+    // Request from the server (has method and id): approvals, user input,
+    // client-side tool calls. None is supported here, and an unanswered request
+    // blocks the turn that sent it, so each gets an error reply at once.
+    if (msg.method && msg.id !== undefined && msg.id !== null) {
+      this.emit(SESSION_EVENT.LOG, `[codex-app] declined server request ${msg.method}`);
+      this._reply(msg.id, { code: -32601, message: `${msg.method} is not supported by this client` });
+      return;
+    }
+
+    // Notification (has method, no id)
+    if (msg.method) {
+      this._dispatchNotification(msg.method, msg.params);
+    }
+  }
+
+  private _dispatchNotification(method: string, params: unknown): void {
+    switch (method) {
+      case 'thread/started': {
+        const p = params as ThreadStartedNotification;
+        if (p.thread?.id && !this.threadId) this.threadId = p.thread.id;
+        break;
+      }
+      case 'turn/started': {
+        const p = params as { threadId: string; turn: { id: string } };
+        this.currentTurnId = p.turn?.id;
+        break;
+      }
+      case 'item/agentMessage/delta': {
+        const p = params as AgentMessageDeltaNotification;
+        if (typeof p.delta === 'string' && p.delta.length > 0) {
+          this.turnAssistantText += p.delta;
+          this.emit(SESSION_EVENT.TEXT, p.delta);
+        }
+        break;
+      }
+      case 'item/completed': {
+        const p = params as ItemCompletedNotification;
+        // Codex's built-in image generation reports where it saved the file.
+        if (p.item?.type === 'imageGeneration' && typeof p.item.savedPath === 'string' && p.item.savedPath) {
+          this.turnImages.push({
+            path: p.item.savedPath,
+            ...(typeof p.item.revisedPrompt === 'string' ? { revisedPrompt: p.item.revisedPrompt } : {}),
+          });
+        }
+        if (p.item?.type === 'agentMessage' && typeof p.item.text === 'string') {
+          // Agent messages may arrive as one final text payload (when no
+          // delta stream was used). Only append if we haven't already
+          // accumulated this turn's text via deltas.
+          if (this.turnAssistantText.length === 0) {
+            this.turnAssistantText = p.item.text;
+            this.emit(SESSION_EVENT.TEXT, p.item.text);
+          }
+        }
+        break;
+      }
+      case 'thread/tokenUsage/updated': {
+        const p = params as ThreadTokenUsageUpdatedNotification;
+        if (p.tokenUsage?.total) {
+          // Replace (not increment) — the server reports cumulative totals.
+          this._stats.tokensIn = p.tokenUsage.total.inputTokens;
+          this._stats.tokensOut = p.tokenUsage.total.outputTokens + p.tokenUsage.total.reasoningOutputTokens;
+          this._stats.cachedTokens = p.tokenUsage.total.cachedInputTokens;
+          this._updateCost();
+        }
+        // `last` is this turn's own prompt, which for a thread-resuming engine
+        // is the live context occupancy; `total` only ever grows and would pin
+        // contextPercent at 100 on any long session.
+        if (typeof p.tokenUsage?.last?.inputTokens === 'number') {
+          this._lastTurnTokensIn = p.tokenUsage.last.inputTokens;
+        }
+        if (typeof p.tokenUsage?.modelContextWindow === 'number') {
+          this._modelContextWindow = p.tokenUsage.modelContextWindow;
+        }
+        break;
+      }
+      case 'thread/goal/updated': {
+        const p = params as ThreadGoalUpdatedNotification;
+        if (p.goal) this.currentGoal = p.goal;
+        this.emit('goal:updated', this.currentGoal);
+        break;
+      }
+      case 'thread/goal/cleared': {
+        this.currentGoal = null;
+        this.emit('goal:cleared');
+        break;
+      }
+      case 'turn/completed': {
+        const p = params as TurnCompletedNotification;
+        // This notification can itself report how the turn ended. The engine's
+        // TurnStatus is `completed | interrupted | failed | inProgress`, so the counter
+        // tests for completion rather than for the absence of failure: an interrupted
+        // turn — which `interrupt()` on this class produces on purpose — resolves with
+        // partial text and is not a success. `stop_reason` keeps its own two-state
+        // mapping, so `interrupted` stays out of the error bucket there.
+        const failed = p.turn?.status === 'failed';
+        this._stats.turns++;
+        if (p.turn?.status === 'completed') this._stats.turnsSucceeded++;
+        this._stats.lastActivity = new Date().toISOString();
+        // Clear the active-turn id so a later interrupt()/steer() does not target
+        // an already-finished turn (only clear if it is the turn that completed).
+        if (p.turn?.id && this.currentTurnId === p.turn.id) this.currentTurnId = undefined;
+        const turnText = this.turnAssistantText;
+        const event: StreamEvent = {
+          type: 'result',
+          result: turnText,
+          stop_reason: failed ? 'error' : 'end_turn',
+          session_id: this.threadId,
+          ...(this.turnImages.length ? { generated_images: [...this.turnImages] } : {}),
+        };
+        this.emit(SESSION_EVENT.RESULT, event);
+        this.emit(SESSION_EVENT.TURN_COMPLETE, event);
+        // A failed turn is surfaced as a rejection (mirrors the exec wrapper),
+        // not an empty-text resolve, so callers see the failure.
+        if (failed && this.turnReject) {
+          this._stats.toolErrors++;
+          const rej = this.turnReject;
+          this.turnResolve = null;
+          this.turnReject = null;
+          rej(new Error(`Codex app-server turn failed${turnText ? `: ${turnText}` : ''}`));
+          break;
+        }
+        if (this.turnResolve) {
+          const r = this.turnResolve;
+          this.turnResolve = null;
+          this.turnReject = null;
+          r({ text: turnText, event });
+        }
+        break;
+      }
+      case 'error': {
+        const p = params as { error?: { message?: string; codexErrorInfo?: unknown }; willRetry?: boolean };
+        const message = p.error?.message ?? 'codex app-server error';
+        this._lastError = {
+          message,
+          code: errorInfoName(p.error?.codexErrorInfo),
+          willRetry: p.willRetry === true,
+          at: new Date().toISOString(),
+        };
+        this.emit('codex:error', this._lastError);
+        this._emitError(new Error(message));
+        break;
+      }
+      default:
+        // Unhandled notifications still go to history for debugging
+        break;
+    }
+  }
+
+  // ── ISession surface ───────────────────────────────────────────────────
+
+  getStats(): SessionStats & { sessionId?: string; uptime: number; goal?: ThreadGoal | null } {
+    return {
+      turns: this._stats.turns,
+      turnsSucceeded: this._stats.turnsSucceeded,
+      toolCalls: this._stats.toolCalls,
+      toolErrors: this._stats.toolErrors,
+      tokensIn: this._stats.tokensIn,
+      tokensOut: this._stats.tokensOut,
+      cachedTokens: this._stats.cachedTokens,
+      costUsd: Math.round(this._stats.costUsd * 10000) / 10000,
+      isReady: this._isReady,
+      startTime: this._startTime,
+      lastActivity: this._stats.lastActivity,
+      contextPercent: this._estimateContextPercent(),
+      retries: 0,
+      sessionId: this.sessionId,
+      uptime: this._startTime ? Math.round((Date.now() - new Date(this._startTime).getTime()) / 1000) : 0,
+      codexThreadId: this.threadId,
+      goal: this.currentGoal,
+    };
+  }
+
+  getHistory(limit = DEFAULT_HISTORY_LIMIT): Array<{ time: string; type: string; event: unknown }> {
+    return this._history.slice(-limit);
+  }
+
+  async compact(_summary?: string): Promise<TurnResult> {
+    // Codex has its own `thread/compact/start` RPC, but the existing public
+    // ISession contract returns a TurnResult. Wire it as a request, ignore
+    // the response shape, and return a synthesized result.
+    if (!this.threadId) throw new Error('No thread id');
+    await this._request('thread/compact/start', { threadId: this.threadId });
+    const event: StreamEvent = { type: 'result', result: 'Codex thread compaction started' };
+    return { text: 'Codex thread compaction started', event };
+  }
+
+  getEffort(): EffortLevel {
+    return this.options.effort || 'auto';
+  }
+  setEffort(level: EffortLevel): void {
+    this.options.effort = level;
+  }
+
+  resolveModel(alias: string): string {
+    return resolveAlias(alias);
+  }
+
+  getCost(): CostBreakdown {
+    const pricing = getModelPricing(this._billedModel(), 'gpt-5.5');
+    const cachedPrice = pricing.cached ?? 0;
+    const nonCachedIn = Math.max(0, this._stats.tokensIn - this._stats.cachedTokens);
+    return {
+      model: this._billedModel() || 'gpt-5.5',
+      tokensIn: this._stats.tokensIn,
+      tokensOut: this._stats.tokensOut,
+      cachedTokens: this._stats.cachedTokens,
+      pricing: { inputPer1M: pricing.input, outputPer1M: pricing.output, cachedPer1M: cachedPrice || undefined },
+      breakdown: {
+        inputCost: (nonCachedIn / 1_000_000) * pricing.input,
+        cachedCost: (this._stats.cachedTokens / 1_000_000) * cachedPrice,
+        outputCost: (this._stats.tokensOut / 1_000_000) * pricing.output,
+      },
+      totalUsd: this._stats.costUsd,
+    };
+  }
+
+  // ── Goals (`thread/goal/*`) ────────────────────────────────────────────
+
+  /**
+   * Set, update or resume the thread's goal (`thread/goal/set`). An objective
+   * starts the server's turn loop; `status: 'active'` resumes a paused or
+   * stopped one, `'paused'` pauses it. Fields left out keep their value.
+   */
+  async setGoal(p: {
+    objective?: string;
+    status?: 'active' | 'paused';
+    tokenBudget?: number | null;
+  }): Promise<ThreadGoal> {
+    if (!this.threadId) throw new Error('No thread id');
+    const params: Record<string, unknown> = { threadId: this.threadId, origin: 'user' };
+    if (p.objective !== undefined) params.objective = p.objective;
+    if (p.status !== undefined) params.status = p.status;
+    if (p.tokenBudget !== undefined) params.tokenBudget = p.tokenBudget;
+    const resp = (await this._request('thread/goal/set', params)) as { goal?: ThreadGoal };
+    if (!resp?.goal) throw new Error('thread/goal/set returned no goal');
+    this.currentGoal = resp.goal;
+    return resp.goal;
+  }
+
+  /** The thread's goal as the server holds it now (`thread/goal/get`), or null. */
+  async getGoal(): Promise<ThreadGoal | null> {
+    if (!this.threadId) throw new Error('No thread id');
+    const resp = (await this._request('thread/goal/get', { threadId: this.threadId })) as { goal?: ThreadGoal | null };
+    this.currentGoal = resp?.goal ?? null;
+    return this.currentGoal;
+  }
+
+  /** Remove the thread's goal (`thread/goal/clear`). */
+  async clearGoal(): Promise<void> {
+    if (!this.threadId) throw new Error('No thread id');
+    await this._request('thread/goal/clear', { threadId: this.threadId, origin: 'user' });
+    this.currentGoal = null;
+  }
+
+  // ── App-server v2 RPCs (Codex 0.137) ───────────────────────────────────
+  //
+  // Method names + param shapes verified against `codex app-server
+  // generate-json-schema` (TurnInterruptParams/TurnSteerParams/ThreadForkParams/
+  // ThreadRollbackParams/ModelListResponse/ThreadGoal*Params).
+
+  /** The id of the most recent turn (set by the `turn/started` notification). */
+  get activeTurnId(): string | undefined {
+    return this.currentTurnId;
+  }
+
+  /** Cancel the in-flight turn (`turn/interrupt`). No-op when no turn is active. */
+  async interrupt(): Promise<{ interrupted: boolean }> {
+    if (!this.threadId) throw new Error('No thread id');
+    if (!this.currentTurnId) return { interrupted: false };
+    await this._request('turn/interrupt', { threadId: this.threadId, turnId: this.currentTurnId });
+    return { interrupted: true };
+  }
+
+  /**
+   * Add input to the in-flight turn without restarting it (`turn/steer`). That
+   * includes a turn the goal loop started, which no `send()` is waiting on.
+   * When no turn is in flight, falls back to a normal turn so the message is
+   * not lost.
+   */
+  async steer(text: string): Promise<{ steered: boolean; turnId?: string; text?: string }> {
+    if (!this.threadId) throw new Error('No thread id');
+    if (this.currentTurnId) {
+      const resp = (await this._request('turn/steer', {
+        threadId: this.threadId,
+        expectedTurnId: this.currentTurnId,
+        input: [{ type: 'text', text, text_elements: [] }],
+      })) as { turnId?: string };
+      return { steered: true, turnId: resp?.turnId };
+    }
+    const r = (await this.send(text, { waitForComplete: true })) as TurnResult;
+    return { steered: false, text: r.text };
+  }
+
+  /** Branch this thread into a new one (`thread/fork`); returns the forked thread id. */
+  async forkThread(): Promise<{ threadId: string }> {
+    if (!this.threadId) throw new Error('No thread id');
+    const resp = (await this._request('thread/fork', { threadId: this.threadId })) as { thread?: { id?: string } };
+    const newId = resp?.thread?.id;
+    if (!newId) throw new Error('thread/fork did not return a forked thread id');
+    return { threadId: newId };
+  }
+
+  /** Drop the last `numTurns` turns from this thread (`thread/rollback`). */
+  async rollback(numTurns: number): Promise<void> {
+    if (!this.threadId) throw new Error('No thread id');
+    if (!Number.isInteger(numTurns) || numTurns < 1) throw new Error('rollback: numTurns must be a positive integer');
+    await this._request('thread/rollback', { threadId: this.threadId, numTurns });
+  }
+
+  /** List available models (`model/list`); returns the `data` array. */
+  async listModels(): Promise<unknown[]> {
+    const resp = (await this._request('model/list', {})) as { data?: unknown[] };
+    return resp?.data ?? [];
+  }
+
+  /** List threads (`thread/list`) with optional filters + pagination. */
+  async listThreads(
+    opts: { cwd?: string; searchTerm?: string; archived?: boolean; cursor?: string; limit?: number } = {},
+  ): Promise<{ data: unknown[]; nextCursor: string | null }> {
+    const params: Record<string, unknown> = {};
+    if (opts.cwd !== undefined) params.cwd = opts.cwd;
+    if (opts.searchTerm !== undefined) params.searchTerm = opts.searchTerm;
+    if (opts.archived !== undefined) params.archived = opts.archived;
+    if (opts.cursor !== undefined) params.cursor = opts.cursor;
+    if (opts.limit !== undefined) params.limit = opts.limit;
+    const resp = (await this._request('thread/list', params)) as { data?: unknown[]; nextCursor?: string | null };
+    return { data: resp?.data ?? [], nextCursor: resp?.nextCursor ?? null };
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+
+  /**
+   * Report an error to whoever listens. An `error` notification is news about
+   * the thread — the server often retries on its own, and a failed turn is
+   * already reported by `turn/completed` — so it must not reach Node's
+   * unhandled-`'error'` rule, which throws: with no listener attached, one
+   * overloaded-endpoint notice took the whole server down.
+   */
+  private _emitError(err: Error): void {
+    if (this.listenerCount(SESSION_EVENT.ERROR) > 0) this.emit(SESSION_EVENT.ERROR, err);
+    else this.emit(SESSION_EVENT.LOG, `[codex-app] ${err.message}`);
+  }
+
+  private _addHistory(entry: { time: string; type: string; event: unknown }): void {
+    this._history.push(entry);
+    if (this._history.length > MAX_HISTORY_ITEMS) this._history.shift();
+  }
+
+  /**
+   * How full the thread's context is right now.
+   *
+   * Both inputs come straight from `thread/tokenUsage/updated`: the turn's own
+   * prompt (`last`) and the window the server is actually enforcing. The
+   * registry window is only a fallback — it holds the model's published maximum
+   * (1.05M for gpt-5.x) while codex caps threads far below that, so measuring
+   * against it reads several times too low.
+   */
+  private _estimateContextPercent(): number {
+    if (this._lastTurnTokensIn <= 0) return 0;
+    const ctx = this._modelContextWindow ?? getContextWindow(this._billedModel() || 'gpt-5.5');
+    if (!ctx) return 0;
+    return Math.min(100, Math.round((this._lastTurnTokensIn / ctx) * 100));
+  }
+
+  /** The configured model, else the one the app-server reported for the thread. */
+  private _billedModel(): string | undefined {
+    return this.options.model || this._reportedModel;
+  }
+
+  private _updateCost(): void {
+    const pricing = getModelPricing(this._billedModel(), 'gpt-5.5');
+    const cachedPrice = pricing.cached ?? 0;
+    const nonCachedIn = Math.max(0, this._stats.tokensIn - this._stats.cachedTokens);
+    this._stats.costUsd =
+      (nonCachedIn / 1_000_000) * pricing.input +
+      (this._stats.cachedTokens / 1_000_000) * cachedPrice +
+      (this._stats.tokensOut / 1_000_000) * pricing.output;
+  }
+}

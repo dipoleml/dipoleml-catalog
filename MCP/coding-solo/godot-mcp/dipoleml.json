@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.coding-solo.godot-mcp",
+  "type": "mcp",
+  "name": "Godot MCP",
+  "slug": "godot-mcp",
+  "vendor": "coding-solo",
+  "description": "MCP server for interfacing with Godot game engine. Provides tools for launching the editor, running projects, and capturing debug output.",
+  "version": "0.1.1",
+  "homepage": "https://github.com/Coding-Solo/godot-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "godot"
+  ],
+  "tags": [
+    "ai",
+    "godot",
+    "mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "coding-solo",
+    "brandName": "coding-solo",
+    "source": "https://github.com/Coding-Solo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Coding-Solo/godot-mcp",
+    "url": "https://github.com/Coding-Solo/godot-mcp",
+    "commit": "1209744fad78f3998f98c7394fd0f6ef50da5281",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6407,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "godot-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "godot-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

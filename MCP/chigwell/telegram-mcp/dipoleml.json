@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.chigwell.telegram-mcp",
+  "type": "mcp",
+  "name": "Telegram MCP",
+  "slug": "telegram-mcp",
+  "vendor": "chigwell",
+  "description": "Telegram MCP server powered by Telethon to let MCP clients read chats, manage groups, and send/modify messages, media, contacts, and settings.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/chigwell/telegram-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "admin",
+    "chat-management",
+    "contacts",
+    "groups",
+    "media",
+    "messaging",
+    "search",
+    "telegram"
+  ],
+  "tags": [
+    "admin",
+    "api",
+    "chat-management",
+    "contacts",
+    "groups",
+    "mcp",
+    "media",
+    "messaging",
+    "search",
+    "telegram",
+    "telegram-api",
+    "telegram-client",
+    "telethon"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "telegram",
+    "brandName": "telegram",
+    "source": "https://cdn.simpleicons.org/telegram",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:46Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "chigwell/telegram-mcp",
+    "url": "https://github.com/chigwell/telegram-mcp",
+    "commit": "49710879809c07188b226427e66b10745d83cf36",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1918,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "telegram-mcp"
+    ],
+    "env": [
+      "GROQ_API_KEY",
+      "TELEGRAM_TRANSCRIBE_OPENAI_URL",
+      "TELEGRAM_TRANSCRIBE_OPENAI_API_KEY",
+      "PARAKEET_API_KEY",
+      "TELEGRAM_API_ID",
+      "TELEGRAM_API_HASH",
+      "MCP_TRANSPORT",
+      "MCP_HOST",
+      "MCP_PORT",
+      "MCP_ALLOWED_HOSTS",
+      "TELEGRAM_PROXY_HOST",
+      "TELEGRAM_PROXY_PORT"
+    ],
+    "credentials": [
+      "GROQ_API_KEY",
+      "TELEGRAM_TRANSCRIBE_OPENAI_API_KEY",
+      "PARAKEET_API_KEY",
+      "TELEGRAM_PROXY_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

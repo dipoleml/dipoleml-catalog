@@ -1,0 +1,280 @@
+/**
+ * @fileoverview obsidian_manage_tags — add/remove/list tags across both
+ * frontmatter (`tags:` array) and inline (`#tag`) syntax. The service layer
+ * reconciles both representations; inline detection follows Obsidian's own
+ * reading — it skips code (fenced, indented, inline), HTML blocks and
+ * comments, math, wikilinks, images, a link's destination or label, and a
+ * `#` glued to the text before it rather than to whitespace, line start, or
+ * markup.
+ * @module mcp-server/tools/definitions/obsidian-manage-tags.tool
+ */
+
+import { tool, z } from '@cyanheads/mcp-ts-core';
+import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { listTagsFromContent, reconcileTags } from '@/services/obsidian/frontmatter-ops.js';
+import { getObsidianService } from '@/services/obsidian/obsidian-service.js';
+import { inlineCode } from './_shared/markdown.js';
+import { TargetSchema } from './_shared/schemas.js';
+
+const LocationSchema = z
+  .enum(['frontmatter', 'inline', 'both'])
+  .default('frontmatter')
+  .describe(
+    'Where to apply the change. Defaults to `frontmatter` (the canonical Obsidian tag location, leaves the body untouched). `inline` mutates the note body — `add` appends `#tag` at end-of-file. `both` is opt-in reconciliation of frontmatter and inline tag locations.',
+  );
+
+export const obsidianManageTags = tool('obsidian_manage_tags', {
+  description:
+    "Add, remove, or list a note's tags. Defaults to the frontmatter `tags:` array — set `location` to `inline` or `both` to mutate the note body. `add` ensures the tag is present in the requested location(s); `remove` strips it; `both` reconciles across both representations. Inline `#tag` detection skips what Obsidian indexes no tag in: code (fenced, indented, and inline), wikilinks (`[[...]]` — so a heading anchor, block anchor, or wikilink alias is never read as a tag or rewritten by a removal), images, a markdown link's destination or label (its text is read), HTML blocks and comments (`<!-- … -->`), and math (`$…$`, `$$…$$`). An inline tag starts at line start, after whitespace, after another tag (`#a#b` is two tags), or right after markup such as `**`, `_…_`, `==`, `[`, a table cell's `|`, `<br>`, or a `\\`-escape (`**#x**` is a tag; `(#x`, `a *#x`, and `\\#x` are not); a `#` inside a `%% … %%` comment still counts. Inline-location additions append the new tag at end-of-file. `list` ignores the input `tags` array.",
+  annotations: { destructiveHint: true },
+  input: z.object({
+    target: TargetSchema.describe('Where the note lives.'),
+    operation: z
+      .enum(['add', 'remove', 'list'])
+      .describe('`add` and `remove` mutate the note; `list` reads the current tag set.'),
+    tags: z
+      .array(z.string().min(1))
+      .optional()
+      .describe('Tags to add or remove. Omit the leading `#`. Required for add/remove.'),
+    location: LocationSchema,
+  }),
+  output: z.object({
+    result: z
+      .discriminatedUnion('operation', [
+        z
+          .object({
+            operation: z.literal('list').describe('Echoed operation.'),
+            path: z.string().describe('Resolved vault-relative path.'),
+            tags: z
+              .object({
+                frontmatter: z.array(z.string()).describe('Tags from frontmatter `tags:` array.'),
+                inline: z.array(z.string()).describe('Tags found in inline `#tag` syntax.'),
+                all: z
+                  .array(z.string())
+                  .describe('Deduplicated union of frontmatter and inline tags.'),
+              })
+              .describe('Tags split by location plus the deduplicated union.'),
+          })
+          .describe('Result for `list`.'),
+        z
+          .object({
+            operation: z.literal('add').describe('Echoed operation.'),
+            path: z.string().describe('Resolved vault-relative path.'),
+            applied: z.array(z.string()).describe('Tags actually changed by this call.'),
+            skipped: z
+              .array(z.string())
+              .describe('Tags already present at the targeted location(s).'),
+            tags: z.array(z.string()).describe('All tags on the note after the change.'),
+            previousSizeInBytes: z.number().describe('Byte size of the note before the add.'),
+            currentSizeInBytes: z
+              .number()
+              .describe(
+                'Byte size of the note after the add. Equals `previousSizeInBytes` when no tags were applied.',
+              ),
+          })
+          .describe('Result for `add`.'),
+        z
+          .object({
+            operation: z.literal('remove').describe('Echoed operation.'),
+            path: z.string().describe('Resolved vault-relative path.'),
+            applied: z.array(z.string()).describe('Tags actually changed by this call.'),
+            skipped: z.array(z.string()).describe('Tags absent from the targeted location(s).'),
+            tags: z.array(z.string()).describe('All tags on the note after the change.'),
+            previousSizeInBytes: z.number().describe('Byte size of the note before the remove.'),
+            currentSizeInBytes: z
+              .number()
+              .describe(
+                'Byte size of the note after the remove. Equals `previousSizeInBytes` when no tags were applied.',
+              ),
+          })
+          .describe('Result for `remove`.'),
+      ])
+      .describe('Operation-discriminated result payload.'),
+  }),
+  auth: ['tool:obsidian_manage_tags:write'],
+  errors: [
+    {
+      reason: 'path_forbidden',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.Forbidden,
+      when: '`list` requires the path to be readable; `add`/`remove` require it to be inside OBSIDIAN_WRITE_PATHS, with OBSIDIAN_READ_ONLY=false.',
+      recovery: 'Use a path inside the configured scope. The error data echoes the active scope.',
+    },
+    {
+      reason: 'tags_required',
+      code: JsonRpcErrorCode.ValidationError,
+      when: '`operation` is "add" or "remove" but `tags` was empty or omitted.',
+      recovery: 'Pass a non-empty `tags` array (without `#`), e.g. `["draft", "wip"]`.',
+    },
+    {
+      reason: 'frontmatter_invalid',
+      code: JsonRpcErrorCode.ValidationError,
+      when: '`location` reaches the frontmatter and the note\'s existing block does not parse as a mapping of properties, or the tag change would leave YAML that cannot be re-emitted. Nothing is written — the note keeps its original bytes, and under `location: "both"` the inline half is skipped too rather than applied on its own.',
+      recovery:
+        'Use `location: "inline"` to tag the body without touching the block, or repair the YAML between the `---` fences and retry.',
+    },
+    {
+      reason: 'note_missing',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The vault path does not resolve to an existing note.',
+      recovery:
+        'Verify the path with obsidian_list_notes or use obsidian_search_notes to locate the note.',
+    },
+    {
+      reason: 'no_active_file',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'Target was `active` but no file is currently open in Obsidian.',
+      recovery:
+        'Call obsidian_open_in_ui to focus a file, or pass an explicit path target instead.',
+    },
+    {
+      reason: 'periodic_unsupported',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'Target was `periodic` and this vault runs Local REST API v5.0.2 or later without the companion periodic-notes extension, so the `/periodic/` routes are not served at all.',
+      recovery:
+        'Install the periodic-notes extension from https://github.com/coddingtonbear/obsidian-local-rest-api-periodic-notes, or address the note by an explicit vault path.',
+    },
+    {
+      reason: 'periodic_not_found',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'Target was `periodic`, the `/periodic/` routes are served on this vault, and no note exists for the requested period.',
+      recovery: 'Create the periodic note first or pass an explicit path target.',
+    },
+    {
+      reason: 'periodic_disabled',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.ValidationError,
+      when: "Target was `periodic` but the requested period is not enabled in Obsidian's Periodic Notes plugin settings.",
+      recovery:
+        "Pass an explicit path target — the requested period is disabled in the operator's Periodic Notes plugin.",
+    },
+    {
+      reason: 'path_is_directory',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'The supplied path names a folder rather than a note file.',
+      recovery:
+        'Call obsidian_list_notes with this path to list the folder, then retry with the full path of one of the files it returns.',
+    },
+    {
+      reason: 'path_traversal',
+      thrownBy: 'service',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'The path contains a `.` or `..` segment, which is rejected to prevent vault escape.',
+      recovery:
+        'Supply a vault-relative path with no `.` or `..` segments, e.g. "Projects/Note.md". Use obsidian_list_notes to browse the vault.',
+    },
+  ],
+
+  async handler(input, ctx) {
+    const svc = getObsidianService();
+    const { target } = input;
+    const note = await svc.getNoteJson(ctx, target);
+
+    if (input.operation === 'list') {
+      const split = listTagsFromContent(note.content, note.frontmatter);
+      const all = Array.from(new Set([...split.frontmatter, ...split.inline]));
+      return {
+        result: {
+          operation: 'list' as const,
+          path: note.path,
+          tags: { frontmatter: split.frontmatter, inline: split.inline, all },
+        },
+      };
+    }
+
+    if (!input.tags || input.tags.length === 0) {
+      throw ctx.fail(
+        'tags_required',
+        '`tags` is required and must be non-empty for add/remove operations.',
+        { operation: input.operation },
+      );
+    }
+
+    const reconciled = reconcileTags(note.content, input.tags, input.operation, input.location);
+    if (!reconciled.ok) {
+      throw ctx.fail(
+        'frontmatter_invalid',
+        `Cannot ${input.operation} tags in ${note.path}: its frontmatter block is not safely editable — ${reconciled.problem}`,
+        { path: note.path },
+      );
+    }
+    // Delivered bytes — not note.stat.size (see ObsidianService.tryGetSize).
+    const previousSizeInBytes = Buffer.byteLength(note.content, 'utf8');
+
+    if (reconciled.applied.length === 0) {
+      return {
+        result: {
+          operation: input.operation,
+          path: note.path,
+          applied: reconciled.applied,
+          skipped: reconciled.skipped,
+          tags: note.tags,
+          previousSizeInBytes,
+          currentSizeInBytes: previousSizeInBytes,
+        },
+      };
+    }
+
+    // Write and read back the note the first read returned, never a re-resolution of `target`.
+    const pathTarget = svc.pinTarget(target, note.path);
+    await svc.writeNote(ctx, pathTarget, reconciled.content, 'markdown');
+    const after = await svc.getNoteJson(ctx, pathTarget);
+    // Delivered bytes — not after.stat.size (see ObsidianService.tryGetSize).
+    const currentSizeInBytes = Buffer.byteLength(after.content, 'utf8');
+    if (input.operation === 'add') {
+      return {
+        result: {
+          operation: 'add' as const,
+          path: after.path,
+          applied: reconciled.applied,
+          skipped: reconciled.skipped,
+          tags: after.tags,
+          previousSizeInBytes,
+          currentSizeInBytes,
+        },
+      };
+    }
+    return {
+      result: {
+        operation: 'remove' as const,
+        path: after.path,
+        applied: reconciled.applied,
+        skipped: reconciled.skipped,
+        tags: after.tags,
+        previousSizeInBytes,
+        currentSizeInBytes,
+      },
+    };
+  },
+
+  format: ({ result }) => {
+    if (result.operation === 'list') {
+      const lines = [
+        `**Tags (operation: ${result.operation}) in ${escapeMarkdownInline(result.path)}**`,
+        `*Frontmatter (${result.tags.frontmatter.length}):* ${formatTags(result.tags.frontmatter)}`,
+        `*Inline (${result.tags.inline.length}):* ${formatTags(result.tags.inline)}`,
+        `*All (${result.tags.all.length}):* ${formatTags(result.tags.all)}`,
+      ];
+      return [{ type: 'text', text: lines.join('\n') }];
+    }
+    const lines = [
+      `**${result.operation === 'add' ? 'Added tags to' : 'Removed tags from'} ${escapeMarkdownInline(result.path)}** (operation: ${result.operation})`,
+      `*Size:* ${result.previousSizeInBytes} → ${result.currentSizeInBytes} bytes`,
+      `*Applied (${result.applied.length}):* ${formatTags(result.applied)}`,
+      `*Skipped (${result.skipped.length}):* ${formatTags(result.skipped)}`,
+      `*All tags now (${result.tags.length}):* ${formatTags(result.tags)}`,
+    ];
+    return [{ type: 'text', text: lines.join('\n') }];
+  },
+});
+
+function formatTags(tags: string[]): string {
+  if (tags.length === 0) return '_(none)_';
+  return tags.map((t) => inlineCode(`#${t}`)).join(' ');
+}

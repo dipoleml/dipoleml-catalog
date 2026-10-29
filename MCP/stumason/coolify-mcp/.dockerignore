@@ -1,0 +1,23 @@
+node_modules
+dist
+# Docker matches the bare names at context root only, so site/node_modules and
+# site/dist would otherwise be copied over the freshly installed tree — with
+# host-arch binaries if the build host is not linux/amd64.
+**/node_modules
+**/dist
+.git
+.github
+.vscode
+.claude
+# docs/*.md stay in: Dockerfile.docs inlines them into the site's /llms-full.txt.
+docs/coolify-openapi.yaml
+docs/openapi-chunks
+docs/assets
+docs/history
+*.md
+!README.md
+!CHANGELOG.md
+.env*
+.DS_Store
+coverage
+*.log

@@ -1,0 +1,35 @@
+{
+  "flags": [
+    "modal"
+  ],
+  "forms": {
+    "count": 0,
+    "families": {}
+  },
+  "inputTypesSeen": {
+    "input": 13
+  },
+  "modals": [
+    {
+      "role": null,
+      "className": "dialog_header__CA_5o dialog_empty__DgpVz",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      }
+    }
+  ],
+  "toastLibraries": [],
+  "loading": {
+    "skeleton": 0,
+    "spinner": 0
+  },
+  "empty": {
+    "count": 0
+  },
+  "error": {
+    "count": 0
+  }
+}

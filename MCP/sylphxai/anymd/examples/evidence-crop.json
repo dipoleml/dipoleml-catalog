@@ -1,0 +1,21 @@
+{
+  "tool": "inspect",
+  "description": "Crop one region of a page as citation evidence. Coordinates are PDF points from the bottom-left corner.",
+  "arguments": {
+    "operation": "extract_regions",
+    "sources": [
+      {
+        "path": "/absolute/path/to/financial-report.pdf",
+        "regions": [
+          {
+            "id": "q4-revenue-table",
+            "page": 3,
+            "bounding_box": { "left": 72, "bottom": 400, "right": 540, "top": 520 }
+          }
+        ]
+      }
+    ],
+    "include_image": true,
+    "scale": 2.0
+  }
+}

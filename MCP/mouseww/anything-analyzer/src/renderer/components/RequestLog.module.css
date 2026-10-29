@@ -1,0 +1,69 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Search toolbar */
+.toolbar {
+  height: 34px;
+  background: var(--color-frame);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Search box */
+.searchBox {
+  flex: 1;
+  height: 22px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-badge);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.searchIcon {
+  font-size: 10px;
+  color: var(--text-disabled);
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: var(--font-size-3xs);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+
+.searchInput::placeholder {
+  color: var(--text-disabled);
+}
+
+/* Source badges */
+.srcCdp {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--color-orange-bg);
+  color: var(--color-orange);
+}
+
+.srcProxy {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--color-purple-bg);
+  color: var(--color-purple);
+}

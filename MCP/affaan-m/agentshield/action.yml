@@ -1,0 +1,155 @@
+name: "AgentShield Security Scan"
+description: "Scan Claude Code configurations for security issues"
+author: "affaan-m"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  path:
+    description: "Path to scan for Claude Code configurations"
+    required: false
+    default: "."
+  min-severity:
+    description: "Minimum severity to report: critical, high, medium, low, info"
+    required: false
+    default: "medium"
+  fail-on-findings:
+    description: "Fail the action if findings are detected at or above min-severity"
+    required: false
+    default: "true"
+  format:
+    description: "Output format: terminal, json, markdown, sarif"
+    required: false
+    default: "terminal"
+  sarif-output:
+    description: "Path to write SARIF results when format is sarif"
+    required: false
+    default: "agentshield-results.sarif"
+  baseline:
+    description: "Path to an AgentShield baseline JSON file for drift comparison"
+    required: false
+    default: ""
+  save-baseline:
+    description: "Path to write the current scan as a new AgentShield baseline JSON file"
+    required: false
+    default: ""
+  policy:
+    description: "Path to an AgentShield organization policy JSON file"
+    required: false
+    default: ""
+  fail-on-policy:
+    description: "Fail the action when the organization policy is non-compliant"
+    required: false
+    default: "true"
+  supply-chain:
+    description: "Verify MCP npm/git package provenance and known malicious package risk"
+    required: false
+    default: "true"
+  supply-chain-online:
+    description: "Query npm registry metadata during supply-chain verification"
+    required: false
+    default: "false"
+  fail-on-supply-chain:
+    description: "Fail the action when supply-chain verification finds critical or high package risks; defaults to fail-on-findings when unset"
+    required: false
+    default: ""
+  evidence-pack:
+    description: "Path to write an AgentShield evidence pack for audit and security-review handoffs"
+    required: false
+    default: ""
+  verify-evidence-pack:
+    description: "Verify evidence-pack artifact hashes and bundle digest after writing"
+    required: false
+    default: "true"
+  policy-promotion-manifest:
+    description: "Path to an AgentShield policy export manifest to verify and promote or dry-run"
+    required: false
+    default: ""
+  policy-promotion-pack:
+    description: "Policy pack id to select when the promotion manifest contains multiple packs"
+    required: false
+    default: ""
+  policy-promotion-output:
+    description: "Path to write the promoted active policy when policy-promotion-dry-run is false"
+    required: false
+    default: ".agentshield/policy.json"
+  policy-promotion-dry-run:
+    description: "Verify promotion review evidence without writing the active policy"
+    required: false
+    default: "true"
+  fail-on-policy-promotion:
+    description: "Fail the action when policy promotion review items still require action"
+    required: false
+    default: "false"
+
+outputs:
+  score:
+    description: "Numeric security score (0-100)"
+  grade:
+    description: "Letter grade (A-F)"
+  total-findings:
+    description: "Total number of findings"
+  critical-count:
+    description: "Number of critical findings"
+  sarif-path:
+    description: "Path to the generated SARIF file when format is sarif"
+  baseline-path:
+    description: "Path to the generated baseline file when save-baseline is set"
+  baseline-status:
+    description: "Baseline drift status: not-run, missing, passed, or failed"
+  new-findings:
+    description: "Number of findings introduced since the baseline"
+  resolved-findings:
+    description: "Number of baseline findings resolved by the current scan"
+  unchanged-findings:
+    description: "Number of findings unchanged since the baseline"
+  score-delta:
+    description: "Numeric score delta relative to the baseline"
+  policy-status:
+    description: "Organization policy status: not-run, compliant, non-compliant, or error"
+  policy-violations:
+    description: "Number of unsuppressed organization policy violations"
+  supply-chain-status:
+    description: "Supply-chain status: not-run, clean, risky, or error"
+  supply-chain-risky-packages:
+    description: "Number of MCP packages with supply-chain risks"
+  supply-chain-critical-count:
+    description: "Number of MCP packages with critical supply-chain risk"
+  supply-chain-high-count:
+    description: "Number of MCP packages with high supply-chain risk"
+  package-manager-hardening-status:
+    description: "Package-manager hardening status: hardened or needs-review"
+  package-manager-hardening-findings:
+    description: "Number of package-manager hardening findings"
+  package-manager-hardening-critical-count:
+    description: "Number of critical package-manager hardening findings"
+  package-manager-hardening-high-count:
+    description: "Number of high package-manager hardening findings"
+  package-manager-hardening-registry-credentials:
+    description: "Number of package-manager registry credential findings"
+  package-manager-hardening-lifecycle-scripts:
+    description: "Number of package-manager lifecycle-script findings"
+  package-manager-hardening-release-age-gates:
+    description: "Number of package-manager release-age gate findings"
+  evidence-pack-path:
+    description: "Path to the generated evidence-pack directory"
+  evidence-pack-status:
+    description: "Evidence-pack verification status: not-run, passed, failed, or error"
+  evidence-pack-digest:
+    description: "Verified evidence-pack bundle digest"
+  policy-promotion-status:
+    description: "Policy promotion status: not-run, verified, needs-review, or error"
+  policy-promotion-pack:
+    description: "Policy pack selected during promotion"
+  policy-promotion-review-items:
+    description: "Number of policy promotion review items"
+  policy-promotion-action-required-count:
+    description: "Number of policy promotion review items that still require action"
+  policy-promotion-digest:
+    description: "Verified digest for the promoted policy pack"
+
+runs:
+  using: "node24"
+  main: "dist/action.js"

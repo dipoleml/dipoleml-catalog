@@ -1,0 +1,297 @@
+/**
+ * 대화형 설치 마법사 — kordoc MCP
+ *
+ * `npx kordoc setup` 으로 실행.
+ * 선택한 AI 클라이언트 설정 파일에 kordoc-mcp 서버를 자동 등록합니다.
+ * API 키 불필요, macOS / Linux / Windows 공용.
+ */
+
+import { createInterface } from "node:readline/promises"
+import { readFile, writeFile, mkdir } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
+import { resolve, dirname, delimiter } from "node:path"
+import { fileURLToPath } from "node:url"
+import { homedir, platform } from "node:os"
+import { stdin, stdout } from "node:process"
+import { promisify } from "node:util"
+import { getAccessRoot, isOfflineMode } from "./shared/offline.js"
+import { VERSION } from "./utils.js"
+
+/** 등록하는 npx 패키지 지정 — 지금 버전으로 고정한다. 고정하지 않으면 클라이언트를 켤 때마다 npm 최신판을 받아 실행해,
+ *  npm 계정·토큰이 탈취되면 등록한 모든 PC 에서 바로 코드가 돈다. 개발 빌드(버전 미상)만 고정 없이 */
+export function npxPackageSpec(version = VERSION): string {
+  return /^\d+\.\d+\.\d+$/.test(version) ? `kordoc@${version}` : "kordoc"
+}
+
+interface ClientConfig {
+  readonly name: string
+  readonly configPath: string
+  readonly format: "mcpServers" | "servers" | "context_servers"
+  readonly setupMethod?: "codex"
+}
+
+const execFileAsync = promisify(execFile)
+
+/** PATH에 있는 실행 파일을 확인한다. Windows에서는 PATHEXT 확장자도 고려한다. */
+function commandExists(command: string): boolean {
+  const pathEntries = (process.env["PATH"] ?? "").split(delimiter).filter(Boolean)
+  const extensions = platform() === "win32"
+    ? (process.env["PATHEXT"] ?? ".EXE;.CMD;.BAT;.COM").split(";")
+    : [""]
+  return pathEntries.some((entry) => extensions.some((ext) => existsSync(resolve(entry, `${command}${ext}`))))
+}
+
+function detectClients(): readonly ClientConfig[] {
+  const home = homedir()
+  const os = platform()
+  const clients: ClientConfig[] = []
+
+  const claudePaths: Record<string, string> = {
+    darwin: resolve(home, "Library/Application Support/Claude/claude_desktop_config.json"),
+    win32: resolve(process.env["APPDATA"] ?? resolve(home, "AppData/Roaming"), "Claude/claude_desktop_config.json"),
+    linux: resolve(home, ".config/Claude/claude_desktop_config.json"),
+  }
+  const claudePath = claudePaths[os]
+  if (claudePath) clients.push({ name: "Claude Desktop", configPath: claudePath, format: "mcpServers" })
+
+  clients.push({ name: "Claude Code (현재 디렉토리)", configPath: resolve(process.cwd(), ".mcp.json"), format: "mcpServers" })
+  clients.push({ name: "Cursor", configPath: resolve(home, ".cursor/mcp.json"), format: "mcpServers" })
+  clients.push({ name: "VS Code (현재 디렉토리)", configPath: resolve(process.cwd(), ".vscode/mcp.json"), format: "servers" })
+  clients.push({ name: "Windsurf", configPath: resolve(home, ".codeium/windsurf/mcp_config.json"), format: "mcpServers" })
+  clients.push({ name: "Gemini CLI", configPath: resolve(home, ".gemini/settings.json"), format: "mcpServers" })
+
+  const zedPaths: Record<string, string> = {
+    darwin: resolve(home, ".zed/settings.json"),
+    linux: resolve(home, ".config/zed/settings.json"),
+    win32: resolve(home, ".zed/settings.json"),
+  }
+  const zedPath = zedPaths[os]
+  if (zedPath) clients.push({ name: "Zed", configPath: zedPath, format: "context_servers" })
+
+  clients.push({ name: "Antigravity", configPath: resolve(home, ".gemini/antigravity/mcp_config.json"), format: "mcpServers" })
+  clients.push({ name: "Codex", configPath: resolve(home, ".codex/config.toml"), format: "mcpServers", setupMethod: "codex" })
+
+  return clients
+}
+
+async function readJsonFile(path: string): Promise<Record<string, unknown>> {
+  if (!existsSync(path)) return {}
+  const raw = await readFile(path, "utf-8")
+  return JSON.parse(raw) as Record<string, unknown>
+}
+
+async function writeJsonFile(path: string, data: Record<string, unknown>): Promise<void> {
+  const dir = dirname(path)
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+  await writeFile(path, JSON.stringify(data, null, 2) + "\n", "utf-8")
+}
+
+/**
+ * Windows 에선 npx.cmd 를 Claude Desktop 이 해석 못 해서 `cmd /c` 래핑이 필요하다.
+ * `kordoc` 은 `npx kordoc mcp` 로 MCP 서버 실행, 또는 `kordoc-mcp` bin 직접 실행.
+ * npx 래핑이 범용적이므로 `npx -y kordoc mcp` 로 통일.
+ */
+/**
+ * 폐쇄망(KORDOC_OFFLINE)에서는 `npx -y` 가 레지스트리에 접근하므로 설치된 dist 를
+ * node 로 직접 실행한다. 이 파일과 형제인 mcp.js 가 곧 설치본의 MCP 엔트리.
+ */
+function localMcpCommand(): { command: string; args: string[] } | null {
+  if (!isOfflineMode()) return null
+  try {
+    const mcpPath = fileURLToPath(new URL("./mcp.js", import.meta.url))
+    if (!existsSync(mcpPath)) return null
+    return { command: process.execPath, args: [mcpPath] }
+  } catch {
+    return null
+  }
+}
+
+/** 등록된 MCP 서버 프로세스에도 폐쇄망 제한을 물려준다 (설정 파일이 곧 감사 근거) */
+function buildServerEnv(): Record<string, string> | undefined {
+  if (!isOfflineMode()) return undefined
+  const root = getAccessRoot()
+  return { KORDOC_OFFLINE: "1", ...(root ? { KORDOC_ROOT: root } : {}) }
+}
+
+function buildServerEntry(): Record<string, unknown> {
+  const env = buildServerEnv()
+  const local = localMcpCommand()
+  const base = local
+    ? local
+    : platform() === "win32"
+      ? { command: "cmd", args: ["/c", "npx", "-y", npxPackageSpec(), "mcp"] }
+      : { command: "npx", args: ["-y", npxPackageSpec(), "mcp"] }
+  return env ? { ...base, env } : base
+}
+
+function buildZedEntry(): Record<string, unknown> {
+  const local = localMcpCommand()
+  const base = local
+    ? { path: local.command, args: local.args }
+    : platform() === "win32"
+      ? { path: "cmd", args: ["/c", "npx", "-y", npxPackageSpec(), "mcp"] }
+      : { path: "npx", args: ["-y", npxPackageSpec(), "mcp"] }
+  const env = buildServerEnv()
+  return { command: env ? { ...base, env } : base }
+}
+
+/** Codex의 TOML 설정을 직접 파싱하지 않고, 공식 CLI로 MCP 서버를 등록한다. */
+async function setupCodex(): Promise<void> {
+  const entry = buildServerEntry()
+  const command = entry["command"] as string
+  const args = entry["args"] as string[]
+  await execFileAsync("codex", ["mcp", "add", "kordoc", "--", command, ...args])
+}
+
+// ─── ANSI ─────────────────────────────────────────────────────────────
+const ESC = "\x1b["
+const c = {
+  reset: `${ESC}0m`, bold: `${ESC}1m`, dim: `${ESC}2m`,
+  cyan: `${ESC}36m`, green: `${ESC}32m`, yellow: `${ESC}33m`,
+  red: `${ESC}31m`, white: `${ESC}37m`,
+} as const
+
+function rgb(r: number, g: number, b: number): string {
+  return `${ESC}38;2;${r};${g};${b}m`
+}
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms))
+}
+async function typewrite(text: string, delay = 15): Promise<void> {
+  for (const ch of text) { process.stdout.write(ch); await sleep(delay) }
+  console.log()
+}
+
+async function printBanner(): Promise<void> {
+  const gradients = [
+    rgb(255, 120, 80), rgb(255, 140, 80), rgb(255, 160, 80),
+    rgb(240, 180, 80), rgb(220, 200, 80), rgb(200, 220, 80),
+  ]
+  const logo = [
+    "  _                  _            ",
+    " | | _____  _ __ __| | ___   ___ ",
+    " | |/ / _ \\| '__/ _` |/ _ \\ / __|",
+    " |   < (_) | | | (_| | (_) | (__ ",
+    " |_|\\_\\___/|_|  \\__,_|\\___/ \\___|",
+  ]
+  console.log()
+  for (let i = 0; i < logo.length; i++) {
+    console.log(`${gradients[i % gradients.length]}${c.bold}${logo[i]}${c.reset}`)
+    await sleep(60)
+  }
+  console.log()
+  await typewrite(`${c.dim}  모두 파싱해버리겠다  ━━  HWP · HWPX · PDF · XLSX · DOCX → Markdown${c.reset}`, 10)
+  console.log()
+  console.log(`${c.cyan}  ${"━".repeat(60)}${c.reset}`)
+  console.log()
+}
+
+function stepHeader(step: number, total: number, title: string): void {
+  const dots = `${c.dim}${"·".repeat(Math.max(0, 40 - title.length))}${c.reset}`
+  console.log(`  ${c.cyan}${c.bold}[${step}/${total}]${c.reset} ${c.white}${c.bold}${title}${c.reset} ${dots}`)
+  console.log()
+}
+
+function successLine(label: string, detail: string): void {
+  console.log(`  ${c.green}${c.bold}+${c.reset} ${c.white}${label}${c.reset}${c.dim} ${detail}${c.reset}`)
+}
+function failLine(label: string, detail: string): void {
+  console.log(`  ${c.red}${c.bold}x${c.reset} ${c.white}${label}${c.reset}${c.dim} ${detail}${c.reset}`)
+}
+
+async function printComplete(): Promise<void> {
+  console.log()
+  const box = [
+    `  ${c.green}${c.bold}╔${"═".repeat(50)}╗${c.reset}`,
+    `  ${c.green}${c.bold}║${c.reset}${" ".repeat(14)}${c.green}${c.bold}Setup Complete!${c.reset}${" ".repeat(22)}${c.green}${c.bold}║${c.reset}`,
+    `  ${c.green}${c.bold}╚${"═".repeat(50)}╝${c.reset}`,
+  ]
+  for (const line of box) { console.log(line); await sleep(40) }
+  console.log()
+  console.log(`  ${c.dim}클라이언트를 재시작하면 'kordoc' MCP 서버가 활성화됩니다.${c.reset}`)
+  console.log(`  ${c.dim}15개 도구: parse_document / parse_metadata / parse_pages / parse_table${c.reset}`)
+  console.log(`  ${c.dim}          detect_format / compare_documents / parse_form / fill_form${c.reset}`)
+  console.log(`  ${c.dim}          place_seal / patch_document / extract_profile / generate_document${c.reset}`)
+  console.log(`  ${c.dim}          render_document / redact_document / parse_chunks${c.reset}`)
+  console.log()
+}
+
+export async function runSetup(): Promise<void> {
+  const rl = createInterface({ input: stdin, output: stdout })
+
+  try {
+    await printBanner()
+
+    stepHeader(1, 2, "MCP 클라이언트 선택")
+    const clients = detectClients()
+    clients.forEach((cl, i) => {
+      const exists = cl.setupMethod === "codex" ? commandExists("codex") : existsSync(cl.configPath)
+      const badge = exists ? `${c.green} [감지됨]${c.reset}` : ""
+      const num = `${c.cyan}${String(i + 1).padStart(2)}${c.reset}`
+      console.log(`  ${num}) ${c.white}${cl.name}${c.reset}${badge}`)
+    })
+    console.log()
+    const clientInput = (await rl.question(`  ${c.cyan}>${c.reset} 번호 (예: 1,3): `)).trim()
+
+    if (!clientInput) {
+      console.log(`\n  ${c.yellow}선택 없음${c.reset} — 수동 설정 안내:`)
+      printManualConfig()
+      return
+    }
+
+    const indices = clientInput
+      .split(",")
+      .map((s) => parseInt(s.trim(), 10) - 1)
+      .filter((i) => i >= 0 && i < clients.length)
+
+    if (indices.length === 0) {
+      console.log(`\n  ${c.yellow}유효한 선택 없음${c.reset} — 수동 설정 안내:`)
+      printManualConfig()
+      return
+    }
+
+    console.log()
+    stepHeader(2, 2, "설정 파일 업데이트")
+    const entry = buildServerEntry()
+
+    for (const idx of indices) {
+      const client = clients[idx]
+      await sleep(150)
+      try {
+        if (client.setupMethod === "codex") {
+          await setupCodex()
+          successLine(client.name, client.configPath)
+          continue
+        }
+        const config = await readJsonFile(client.configPath)
+        const key = client.format
+        const serverEntry = key === "context_servers" ? buildZedEntry() : entry
+        const servers = (config[key] ?? {}) as Record<string, unknown>
+        servers["kordoc"] = serverEntry
+        config[key] = servers
+        await writeJsonFile(client.configPath, config)
+        successLine(client.name, client.configPath)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        failLine(client.name, msg)
+      }
+    }
+
+    await printComplete()
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ERR_USE_AFTER_CLOSE") return
+    throw err
+  } finally {
+    rl.close()
+  }
+}
+
+function printManualConfig(): void {
+  const entry = buildServerEntry()
+  console.log()
+  console.log(`  ${c.dim}아래 JSON을 설정 파일의 mcpServers에 추가하세요:${c.reset}`)
+  console.log()
+  console.log(`  ${c.cyan}"kordoc"${c.reset}: ${JSON.stringify(entry, null, 4)}`)
+  console.log()
+}

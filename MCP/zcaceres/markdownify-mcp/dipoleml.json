@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.zcaceres.markdownify-mcp",
+  "type": "mcp",
+  "name": "Markdownify MCP",
+  "slug": "markdownify-mcp",
+  "vendor": "zcaceres",
+  "description": "A Model Context Protocol server for converting almost anything to Markdown",
+  "version": "1.1.0",
+  "homepage": "https://github.com/zcaceres/markdownify-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "anthropic-ai",
+    "anthropic-claude",
+    "markdown",
+    "model-context-protocol",
+    "ocr",
+    "tools"
+  ],
+  "tags": [
+    "ai",
+    "anthropic",
+    "anthropic-ai",
+    "anthropic-claude",
+    "markdown",
+    "mcp",
+    "model-context-protocol",
+    "ocr",
+    "tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zcaceres",
+    "brandName": "zcaceres",
+    "source": "https://github.com/zcaceres.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zcaceres/markdownify-mcp",
+    "url": "https://github.com/zcaceres/markdownify-mcp",
+    "commit": "024f97cea9a94cd842c445eea4503c442c79bd71",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2996,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-markdownify-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node",
+      "python3"
+    ],
+    "packages": [
+      "mcp-markdownify-server",
+      "ocr"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

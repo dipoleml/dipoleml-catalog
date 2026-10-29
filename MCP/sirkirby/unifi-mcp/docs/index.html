@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UniFi MCP — Safe, local-first tools for agents and applications</title>
+  <meta name="description" content="Open-source MCP servers and a standalone HTTP API for building safe UniFi automations while keeping controllers on infrastructure you control.">
+  <meta name="theme-color" content="#0b1014">
+  <link rel="canonical" href="https://unifimcp.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="UniFi MCP">
+  <meta property="og:title" content="UniFi MCP — Safe, local-first tools for agents and applications">
+  <meta property="og:description" content="Give agents and applications structured access to UniFi without exposing your controllers to the public internet.">
+  <meta property="og:url" content="https://unifimcp.com/">
+  <meta property="og:image" content="https://unifimcp.com/assets/hero-readme.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="675">
+  <meta property="og:image:alt" content="UniFi MCP product overview">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="UniFi MCP — Safe, local-first tools for agents and applications">
+  <meta name="twitter:description" content="Safe, local-first UniFi interfaces for agents, applications, and remote MCP clients.">
+  <meta name="twitter:image" content="https://unifimcp.com/assets/hero-readme.jpg">
+  <meta name="twitter:image:alt" content="UniFi MCP product overview">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://unifimcp.com/#website",
+        "name": "UniFi MCP",
+        "url": "https://unifimcp.com/"
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://unifimcp.com/#source",
+        "name": "UniFi MCP",
+        "description": "Open-source interfaces for connecting agents and applications to UniFi controllers.",
+        "url": "https://unifimcp.com/",
+        "codeRepository": "https://github.com/sirkirby/unifi-mcp",
+        "license": "https://opensource.org/license/mit",
+        "programmingLanguage": ["Python", "TypeScript"],
+        "hasPart": [
+          {"@type": "SoftwareApplication", "name": "unifi-network-mcp", "url": "https://github.com/sirkirby/unifi-mcp/tree/main/apps/network"},
+          {"@type": "SoftwareApplication", "name": "unifi-protect-mcp", "url": "https://github.com/sirkirby/unifi-mcp/tree/main/apps/protect"},
+          {"@type": "SoftwareApplication", "name": "unifi-access-mcp", "url": "https://github.com/sirkirby/unifi-mcp/tree/main/apps/access"},
+          {"@type": "SoftwareApplication", "name": "unifi-api-server", "url": "https://github.com/sirkirby/unifi-mcp/tree/main/apps/api"},
+          {"@type": "SoftwareApplication", "name": "unifi-mcp-relay", "url": "https://github.com/sirkirby/unifi-mcp/tree/main/packages/unifi-mcp-relay"},
+          {"@type": "SoftwareApplication", "name": "unifi-mcp-worker", "url": "https://github.com/sirkirby/unifi-mcp/tree/main/apps/worker"}
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <nav class="site-nav" aria-label="Primary">
+    <div class="shell nav-inner">
+      <a class="brand" href="/" aria-label="UniFi MCP home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M2 8 L6 4 L10 8 L6 12 Z"></path><path d="M14 8 L10 4 M14 8 L10 12"></path>
+          </svg>
+        </span>
+        <span>UniFi MCP</span>
+      </a>
+      <div class="nav-links">
+        <a href="#products">Products</a><a href="#safety">Safety</a><a href="#install">Install</a>
+      </div>
+      <div class="nav-actions">
+        <a class="github-link" href="https://github.com/sirkirby/unifi-mcp">GitHub <span data-stars>★ 510</span></a>
+        <a class="sponsor-link" href="sponsor/" aria-label="Sponsor UniFi MCP">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 14.25l-.345-.666C3.612 9.73 1 7.197 1 4.25 1 2.178 2.678.5 4.75.5 6.13.5 7.365 1.31 8 2.476 8.635 1.31 9.87.5 11.25.5 13.322.5 15 2.178 15 4.25c0 2.947-2.612 5.48-6.655 9.334L8 14.25z"></path>
+          </svg>
+        </a>
+        <a class="button primary" href="#install">Get started</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <div class="shell hero-inner">
+        <p class="kicker">Open source · MIT licensed</p>
+        <h1>Give agents safe access to your UniFi stack.</h1>
+        <p class="hero-lead">Keep your controllers behind the firewall. Preview changes before they run. Build advanced automation on infrastructure you control.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#install">Get started</a>
+          <a class="button secondary" href="#products">Explore the products</a>
+        </div>
+        <div class="proof-row" aria-label="Project overview">
+          <div><strong>280+ MCP tools</strong><span>Across Network, Protect, and Access.</span></div>
+          <div><strong>REST + GraphQL</strong><span>A standalone API for apps and automation.</span></div>
+          <div><strong>Local first</strong><span>Optional Cloud Relay for remote MCP access.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section product-section" id="products">
+      <div class="shell">
+        <div class="section-intro">
+          <p class="kicker">Choose an interface</p>
+          <h2>Three product paths, built for different jobs.</h2>
+          <p>Use MCP with an existing MCP client, use the API for an application or MCP adapter, or add the Cloud Relay when an MCP client needs a remote route home.</p>
+        </div>
+
+        <article class="product-block product-agents">
+          <div class="product-heading">
+            <p class="product-number">01</p>
+            <div>
+              <h3>MCP for agents</h3>
+              <p>Independent servers share a consistent discovery, confirmation, and policy model. Run one or combine all three.</p>
+            </div>
+          </div>
+          <div class="server-list">
+            <div class="server-row network" data-product="network" data-tool-count="210">
+              <div><h4>Network <span>Stable</span></h4><p>Inventory, clients, routing, Wi-Fi, firewall policy, traffic, and controlled configuration.</p></div>
+              <div class="server-meta"><strong>210 tools</strong><a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/network">unifi-network-mcp</a></div>
+            </div>
+            <div class="server-row protect" data-product="protect" data-tool-count="63">
+              <div><h4>Protect <span>Stable</span></h4><p>Cameras, events, detections, recordings, devices, and incident investigation workflows.</p></div>
+              <div class="server-meta"><strong>63 tools</strong><a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/protect">unifi-protect-mcp</a></div>
+            </div>
+            <div class="server-row access" data-product="access" data-tool-count="37">
+              <div><h4>Access <span>Stable</span></h4><p>Doors, visitors, credentials, policies, devices, and activity records.</p></div>
+              <div class="server-meta"><strong>37 tools</strong><a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/access">unifi-access-mcp</a></div>
+            </div>
+          </div>
+        </article>
+
+        <div class="product-pair">
+          <article class="product-block">
+            <div class="product-heading compact">
+              <p class="product-number">02</p>
+              <div><h3>HTTP API for applications</h3><p><code>unifi-api-server</code> runs independently from the MCP servers while sharing the same <code>unifi-core</code> manager layer.</p></div>
+            </div>
+            <ul class="feature-list">
+              <li>Typed REST reads across Network, Protect, and Access</li>
+              <li>Read-only GraphQL over consumer-facing resource shapes</li>
+              <li>REST actions for supported controller operations</li>
+              <li>SSE streams, scoped API keys, and audit records</li>
+              <li>Encrypted controller credentials and an administrative control-plane UI</li>
+            </ul>
+            <div class="text-links">
+              <a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/api">API README</a>
+              <a href="https://github.com/sirkirby/unifi-mcp/pkgs/container/unifi-api-server">Container</a>
+              <a href="https://github.com/sirkirby/unifi-mcp/blob/main/apps/api/docs/openapi-reference.md">OpenAPI</a>
+              <a href="https://github.com/sirkirby/unifi-mcp/blob/main/apps/api/docs/graphql-reference.md">GraphQL</a>
+            </div>
+          </article>
+
+          <article class="product-block">
+            <div class="product-heading compact">
+              <p class="product-number">03</p>
+              <div><h3>Remote MCP through the Cloud Relay</h3><p>An optional paired path for reaching local MCP servers without opening inbound controller or MCP ports.</p></div>
+            </div>
+            <p class="relay-flow"><span>Remote MCP client</span><b>→</b><span>Worker gateway</span><b>→</b><span>outbound WebSocket</span><b>→</b><span>Relay sidecar</span><b>→</b><span>local MCP servers over HTTP</span></p>
+            <div class="role-list">
+              <p><strong>Worker gateway</strong> exposes the authenticated Cloudflare-hosted MCP endpoint, brokers locations, and is managed by the npm CLI.</p>
+              <p><strong>Relay sidecar</strong> discovers configured local servers and maintains the outbound connection.</p>
+            </div>
+            <p class="muted">Reads can fan out across locations; writes require an explicit location target.</p>
+            <div class="text-links">
+              <a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/worker">unifi-mcp-worker</a>
+              <a href="https://github.com/sirkirby/unifi-mcp/tree/main/packages/unifi-mcp-relay">unifi-mcp-relay</a>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section momentum" aria-labelledby="momentum-title">
+      <div class="shell">
+        <div class="section-intro split-intro">
+          <div><p class="kicker">Open-source momentum</p><h2 id="momentum-title">Used in more places. Improved by more people.</h2></div>
+          <p>Separate windows keep unlike signals honest. Figures come from a committed snapshot rather than page-view tracking.</p>
+        </div>
+        <div data-project-stats>
+          <dl class="metrics">
+            <div><dt>Python downloads</dt><dd data-stat="python">—</dd><dd class="metric-period">Trailing 30 days</dd></div>
+            <div><dt>Container pulls</dt><dd data-stat="containers">—</dd><dd class="metric-period">Lifetime across five GHCR images</dd></div>
+            <div><dt>Community pull requests</dt><dd data-stat="community">—</dd><dd class="metric-period">Merged in the last 90 days</dd></div>
+          </dl>
+          <p class="metrics-note"><span data-stat="contributors">—</span> distinct community contributors in the same 90-day window. Updated <time data-stat="updated">—</time>. Sources: <a href="https://pypistats.org/">PyPI Stats</a> and <a href="https://github.com/sirkirby/unifi-mcp">GitHub</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="safety">
+      <div class="shell">
+        <div class="section-intro">
+          <p class="kicker">Control and safety</p>
+          <h2>Useful access without giving up the boundary.</h2>
+          <p>UniFi MCP makes the control points explicit. Scope controller credentials appropriately and choose exposure settings that match your environment.</p>
+        </div>
+        <div class="safety-grid">
+          <article><p class="item-label">Private by design</p><h3>Keep controllers local.</h3><p>Local use needs no inbound public port. The controller can remain private on your network.</p></article>
+          <article><p class="item-label">Confirmation mode</p><h3>Review mutations first.</h3><p>The default mode previews a state-changing operation and waits for confirmation before execution.</p></article>
+          <article><p class="item-label">Policy gates</p><h3>Set hard limits.</h3><p>Disable create, update, or delete behavior globally or at server and category scope.</p></article>
+          <article><p class="item-label">Response redaction</p><h3>Protect sensitive fields.</h3><p>Known secret-bearing values are redacted by default when a response leaves the server boundary.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section outcomes" id="build">
+      <div class="shell">
+        <div class="section-intro">
+          <p class="kicker">What users build</p>
+          <h2>Operational work, expressed in plain language.</h2>
+          <p>The tools stay close to real controller capabilities; reusable plugin skills turn them into repeatable workflows.</p>
+        </div>
+        <div class="outcome-grid">
+          <article><h3>Network operations</h3><p>Inventory, health, policy review, and controlled configuration changes.</p></article>
+          <article><h3>Protect investigations</h3><p>Event, detection, recording, and incident workflows grounded in controller data.</p></article>
+          <article><h3>Access workflows</h3><p>Door, visitor, credential, and activity work with explicit mutation controls.</p></article>
+          <article><h3>Cross-product context</h3><p>Join network, camera, and access evidence, with optional remote MCP access.</p></article>
+          <article><h3>Plugin skills</h3><p>Package repeatable operational workflows and domain guidance for an agent.</p></article>
+          <article><h3>Typed applications</h3><p>Build dashboards and integrations on the standalone REST and GraphQL API.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section install" id="install">
+      <div class="shell">
+        <div class="section-intro">
+          <p class="kicker">Install</p>
+          <h2>Start with the MCP path that fits your client.</h2>
+          <p>The default route includes the server, agent skills, and guided setup. Direct package and container options are here when you want to configure things yourself. You can also hand the <a href="https://github.com/sirkirby/unifi-mcp/blob/main/docs/agent-install.md">agent installation guide</a> to your coding agent. Already using the plugins? Read the <a href="https://github.com/sirkirby/unifi-mcp/blob/main/docs/plugin-upgrade.md">plugin upgrade guide</a> before updating.</p>
+        </div>
+        <div class="install-card">
+          <div class="install-tabs" role="tablist" aria-label="MCP installation methods">
+            <button type="button" role="tab" id="tab-plugin" aria-selected="true" aria-controls="panel-plugin" data-install-tab="plugin">Claude Code</button>
+            <button type="button" role="tab" id="tab-openclaw" aria-selected="false" aria-controls="panel-openclaw" tabindex="-1" data-install-tab="openclaw">OpenClaw</button>
+            <button type="button" role="tab" id="tab-uvx" aria-selected="false" aria-controls="panel-uvx" tabindex="-1" data-install-tab="uvx">uvx</button>
+            <button type="button" role="tab" id="tab-docker" aria-selected="false" aria-controls="panel-docker" tabindex="-1" data-install-tab="docker">Docker</button>
+            <button type="button" role="tab" id="tab-claude" aria-selected="false" aria-controls="panel-claude" tabindex="-1" data-install-tab="claude">Claude Desktop</button>
+            <button type="button" role="tab" id="tab-pip" aria-selected="false" aria-controls="panel-pip" tabindex="-1" data-install-tab="pip">pip / pipx</button>
+          </div>
+
+          <div role="tabpanel" id="panel-plugin" aria-labelledby="tab-plugin" class="install-panel active" data-install-panel="plugin">
+            <button type="button" class="copy-button" data-copy>Copy</button>
+<pre><code><span class="comment"># Add the marketplace, then install one server plugin</span>
+<span class="command">/plugin</span> marketplace add <span class="value">sirkirby/unifi-mcp</span>
+<span class="command">/plugin</span> install <span class="value">unifi-network@unifi-plugins</span>
+
+<span class="comment"># Run its guided setup</span>
+<span class="command">/unifi-network:unifi-network-setup</span></code></pre>
+          </div>
+          <div role="tabpanel" id="panel-openclaw" aria-labelledby="tab-openclaw" class="install-panel" data-install-panel="openclaw" hidden>
+            <button type="button" class="copy-button" data-copy>Copy</button>
+<pre><code><span class="comment"># Confirms the source and capabilities; without a terminal add --force --accept-capabilities</span>
+openclaw plugins install <span class="value">unifi-network</span> --marketplace <span class="value">https://github.com/sirkirby/unifi-mcp</span>
+openclaw gateway restart
+
+<span class="comment"># Run its setup skill; it saves the settings the plugin's own server reads</span>
+<span class="command">unifi-network-setup</span></code></pre>
+          </div>
+          <div role="tabpanel" id="panel-uvx" aria-labelledby="tab-uvx" class="install-panel" data-install-panel="uvx" hidden>
+            <button type="button" class="copy-button" data-copy>Copy</button>
+<pre><code><span class="comment"># Run any server directly</span>
+uvx <span class="value">unifi-network-mcp@latest</span>
+uvx <span class="value">unifi-protect-mcp@latest</span>
+uvx <span class="value">unifi-access-mcp@latest</span>
+
+<span class="comment"># Provide UNIFI_HOST, UNIFI_USERNAME, and UNIFI_PASSWORD</span></code></pre>
+          </div>
+          <div role="tabpanel" id="panel-docker" aria-labelledby="tab-docker" class="install-panel" data-install-panel="docker" hidden>
+            <button type="button" class="copy-button" data-copy>Copy</button>
+<pre><code>docker run -i --rm \
+  -e <span class="command">UNIFI_HOST</span>=<span class="value">192.168.1.1</span> \
+  -e <span class="command">UNIFI_USERNAME</span>=<span class="value">admin</span> \
+  -e <span class="command">UNIFI_PASSWORD</span>=<span class="value">your-password</span> \
+  <span class="value">ghcr.io/sirkirby/unifi-network-mcp:latest</span>
+
+<span class="comment"># Or start the bundled three-server compose stack</span>
+curl -O https://raw.githubusercontent.com/sirkirby/unifi-mcp/main/docker/docker-compose.yml
+docker compose up -d</code></pre>
+          </div>
+          <div role="tabpanel" id="panel-claude" aria-labelledby="tab-claude" class="install-panel" data-install-panel="claude" hidden>
+            <button type="button" class="copy-button" data-copy>Copy</button>
+<pre><code><span class="comment">// claude_desktop_config.json</span>
+{
+  <span class="value">"mcpServers"</span>: {
+    <span class="value">"unifi-network"</span>: {
+      <span class="value">"command"</span>: <span class="value">"uvx"</span>,
+      <span class="value">"args"</span>: [<span class="value">"unifi-network-mcp@latest"</span>],
+      <span class="value">"env"</span>: { <span class="value">"UNIFI_HOST"</span>: <span class="value">"192.168.1.1"</span> }
+    }
+  }
+}</code></pre>
+          </div>
+          <div role="tabpanel" id="panel-pip" aria-labelledby="tab-pip" class="install-panel" data-install-panel="pip" hidden>
+            <button type="button" class="copy-button" data-copy>Copy</button>
+<pre><code><span class="comment"># Install one or more servers</span>
+pipx install <span class="value">unifi-network-mcp</span>
+pipx install <span class="value">unifi-protect-mcp</span>
+pipx install <span class="value">unifi-access-mcp</span>
+
+<span class="comment"># Then point your MCP client at the binary on PATH</span>
+<span class="command">unifi-network-mcp</span></code></pre>
+          </div>
+        </div>
+
+        <div class="next-paths">
+          <article><h3>Building an app or MCP adapter?</h3><p>Start the independent API server with its <a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/api#quickstart">Docker quickstart</a>, then use the <a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/api">API README</a> as the operational reference.</p></article>
+          <article><h3>Connecting a remote MCP client?</h3><p>Install the <a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/worker#quick-start">Worker gateway first</a>, then connect the <a href="https://github.com/sirkirby/unifi-mcp/tree/main/packages/unifi-mcp-relay#quick-start">Relay sidecar</a> to your local MCP servers.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section faq" id="faq">
+      <div class="shell faq-layout">
+        <div class="section-intro"><p class="kicker">FAQ</p><h2>Useful context before you connect.</h2></div>
+        <div class="faq-list">
+          <details open><summary>Is this an official Ubiquiti project?</summary><p>No. UniFi MCP is an independent, community-maintained open-source project and is not affiliated with Ubiquiti.</p></details>
+          <details><summary>Does local use require a cloud service?</summary><p>No. MCP servers and the API can run on your network with local controller access. The Cloud Relay is optional and only needed for remote MCP clients.</p></details>
+          <details><summary>How are changes kept under control?</summary><p>Confirmation mode previews mutations by default. Operators can add policy gates that prevent create, update, or delete behavior at multiple scopes.</p></details>
+          <details><summary>Which controllers are supported?</summary><p>The project targets supported UniFi Network, Protect, and Access environments, with compatibility varying by product, controller, firmware, and exposed API surface. Check the component README for current requirements.</p></details>
+          <details><summary>Can I use my own MCP client?</summary><p>Yes. Every server exposes stdio. Optional HTTP transport supports clients that connect through Streamable HTTP or SSE-compatible paths.</p></details>
+          <details><summary>How can I contribute?</summary><p>Start with the <a href="https://github.com/sirkirby/unifi-mcp/blob/main/CONTRIBUTING.md">contributor guide</a>, open an issue, or join a discussion. Documentation, compatibility reports, and focused pull requests all help.</p></details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-grid">
+      <div class="footer-about">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 8 L6 4 L10 8 L6 12 Z"></path><path d="M14 8 L10 4 M14 8 L10 12"></path></svg></span>
+          <span>UniFi MCP</span>
+        </a>
+        <p>Open-source interfaces for agents and applications working with UniFi infrastructure.</p>
+      </div>
+      <div><h2>MCP servers</h2><ul><li><a href="https://pypi.org/project/unifi-network-mcp/">Network</a></li><li><a href="https://pypi.org/project/unifi-protect-mcp/">Protect</a></li><li><a href="https://pypi.org/project/unifi-access-mcp/">Access</a></li></ul></div>
+      <div><h2>Applications</h2><ul><li><a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/api">API server</a></li><li><a href="https://github.com/sirkirby/unifi-mcp/tree/main/packages/unifi-mcp-relay">Relay sidecar</a></li><li><a href="https://github.com/sirkirby/unifi-mcp/tree/main/apps/worker">Worker gateway</a></li></ul></div>
+      <div><h2>Project</h2><ul><li><a href="https://github.com/sirkirby/unifi-mcp/tree/main/docs">Documentation</a></li><li><a href="https://github.com/sirkirby/unifi-mcp">GitHub</a></li><li><a href="sponsor/">Sponsor</a></li><li><a href="privacy.html">Privacy</a></li><li><a href="llms.txt">llms.txt</a></li></ul></div>
+    </div>
+    <div class="shell footer-bottom"><span>MIT License · © 2025–2026 contributors</span><span>Independent project. Not affiliated with Ubiquiti Inc. UniFi is a trademark of its respective owner.</span></div>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="dlBack" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7f1d1d"/>
+      <stop offset="1" stop-color="#dc2626"/>
+    </linearGradient>
+    <linearGradient id="dlFront" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff5757"/>
+      <stop offset="0.55" stop-color="#dc2626"/>
+      <stop offset="1" stop-color="#7f1d1d"/>
+    </linearGradient>
+    <linearGradient id="dlSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- back layer (extracted card behind, rotated slightly) -->
+  <rect x="9" y="9" width="20" height="20" rx="5"
+        fill="url(#dlBack)" opacity="0.85"
+        transform="rotate(8 19 19)"/>
+
+  <!-- front layer (the system being lifted) -->
+  <rect x="3" y="3" width="20" height="20" rx="5" fill="url(#dlFront)"/>
+  <rect x="3" y="3" width="20" height="20" rx="5" fill="url(#dlSheen)"/>
+
+  <!-- bracket motif: pulled-out tab in top-left -->
+  <path d="M 6.5 7.5 L 6.5 11.5 M 6.5 7.5 L 10.5 7.5" stroke="#ffffff" stroke-width="1.6" stroke-linecap="square" stroke-opacity="0.85"/>
+
+  <!-- subtle hairline stroke on the front layer -->
+  <rect x="3.5" y="3.5" width="19" height="19" rx="4.5"
+        stroke="#ffffff" stroke-opacity="0.18" fill="none"/>
+</svg>

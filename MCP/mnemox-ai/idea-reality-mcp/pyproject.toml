@@ -1,0 +1,55 @@
+[project]
+name = "idea-reality-mcp"
+version = "0.5.1"
+description = "Pre-build reality check for AI coding agents. Stop building what already exists."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Mnemox AI", email = "dev@mnemox.ai" }
+]
+requires-python = ">=3.11"
+keywords = ["mcp", "ai", "idea-validation", "market-research", "developer-tools", "github", "product-hunt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+dependencies = [
+    "fastmcp>=2.0.0,<4.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "click>=8.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mnemox-ai/idea-reality-mcp"
+Documentation = "https://github.com/mnemox-ai/idea-reality-mcp#readme"
+Repository = "https://github.com/mnemox-ai/idea-reality-mcp"
+Issues = "https://github.com/mnemox-ai/idea-reality-mcp/issues"
+Changelog = "https://github.com/mnemox-ai/idea-reality-mcp/blob/main/CHANGELOG.md"
+
+[project.scripts]
+idea-reality = "idea_reality_mcp.cli:cli"
+idea-reality-mcp = "idea_reality_mcp:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    # tests/test_score_history.py exercises the numpy fallback in api/db.py;
+    # keep in step with api/requirements.txt
+    "numpy>=1.26,<3.0",
+]

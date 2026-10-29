@@ -1,0 +1,171 @@
+/**
+ * This script generates tool documentation and updates:
+ * - README.md tools list
+ *
+ * It uses the AllTools array from the tools module.
+ */
+
+import { readFileSync, writeFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import {
+    ATLAS_CREATE_CLUSTER_README_DESCRIPTION,
+    ATLAS_PAUSE_RESUME_CLUSTER_README_DESCRIPTION,
+} from "@mongodb-js/mcp-tools-atlas";
+import { AllTools } from "mongodb-mcp-server";
+import { UIRegistry } from "@mongodb-js/mcp-ui/registry";
+import { UserConfigSchema } from "mongodb-mcp-server";
+import { PrometheusMetrics, createDefaultMetrics } from "@mongodb-js/mcp-metrics";
+import type { DefaultMetricDefinitions, IToolConfig, ToolServices, ToolServer } from "@mongodb-js/mcp-types";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+interface ToolInfo {
+    name: string;
+    description: string;
+    category: string;
+    operationType: string;
+}
+
+const overrides: Record<string, string> = {
+    connect: "Connect to a MongoDB instance",
+    "switch-connection": "Switch to a different MongoDB connection",
+    "atlas-create-cluster": ATLAS_CREATE_CLUSTER_README_DESCRIPTION,
+    "atlas-pause-resume-cluster": ATLAS_PAUSE_RESUME_CLUSTER_README_DESCRIPTION,
+};
+
+function extractToolInformation(): ToolInfo[] {
+    const tools: ToolInfo[] = [];
+    const metrics = new PrometheusMetrics({ definitions: createDefaultMetrics() });
+
+    for (const ToolClass of AllTools) {
+        // Create a minimal instance to access instance properties.
+        // Tool constructors now receive `{ server, transportRequest }` (name,
+        // category and operationType are read from the class statics), so only
+        // the services surface needs to be stubbed to instantiate.
+        const dummyServer: ToolServer<ToolServices<IToolConfig>, DefaultMetricDefinitions> = {
+            config: UserConfigSchema.parse({}),
+            logger: undefined as never,
+            keychain: undefined as never,
+            telemetry: {
+                emitEvents: () => {},
+            } as never,
+            elicitation: {
+                supportsElicitation: () => false,
+                confirmationRequired: () => {
+                    throw new Error("not implemented");
+                },
+                readConfirmation: () => undefined,
+                inputRequired: () => {
+                    throw new Error("not implemented");
+                },
+                readInput: () => undefined,
+            },
+            uiRegistry: new UIRegistry(),
+            metrics,
+            mcpServer: { registerTool: () => ({}) } as never,
+            tools: [],
+            isToolCategoryAvailable: () => true,
+        };
+
+        try {
+            const instance = new ToolClass({ server: dummyServer });
+
+            const description = instance.description || "No description available";
+            tools.push({
+                name: instance.name,
+                description: overrides[instance.name] || description,
+                category: ToolClass.category,
+                operationType: ToolClass.operationType,
+            });
+        } catch (error) {
+            throw new Error(`Error instantiating tool ${ToolClass.name}: ${String(error)}`, { cause: error });
+        }
+    }
+
+    // Sort by category first, then by name
+    return tools.sort((a, b) => {
+        if (a.category !== b.category) {
+            return a.category.localeCompare(b.category);
+        }
+        return a.name.localeCompare(b.name);
+    });
+}
+
+function generateReadmeToolsList(tools: ToolInfo[]): string {
+    const sections: string[] = [];
+
+    // Generate sections for each category
+    const categoryTitles: Record<string, string> = {
+        mongodb: "MongoDB Database Tools",
+        atlas: "MongoDB Atlas Tools",
+        "atlas-local": "MongoDB Atlas Local Tools",
+        assistant: "MongoDB Assistant Tools",
+    };
+
+    // Group tools by category
+    const toolsByCategory: Record<string, ToolInfo[]> = {};
+    for (const tool of tools) {
+        if (!toolsByCategory[tool.category]) {
+            toolsByCategory[tool.category] = [];
+        }
+
+        if (!categoryTitles[tool.category])
+            throw new Error(
+                `Category ${tool.category} not defined in categoryTitles, please specify it to generate documentation.`
+            );
+
+        const categoryTools = toolsByCategory[tool.category];
+        if (categoryTools) {
+            categoryTools.push(tool);
+        }
+    }
+
+    for (const category of Object.keys(categoryTitles)) {
+        if (!toolsByCategory[category]) {
+            throw new Error(
+                `No tools found for category ${category}, please remove it or ensure tools are added to the category.`
+            );
+        }
+
+        sections.push(`#### ${categoryTitles[category]}\n`);
+
+        for (const tool of toolsByCategory[category]) {
+            sections.push(`- \`${tool.name}\` - ${tool.description}`);
+        }
+
+        // Add note for Atlas tools
+        if (category === "atlas") {
+            sections.push(
+                "\nNOTE: atlas tools are only available when you set credentials on [configuration](#configuration) section.\n"
+            );
+        } else {
+            sections.push("");
+        }
+    }
+
+    return sections.join("\n");
+}
+
+function updateReadmeToolsList(tools: ToolInfo[]): void {
+    const readmePath = join(__dirname, "..", "..", "..", "README.md");
+    let content = readFileSync(readmePath, "utf-8");
+
+    const newToolsList = generateReadmeToolsList(tools);
+
+    // Find and replace the tools list section
+    // Match from "### Tool List" to the next "## " section
+    const toolsRegex = /### Tool List\n\n([\s\S]*?)\n\n## 📄 Supported Resources/;
+    const replacement = `### Tool List\n\n${newToolsList}\n## 📄 Supported Resources`;
+
+    content = content.replace(toolsRegex, replacement);
+
+    writeFileSync(readmePath, content, "utf-8");
+    console.log("✓ Updated README.md tools list");
+}
+
+export function generateToolDocumentation(): void {
+    const toolInfo = extractToolInformation();
+    updateReadmeToolsList(toolInfo);
+}

@@ -1,0 +1,16 @@
+{
+  "name": "immich-photo-manager",
+  "displayName": "Immich Photo Manager",
+  "version": "2.0.13",
+  "description": "MCP server for intelligent photo management with Immich — interactive HTML galleries with Cowork Actions Panel, geographic album curation, library cleanup, duplicate detection, people & face management, tags, uploads, shared links, trash management, metadata repair, PDF reports, and 94 MCP tools. Unofficial community plugin by Drolosoft, not affiliated with or endorsed by Immich or FUTO.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Drolosoft"
+  },
+  "license": "MIT",
+  "homepage": "https://drolosoft.com",
+  "repository": "https://github.com/drolosoft/immich-photo-manager",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

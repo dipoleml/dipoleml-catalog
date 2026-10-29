@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 16px; font-size: 13px; color: #0A0908; background: #F3F1EA; }
+      h1 { font-size: 16px; margin: 0 0 4px 0; }
+      p  { margin: 0 0 12px 0; color: #555; line-height: 1.45; }
+      label { display: block; margin-bottom: 4px; color: #333; font-weight: 500; }
+      input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #0A0908; background: #fff; font: inherit; border-radius: 0; }
+      textarea { min-height: 100px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+      button { flex: 1; padding: 10px 12px; border: 1px solid #0A0908; background: #0A0908; color: #F3F1EA; font: inherit; font-weight: 600; cursor: pointer; }
+      button.secondary { background: #F3F1EA; color: #0A0908; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .status { margin-top: 10px; font-size: 12px; color: #555; min-height: 18px; }
+      .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+      .tab { padding: 6px 10px; border: 1px solid #0A0908; cursor: pointer; background: #F3F1EA; color: #0A0908; font-weight: 500; }
+      .tab.active { background: #0A0908; color: #F3F1EA; }
+      .panel { display: none; }
+      .panel.active { display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>designlang</h1>
+    <p>Import design tokens from any website into Figma Variables.</p>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="url">From URL</div>
+      <div class="tab" data-tab="paste">Paste JSON</div>
+    </div>
+
+    <div id="panel-url" class="panel active">
+      <label for="url">Website URL</label>
+      <input type="text" id="url" placeholder="https://stripe.com" />
+      <p style="font-size: 11px; color: #777; margin-top: 6px;">Uses the hosted extractor at <code>designlang.manavaryasingh.com</code>. For full control, use the CLI locally and paste the Figma JSON.</p>
+    </div>
+
+    <div id="panel-paste" class="panel">
+      <label for="json">Paste <code>*-figma-variables.json</code></label>
+      <textarea id="json" placeholder='{ "collections": [...] }'></textarea>
+    </div>
+
+    <div class="row">
+      <button id="run">Import tokens</button>
+      <button id="cancel" class="secondary">Close</button>
+    </div>
+    <div class="status" id="status"></div>
+
+    <script>
+      const tabs = document.querySelectorAll(".tab");
+      const panels = {
+        url: document.getElementById("panel-url"),
+        paste: document.getElementById("panel-paste"),
+      };
+      tabs.forEach((t) =>
+        t.addEventListener("click", () => {
+          tabs.forEach((x) => x.classList.remove("active"));
+          Object.values(panels).forEach((p) => p.classList.remove("active"));
+          t.classList.add("active");
+          panels[t.dataset.tab].classList.add("active");
+        })
+      );
+
+      const status = document.getElementById("status");
+      document.getElementById("cancel").onclick = () => parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
+
+      document.getElementById("run").onclick = async () => {
+        const active = document.querySelector(".tab.active").dataset.tab;
+        status.textContent = "Working…";
+        if (active === "paste") {
+          const raw = document.getElementById("json").value.trim();
+          if (!raw) { status.textContent = "Paste the Figma Variables JSON first."; return; }
+          try {
+            const parsed = JSON.parse(raw);
+            parent.postMessage({ pluginMessage: { type: "import", data: parsed } }, "*");
+          } catch (e) { status.textContent = "Invalid JSON: " + e.message; }
+        } else {
+          const url = document.getElementById("url").value.trim();
+          if (!url) { status.textContent = "Enter a URL first."; return; }
+          try {
+            const res = await fetch(`https://designlang.manavaryasingh.com/api/extract?format=figma&url=${encodeURIComponent(url)}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            parent.postMessage({ pluginMessage: { type: "import", data } }, "*");
+          } catch (e) {
+            status.textContent = "Failed: " + e.message + ". Try pasting JSON instead.";
+          }
+        }
+      };
+
+      onmessage = (e) => {
+        const msg = e.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === "done") status.textContent = `Imported ${msg.variableCount} variables across ${msg.collectionCount} collections.`;
+        if (msg.type === "error") status.textContent = "Error: " + msg.message;
+      };
+    </script>
+  </body>
+</html>

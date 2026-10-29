@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.diivi.aseprite-mcp",
+  "type": "mcp",
+  "name": "Aseprite MCP",
+  "slug": "aseprite-mcp",
+  "vendor": "diivi",
+  "description": "MCP server for interacting with the Aseprite API",
+  "version": "0.0.0",
+  "homepage": "https://github.com/diivi/aseprite-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "animation",
+    "art",
+    "artificial-intelligence",
+    "aseprite",
+    "game-development"
+  ],
+  "tags": [
+    "animation",
+    "art",
+    "artificial-intelligence",
+    "aseprite",
+    "game-development",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "diivi",
+    "brandName": "diivi",
+    "source": "https://github.com/diivi.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "diivi/aseprite-mcp",
+    "url": "https://github.com/diivi/aseprite-mcp",
+    "commit": "a89b205bed31930ee141edf319e78c71ef16bba6",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 840,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "-m",
+        "aseprite_mcp"
+      ]
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "aseprite-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

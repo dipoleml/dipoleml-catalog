@@ -1,0 +1,258 @@
+package kubernetes
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"sync/atomic"
+
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/config"
+	"github.com/containers/kubernetes-mcp-server/pkg/klogutil"
+)
+
+type Manager struct {
+	kubernetes  *Kubernetes
+	schemaCache *openAPISchemaCache
+
+	config atomic.Pointer[config.Config]
+}
+
+var (
+	ErrorKubeconfigInClusterNotAllowed = errors.New("kubeconfig manager cannot be used in in-cluster deployments")
+	ErrorInClusterNotInCluster         = errors.New("in-cluster manager cannot be used outside of a cluster")
+)
+
+func NewKubeconfigManager(ctx context.Context, cfg *config.Config, kubeconfigContext string) (*Manager, error) {
+	if IsInCluster(cfg.KubeConfig.Get()) {
+		return nil, ErrorKubeconfigInClusterNotAllowed
+	}
+
+	pathOptions := clientcmd.NewDefaultPathOptions()
+	if cfg.KubeConfig.Get() != "" {
+		pathOptions.LoadingRules.ExplicitPath = cfg.KubeConfig.Get()
+	}
+
+	resolvedContext, err := resolveKubeconfigContext(ctx, pathOptions.LoadingRules, kubeconfigContext)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCmdConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		pathOptions.LoadingRules,
+		&clientcmd.ConfigOverrides{
+			ClusterInfo:    clientcmdapi.Cluster{Server: ""},
+			CurrentContext: resolvedContext,
+		})
+
+	restConfig, err := clientCmdConfig.ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kubernetes rest config from kubeconfig: %w", err)
+	}
+
+	return NewManager(ctx, cfg, restConfig, clientCmdConfig)
+}
+
+// resolveKubeconfigContext determines which kubeconfig context to use.
+// If kubeconfigContext is explicitly set, it is returned as-is.
+// If it is empty, the function loads the kubeconfig and:
+//   - returns the current-context if set
+//   - auto-selects the only available context if there is exactly one
+//   - returns a descriptive error if there are zero or multiple contexts
+func resolveKubeconfigContext(ctx context.Context, loadingRules *clientcmd.ClientConfigLoadingRules, kubeconfigContext string) (string, error) {
+	if kubeconfigContext != "" {
+		return kubeconfigContext, nil
+	}
+
+	rawConfig, err := loadingRules.Load()
+	if err != nil {
+		return "", fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+
+	if rawConfig.CurrentContext != "" {
+		return rawConfig.CurrentContext, nil
+	}
+
+	switch len(rawConfig.Contexts) {
+	case 0:
+		return "", fmt.Errorf( //nolint:ST1005 // user-facing error with actionable guidance
+			"no current-context is set and no contexts are defined in kubeconfig.\n" +
+				"Configure a context with 'kubectl config set-context <name>' and 'kubectl config use-context <name>'")
+	case 1:
+		for name := range rawConfig.Contexts {
+			klogutil.FromContext(ctx).Info(
+				"current-context is not set in kubeconfig, auto-selecting the only available context",
+				"context_name", name,
+			)
+			return name, nil
+		}
+	}
+
+	names := make([]string, 0, len(rawConfig.Contexts))
+	for name := range rawConfig.Contexts {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return "", fmt.Errorf( //nolint:ST1005 // user-facing error with actionable guidance
+		"current-context is not set in kubeconfig and multiple contexts are available (%s).\n"+
+			"Set one with 'kubectl config use-context <context-name>'",
+		strings.Join(names, ", "))
+}
+
+func NewInClusterManager(ctx context.Context, cfg *config.Config) (*Manager, error) {
+	if cfg.KubeConfig.Get() != "" {
+		return nil, fmt.Errorf("kubeconfig file %s cannot be used with the in-cluster deployments: %w", cfg.KubeConfig.Get(), ErrorKubeconfigInClusterNotAllowed)
+	}
+
+	if !IsInCluster(cfg.KubeConfig.Get()) {
+		return nil, ErrorInClusterNotInCluster
+	}
+
+	restConfig, err := InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create in-cluster kubernetes rest config: %w", err)
+	}
+
+	// Create a dummy kubeconfig clientcmdapi.Config for in-cluster config to be used in places where clientcmd.ClientConfig is required
+	clientCmdConfig := clientcmdapi.NewConfig()
+	clientCmdConfig.Clusters["cluster"] = &clientcmdapi.Cluster{
+		Server:                restConfig.Host,
+		InsecureSkipTLSVerify: restConfig.Insecure,
+	}
+	clientCmdConfig.AuthInfos["user"] = &clientcmdapi.AuthInfo{
+		Token: restConfig.BearerToken,
+	}
+	clientCmdConfig.Contexts[inClusterKubeConfigDefaultContext] = &clientcmdapi.Context{
+		Cluster:  "cluster",
+		AuthInfo: "user",
+	}
+	clientCmdConfig.CurrentContext = inClusterKubeConfigDefaultContext
+
+	return NewManager(ctx, cfg, restConfig, clientcmd.NewDefaultClientConfig(*clientCmdConfig, nil))
+}
+
+func NewManager(ctx context.Context, cfg *config.Config, restConfig *rest.Config, clientCmdConfig clientcmd.ClientConfig) (*Manager, error) {
+	if cfg == nil {
+		return nil, errors.New("config cannot be nil")
+	}
+	if restConfig == nil {
+		return nil, errors.New("restConfig cannot be nil")
+	}
+	if clientCmdConfig == nil {
+		return nil, errors.New("clientCmdConfig cannot be nil")
+	}
+
+	applyRateLimit(restConfig, cfg)
+
+	m := &Manager{schemaCache: newOpenAPISchemaCache()}
+	m.config.Store(cfg)
+	var err error
+	// TODO: Won't work because not all client-go clients use the shared context (e.g. discovery client uses context.TODO())
+	//k8s.restConfig.Wrap(func(original http.RoundTripper) http.RoundTripper {
+	//	return &impersonateRoundTripper{original}
+	//})
+	m.kubernetes, err = newKubernetesFromLive(ctx, &m.config, clientCmdConfig, restConfig, m.schemaCache)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// SetConfig publishes a new Config to this manager and every Kubernetes
+// client derived from it. Access-control values are read live from this
+// pointer; kubeconfig/rest.Config are not rebuilt.
+func (m *Manager) SetConfig(cfg *config.Config) {
+	if m == nil || cfg == nil {
+		return
+	}
+	m.config.Store(cfg)
+}
+
+func (m *Manager) Config() *config.Config {
+	if m == nil {
+		return nil
+	}
+	return m.config.Load()
+}
+
+func (m *Manager) Derived(ctx context.Context) (*Kubernetes, error) {
+	authorization, ok := ctx.Value(OAuthAuthorizationHeader).(string)
+	hasToken := ok && strings.HasPrefix(authorization, "Bearer ")
+	logger := klogutil.FromContext(ctx)
+
+	// No token: fall back to kubeconfig credentials, unless require_oauth=true.
+	// In kubeconfig mode, the token exchange layer clears the auth header before we get here,
+	// so this branch handles both "no token sent" and "kubeconfig mode cleared it".
+	// The require_oauth guard is defense-in-depth: the HTTP middleware already rejects
+	// token-less requests with 401, but this protects STDIO / internal paths and
+	// preserves the operator contract that require_oauth=true never falls through to kubeconfig.
+	if !hasToken {
+		if cfg := m.config.Load(); cfg != nil && cfg.RequireOAuth.Get() {
+			return nil, errors.New("oauth token required")
+		}
+		logger.V(5).Info("No bearer token in context, falling back to kubeconfig credentials")
+		return m.kubernetes, nil
+	}
+
+	logger.V(5).Info("Authorization header found (Bearer), using provided bearer token")
+	userAgent := CustomUserAgent
+	if ua, ok := ctx.Value(UserAgentHeader).(string); ok && ua != "" {
+		userAgent = ua
+	}
+	derivedCfg := &rest.Config{
+		Host:    m.kubernetes.RESTConfig().Host,
+		APIPath: m.kubernetes.RESTConfig().APIPath,
+		// Copy only server verification TLS settings (CA bundle and server name)
+		TLSClientConfig: rest.TLSClientConfig{
+			Insecure:   m.kubernetes.RESTConfig().Insecure,
+			ServerName: m.kubernetes.RESTConfig().ServerName,
+			CAFile:     m.kubernetes.RESTConfig().CAFile,
+			CAData:     m.kubernetes.RESTConfig().CAData,
+		},
+		BearerToken: strings.TrimPrefix(authorization, "Bearer "),
+		// pass custom UserAgent to identify the client
+		UserAgent:   userAgent,
+		QPS:         m.kubernetes.RESTConfig().QPS,
+		Burst:       m.kubernetes.RESTConfig().Burst,
+		Timeout:     m.kubernetes.RESTConfig().Timeout,
+		Impersonate: rest.ImpersonationConfig{},
+	}
+	clientCmdApiConfig, err := m.kubernetes.clientCmdConfig.RawConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get kubeconfig: %w", err)
+	}
+	clientCmdApiConfig.AuthInfos = make(map[string]*clientcmdapi.AuthInfo)
+	derived, err := newKubernetesFromLive(ctx, &m.config, clientcmd.NewDefaultClientConfig(clientCmdApiConfig, nil), derivedCfg, m.schemaCache)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create derived client: %w", err)
+	}
+	context.AfterFunc(ctx, derived.close)
+	return derived, nil
+}
+
+// Close releases HTTP transport resources held by this manager.
+func (m *Manager) Close() {
+	if m != nil {
+		m.kubernetes.close()
+	}
+}
+
+// Invalidate invalidates the cached discovery information.
+func (m *Manager) Invalidate() {
+	m.kubernetes.DiscoveryClient().Invalidate()
+}
+
+// applyRateLimit applies QPS and Burst from Config when those options are set.
+func applyRateLimit(restCfg *rest.Config, cfg *config.Config) {
+	if qps := cfg.KubeClientQPS.Get(); qps != 0 {
+		restCfg.QPS = qps
+	}
+	if burst := cfg.KubeClientBurst.Get(); burst != 0 {
+		restCfg.Burst = burst
+	}
+}

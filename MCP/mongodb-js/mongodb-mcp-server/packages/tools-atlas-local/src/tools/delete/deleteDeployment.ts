@@ -1,0 +1,52 @@
+import type { CallToolResult, ToolExecutionContext } from "@mongodb-js/mcp-types";
+import { AtlasLocalToolBase } from "../../atlasLocalTool.js";
+import type { ToolArgs } from "@mongodb-js/mcp-core";
+import type { OperationType } from "@mongodb-js/mcp-types";
+import type { Client } from "@mongodb-js/atlas-local";
+import { CommonArgs } from "@mongodb-js/mcp-core";
+import { z } from "zod";
+
+const DeleteDeploymentOutputSchema = {
+    deleted: z.boolean(),
+    deploymentName: z.string(),
+};
+
+const DeleteDeploymentArgsShape = {
+    deploymentName: CommonArgs.asciiOnlyString().describe("Name of the deployment to delete"),
+};
+
+export class DeleteDeploymentTool extends AtlasLocalToolBase {
+    static toolName = "atlas-local-delete-deployment";
+    public description = "Delete a MongoDB Atlas local deployment";
+    static operationType: OperationType = "delete";
+    public argsShape(): typeof DeleteDeploymentArgsShape {
+        return DeleteDeploymentArgsShape;
+    }
+    public override outputSchema(): typeof DeleteDeploymentOutputSchema {
+        return DeleteDeploymentOutputSchema;
+    }
+
+    protected async executeWithAtlasLocalClient(
+        { deploymentName }: ToolArgs<ReturnType<typeof this.argsShape>>,
+        { client }: { client: Client; context: ToolExecutionContext }
+    ): Promise<CallToolResult> {
+        // Lookup telemetry metadata
+        // We need to lookup the telemetry metadata before deleting the deployment
+        // to ensure that the deployment ID is set in the result metadata
+        const telemetryMetadata = await this.lookupTelemetryMetadata(client, deploymentName);
+
+        // Delete the deployment
+        await client.deleteDeployment(deploymentName);
+
+        return {
+            content: [{ type: "text", text: `Deployment "${deploymentName}" deleted successfully.` }],
+            structuredContent: {
+                deleted: true,
+                deploymentName,
+            },
+            _meta: {
+                ...telemetryMetadata,
+            },
+        };
+    }
+}

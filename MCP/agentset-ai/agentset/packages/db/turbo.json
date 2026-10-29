@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turborepo.org/schema.json",
+  "extends": [
+    "//"
+  ],
+  "tasks": {
+    "db:generate": {
+      "cache": false
+    },
+    "db:migrate": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:deploy": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:deploy:eu": {
+      "cache": false,
+      "persistent": true
+    },
+    "db:status:eu": {
+      "cache": false
+    }
+  }
+}

@@ -1,0 +1,81 @@
+# ── Secrets & credentials ──────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Private assets ─────────────────────────────
+assets/
+.mcpregistry_*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+credentials.json
+service-account*.json
+*secret*
+!*secret*.py
+
+# ── Python ─────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+*.so
+*.whl
+
+# ── Virtual environments ───────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDE & editor ───────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Testing & linting ─────────────────────────
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Claude Code local state ───────────────────
+.claude/
+
+# ── Codebase index cache ─────────────────────
+.codebase-index-cache.pkl
+.codebase-index-cache.json
+.token-savior-cache.json
+
+# ── MCP local config ─────────────────────────
+.mcp.json
+
+# ── Benchmark output (scripts are tracked) ──────
+benchmarks/results.json
+benchmarks/report.md
+
+# ── Misc ───────────────────────────────────────
+*.log
+*.bak
+*.tmp
+.token-savior-checkpoints/
+memory-backup-*.json
+
+# Internal research notes (not published)
+.research/
+
+# Personal operator layer lives in /root/token-savior-brain (private)
+world/

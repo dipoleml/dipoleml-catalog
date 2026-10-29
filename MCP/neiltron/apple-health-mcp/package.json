@@ -1,0 +1,70 @@
+{
+  "name": "@neiltron/apple-health-mcp",
+  "version": "1.4.5",
+  "mcpName": "io.github.neiltron/apple-health-mcp",
+  "description": "Local-first Apple Health MCP server. Lets AI assistants answer questions about your sleep, workouts, activity and heart data from a local export.",
+  "main": "dist/server.js",
+  "type": "module",
+  "bin": {
+    "apple-health-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun build src/server.ts --outdir dist --target node --format esm --external duckdb",
+    "start": "node dist/server.js",
+    "dev": "bun --watch src/server.ts",
+    "lint": "oxlint",
+    "prepare": "git config core.hooksPath .githooks",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "apple-health",
+    "mcp",
+    "model-context-protocol",
+    "health-data",
+    "duckdb",
+    "sql",
+    "health-analytics"
+  ],
+  "author": "Neil Pullman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neiltron/apple-health-mcp.git"
+  },
+  "homepage": "https://github.com/neiltron/apple-health-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/neiltron/apple-health-mcp/issues"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["duckdb"]
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "duckdb": "1.4.4"
+  },
+  "overrides": {
+    "node-gyp": "^11.0.0",
+    "path-to-regexp": "^8.4.2",
+    "qs": "^6.15.3",
+    "hono": "^4.13.4",
+    "tar": "^7.5.22",
+    "brace-expansion": "^2.1.3",
+    "ip-address": "^10.5.0"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.79.0",
+    "@types/bun": "latest",
+    "@types/node": "^22.10.5",
+    "oxlint": "1.79.0",
+    "typescript": "^7.0.2"
+  }
+}

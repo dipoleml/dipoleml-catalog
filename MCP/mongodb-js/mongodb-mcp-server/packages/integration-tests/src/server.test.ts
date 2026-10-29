@@ -1,0 +1,334 @@
+import { MCPConnectionStore, ExportsManager, DeviceId } from "@mongodb-js/mcp-tools-mongodb";
+import { CompositeLogger } from "@mongodb-js/mcp-core";
+import { createTestApiClient, defaultTestConfig, expectDefined } from "./integrationHelpers.js";
+import { describeWithMongoDB } from "./mongodbHelpers.js";
+import { afterEach, describe, expect, it } from "vitest";
+import type { LoggerBase } from "@mongodb-js/mcp-core";
+import type { UserConfig } from "mongodb-mcp-server";
+import { Elicitation } from "mongodb-mcp-server";
+import { Keychain } from "@mongodb-js/mcp-core";
+import { AtlasTelemetry } from "@mongodb-js/mcp-atlas-telemetry";
+import { createAtlasLocalClient } from "@mongodb-js/mcp-tools-atlas-local";
+import { McpServer } from "@modelcontextprotocol/server";
+import type { Transport } from "@modelcontextprotocol/server";
+import { CliServer } from "mongodb-mcp-server";
+import { connectionErrorHandler } from "mongodb-mcp-server";
+import { ToolBase, type ToolClass } from "@mongodb-js/mcp-core";
+import type { OperationType, ToolCategory, CallToolResult } from "@mongodb-js/mcp-types";
+import type { TelemetryToolMetadata } from "@mongodb-js/mcp-atlas-telemetry";
+import { InMemoryTransport } from "@mongodb-js/mcp-core";
+import { TRANSPORT_PAYLOAD_LIMITS } from "@mongodb-js/mcp-core";
+import { MockMetrics } from "@mongodb-js/mcp-test-utils";
+const TestToolOneArgsShape = {};
+class TestToolOne extends ToolBase {
+    static toolName = "test-tool-one";
+    public description = "A test tool one for verification tests";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "delete";
+    public argsShape(): typeof TestToolOneArgsShape {
+        return TestToolOneArgsShape;
+    }
+    protected async execute(): Promise<CallToolResult> {
+        return Promise.resolve({
+            content: [
+                {
+                    type: "text",
+                    text: "Test tool one executed successfully",
+                },
+            ],
+        });
+    }
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+const TestToolTwoArgsShape = {};
+class TestToolTwo extends ToolBase {
+    static toolName = "test-tool-two";
+    public description = "A test tool two for verification tests";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "delete";
+    public argsShape(): typeof TestToolTwoArgsShape {
+        return TestToolTwoArgsShape;
+    }
+    protected async execute(): Promise<CallToolResult> {
+        return Promise.resolve({
+            content: [
+                {
+                    type: "text",
+                    text: "Test tool two executed successfully",
+                },
+            ],
+        });
+    }
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+describe("CliServer integration test", () => {
+    describeWithMongoDB({
+        name: "without atlas",
+        fn: (integration) => {
+            it("should return positive number of tools and have no atlas tools", async () => {
+                const tools = await integration.mcpClient().listTools();
+                expectDefined(tools);
+                expect(tools.tools.length).toBeGreaterThan(0);
+                const atlasTools = tools.tools.filter(
+                    (tool) => tool.name.startsWith("atlas-") && !tool.name.startsWith("atlas-local-")
+                );
+                expect(atlasTools.length).toBeLessThanOrEqual(0);
+            });
+            it("should include _meta with transport info all tools in tool listing", async () => {
+                const tools = await integration.mcpClient().listTools();
+                expectDefined(tools);
+                expect(tools.tools.length).toBeGreaterThan(0);
+                expect(tools.tools.every((tool) => tool._meta)).toBe(true);
+                expect(tools.tools.every((tool) => tool._meta?.["com.mongodb/transport"] === "stdio")).toBe(true);
+                expect(
+                    tools.tools.every(
+                        (tool) => tool._meta?.["com.mongodb/maxRequestPayloadBytes"] === TRANSPORT_PAYLOAD_LIMITS.stdio
+                    )
+                ).toBe(true);
+            });
+        },
+        config: {
+            getUserConfig: () => ({
+                ...defaultTestConfig,
+                apiClientId: undefined,
+                apiClientSecret: undefined,
+            }),
+        },
+    });
+    describeWithMongoDB({
+        name: "with atlas",
+        fn: (integration) => {
+            describe("list capabilities", () => {
+                it("should return positive number of tools and have some atlas tools", async () => {
+                    const tools = await integration.mcpClient().listTools();
+                    expectDefined(tools);
+                    expect(tools.tools.length).toBeGreaterThan(0);
+                    const atlasTools = tools.tools.filter((tool) => tool.name.startsWith("atlas-"));
+                    expect(atlasTools.length).toBeGreaterThan(0);
+                });
+                it("should return no prompts", async () => {
+                    await expect(integration.mcpClient().listPrompts()).resolves.toEqual({ prompts: [] });
+                });
+                it("should return capabilities", () => {
+                    const capabilities = integration.mcpClient().getServerCapabilities();
+                    expectDefined(capabilities);
+                    expectDefined(capabilities?.logging);
+                    expectDefined(capabilities?.tools);
+                    expectDefined(capabilities?.resources);
+                    expect(capabilities.completions).toBeUndefined();
+                    expect(capabilities.experimental).toBeUndefined();
+                    expect(capabilities.prompts).toBeUndefined();
+                });
+            });
+        },
+        config: {
+            getUserConfig: () => ({
+                ...defaultTestConfig,
+                apiClientId: "test",
+                apiClientSecret: "test",
+            }),
+        },
+    });
+    describeWithMongoDB({
+        name: "with read-only mode",
+        fn: (integration) => {
+            it("should only register read and metadata operation tools when read-only mode is enabled", async () => {
+                const tools = await integration.mcpClient().listTools();
+                expectDefined(tools);
+                expect(tools.tools.length).toBeGreaterThan(0);
+                // Check that we have some tools available (the read and metadata ones)
+                expect(tools.tools.some((tool) => tool.name === "find")).toBe(true);
+                expect(tools.tools.some((tool) => tool.name === "collection-schema")).toBe(true);
+                expect(tools.tools.some((tool) => tool.name === "list-databases")).toBe(true);
+                expect(tools.tools.some((tool) => tool.name === "atlas-list-orgs")).toBe(true);
+                expect(tools.tools.some((tool) => tool.name === "atlas-list-projects")).toBe(true);
+                // Check that non-read tools are NOT available
+                expect(tools.tools.some((tool) => tool.name === "insert-many")).toBe(false);
+                expect(tools.tools.some((tool) => tool.name === "update-many")).toBe(false);
+                expect(tools.tools.some((tool) => tool.name === "delete-many")).toBe(false);
+                expect(tools.tools.some((tool) => tool.name === "drop-collection")).toBe(false);
+            });
+        },
+        config: {
+            getUserConfig: () => ({
+                ...defaultTestConfig,
+                readOnly: true,
+                apiClientId: "test",
+                apiClientSecret: "test",
+            }),
+        },
+    });
+    const initServerWithTools = async (
+        tools: ToolClass[],
+        config: UserConfig = defaultTestConfig,
+        loggers: LoggerBase[] = []
+    ): Promise<{
+        server: CliServer;
+        transport: Transport;
+    }> => {
+        const logger = new CompositeLogger({ loggers });
+        const deviceId = DeviceId.create(logger);
+        const keychain = new Keychain();
+        const connectionRegistry = new MCPConnectionStore({ options: config, logger, deviceId, keychain }).view();
+        const exportsManager = ExportsManager.init({ options: config, logger });
+        const apiClient = createTestApiClient({
+            baseUrl: config.apiBaseUrl,
+            serverMetadata: { mcpServerName: "test", version: "1" },
+            logger,
+            clientId: config.apiClientId,
+            clientSecret: config.apiClientSecret,
+        });
+        const telemetry = AtlasTelemetry.create({
+            logger,
+            deviceId,
+            apiClient,
+            keychain,
+            enabled: false,
+            serverMetadata: {
+                mcpServerName: "test-server",
+                version: "1.0",
+            },
+        });
+        const mcpServerInstance = new McpServer({ name: "test", version: "1.0" });
+        const elicitation = new Elicitation({
+            server: mcpServerInstance.server,
+        });
+        const server = new CliServer({
+            config,
+            logger,
+            keychain,
+            connectionRegistry,
+            exportsManager,
+            apiClient,
+            connectionErrorHandler,
+            atlasLocalClient: await createAtlasLocalClient({ logger }),
+            telemetry,
+            mcpServer: mcpServerInstance,
+            elicitation,
+            tools: [...tools],
+            metrics: new MockMetrics(),
+            serverMetadata: {
+                mcpServerName: "test-server",
+                version: "1.0",
+                engines: {
+                    node: "20.0.0",
+                },
+            },
+        });
+        const transport = new InMemoryTransport();
+        return { transport, server };
+    };
+    describe("with additional tools", () => {
+        let server: CliServer | undefined;
+        let transport: Transport | undefined;
+        afterEach(async () => {
+            await transport?.close();
+            await server?.close();
+        });
+        it("should start server with only the tools provided", async () => {
+            ({ server, transport } = await initServerWithTools([TestToolOne]));
+            await server.connect(transport);
+            expect(server.tools).toHaveLength(1);
+        });
+        it("should throw error before starting when provided tools have name conflict", async () => {
+            ({ server, transport } = await initServerWithTools([
+                TestToolOne,
+                class TestToolTwoButOne extends TestToolTwo {
+                    public name = "test-tool-one";
+                },
+            ]));
+            await expect(server.connect(transport)).rejects.toThrow(/Tool test-tool-one is already registered/);
+        });
+        it("coalesces concurrent register() calls into a single registration", async () => {
+            ({ server, transport } = await initServerWithTools([TestToolOne, TestToolTwo]));
+            await Promise.all([server.register(), server.register(), server.register()]);
+            expect(server.tools).toHaveLength(2);
+        });
+        it("is a no-op when register() is called again after completing", async () => {
+            ({ server, transport } = await initServerWithTools([TestToolOne]));
+            await server.register();
+            await server.register();
+            expect(server.tools).toHaveLength(1);
+        });
+        it("throws when register() is called on a closed server", async () => {
+            ({ server, transport } = await initServerWithTools([TestToolOne]));
+            await server.close();
+            await expect(server.register()).rejects.toThrow(/Cannot register a closed server/);
+        });
+    });
+    describe("log level clamping", () => {
+        let server: CliServer | undefined;
+        let inMemoryTransport: InMemoryTransport | undefined;
+        afterEach(async () => {
+            await inMemoryTransport?.close();
+            await server?.close();
+        });
+        it("should clamp requested level to floor when client requests more verbose level", async () => {
+            // Set floor to "warning" - client should not be able to go below this
+            const config: UserConfig = {
+                ...defaultTestConfig,
+                mcpClientLogLevel: "warning",
+            };
+            const { server: s, transport } = await initServerWithTools([TestToolOne], config);
+            server = s;
+            inMemoryTransport = transport as InMemoryTransport;
+            await server.connect(inMemoryTransport);
+            // Verify initial level matches floor
+            expect(server.mcpLogLevel).toBe("warning");
+            const writer = inMemoryTransport.input.getWriter();
+            // Client requests "debug" (more verbose/lower than floor) - should be clamped to "warning"
+            await writer.write({
+                jsonrpc: "2.0",
+                id: 100,
+                method: "logging/setLevel",
+                params: { level: "debug" },
+            });
+            // Should be clamped to floor, not the requested level
+            expect(server.mcpLogLevel).toBe("warning");
+            // Client requests "info" (still more verbose than "warning") - should be clamped
+            await writer.write({
+                jsonrpc: "2.0",
+                id: 101,
+                method: "logging/setLevel",
+                params: { level: "info" },
+            });
+            expect(server.mcpLogLevel).toBe("warning");
+            writer.releaseLock();
+        });
+        it("should accept stricter levels unchanged", async () => {
+            // Set floor to "info"
+            const config: UserConfig = {
+                ...defaultTestConfig,
+                mcpClientLogLevel: "info",
+            };
+            const { server: s, transport } = await initServerWithTools([TestToolOne], config);
+            server = s;
+            inMemoryTransport = transport as InMemoryTransport;
+            await server.connect(inMemoryTransport);
+            // Verify initial level matches floor
+            expect(server.mcpLogLevel).toBe("info");
+            const writer = inMemoryTransport.input.getWriter();
+            // Client requests "warning" (stricter) - should be accepted
+            await writer.write({
+                jsonrpc: "2.0",
+                id: 200,
+                method: "logging/setLevel",
+                params: { level: "warning" },
+            });
+            expect(server.mcpLogLevel).toBe("warning");
+            // Client requests "error" (even stricter) - should be accepted
+            await writer.write({
+                jsonrpc: "2.0",
+                id: 201,
+                method: "logging/setLevel",
+                params: { level: "error" },
+            });
+            expect(server.mcpLogLevel).toBe("error");
+            writer.releaseLock();
+        });
+    });
+});

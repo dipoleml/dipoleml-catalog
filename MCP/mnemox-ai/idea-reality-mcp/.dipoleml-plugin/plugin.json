@@ -1,0 +1,16 @@
+{
+  "name": "idea-reality-mcp",
+  "displayName": "Idea Reality MCP",
+  "version": "0.1.0",
+  "description": "Pre-build reality check — scans GitHub, HN, npm, PyPI & Stack Overflow before you build. Returns a 0-100 competition signal with real data.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mnemox Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/mnemox-ai/idea-reality-mcp",
+  "repository": "https://github.com/mnemox-ai/idea-reality-mcp",
+  "skills": "skills/",
+  "commands": [],
+  "agents": []
+}

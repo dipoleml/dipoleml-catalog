@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.atilaahmettaner.tradingview-mcp",
+  "type": "mcp",
+  "name": "Tradingview MCP",
+  "slug": "tradingview-mcp",
+  "vendor": "atilaahmettaner",
+  "description": "MCP server for market analysis in AI assistants: screeners, multi-timeframe technical analysis, backtests and sentiment for crypto, stocks, forex and futures. 39 tools. Self-host free, or use the hosted version, TradingMCP.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/atilaahmettaner/tradingview-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "claude-desktop",
+    "cryptocurrency",
+    "futures",
+    "market-data",
+    "mcp-tools",
+    "model-context-protocol",
+    "openclaw",
+    "stock-market"
+  ],
+  "tags": [
+    "claude-desktop",
+    "cryptocurrency",
+    "futures",
+    "market-data",
+    "mcp-server",
+    "mcp-tools",
+    "model-context-protocol",
+    "openclaw",
+    "stock-market",
+    "technical-analysis",
+    "trading-mcp",
+    "trading-strategies",
+    "tradingview"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "atilaahmettaner",
+    "brandName": "atilaahmettaner",
+    "source": "https://github.com/atilaahmettaner.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:42Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "atilaahmettaner/tradingview-mcp",
+    "url": "https://github.com/atilaahmettaner/tradingview-mcp",
+    "commit": "2a08fce055fe316ee612e7c418b8ff3a1bf2ea45",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 5162,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "tradingview-mcp-server"
+    ],
+    "env": [
+      "IMPORTANT",
+      "MARKETAUX_API_TOKEN",
+      "YOUR_BOT_TOKEN_HERE"
+    ],
+    "credentials": [
+      "MARKETAUX_API_TOKEN",
+      "YOUR_BOT_TOKEN_HERE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

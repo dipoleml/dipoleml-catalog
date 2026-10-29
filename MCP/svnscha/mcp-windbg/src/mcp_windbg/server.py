@@ -1,0 +1,816 @@
+import os
+import functools
+import re
+from collections import deque
+import traceback
+import glob
+import winreg
+import logging
+import uuid
+from typing import Dict, List, Optional
+from contextlib import ExitStack, asynccontextmanager
+
+from .cdb_session import CDBSession
+from .debug_session import DEFAULT_WAIT_FOR_BREAK_TIMEOUT, MAX_RETAINED_LINE_CHARS, DebuggerError
+from .kd_session import KDSession
+from .filter_script import FilterScript, load_filter_script
+from .server_api import (
+    ListDumps,
+    OpenCdbDump,
+    OpenCdbRemote,
+    OpenKdSession,
+    OpenKdDump,
+    RunCdbCommand,
+    RunKdCommand,
+    CloseCdbSession,
+    CloseKdSession,
+    SendCtrlBreak,
+    WaitForBreak,
+    ReadDebuggerLog,
+    on_list_tools,
+    on_list_prompts,
+    on_get_prompt,
+)
+
+from mcp.shared.exceptions import MCPError
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import (
+    TextContent,
+    CallToolResult,
+    INVALID_PARAMS,
+    INTERNAL_ERROR,
+)
+import anyio.lowlevel
+import anyio.to_thread
+
+logger = logging.getLogger(__name__)
+
+# --- Per-tool-call timeout defaults (seconds) --------------------------------
+# A tool's effective timeout is: the call's `timeout_seconds` if given, else the
+# larger of the tool default below and the server-wide `--timeout` floor. These
+# defaults reflect how long each operation realistically takes:
+#   - a dump's !analyze -v can run for a while,
+#   - a KDNET memory read can be slow, especially on a flaky link.
+CDB_DUMP_OPEN_TIMEOUT = 180
+CDB_REMOTE_OPEN_TIMEOUT = 60
+KD_OPEN_TIMEOUT = 60
+KD_DUMP_OPEN_TIMEOUT = 180
+CDB_COMMAND_TIMEOUT = 60
+KD_COMMAND_TIMEOUT = 120
+# wait_for_break is not a command timeout: it is how long we are willing to sit
+# on a running target waiting for it to bugcheck or hit a breakpoint.
+WAIT_FOR_BREAK_TIMEOUT = DEFAULT_WAIT_FOR_BREAK_TIMEOUT
+
+
+def _effective_timeout(per_call: Optional[int], tool_default: int, server_timeout: int) -> int:
+    """Resolve a call's timeout: explicit override, else max(default, floor)."""
+    if per_call and per_call > 0:
+        return per_call
+    return max(tool_default, server_timeout)
+
+
+# --- Session registry --------------------------------------------------------
+# Every open_* tool creates a session and returns an opaque session_id; every
+# other tool addresses a session by that id. A record tracks the live session
+# object, its kind ("cdb" or "kd"), and a human label for messages.
+_sessions: Dict[str, dict] = {}
+
+
+def _new_session_id(kind: str) -> str:
+    return f"{kind}-{uuid.uuid4().hex[:8]}"
+
+
+def _register_session(
+    session, kind: str, label: str, *, cleanup: ExitStack,
+    resume_on_rollback: Optional[bool] = False, session_id: Optional[str] = None,
+) -> str:
+    session_id = session_id or _new_session_id(kind)
+    _sessions[session_id] = {"session": session, "kind": kind, "label": label}
+    # An open that never returned an id leaves the target as it found it.
+    # False never resumes; None lets a session that knows how it found the
+    # target restore that, so a running target the open broke into runs again.
+    cleanup.callback(_close_session, session_id, kind, resume_on_rollback)
+    return session_id
+
+
+def _require_session(session_id: str, kind: str):
+    """Return the session for ``session_id``, or raise a helpful MCPError.
+
+    Enforces that the session is of the expected kind so ``run_cdb_command`` on a
+    kernel session (or vice versa) fails clearly instead of misbehaving.
+    """
+    record = _sessions.get(session_id)
+    if record is None:
+        raise MCPError(INVALID_PARAMS, (
+                f"Unknown session_id {session_id!r}. Open a session first - the "
+                f"open_* tools return a session_id to use here."
+            ))
+    if record["kind"] != kind:
+        actual = record["kind"]
+        raise MCPError(INVALID_PARAMS, (
+                f"session_id {session_id!r} is a {actual} session, not {kind}. "
+                f"Use run_{actual}_command / close_{actual}_session for it."
+            ))
+    return record["session"]
+
+
+def _require_live_session(session_id: str, what: str):
+    """Return the record for ``session_id``, requiring a live (non-dump) target.
+
+    Shared by the tools that only make sense against something that runs -
+    ``send_ctrl_break`` and ``wait_for_break`` - and accepts either kind, since a
+    cdb remote and a kd session both have a target to stop.
+    """
+    record = _sessions.get(session_id)
+    if record is None:
+        raise MCPError(INVALID_PARAMS, f"Unknown session_id {session_id!r}. Open a session first.")
+    session = record["session"]
+    if not getattr(session, "is_live_session", False):
+        raise MCPError(INVALID_PARAMS, (
+                f"session_id {session_id!r} is a dump session; there is no "
+                f"running target to {what}."
+            ))
+    return record
+
+
+def _close_session(session_id: str, kind: str, resume: Optional[bool] = None) -> bool:
+    """Shut down and forget a session; returns False if id/kind did not match."""
+    record = _sessions.get(session_id)
+    if record is None or record["kind"] != kind:
+        return False
+    # Claim the session before blocking in shutdown. Concurrent close calls must
+    # not shut down the same debugger twice or overwrite its resume policy.
+    record = _sessions.pop(session_id, None)
+    if record is None:
+        return False
+    if resume is not None:
+        record["session"].resume_on_close = resume
+    record["session"].shutdown()
+    return True
+
+
+def get_local_dumps_path() -> Optional[str]:
+    """Get the local dumps path from the Windows registry."""
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps"
+        ) as key:
+            dump_folder, _ = winreg.QueryValueEx(key, "DumpFolder")
+            if os.path.exists(dump_folder) and os.path.isdir(dump_folder):
+                return dump_folder
+    except (OSError, WindowsError):
+        # Registry key might not exist or other issues
+        pass
+
+    # Default Windows dump location
+    default_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "CrashDumps")
+    if os.path.exists(default_path) and os.path.isdir(default_path):
+        return default_path
+
+    return None
+
+
+def _combine_symbols(per_call: Optional[str], server_default: Optional[str]) -> Optional[str]:
+    """Combine per-call and server-default symbol paths."""
+    if per_call and server_default:
+        return f"{per_call};{server_default}"
+    return per_call or server_default
+
+
+def _optional_sections(session, args, timeout: int) -> list[str]:
+    """Render the include_* sections shared by the open_* tools."""
+    sections = []
+    if args.include_stack_trace:
+        stack = session.send_command("kb", timeout=timeout)
+        sections.append("### Stack Trace\n```\n" + "\n".join(stack) + "\n```\n\n")
+    if args.include_modules:
+        modules = session.send_command("lm", timeout=timeout)
+        sections.append("### Loaded Modules\n```\n" + "\n".join(modules) + "\n```\n\n")
+    if args.include_threads:
+        threads = session.send_command("~", timeout=timeout)
+        sections.append("### Threads\n```\n" + "\n".join(threads) + "\n```\n\n")
+    return sections
+
+
+def _init_sections(session, init_commands: Optional[List[str]], timeout: int) -> list[str]:
+    """Run the server's init commands on a new session, before any triage."""
+    if not init_commands:
+        return []
+    lines = []
+    for command in init_commands:
+        lines.append(f"> {command}")
+        lines.extend(session.send_command(command, timeout=timeout))
+    return ["### Initialization\n```\n" + "\n".join(lines) + "\n```\n\n"]
+
+
+# `!peb` prints the environment-variable block as indented `NAME=value`
+# lines - drive-relative entries such as `=C:=C:\dir` start with `=` -
+# running to the end of its output. Every other line it prints separates
+# its field from its value with `:` and whitespace, which a name here cannot
+# contain, so these cannot match the struct or the process parameters.
+_PEB_ENVIRONMENT_HEADER = re.compile(r"^\s*Environment:\s")
+_PEB_ENV_VAR = re.compile(r"^\s*(?:=[^\s=]+|[^\s=:]+)=")
+
+
+def _trim_peb_environment(lines: list[str]) -> list[str]:
+    """Trim the environment-variable block `!peb` prints, keeping the rest.
+
+    The block is often hundreds of lines the initial triage does not need, and
+    it alone can dwarf the rest of the open's output. Only the automatic triage
+    is trimmed: a run_cdb_command call that asks for `!peb` explicitly still
+    gets it in full.
+    """
+    header = next((i for i, line in enumerate(lines) if _PEB_ENVIRONMENT_HEADER.match(line)), None)
+    if header is None:
+        return lines
+    start = next((i for i in range(header + 1, len(lines)) if _PEB_ENV_VAR.match(lines[i])), None)
+    if start is None:
+        return lines
+    end = start
+    while end < len(lines) and _PEB_ENV_VAR.match(lines[end]):
+        end += 1
+    note = f"     ({end - start} environment variables trimmed; run `!peb` or pass include_environment: true for the full list)"
+    return lines[:start] + [note] + lines[end:]
+
+
+def _is_kernel_dump(dump_path: str) -> bool:
+    """True for a kernel crash dump, whatever debugger opens it."""
+    try:
+        with open(dump_path, "rb") as handle:
+            # Kernel dumps start PAGEDUMP/PAGEDU64; user-mode minidumps start MDMP.
+            return handle.read(4) == b"PAGE"
+    except OSError:
+        return False
+
+
+async def serve(
+    cdb_path: Optional[str] = None,
+    kd_path: Optional[str] = None,
+    symbols_path: Optional[str] = None,
+    filter_script: Optional[str] = None,
+    timeout: int = 60,
+    verbose: bool = False,
+    auto_dump_dir_symbols: bool = True,
+    init_commands: Optional[List[str]] = None,
+    kernel_init_commands: Optional[List[str]] = None,
+    log_dir: Optional[str] = None,
+) -> None:
+    """Run the WinDbg MCP server with stdio transport."""
+    content_filter = load_filter_script(filter_script) if filter_script else None
+    server = _create_server(
+        cdb_path, kd_path, symbols_path, timeout, verbose, content_filter, "stdio",
+        auto_dump_dir_symbols, init_commands, kernel_init_commands, log_dir,
+    )
+
+    options = server.create_initialization_options()
+    async with stdio_server() as (read_stream, write_stream):
+        # raise_exceptions=False (the SDK default) keeps the server alive on a
+        # malformed stdin line: the transport forwards the parse error and the
+        # message loop logs it instead of crashing the process. See issue #45.
+        await server.run(read_stream, write_stream, options)
+
+
+async def serve_http(  # pragma: no cover - HTTP transport cannot flush coverage on Windows teardown (verified e2e in http_transport.yaml)
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    cdb_path: Optional[str] = None,
+    kd_path: Optional[str] = None,
+    symbols_path: Optional[str] = None,
+    filter_script: Optional[str] = None,
+    timeout: int = 60,
+    verbose: bool = False,
+    auto_dump_dir_symbols: bool = True,
+    init_commands: Optional[List[str]] = None,
+    kernel_init_commands: Optional[List[str]] = None,
+    log_dir: Optional[str] = None,
+) -> None:
+    """Run the WinDbg MCP server with Streamable HTTP transport."""
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+    from starlette.types import Receive, Scope, Send
+    import uvicorn
+
+    content_filter = load_filter_script(filter_script) if filter_script else None
+    server = _create_server(
+        cdb_path, kd_path, symbols_path, timeout, verbose, content_filter, "streamable-http",
+        auto_dump_dir_symbols, init_commands, kernel_init_commands, log_dir,
+    )
+
+    # Create the session manager
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        json_response=True,
+    )
+
+    # ASGI handler for streamable HTTP connections
+    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
+        await session_manager.handle_request(scope, receive, send)
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        async with session_manager.run():
+            yield
+
+    app = Starlette(
+        debug=verbose,
+        routes=[
+            Mount("/mcp", app=handle_streamable_http),
+        ],
+        lifespan=lifespan,
+    )
+
+    logger.info(f"Starting MCP WinDbg server with streamable-http transport on {host}:{port}")
+    print(f"MCP WinDbg server running on http://{host}:{port}")
+    print(f"  MCP endpoint: http://{host}:{port}/mcp")
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="info" if verbose else "warning")
+    server_instance = uvicorn.Server(config)
+    await server_instance.serve()
+
+
+def _create_server(
+    cdb_path: Optional[str] = None,
+    kd_path: Optional[str] = None,
+    symbols_path: Optional[str] = None,
+    timeout: int = 60,
+    verbose: bool = False,
+    content_filter: Optional[FilterScript] = None,
+    transport: str = "stdio",
+    auto_dump_dir_symbols: bool = True,
+    init_commands: Optional[List[str]] = None,
+    kernel_init_commands: Optional[List[str]] = None,
+    log_dir: Optional[str] = None,
+) -> Server:
+    """Create and configure the MCP server with all tools and prompts.
+
+    mcp 2.x takes its handlers as constructor arguments rather than through
+    ``@server.<method>()`` decorators, so the server itself is built at the end
+    of this function, once the handlers below exist.
+    """
+
+    if log_dir:
+        # At startup, so a folder that cannot be created fails the server
+        # rather than every open.
+        os.makedirs(log_dir, exist_ok=True)
+
+    def _session_log_path(session_id: str) -> Optional[str]:
+        return os.path.join(log_dir, f"{session_id}.log") if log_dir else None
+
+    def _init_for(kernel: bool) -> list[str]:
+        """Init commands for a new session: the shared ones, then the kernel-only ones."""
+        return list(init_commands or []) + (list(kernel_init_commands or []) if kernel else [])
+
+    def filter_tool_arguments(tool_name: str, arguments: dict | None, call_id: str) -> dict:
+        if arguments is None:
+            arguments = {}
+        if content_filter is None:
+            return arguments
+        return content_filter.process_input(tool_name, arguments, transport, call_id) or {}
+
+    def filter_tool_content(tool_name: str, content: list[TextContent], call_id: str) -> list[TextContent]:
+        if content_filter is None:
+            return content
+        return content_filter.process_output(tool_name, content, transport, call_id)
+
+    async def on_call_tool(ctx, params) -> CallToolResult:
+        """Dispatch a tool call and wrap its content in the 2.x result type.
+
+        A raised MCPError still reaches the caller as an error - the SDK turns
+        it into a JSON-RPC error response - so the handlers below keep raising
+        rather than hand-building error results.
+        """
+        content = await _dispatch_tool(params.name, params.arguments or {})
+        return CallToolResult(content=content)
+
+    async def _run_debugger_handler(handler, *args, **kwargs):
+        # Debugger startup, commands, and shutdown can wait for seconds or minutes.
+        # Keep the event loop available for other tools, especially break-in.
+        return await anyio.to_thread.run_sync(functools.partial(handler, *args, **kwargs))
+
+    async def _run_open_handler(handler, name, arguments, call_id, *settings):
+        # An open owns its debugger until triage AND output filtering succeed.
+        # Roll back only this call's session; unrelated sessions may be busy.
+        cleanup = ExitStack()
+        try:
+            content = await _run_debugger_handler(handler, arguments, *settings, cleanup=cleanup)
+            result = filter_tool_content(name, content, call_id)
+            await anyio.lowlevel.checkpoint_if_cancelled()
+            cleanup.pop_all()
+            return result
+        except BaseException:
+            # Only on failure: pop_all() has already disarmed the stack on the
+            # success path, where going through the worker pool a second time
+            # would cost another thread hop and an uncancellable wait for a
+            # token. Shielded, because cancellation must not skip the rollback
+            # of an open whose id the caller never received.
+            with anyio.CancelScope(shield=True):
+                try:
+                    await _run_debugger_handler(cleanup.close)
+                except Exception as cleanup_error:
+                    # Why the open failed is what the caller can act on, so a
+                    # teardown failure must not replace it. The session record
+                    # is gone either way, so there is no id to retry with; log
+                    # it so a stray debugger process is still traceable.
+                    logger.error(
+                        "Rolling back a failed open did not shut its debugger "
+                        "down: %s. Check for a stray debugger process.",
+                        cleanup_error,
+                    )
+            raise
+
+    async def _dispatch_tool(name: str, arguments: dict) -> list[TextContent]:
+        try:
+            call_id = uuid.uuid4().hex
+            arguments = filter_tool_arguments(name, arguments, call_id)
+
+            if name == "list_dumps":
+                # Off the loop: a glob over a big or remote dump share
+                # blocks it, and break-in has to stay answerable.
+                return filter_tool_content(
+                    name,
+                    await anyio.to_thread.run_sync(
+                        functools.partial(_handle_list_dumps, arguments)
+                    ),
+                    call_id,
+                )
+
+            if name == "open_cdb_dump":
+                return await _run_open_handler(_handle_open_cdb_dump,
+                    name, arguments, call_id, cdb_path, symbols_path, timeout, verbose, auto_dump_dir_symbols
+                )
+
+            if name == "open_cdb_remote":
+                return await _run_open_handler(_handle_open_cdb_remote,
+                    name, arguments, call_id, cdb_path, symbols_path, timeout, verbose
+                )
+
+            if name == "open_kd_session":
+                return await _run_open_handler(_handle_open_kd_session,
+                    name, arguments, call_id, kd_path, symbols_path, timeout, verbose
+                )
+
+            if name == "open_kd_dump":
+                return await _run_open_handler(_handle_open_kd_dump,
+                    name, arguments, call_id, kd_path, symbols_path, timeout, verbose, auto_dump_dir_symbols
+                )
+
+            if name == "run_cdb_command":
+                return filter_tool_content(name, await _run_debugger_handler(_handle_run_command,
+                    RunCdbCommand(**arguments), "cdb", CDB_COMMAND_TIMEOUT, timeout
+                ), call_id)
+
+            if name == "run_kd_command":
+                return filter_tool_content(name, await _run_debugger_handler(_handle_run_command,
+                    RunKdCommand(**arguments), "kd", KD_COMMAND_TIMEOUT, timeout
+                ), call_id)
+
+            if name == "close_cdb_session":
+                close_args = CloseCdbSession(**arguments)
+                return filter_tool_content(name, await _run_debugger_handler(
+                    _handle_close, close_args.session_id, "cdb", close_args.resume
+                ), call_id)
+
+            if name == "close_kd_session":
+                close_args = CloseKdSession(**arguments)
+                return filter_tool_content(name, await _run_debugger_handler(
+                    _handle_close, close_args.session_id, "kd", close_args.resume
+                ), call_id)
+
+            if name == "send_ctrl_break":
+                # This escape hatch must not queue behind blocked debugger workers.
+                return filter_tool_content(name, _handle_send_ctrl_break(SendCtrlBreak(**arguments).session_id), call_id)
+
+            if name == "wait_for_break":
+                return filter_tool_content(name, await _handle_wait_for_break(WaitForBreak(**arguments)), call_id)
+
+            if name == "read_debugger_log":
+                # Off the loop: a log can be tens of MiB.
+                return filter_tool_content(name, await anyio.to_thread.run_sync(
+                    _handle_read_debugger_log, ReadDebuggerLog(**arguments)
+                ), call_id)
+
+            raise MCPError(INVALID_PARAMS, f"Unknown tool: {name}")
+
+        except MCPError:
+            raise
+        except DebuggerError as e:
+            # An expected debugger failure: its message is the whole story, and a
+            # stack trace would repeat it (partial output included) a second time.
+            raise MCPError(INTERNAL_ERROR, f"Error executing tool {name}: {e}")
+        except Exception as e:
+            traceback_str = traceback.format_exc()
+            raise MCPError(INTERNAL_ERROR, f"Error executing tool {name}: {str(e)}\n{traceback_str}")
+
+    # -- Tool handlers --------------------------------------------------------
+
+    def _handle_list_dumps(arguments: dict) -> list[TextContent]:
+        args = ListDumps(**arguments)
+        directory = args.directory_path or get_local_dumps_path()
+        if directory is None:
+            raise MCPError(INVALID_PARAMS, "No directory path specified and no default dump path found in registry.")
+        if not os.path.exists(directory) or not os.path.isdir(directory):
+            raise MCPError(INVALID_PARAMS, f"Directory not found: {directory}")
+
+        pattern = os.path.join(directory, "**", "*.*dmp") if args.recursive else os.path.join(directory, "*.*dmp")
+        dump_files = sorted(glob.glob(pattern, recursive=args.recursive))
+
+        if not dump_files:
+            return [TextContent(type="text", text=f"No crash dump files (*.*dmp) found in {directory}")]
+
+        text = f"Found {len(dump_files)} crash dump file(s) in {directory}:\n\n"
+        for i, dump_file in enumerate(dump_files):
+            try:
+                size_mb = round(os.path.getsize(dump_file) / (1024 * 1024), 2)
+            except (OSError, IOError):
+                size_mb = "unknown"
+            text += f"{i+1}. {dump_file} ({size_mb} MB)\n"
+        return [TextContent(type="text", text=text)]
+
+    def _handle_open_cdb_dump(arguments, cdb_path, symbols_path, server_timeout, verbose, auto_dump_dir_symbols, *, cleanup):
+        # Missing dump_path: help the caller discover dumps (kept from the old tool).
+        if not arguments.get("dump_path"):
+            return _dump_discovery_help()
+
+        args = OpenCdbDump(**arguments)
+        effective = _effective_timeout(args.timeout_seconds, CDB_DUMP_OPEN_TIMEOUT, server_timeout)
+        effective_symbols = _combine_symbols(args.symbols_path, symbols_path)
+        session_id = _new_session_id("cdb")
+        try:
+            session = CDBSession(
+                dump_path=args.dump_path, cdb_path=cdb_path, symbols_path=effective_symbols,
+                timeout=effective, verbose=verbose, auto_dump_dir_symbols=auto_dump_dir_symbols,
+                session_log_path=_session_log_path(session_id),
+            )
+        except Exception as e:
+            raise MCPError(INTERNAL_ERROR, f"Failed to open cdb dump session: {e}")
+
+        session_id = _register_session(session, "cdb", f"dump {args.dump_path}", cleanup=cleanup, session_id=session_id)
+        results = [_session_header(session_id, "cdb", f"crash dump {args.dump_path}")]
+        results.extend(_init_sections(session, _init_for(_is_kernel_dump(args.dump_path)), effective))
+
+        crash_info = session.send_command(".lastevent", timeout=effective)
+        results.append("### Crash Information\n```\n" + "\n".join(crash_info) + "\n```\n\n")
+        analysis = session.send_command("!analyze -v", timeout=effective)
+        results.append("### Crash Analysis\n```\n" + "\n".join(analysis) + "\n```\n\n")
+        results.extend(_optional_sections(session, args, effective))
+        return [TextContent(type="text", text="".join(results))]
+
+    def _handle_open_cdb_remote(arguments, cdb_path, symbols_path, server_timeout, verbose, *, cleanup):
+        args = OpenCdbRemote(**arguments)
+        effective = _effective_timeout(args.timeout_seconds, CDB_REMOTE_OPEN_TIMEOUT, server_timeout)
+        effective_symbols = _combine_symbols(args.symbols_path, symbols_path)
+        session_id = _new_session_id("cdb")
+        try:
+            session = CDBSession(
+                remote_connection=args.connection_string, cdb_path=cdb_path,
+                symbols_path=effective_symbols, timeout=effective, verbose=verbose,
+                session_log_path=_session_log_path(session_id),
+            )
+        except Exception as e:
+            raise MCPError(INTERNAL_ERROR, f"Failed to open cdb remote session: {e}")
+
+        running = getattr(session, "target_running", False)
+        session_id = _register_session(
+            session, "cdb", f"remote {args.connection_string}", cleanup=cleanup,
+            resume_on_rollback=None, session_id=session_id,
+        )
+        results = [_session_header(session_id, "cdb", f"remote target {args.connection_string}")]
+        if running and not args.break_in:
+            # A debug server's target may be someone else's process, so
+            # stopping it is the caller's decision, not a side effect of
+            # attaching. Every triage command would break in, so none runs;
+            # the init commands wait for the first command that stops it.
+            init = _init_for(kernel=False)
+            if init:
+                _sessions[session_id]["pending_init"] = init
+            results.append(
+                "### Target State\n"
+                "The target is running, and this open left it running, so "
+                "nothing has been gathered from it yet"
+                + (" and the init commands have not run" if init else "")
+                + ". Any run_cdb_command breaks in first"
+                + (", after the init commands" if init else "")
+                + "; send_ctrl_break stops it, wait_for_break waits for it to "
+                "stop on its own, and break_in: true on the open stops it for "
+                "the initial triage.\n\n"
+            )
+            return [TextContent(type="text", text="".join(results))]
+        if running:
+            # The triage below breaks in, as any command on a running target
+            # does. Say so: it is the caller who decides whether the target
+            # runs again.
+            results.append(
+                "### Target State\n"
+                "The target was running when the client attached. The commands "
+                "below broke into it, so it is now stopped and stays stopped "
+                "until you resume it with `g` or close the session, which "
+                "resumes it unless you close with resume: false.\n\n"
+            )
+        results.extend(_init_sections(session, _init_for(kernel=False), effective))
+
+        peb_output = session.send_command("!peb", timeout=effective)
+        target_info = peb_output if args.include_environment else _trim_peb_environment(peb_output)
+        results.append("### Target Process Information\n```\n" + "\n".join(target_info) + "\n```\n\n")
+        registers = session.send_command("r", timeout=effective)
+        results.append("### Current Registers\n```\n" + "\n".join(registers) + "\n```\n\n")
+        results.extend(_optional_sections(session, args, effective))
+        return [TextContent(type="text", text="".join(results))]
+
+    def _handle_open_kd_session(arguments, kd_path, symbols_path, server_timeout, verbose, *, cleanup):
+        args = OpenKdSession(**arguments)
+        effective = _effective_timeout(args.timeout_seconds, KD_OPEN_TIMEOUT, server_timeout)
+        effective_symbols = _combine_symbols(args.symbols_path, symbols_path)
+        session_id = _new_session_id("kd")
+        try:
+            session = KDSession(
+                kernel_connection=args.connection_string, kd_path=kd_path,
+                symbols_path=effective_symbols, timeout=effective, verbose=verbose,
+                session_log_path=_session_log_path(session_id),
+            )
+        except Exception as e:
+            raise MCPError(INTERNAL_ERROR, f"Failed to open kd session: {e}")
+
+        session_id = _register_session(session, "kd", f"kernel {args.connection_string}", cleanup=cleanup, session_id=session_id)
+        results = [_session_header(session_id, "kd", f"kernel target {args.connection_string}")]
+        results.extend(_init_sections(session, _init_for(kernel=True), effective))
+
+        target_info = session.send_command("vertarget", timeout=effective)
+        results.append("### Kernel Target Information\n```\n" + "\n".join(target_info) + "\n```\n\n")
+        registers = session.send_command("r", timeout=effective)
+        results.append("### Current Registers\n```\n" + "\n".join(registers) + "\n```\n\n")
+        results.extend(_optional_sections(session, args, effective))
+        return [TextContent(type="text", text="".join(results))]
+
+    def _handle_open_kd_dump(arguments, kd_path, symbols_path, server_timeout, verbose, auto_dump_dir_symbols, *, cleanup):
+        args = OpenKdDump(**arguments)
+        effective = _effective_timeout(args.timeout_seconds, KD_DUMP_OPEN_TIMEOUT, server_timeout)
+        effective_symbols = _combine_symbols(args.symbols_path, symbols_path)
+        session_id = _new_session_id("kd")
+        try:
+            session = KDSession(
+                dump_path=args.dump_path, kd_path=kd_path, symbols_path=effective_symbols,
+                timeout=effective, verbose=verbose, auto_dump_dir_symbols=auto_dump_dir_symbols,
+                session_log_path=_session_log_path(session_id),
+            )
+        except Exception as e:
+            raise MCPError(INTERNAL_ERROR, f"Failed to open kd dump session: {e}")
+
+        session_id = _register_session(session, "kd", f"kernel dump {args.dump_path}", cleanup=cleanup, session_id=session_id)
+        results = [_session_header(session_id, "kd", f"kernel dump {args.dump_path}")]
+        results.extend(_init_sections(session, _init_for(_is_kernel_dump(args.dump_path)), effective))
+
+        target_info = session.send_command("vertarget", timeout=effective)
+        results.append("### Kernel Target Information\n```\n" + "\n".join(target_info) + "\n```\n\n")
+        analysis = session.send_command("!analyze -v", timeout=effective)
+        results.append("### Crash Analysis\n```\n" + "\n".join(analysis) + "\n```\n\n")
+        results.extend(_optional_sections(session, args, effective))
+        return [TextContent(type="text", text="".join(results))]
+
+    def _handle_run_command(args, kind, tool_default, server_timeout) -> list[TextContent]:
+        session = _require_session(args.session_id, kind)
+        effective = _effective_timeout(args.timeout_seconds, tool_default, server_timeout)
+        init = []
+        record = _sessions.get(args.session_id, {})
+        if "pending_init" in record and not session._is_go_command(args.command):
+            # Held back by an open that left its target running. This command
+            # stops the target anyway, so they run first, as they would have
+            # on the open. A go-class command does not stop it, so they wait.
+            pending = record.pop("pending_init", None)
+            if pending:
+                init = _init_sections(session, pending, effective)
+        output = session.send_command(args.command, timeout=effective)
+        text = f"Command: {args.command}\n\nOutput:\n```\n" + "\n".join(output) + "\n```"
+        return [TextContent(type="text", text="".join(init) + text)]
+
+    def _handle_close(session_id, kind, resume=None) -> list[TextContent]:
+        try:
+            closed = _close_session(session_id, kind, resume)
+        except Exception as e:
+            # The record is gone either way, so the id cannot be retried.
+            # Reporting success here would hide a debugger still holding
+            # its target, which is the thing the caller needs to know.
+            raise MCPError(
+                INTERNAL_ERROR,
+                f"Session {session_id} was dropped, but shutting its "
+                f"debugger down failed: {e}. Check for a stray "
+                f"{kind}.exe process.",
+            )
+        if closed:
+            return [TextContent(type="text", text=f"Successfully closed {kind} session {session_id}")]
+        return [TextContent(type="text", text=f"No active {kind} session found for session_id {session_id}")]
+
+    def _handle_read_debugger_log(args: ReadDebuggerLog) -> list[TextContent]:
+        if not log_dir:
+            raise MCPError(INVALID_PARAMS, (
+                "Debugger logging is off. Start the server with --log-dir to "
+                "keep a log of every session's output."
+            ))
+        # The id names the file, so it must be one this server could have
+        # issued, never a path.
+        if not re.fullmatch(r"(cdb|kd)-[0-9a-f]{8}", args.session_id):
+            raise MCPError(INVALID_PARAMS, f"Not a session_id: {args.session_id!r}")
+        path = _session_log_path(args.session_id)
+        if not os.path.isfile(path):
+            raise MCPError(INVALID_PARAMS, f"No debugger log for session {args.session_id}.")
+
+        needle = args.grep.lower() if args.grep else None
+        newest: deque = deque(maxlen=args.lines)
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.rstrip("\n")
+                if needle is None or needle in line.lower():
+                    if len(line) > MAX_RETAINED_LINE_CHARS:
+                        line = line[:MAX_RETAINED_LINE_CHARS] + " ... line truncated ..."
+                    newest.append(line)
+        what = f"lines matching {args.grep!r}" if needle else "lines"
+        text = f"Debugger log {path}, last {len(newest)} {what}:\n```\n" + "\n".join(newest) + "\n```"
+        return [TextContent(type="text", text=text)]
+
+    def _handle_send_ctrl_break(session_id) -> list[TextContent]:
+        record = _require_live_session(session_id, "break into")
+        label = record["label"]
+        record["session"].send_ctrl_break()
+        return [TextContent(type="text", text=f"Sent CTRL+BREAK to session {session_id} ({label}).")]
+
+    async def _handle_wait_for_break(args: WaitForBreak) -> list[TextContent]:
+        session = _require_live_session(args.session_id, "wait on")["session"]
+        # Deliberately not _effective_timeout: the --timeout floor is about how
+        # long a *command* may take, and has nothing to say about how long you
+        # are willing to sit on a target waiting for it to bugcheck.
+        wait = (
+            args.timeout_seconds
+            if args.timeout_seconds and args.timeout_seconds > 0
+            else WAIT_FOR_BREAK_TIMEOUT
+        )
+        # This blocks for minutes by design. Run it on a worker thread so the
+        # event loop keeps serving - otherwise the server could not answer the
+        # send_ctrl_break this tool's own timeout message tells you to use.
+        output = await anyio.to_thread.run_sync(
+            functools.partial(session.wait_for_break, timeout=wait)
+        )
+        if not output:
+            return [TextContent(type="text", text="Target stopped, printing nothing.")]
+        return [TextContent(
+            type="text",
+            text="Target stopped.\n\nOutput:\n```\n" + "\n".join(output) + "\n```",
+        )]
+
+    def _session_header(session_id: str, kind: str, what: str) -> str:
+        run_tool = f"run_{kind}_command"
+        close_tool = f"close_{kind}_session"
+        return (
+            f"session_id: {session_id}\n\n"
+            f"Opened {kind} session for {what}. Use session_id `{session_id}` with "
+            f"{run_tool} and {close_tool}.\n\n"
+        )
+
+    def _dump_discovery_help() -> list[TextContent]:
+        local_dumps_path = get_local_dumps_path()
+        dumps_found_text = ""
+        if local_dumps_path:
+            dump_files = glob.glob(os.path.join(local_dumps_path, "*.*dmp"))
+            if dump_files:
+                dumps_found_text = f"\n\nI found {len(dump_files)} crash dump(s) in {local_dumps_path}:\n\n"
+                for i, dump_file in enumerate(dump_files[:10]):
+                    try:
+                        size_mb = round(os.path.getsize(dump_file) / (1024 * 1024), 2)
+                    except (OSError, IOError):
+                        size_mb = "unknown"
+                    dumps_found_text += f"{i+1}. {dump_file} ({size_mb} MB)\n"
+                if len(dump_files) > 10:
+                    dumps_found_text += f"\n... and {len(dump_files) - 10} more dump files.\n"
+                dumps_found_text += "\nOpen one by passing its path as dump_path."
+        return [TextContent(
+            type="text",
+            text=(f"Please provide a dump_path to open.{dumps_found_text}\n\n"
+                  f"Use the 'list_dumps' tool to discover available crash dumps."),
+        )]
+
+    return Server(
+        "mcp-windbg",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+        on_list_prompts=on_list_prompts,
+        on_get_prompt=on_get_prompt,
+    )
+
+
+# Clean up function to ensure all sessions are closed when the server exits
+def cleanup_sessions():  # pragma: no cover - atexit handler, runs after coverage stops
+    """Close all active sessions."""
+    for record in _sessions.values():
+        try:
+            session = record.get("session")
+            if session is not None:
+                session.shutdown()
+        except Exception:
+            pass
+    _sessions.clear()
+
+
+# Register cleanup on module exit
+import atexit
+atexit.register(cleanup_sessions)

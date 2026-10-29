@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.shaneholloman.mcp-knowledge-graph",
+  "type": "mcp",
+  "name": "MCP Knowledge Graph",
+  "slug": "mcp-knowledge-graph",
+  "vendor": "shaneholloman",
+  "description": "MCP server enabling persistent memory for DipoleML through a local knowledge graph - fork focused on local development",
+  "version": "1.4.0",
+  "homepage": "https://github.com/shaneholloman/mcp-knowledge-graph",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-memory",
+    "claude-ai",
+    "knowledge-graph",
+    "memory-server"
+  ],
+  "tags": [
+    "ai-memory",
+    "claude-ai",
+    "knowledge-graph",
+    "mcp",
+    "memory-server",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "shaneholloman",
+    "brandName": "shaneholloman",
+    "source": "https://github.com/shaneholloman.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "shaneholloman/mcp-knowledge-graph",
+    "url": "https://github.com/shaneholloman/mcp-knowledge-graph",
+    "commit": "9f6268c4b5dfb97b4188325deb5d7340fa2d19f7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 886,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "MCP Knowledge Graph | MCP server enabling persistent memory for Claude through a local knowledge graph - fork focused on local development",
+        "after": "MCP Knowledge Graph | MCP server enabling persistent memory for DipoleML through a local knowledge graph - fork focused on local development",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-knowledge-graph"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "mcp-knowledge-graph"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

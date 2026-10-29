@@ -1,0 +1,217 @@
+package kubernetes
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/config"
+	"github.com/containers/kubernetes-mcp-server/pkg/kubernetes/watcher"
+)
+
+// KubeConfigTargetParameterName is the parameter name used to specify
+// the kubeconfig context when using the kubeconfig cluster provider strategy.
+const KubeConfigTargetParameterName = "context"
+
+// kubeConfigClusterProvider implements Provider for managing multiple
+// Kubernetes clusters using different contexts from a kubeconfig file.
+// It lazily initializes managers for each context as they are requested.
+type kubeConfigClusterProvider struct {
+	mu             sync.RWMutex
+	cfg            *config.Config
+	defaultContext string
+	managers       map[string]*Manager
+	WatcherGroup
+}
+
+var _ Provider = &kubeConfigClusterProvider{}
+
+func init() {
+	RegisterProvider(config.ClusterProviderKubeConfig, newKubeConfigClusterProvider)
+}
+
+// newKubeConfigClusterProvider creates a provider that manages multiple clusters
+// via kubeconfig contexts.
+// Internally, it leverages a KubeconfigManager for each context, initializing them
+// lazily when requested.
+func newKubeConfigClusterProvider(ctx context.Context, cfg *config.Config) (Provider, error) {
+	ret := &kubeConfigClusterProvider{cfg: cfg}
+	ret.SetReset(ret.reset)
+	if err := ret.reset(ctx); err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+func (p *kubeConfigClusterProvider) reset(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.resetLocked(ctx)
+}
+
+func (p *kubeConfigClusterProvider) resetLocked(ctx context.Context) error {
+	if err := p.ErrClosed(); err != nil {
+		return err
+	}
+
+	m, err := NewKubeconfigManager(ctx, p.cfg, "")
+	if err != nil {
+		if errors.Is(err, ErrorKubeconfigInClusterNotAllowed) {
+			return fmt.Errorf( //nolint:ST1005 // user-facing error with actionable multi-line guidance
+				"kubeconfig ClusterProviderStrategy is invalid for in-cluster deployments: %w\n\n"+
+					"If you intend to connect to a different cluster from within a pod, set in your TOML config:\n"+
+					"  kubeconfig = \"/path/to/kubeconfig\"\n\n"+
+					"An explicit kubeconfig path overrides in-cluster detection; cluster_provider_strategy is optional.\n"+
+					"See https://github.com/containers/kubernetes-mcp-server/blob/main/docs/configuration.md#cross-cluster-access-from-a-pod",
+				err,
+			)
+		}
+		return err
+	}
+
+	rawConfig, err := m.kubernetes.clientCmdConfig.RawConfig()
+	if err != nil {
+		m.Close()
+		return err
+	}
+
+	// Determine the effective default context.
+	// RawConfig() returns the file's current-context which may be empty when
+	// NewKubeconfigManager auto-selected the only available context.
+	defaultContext := rawConfig.CurrentContext
+	if defaultContext == "" && len(rawConfig.Contexts) == 1 {
+		for name := range rawConfig.Contexts {
+			defaultContext = name
+		}
+	}
+
+	for _, old := range p.managers {
+		if old != nil {
+			old.Close()
+		}
+	}
+	p.managers = map[string]*Manager{
+		defaultContext: m,
+	}
+
+	for name := range rawConfig.Contexts {
+		if name == defaultContext {
+			continue
+		}
+		p.managers[name] = nil
+	}
+
+	p.defaultContext = defaultContext
+	return p.Replace(
+		watcher.NewKubeconfig(ctx, m.kubernetes.clientCmdConfig, p.cfg.KubeconfigDebounceWindow.Get()),
+		watcher.NewClusterState(ctx, m.kubernetes.DiscoveryClient(), p.cfg.ClusterStatePollInterval.Get(), p.cfg.ClusterStateDebounceWindow.Get()),
+	)
+}
+
+// managerForWorkspace returns or creates a Manager for the specified kubeContext.
+// callerLock indicates whether the caller (true) or this func (false) is responsible for synchronization.
+func (p *kubeConfigClusterProvider) managerForContext(ctx context.Context, kubeContext string, callerLock bool) (*Manager, error) {
+	if !callerLock {
+		p.mu.RLock()
+	}
+	m, ok := p.managers[kubeContext]
+	if !callerLock {
+		p.mu.RUnlock()
+	}
+	if ok && m != nil {
+		return m, nil
+	}
+
+	if !callerLock {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		// Recheck in case it was introduced since RUnlock
+		m, ok = p.managers[kubeContext]
+		if ok && m != nil {
+			return m, nil
+		}
+	}
+
+	m, err := NewKubeconfigManager(ctx, p.cfg, kubeContext)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnknownTarget, err)
+	}
+
+	p.managers[kubeContext] = m
+
+	return m, nil
+}
+
+func (p *kubeConfigClusterProvider) IsMultiTarget() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.managers) > 1
+}
+
+func (p *kubeConfigClusterProvider) getTargetsUnsync() ([]string, error) {
+	contextNames := make([]string, 0, len(p.managers))
+	for contextName := range p.managers {
+		contextNames = append(contextNames, contextName)
+	}
+
+	return contextNames, nil
+}
+
+func (p *kubeConfigClusterProvider) GetTargets(_ context.Context) ([]string, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.getTargetsUnsync()
+}
+
+func (p *kubeConfigClusterProvider) GetTargetParameterName() string {
+	return KubeConfigTargetParameterName
+}
+
+func (p *kubeConfigClusterProvider) GetDerivedKubernetes(ctx context.Context, kubeContext string) (*Kubernetes, error) {
+	p.mu.RLock()
+	m, ok := p.managers[kubeContext]
+	if ok && m != nil {
+		k8s, err := m.Derived(ctx)
+		p.mu.RUnlock()
+		return k8s, err
+	}
+	p.mu.RUnlock()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	m, err := p.managerForContext(ctx, kubeContext, true)
+	if err != nil {
+		return nil, err
+	}
+	return m.Derived(ctx)
+}
+
+func (p *kubeConfigClusterProvider) GetDefaultTarget() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.defaultContext
+}
+
+func (p *kubeConfigClusterProvider) ReloadConfig(_ context.Context, cfg *config.Config) error {
+	if cfg == nil {
+		return errors.New("config cannot be nil")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cfg = cfg
+	return nil
+}
+
+func (p *kubeConfigClusterProvider) PublishKubernetesConfig(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range p.managers {
+		if m != nil {
+			m.SetConfig(cfg)
+		}
+	}
+}

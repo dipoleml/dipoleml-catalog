@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.openclaw.mcporter",
+  "type": "mcp",
+  "name": "Mcporter",
+  "slug": "mcporter",
+  "vendor": "openclaw",
+  "description": "Call MCPs via TypeScript, masquerading as simple TypeScript API. Or package them as cli.",
+  "version": "0.16.1",
+  "homepage": "https://github.com/openclaw/mcporter",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cli",
+    "ts-api"
+  ],
+  "tags": [
+    "cli",
+    "mcp",
+    "ts-api"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "openclaw",
+    "brandName": "openclaw",
+    "source": "https://github.com/openclaw.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:27Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "openclaw/mcporter",
+    "url": "https://github.com/openclaw/mcporter",
+    "commit": "8ba0ef967805b8d3fca7a9bc47c725a476e1282b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 5091,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcporter"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=24"
+    ],
+    "packages": [
+      "mcporter"
+    ],
+    "env": [
+      "MCPORTER_VAULT_PASSWORD",
+      "MCPORTER_CHROME_DEVTOOLS_RELAY_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

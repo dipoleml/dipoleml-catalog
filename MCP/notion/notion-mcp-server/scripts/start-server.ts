@@ -1,0 +1,296 @@
+import path from 'node:path'
+import { fileURLToPath } from 'url'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import { randomUUID, randomBytes } from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
+import express from 'express'
+
+import { initProxy, ValidationError } from '../src/init-server'
+import {
+  NOTION_TOKEN_HEADER,
+  notionHeadersForToken,
+  redactToken,
+  resolveNotionToken,
+} from '../src/openapi-mcp-server/mcp/token'
+import {
+  getDnsRebindingProtectionOptions,
+  getHttpServerDisplayUrl,
+  getUnsafeAuthWarnings,
+  parseServerOptions,
+} from './server-options'
+
+export async function startServer(args: string[] = process.argv) {
+  const filename = fileURLToPath(import.meta.url)
+  const directory = path.dirname(filename)
+  const specPath = path.resolve(directory, '../scripts/notion-openapi.json')
+  
+  const baseUrl = process.env.BASE_URL ?? undefined
+
+  const options = parseServerOptions(args)
+  const transport = options.transport
+
+  if (transport === 'stdio') {
+    // Use stdio transport (default)
+    const proxy = await initProxy(specPath, baseUrl)
+    await proxy.connect(new StdioServerTransport())
+    return proxy.getServer()
+  } else if (transport === 'http') {
+    // Use Streamable HTTP transport
+    const app = express()
+    app.use(express.json())
+
+    // Generate or use provided auth token (from CLI arg or env var) only if auth is enabled
+    let authToken: string | undefined
+    let authTokenFilePath: string | undefined
+    if (!options.unsafeDisableAuth) {
+      authToken = options.authToken || process.env.AUTH_TOKEN || randomBytes(32).toString('hex')
+      if (!options.authToken && !process.env.AUTH_TOKEN) {
+        // Write auto-generated token to a file with restricted permissions instead of logging it
+        authTokenFilePath = path.join(os.tmpdir(), `.notion-mcp-auth-token-${process.pid}`)
+        fs.writeFileSync(authTokenFilePath, authToken, { mode: 0o600 })
+        console.log(`Generated auth token written to: ${authTokenFilePath}`)
+      }
+    }
+
+    // Authorization middleware
+    const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+      const authHeader = req.headers['authorization']
+      const token = authHeader && authHeader.split(' ')[1] // Bearer TOKEN
+
+      if (!token) {
+        res.status(401).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32001,
+            message: 'Unauthorized: Missing bearer token',
+          },
+          id: null,
+        })
+        return
+      }
+
+      if (token !== authToken) {
+        res.status(403).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32002,
+            message: 'Forbidden: Invalid bearer token',
+          },
+          id: null,
+        })
+        return
+      }
+
+      next()
+    }
+
+    // Health endpoint (no authentication required)
+    app.get('/health', (req, res) => {
+      res.status(200).json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        transport: 'http',
+        port: options.port
+      })
+    })
+
+    // Apply authentication to all /mcp routes only if auth is enabled
+    if (!options.unsafeDisableAuth) {
+      app.use('/mcp', authenticateToken)
+    } else {
+      for (const warning of getUnsafeAuthWarnings(options)) {
+        console.warn(warning)
+      }
+    }
+
+    // Per-request Notion token passthrough lets one deployment serve multiple
+    // Notion integrations: each connection brings its own token via a header
+    // instead of everyone sharing the startup env token.
+    const enableTokenPassthrough = options.enableTokenPassthrough
+    const hasEnvNotionToken = Boolean(process.env.NOTION_TOKEN || process.env.OPENAPI_MCP_HEADERS)
+
+    // Map to store transports by session ID
+    const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {}
+    const dnsRebindingProtectionOptions = getDnsRebindingProtectionOptions(options)
+
+    // Handle POST requests for client-to-server communication
+    app.post('/mcp', async (req, res) => {
+      try {
+        // Check for existing session ID
+        const sessionId = req.headers['mcp-session-id'] as string | undefined
+        let transport: StreamableHTTPServerTransport
+
+        if (sessionId && transports[sessionId]) {
+          // Reuse existing transport
+          transport = transports[sessionId]
+        } else if (!sessionId && isInitializeRequest(req.body)) {
+          // Resolve which Notion token this connection should authenticate with.
+          // When passthrough is off we leave this undefined so the proxy uses the
+          // startup env token (the original, single-integration behavior).
+          let perRequestHeaders: Record<string, string> | undefined
+          if (enableTokenPassthrough) {
+            const resolution = resolveNotionToken(req.headers, {
+              // Only mine the Authorization header for a Notion token when it
+              // isn't already reserved for the server's own gateway auth.
+              allowAuthorizationFallback: options.unsafeDisableAuth,
+            })
+            if (resolution.status === 'invalid') {
+              res.status(401).json({
+                jsonrpc: '2.0',
+                error: { code: -32001, message: `Unauthorized: ${resolution.reason}` },
+                id: null,
+              })
+              return
+            }
+            if (resolution.status === 'ok') {
+              perRequestHeaders = notionHeadersForToken(resolution.token)
+              console.log(`Initializing session with per-request Notion token ${redactToken(resolution.token)}`)
+            } else if (!hasEnvNotionToken) {
+              // Passthrough is on, no token was supplied, and there is no env
+              // token to fall back to — fail clearly instead of 401-ing later.
+              res.status(401).json({
+                jsonrpc: '2.0',
+                error: {
+                  code: -32001,
+                  message: `Unauthorized: missing Notion token. Provide one via the '${NOTION_TOKEN_HEADER}' header.`,
+                },
+                id: null,
+              })
+              return
+            }
+          }
+
+          // New initialization request
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sessionId) => {
+              // Store the transport by session ID
+              transports[sessionId] = transport
+            },
+            ...(dnsRebindingProtectionOptions ?? {}),
+          })
+
+          // Clean up transport when closed
+          transport.onclose = () => {
+            if (transport.sessionId) {
+              delete transports[transport.sessionId]
+            }
+          }
+
+          const proxy = await initProxy(specPath, baseUrl, perRequestHeaders)
+          await proxy.connect(transport)
+        } else {
+          // Invalid request
+          res.status(400).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32000,
+              message: 'Bad Request: No valid session ID provided',
+            },
+            id: null,
+          })
+          return
+        }
+
+        // Handle the request
+        await transport.handleRequest(req, res, req.body)
+      } catch (error) {
+        console.error('Error handling MCP request:', error)
+        if (!res.headersSent) {
+          res.status(500).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: 'Internal server error',
+            },
+            id: null,
+          })
+        }
+      }
+    })
+
+    // Handle GET requests for server-to-client notifications via Streamable HTTP
+    app.get('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined
+      if (!sessionId || !transports[sessionId]) {
+        res.status(400).send('Invalid or missing session ID')
+        return
+      }
+      
+      const transport = transports[sessionId]
+      await transport.handleRequest(req, res)
+    })
+
+    // Handle DELETE requests for session termination
+    app.delete('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined
+      if (!sessionId || !transports[sessionId]) {
+        res.status(400).send('Invalid or missing session ID')
+        return
+      }
+      
+      const transport = transports[sessionId]
+      await transport.handleRequest(req, res)
+    })
+
+    const port = options.port
+    const serverUrl = getHttpServerDisplayUrl(options)
+    app.listen(port, options.host, async () => {
+      console.log(`MCP Server listening on ${options.host}:${port}`)
+      console.log(`Endpoint: ${serverUrl}/mcp`)
+      console.log(`Health check: ${serverUrl}/health`)
+      if (options.unsafeDisableAuth) {
+        console.log(`Authentication: Disabled (unsafe)`)
+        console.log(`DNS rebinding protection: Enabled`)
+      } else {
+        console.log(`Authentication: Bearer token required`)
+        if (authTokenFilePath) {
+          console.log(`Read your auth token from: ${authTokenFilePath}`)
+        }
+      }
+      if (enableTokenPassthrough) {
+        console.log(
+          `Notion token passthrough: Enabled (clients may send their own token via the '${NOTION_TOKEN_HEADER}' header)`,
+        )
+      }
+      // Try to resolve the Notion integration link so users can manage their token
+      const notionToken = process.env.NOTION_TOKEN
+      if (notionToken) {
+        try {
+          const res = await fetch('https://api.notion.com/v1/users/me', {
+            headers: {
+              'Authorization': `Bearer ${notionToken}`,
+              'Notion-Version': '2022-06-28',
+            },
+          })
+          if (res.ok) {
+            const data = await res.json() as { id?: string; type?: string }
+            if (data.id && data.type === 'bot') {
+              console.log(`Notion integration settings: https://www.notion.so/profile/integrations/internal/${data.id}`)
+            }
+          }
+        } catch {
+          // Non-critical: silently ignore if we can't resolve the bot ID
+        }
+      }
+    })
+
+    // Return a dummy server for compatibility
+    return { close: () => {} }
+  } else {
+    throw new Error(`Unsupported transport: ${transport}. Use 'stdio' or 'http'.`)
+  }
+}
+
+startServer(process.argv).catch(error => {
+  if (error instanceof ValidationError) {
+    console.error('Invalid OpenAPI 3.1 specification:')
+    error.errors.forEach(err => console.error(err))
+  } else {
+    console.error('Error:', error)
+  }
+  process.exit(1)
+})

@@ -1,0 +1,67 @@
+/**
+ * @fileoverview Tool registration barrel. Tools are split into read-only and
+ * write groups so the entry point can wrap the write set with `disabledTool()`
+ * when `OBSIDIAN_READ_ONLY=true`. The command-palette pair is exported
+ * separately so the entry point wraps it with `disabledTool()` when either
+ * `OBSIDIAN_ENABLE_COMMANDS=false` or `OBSIDIAN_READ_ONLY=true` — keeping this
+ * module free of eager config reads. `obsidian_search_notes` is exposed as a
+ * factory (`buildSearchNotesTool`) because its mode enum is conditional on
+ * Omnisearch reachability, which is only known after the startup probe runs.
+ * `obsidian_delete_note` is exposed as a factory (`buildDeleteNoteTool`)
+ * because its description and confirmation round follow
+ * `OBSIDIAN_DELETE_ELICITATION`, which the entry point reads.
+ * @module mcp-server/tools/definitions/index
+ */
+
+import { obsidianAppendToNote } from './obsidian-append-to-note.tool.js';
+import { obsidianExecuteCommand } from './obsidian-execute-command.tool.js';
+import { obsidianGetNote } from './obsidian-get-note.tool.js';
+import { obsidianListCommands } from './obsidian-list-commands.tool.js';
+import { obsidianListNotes } from './obsidian-list-notes.tool.js';
+import { obsidianListTags } from './obsidian-list-tags.tool.js';
+import { obsidianManageFrontmatter } from './obsidian-manage-frontmatter.tool.js';
+import { obsidianManageTags } from './obsidian-manage-tags.tool.js';
+import { obsidianOpenInUi } from './obsidian-open-in-ui.tool.js';
+import { obsidianPatchNote } from './obsidian-patch-note.tool.js';
+import { obsidianReplaceInNote } from './obsidian-replace-in-note.tool.js';
+import { obsidianWriteNote } from './obsidian-write-note.tool.js';
+
+export { buildDeleteNoteTool } from './obsidian-delete-note.tool.js';
+export { buildSearchNotesTool } from './obsidian-search-notes.tool.js';
+
+/**
+ * Tools that don't depend on runtime probes — always registered, even with
+ * `OBSIDIAN_READ_ONLY=true`. `obsidian_search_notes` is constructed separately
+ * in the entry point via `buildSearchNotesTool` so its mode enum can reflect
+ * Omnisearch reachability.
+ *
+ * `obsidian_open_in_ui` stays here rather than in the write bucket so that
+ * opening a note that already exists keeps working on a read-only vault, which
+ * is both useful and side-effect-free. Its one create-capable branch — an open
+ * against a missing path with `failIfMissing: false`, which Obsidian would
+ * materialize — is gated as a write inside `ObsidianService.openInUi`, so
+ * read-only mode and `OBSIDIAN_WRITE_PATHS` still bind it.
+ */
+export const readToolDefinitions = [
+  obsidianGetNote,
+  obsidianListNotes,
+  obsidianListTags,
+  obsidianOpenInUi,
+];
+
+/**
+ * Write tools — wrapped with `disabledTool()` when `OBSIDIAN_READ_ONLY=true`.
+ * `obsidian_delete_note` joins this set in the entry point, built via
+ * `buildDeleteNoteTool`.
+ */
+export const writeToolDefinitions = [
+  obsidianWriteNote,
+  obsidianAppendToNote,
+  obsidianPatchNote,
+  obsidianReplaceInNote,
+  obsidianManageFrontmatter,
+  obsidianManageTags,
+];
+
+/** Command-palette tools — opt-in via `OBSIDIAN_ENABLE_COMMANDS=true`; suppressed by `OBSIDIAN_READ_ONLY=true`. */
+export const commandToolDefinitions = [obsidianListCommands, obsidianExecuteCommand];

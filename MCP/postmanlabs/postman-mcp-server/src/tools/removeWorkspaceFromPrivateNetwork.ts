@@ -1,0 +1,45 @@
+import { z } from 'zod';
+import { PostmanAPIClient } from '../clients/postman.js';
+import { IsomorphicHeaders, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { ServerContext, asMcpError, McpError } from './utils/toolHelpers.js';
+
+export const method = 'removeWorkspaceFromPrivateNetwork';
+export const title = 'Remove a workspace from the Private API Network';
+export const description =
+  "Removes a workspace from your team's Private API Network. This does not delete the workspace itself — it only removes it from the Private API Network folder.\n\nWARNING: This tool is for Private API Network management, not for general workspace operations. For workspace management use: getWorkspaces, getWorkspace, createWorkspace, updateWorkspace, deleteWorkspace.\n";
+export const parameters = z.object({ workspaceId: z.string().describe("The workspace's ID.") });
+export const annotations = {
+  title: 'Remove a workspace from the Private API Network',
+  readOnlyHint: false,
+  openWorldHint: true,
+  destructiveHint: true,
+  idempotentHint: true,
+};
+
+export async function handler(
+  args: z.infer<typeof parameters>,
+  extra: { client: PostmanAPIClient; headers?: IsomorphicHeaders; serverContext?: ServerContext }
+): Promise<CallToolResult> {
+  try {
+    const endpoint = `/network/private/workspace/${encodeURIComponent(String(args.workspaceId))}`;
+    const query = new URLSearchParams();
+    const url = query.toString() ? `${endpoint}?${query.toString()}` : endpoint;
+    const options: any = {
+      headers: extra.headers,
+    };
+    const result = await extra.client.delete(url, options);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `${typeof result === 'string' ? result : JSON.stringify(result, null, 2)}`,
+        },
+      ],
+    };
+  } catch (e: unknown) {
+    if (e instanceof McpError) {
+      throw e;
+    }
+    throw asMcpError(e);
+  }
+}

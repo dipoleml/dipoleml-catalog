@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.graphlit.graphlit-mcp-server",
+  "type": "mcp",
+  "name": "Graphlit MCP Server",
+  "slug": "graphlit-mcp-server",
+  "vendor": "graphlit",
+  "description": "Model Context Protocol (MCP) Server for Graphlit Platform",
+  "version": "1.0.1",
+  "homepage": "https://github.com/graphlit/graphlit-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "content-extraction",
+    "content-ingestion",
+    "data-collection",
+    "llm-tools",
+    "model-context-protocol",
+    "search-api",
+    "unstructured-data",
+    "web-crawler"
+  ],
+  "tags": [
+    "claude",
+    "content-extraction",
+    "content-ingestion",
+    "data-collection",
+    "llm-tools",
+    "mcp-server",
+    "model-context-protocol",
+    "search-api",
+    "unstructured-data",
+    "web-crawler",
+    "web-scraping"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "graphlit",
+    "brandName": "graphlit",
+    "source": "https://github.com/graphlit.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "graphlit/graphlit-mcp-server",
+    "url": "https://github.com/graphlit/graphlit-mcp-server",
+    "commit": "1b94b887ba1692f7226ebc306b9ab7a02ce8b0f4",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 378,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:55Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "graphlit-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "graphlit-mcp-server"
+    ],
+    "env": [
+      "GRAPHLIT_JWT_SECRET",
+      "SLACK_BOT_TOKEN",
+      "DISCORD_BOT_TOKEN",
+      "TWITTER_TOKEN",
+      "GOOGLE_EMAIL_REFRESH_TOKEN",
+      "GOOGLE_EMAIL_CLIENT_SECRET",
+      "LINEAR_API_KEY",
+      "GITHUB_PERSONAL_ACCESS_TOKEN",
+      "JIRA_TOKEN",
+      "NOTION_API_KEY"
+    ],
+    "credentials": [
+      "GRAPHLIT_JWT_SECRET",
+      "SLACK_BOT_TOKEN",
+      "DISCORD_BOT_TOKEN",
+      "TWITTER_TOKEN",
+      "GOOGLE_EMAIL_REFRESH_TOKEN",
+      "GOOGLE_EMAIL_CLIENT_SECRET",
+      "LINEAR_API_KEY",
+      "GITHUB_PERSONAL_ACCESS_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "config": {
+    "line-length": false,
+    "no-duplicate-heading": false,
+    "no-inline-html": false,
+  },
+  "ignores": ["node_modules", "dist"],
+}

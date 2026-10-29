@@ -1,0 +1,89 @@
+# 릴레이 캐시 및 장애 추적
+
+## 요청 ID로 찾기
+
+REST/MCP HTTP 응답의 `x-request-id`를 확보한다. Worker 진단 로그의 `requestId`와 맥 릴레이 JSONL에서 같은 값을 찾으면 요청 경계를 연결할 수 있다. 동시에 합쳐진 OY 요청은 `parentRequestId`로 실제 실행을 맡은 요청을 찾는다. 내부 Actions 호출도 같은 ID를 유지한다.
+
+Worker는 모든 REST/MCP 요청 경계와 MCP 도구 결과, 공용 HTTP 유틸리티에서 실패를 기록한다. 성공은 요청 단위 1% 표본이며 요청당 최대 32개 이벤트를 기록한다. 개별 서비스가 자체 fetch를 쓸 경우 공용 HTTP 단계는 없을 수 있지만 REST/MCP 경계와 두 릴레이에는 기록이 남는다. 재시도·기존 결과 반환으로 최종 성공한 요청도 중간 HTTP 오류는 기록될 수 있다. Cloudflare 자체 장애로 코드가 실행되지 않은 경우에는 플랫폼 상태/Analytics를 함께 확인한다.
+
+Cloudflare Workers Observability에서 `event = diagnostic`, `requestId = <ID>`로 조회한다. 로그는 플랫폼에서 보존한다(현재 Free 3일/Paid 7일). 무제한 로컬 복사 작업은 없다. 자동 invocation 로그는 비활성화하고 커스텀 로그만 사용한다. 플랫폼이 덧붙이는 요청 URL에서도 query를 제거하도록 `redact_query_string = true`를 설정한다. 로그 비용/계정 한도는 Cloudflare 정책의 영향을 받는다.
+
+- https://developers.cloudflare.com/workers/observability/logs/workers-logs/
+- https://developers.cloudflare.com/workers/runtime-apis/nodejs/asynclocalstorage/
+
+## 맥 로그 위치와 상한
+
+각 `OY_RELAY_STATE_DIR/logs`, `DTRYX_RELAY_STATE_DIR/logs`에 `서비스-생성시각-uuid.jsonl`이 생성된다. 디렉터리 0700, 새 로그 파일 0600이다.
+
+| 항목 | 제한 |
+| --- | --- |
+| 파일 하나 | 4 MiB |
+| 서비스 하나 합계 | 64 MiB |
+| 현재 두 서비스 합계 | 128 MiB |
+| 보존 | 생성 시각부터 7일, 용량 초과 시 오래된 파일부터 제거 |
+| 디스크 여유 | 기록 후 최소 2 GiB 유지 확인 |
+| 기록 대기 | 최대 256개, 각 이벤트 2 KiB 미만 |
+| 유휴 정리 | 시작 시 및 1분 heartbeat 시 정리 |
+
+로그 파일만 정리하며 다른 파일은 삭제하지 않는다. 새 프로세스도 기존 로그를 합산한다. 디스크 부족/ENOSPC/기록 오류/큐 초과에서는 이벤트를 버리고 요청 처리 자체는 계속한다. 여유가 회복되면 자동 기록 재개한다. 다른 프로그램의 디스크 사용까지 통제하는 기능은 아니다. 프로세스 강제 종료나 시스템 장애 직전의 대기 이벤트는 유실될 수 있다.
+
+인증된 health의 `logging`에서 `queued`, `written`, `dropped`, `errors`, `lowSpace`를 확인한다. 이 카운터는 프로세스 재시작 시 초기화된다. 시작과 heartbeat에 quota 잔여량이 기록되고 `quota/consumed`는 OY 실제 실행 전에 차감된 호출을 의미한다. 집계는 JSONL의 UTC time, operation, stage, outcome을 사용한다. 보존 기간/용량/드롭을 함께 보고 숫자를 해석한다.
+
+기록하는 값은 고정 분류, 요청 ID, 작업 종류, 단계, 상태, 소요 시간, 캐시 결과, 제한 사유, quota 잔여량이다. 검색어, 위치 좌표, 요청/응답 본문, 인증 헤더, IP, 임의 예외 메시지는 넣지 않는다. 조회 예:
+
+```sh
+rg --fixed-strings '확인할-request-id' "$OY_RELAY_STATE_DIR/logs" "$DTRYX_RELAY_STATE_DIR/logs"
+```
+
+## 원인 분류
+
+- Worker 실패 로그는 있고 같은 ID의 릴레이 로그가 없음: relay 설정·네트워크·Cloudflare Access/Tunnel을 확인한다. 로컬 `logging.dropped/errors/lowSpace`도 먼저 점검한다.
+- `quota` 단계와 429: health `quota.blockedBy`로 minute/daily를 구분하고 resetAt/Retry-After 이후 재시도한다. OY 응답은 `x-relay-quota-reason`도 제공한다.
+- `queue/expired` 또는 busy: 큐/동시 요청 과부하와 클라이언트 취소를 확인한다.
+- `upstream/error`: 서비스 원본/브라우저 실패. OY `lifecycle`의 launch-failed/startup-failed/request-failed/page-crash/rotation 원인과 비교한다.
+- `process/startup-failed` 또는 heartbeat 단절: LaunchAgent 상태와 프로세스 시작 환경을 점검한다. cloudflared는 자체 플랫폼 상태도 확인한다.
+
+## OY 캐시
+
+인증과 payload 검증 뒤 공통 릴레이 캐시를 확인한다. REST와 MCP가 같은 조건을 요청하면 공유된다. 상품 검색/매장은 5분, 상품 ID는 10분, 재고는 1분 TTL이다. 최대 256항목 및 키·값 직렬화 16MiB, 오래된 항목부터 퇴출한다. 성공만 저장하며 동일 진행 요청은 합친다. 탭이나 브라우저를 추가하지 않는다.
+
+캐시 적중은 quota를 소비하지 않는다. `x-relay-cache: hit/miss/coalesced` 및 health.cache로 확인한다. 서로 다른 검색이 대부분이면 절감 효과는 작다. 현재 OY quota는 분당 300회·UTC 일일 300,000회다. 소비자별 신규 원본 작업은 분당 240회이며, 사용한 원장은 유지한다. REST 캐시도 별도로 존재하며 products5분/stores24시간/inventory10분이므로 외부 REST 응답의 최신성은 두 계층의 영향을 받는다. 공개 REST 요청의 `_healthCheck`는 REST 캐시 키만 바꾸며 공통 릴레이 캐시는 계속 적용된다. 운영 인증이 유효한 `x-health-check-force-fresh: true` 요청은 REST 캐시와 OY 내부 캐시를 우회하고, 릴레이에도 `x-relay-cache-bypass: true`를 전달하여 저장 응답과 진행 중인 동일 요청을 재사용하지 않는다. 인증 없는 헤더나 `_healthCheck`만으로 이 우회를 활성화할 수 없다.
+
+
+## 과거 OY 요청 집중 보호 (1.2.7)
+
+아래 1.2.7·1.2.8 숫자는 변경 이력이며 현재 한도가 아니다. 현재 값은 위의 OY 캐시 안내와 [중계 한도 안내](health-check-stock-and-quota.md)를 따른다.
+
+전역 상한(분당 30회, UTC 하루 3,000회)에 더해, 익명 소비자별 실제 신규 실행을 분당 12회로 제한한다. 요청 본문을 읽기 전부터 동시 미완료 요청은 소비자당 2개만 허용한다. 따라서 세 번째 동시 요청은 캐시 적중 여부를 확인하기 전에 거절될 수 있다. 캐시 적중과 진행 요청 합치기는 실행 횟수를 차감하지 않는다. 대기 작업은 용량을 예약하고 전역 quota를 통과한 실행 직전에 차감하며, 취소·만료·전역 quota 오류는 예약을 반환한다.
+
+Worker는 Cloudflare 연결 IP(교차 존 Worker는 기존 일일 제한과 같은 CF-Worker 식별 기준)를 일별 HMAC으로 변환한다. 클라이언트가 보낸 소비자 헤더는 무시하며, 원문 IP와 HMAC 값은 로그에 기록하지 않는다. 같은 네트워크를 공유하는 사용자는 같은 한도를 공유할 수 있다. CLI처럼 HTTP 요청 문맥이 없는 호출은 공통 legacy 버킷을 사용한다. 소비자 표는 최대 1,024개이며 만료된 비활성 항목만 정리한다. 표가 가득 찬 동안 새 소비자는 제한한다.
+
+검증된 릴레이 429의 `minute`/`daily` 제한은 해당 릴레이·인증 구성 전체에, `consumer` 제한은 해당 익명 소비자에만 Worker 재시도 대기 시간을 적용한다. 대기 정보도 최대 1,024개, 최대 24시간이며 Worker 인스턴스 안에서만 유지된다. REST의 `Retry-After`와 REST/MCP diagnostics의 `quotaReason`, `retryAfter`를 확인한다. 이미 있는 REST 캐시는 계속 사용할 수 있다. 이 기능은 허용량을 늘리지 않으며 정상적인 보호 429는 계속 발생할 수 있다.
+
+health.cache의 `hits`, `misses`, `expired`, `evicted`는 프로세스 시작 이후 집계다. `expired`는 정리된 만료 항목 수이며, 개별 miss가 만료 때문인지 추적하는 별도 기록은 만들지 않는다.
+
+## GitHub Health Checks 판정과 보존
+
+quick/full 모두 운영 인증과 `fresh=true`, `x-health-check-force-fresh: true`를 함께 보내 새 검사 요약을 요청한다. 허용된 원점의 검사 대상에는 운영 인증과 fresh 헤더가 전달되며 REST·OY 내부·공통 릴레이 캐시를 우회한다. 실패 직후 전체 검사를 반복하지 않고, 검증된 분당 중계 한도 429 또는 명시적인 올리브영 원본 429(`OLIVEYOUNG_UPSTREAM_RATE_LIMITED`, 자체 한도 사유 없음)만 1~60초 대기 만료 후 해당 검사 ID를 한 번 fresh로 재확인한다. HTTP 실패 후 이전 성공 파일을 재사용하지 않으며, 비정상 JSON·빈 검사 목록·모순된 요약은 실패로 처리한다. 각 요청은 최대 240초, 전체 job은 최대 10분이다. 시도별 원본 JSON과 오류 요약은 Actions artifact로 7일 보관한다.
+
+CGV는 `CGV_UPSTREAM_UNAVAILABLE`, API HTTP 503, 원본 HTTP 403이 모두 확인될 때만 `degraded`로 분류한다. 이는 해당 기능이 제한된 상태이며 복구를 뜻하지 않는다. 인증 오류, 타임아웃, JSON 파싱 실패 등은 계속 `fail`이다. 선택 데이터가 없는 `skipped` 검사는 정상 요약에 포함될 수 있다. Actions 성공 여부와 별도로 요약의 저하 서비스 목록을 확인해야 한다. 유료 Zyte 재시도는 활성화하지 않는다.
+
+## 과거 1.2.8 요청 집중 및 교체 시간 개선
+
+소비자별 신규 실행은 분당 **24회**로 완화했다. 전역 분당 30회·UTC 일일 3,000회는 그대로이며, 소비자별 동시 2개·전체 8개 슬롯과 메모리 상한도 유지한다. 단일 소비자가 지속적으로 요청하면 여전히 제한될 수 있다.
+
+`consumer-busy`는 순간적인 동시 요청/소비자 표 포화이며 `Retry-After: 1`을 제공한다. Worker는 검증된 이 응답에만 한 번 짧게 재시도한다. `consumer`는 실제 분당 예산 소진이며 분이 바뀔 때까지 기다린다. `minute`/`daily`는 전역 제한이다. 403/5xx나 분당·일일 예산 거절은 자동으로 반복하지 않는다.
+
+무료 릴레이 요청의 기본 제한 시간은 대기와 재시도를 합쳐 60초다. 직접 조회는 기존 15초이며 명시적인 timeout은 우선한다. 릴레이 큐는 최대 30초 대기를 허용한다. 브라우저 교체가 22~23초 걸릴 때 Worker가 먼저 연결을 끊던 문제를 줄이기 위한 조정이며, 새 브라우저나 탭을 병렬로 만들지 않는다. `queue/canceled`는 클라이언트 취소, `queue/expired`는 큐 대기 초과로 구분한다. 따라서 예전 expired 수치와 단순 비교하면 안 된다.
+
+Zyte의 키·계정 상태와 관계없이 유료 경로는 계속 차단한다. 정상 조회는 직접 연결과 무료 릴레이로 처리하며, 릴레이 중단·전역 한도 소진·원본 차단까지 무조건 성공으로 바꾸지는 않는다.
+
+## Mac 상시 감시와 인증 준비
+
+현재 사용자 환경의 설치·업데이트·해제는 [Mac 운영 보조 도구](macos-ops-runbook.md)를 따른다. 분당 로컬 감시는 실제 상품·재고 API를 추가 호출하지 않고 인증된 loopback health와 선택한 터널 ready를 확인한다. `ops-status.json`이 3분 넘게 오래되면 정상으로 판단하지 않는다. 이 파일의 정상은 공개 API 실재고 성공을 대신하지 않으므로 정기점검은 기존 캐시 우회 검사와 실제 CLI/MCP 검증도 유지한다.
+
+GS25 세션은 재고 요청이 없어도 중계 시작 시와 분당 준비한다. access 만료 5분 전에는 정상 갱신 경로를 이용하며, 실제 요청과 자동 준비가 중복 갱신과 실패 대기를 공유한다. 편의점 인증 health의 `authentication`은 토큰 대신 상태·만료 시각·로그인 필요 여부·재시도 시각만 반환한다. `login_required`는 사용자 입력이 필요하고 `retry_wait`는 일시적인 갱신 실패 대기다. 전자는 확인 즉시 사용자에게 알리며 과거 로그인 대기 기록만으로 현재 복구를 생략하지 않는다.
+
+공개 MCP 외부 스모크는 CLI와 같은 12개 서비스를 검사한다. 소매 재고는 상품 존재뿐 아니라 실제 매장 확인과 알려진 수량을 요구하며 정상 수량0과 미확인을 구분한다. 일본 다이소 상세는 다른 상품도 원본 진입을 직렬화하여 첫429 이후 공유 대기를 우회하지 못한다. 외부429와 자체 분당·일일 한도는 계속 구분한다. 메가박스의 기존 상세 캐시·중복 요청 공유·취소 기한·지연 경고 기준은 유지하며 원본 지연을 해결했다고 간주하지 않는다.
+
+주기 중계 health의 일시 통신 오류·3초 기한 초과·HTTP5xx에는 같은 검사 안에서 한 번만 확인 GET을 수행한다. 확인 성공 시 `recovered-network-error`, `recovered-timeout`, `recovered-http-5xx` 계열 진단을 보존하고 최종 준비 상태를 기록한다. 두 번 모두 실패하면 실패 상태를 유지한다. 인증401/403, 잘못된 응답, 준비되지 않은 상태, 설정 오류는 반복하지 않는다. 이 확인은 사용자 요청이나 실제 재고 API에 적용하지 않는다. HTTP 진단에는 상태 코드만 저장하고 원문·토큰은 저장하지 않는다.

@@ -1,0 +1,48 @@
+{
+  "name": "@agentset/engine",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./env": "./src/env.ts",
+    "./errors": "./src/errors.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "dev": "tsc",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@agentset/db": "workspace:*",
+    "@agentset/storage": "workspace:*",
+    "@agentset/utils": "workspace:*",
+    "@agentset/validation": "workspace:*",
+    "@ai-sdk/anthropic": "^2.0.17",
+    "@ai-sdk/azure": "^2.0.30",
+    "@ai-sdk/google": "^2.0.14",
+    "@ai-sdk/openai": "^2.0.30",
+    "@llamaindex/core": "^0.5.8",
+    "@pinecone-database/pinecone": "5.1.1",
+    "@t3-oss/env-nextjs": "catalog:",
+    "@turbopuffer/turbopuffer": "^1.10.0",
+    "cohere-ai": "^7.19.0",
+    "voyage-ai-provider": "^2.0.0",
+    "zeroentropy": "0.1.0-alpha.6",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@agentset/eslint-config": "workspace:*",
+    "@agentset/prettier-config": "workspace:*",
+    "@agentset/tsconfig": "workspace:*",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "prettier": "@agentset/prettier-config"
+}

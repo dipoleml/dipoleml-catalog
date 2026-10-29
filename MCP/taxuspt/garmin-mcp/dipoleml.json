@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.taxuspt.garmin-mcp",
+  "type": "mcp",
+  "name": "Garmin MCP",
+  "slug": "garmin-mcp",
+  "vendor": "taxuspt",
+  "description": "MCP server to access Garmin data",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Taxuspt/garmin_mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "taxuspt",
+    "brandName": "taxuspt",
+    "source": "https://github.com/Taxuspt.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Taxuspt/garmin_mcp",
+    "url": "https://github.com/Taxuspt/garmin_mcp",
+    "commit": "a2ca5fcac34524b83814fe2fcf3d479f8a75983f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1424,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "garmin-mcp"
+    ],
+    "env": [
+      "GARMINTOKENS",
+      "GARMIN_MCP_TRANSPORT",
+      "GARMIN_MCP_HOST",
+      "GARMIN_MCP_HTTP_TOKEN",
+      "GARMIN_MCP_PORT"
+    ],
+    "credentials": [
+      "GARMINTOKENS",
+      "GARMIN_MCP_HTTP_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

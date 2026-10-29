@@ -1,0 +1,94 @@
+{
+  "name": "excel-mcp",
+  "displayName": "Excel MCP Server",
+  "description": "Automate real Microsoft Excel from VS Code with GitHub Copilot. Refresh Power Query, calculate formulas, build PivotTables, and run DAX and VBA. Requires Windows, desktop Excel, and PowerShell 7.4+.",
+  "version": "2.5.7",
+  "publisher": "sbroenne",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sbroenne/mcp-server-excel"
+  },
+  "bugs": {
+    "url": "https://github.com/sbroenne/mcp-server-excel/issues"
+  },
+  "homepage": "https://excelmcpserver.dev/",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "os": [
+    "win32"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "categories": [
+    "AI",
+    "Chat",
+    "Data Science"
+  ],
+  "keywords": [
+    "mcp",
+    "model context protocol",
+    "excel",
+    "microsoft",
+    "office",
+    "spreadsheet",
+    "automation",
+    "power query",
+    "m language",
+    "dax",
+    "data model",
+    "power pivot",
+    "vba",
+    "macro",
+    "table",
+    "copilot",
+    "ai",
+    "github copilot",
+    "data analysis",
+    "excel automation",
+    "pivot tables",
+    "charts",
+    "python in excel",
+    "m code"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "excel-mcp",
+        "label": "Excel MCP Server"
+      }
+    ],
+    "chatSkills": [
+      {
+        "name": "excel-mcp-report-formatting",
+        "description": "Optional presentation conventions for requested Excel reports.",
+        "path": "./skills/excel-mcp-report-formatting/SKILL.md"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "validate:features": "node scripts/validate-feature-metadata.mjs",
+    "compile": "npm run validate:features && tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "pwsh -NoProfile -File ..\\scripts\\Build-ReleasePackages.ps1 -Components Extension",
+    "lint": "oxlint src tests -D correctness -D suspicious -D perf --deny-warnings",
+    "test": "vitest run",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.125.0",
+    "@vscode/vsce": "^4.0.0",
+    "oxlint": "^1.89.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

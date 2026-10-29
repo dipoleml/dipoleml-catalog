@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "cross-code-organizer": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./bin/cli.mjs"]
+    }
+  }
+}

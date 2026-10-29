@@ -1,0 +1,16 @@
+{
+  "name": "pg-aiguide",
+  "displayName": "Pg Aiguide",
+  "version": "0.6.1",
+  "description": "PostgreSQL documentation and best practices through semantic search and curated skills, including TimescaleDB and Tiger Cloud ecosystem tools.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Timescale"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/timescale/pg-aiguide",
+  "repository": "https://github.com/timescale/pg-aiguide",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,95 @@
+enum OrganizationStatus {
+  ACTIVE
+  DELETING
+}
+
+model Organization {
+  id   String  @id
+  name String
+  slug String
+  logo String?
+
+  metadata String?
+
+  members     Member[]
+  invitations Invitation[]
+  namespaces  Namespace[]
+  apiKeys     OrganizationApiKey[]
+  webhooks    Webhook[]
+
+  totalNamespaces Int @default(0) // Total number of namespaces in the organization
+  totalDocuments  Int @default(0) // Total number of documents in the organization
+  totalIngestJobs Int @default(0) // Total number of ingest jobs in the organization
+
+  totalPages   Float @default(0.0)
+  // pages deleted during the current billing cycle. They still count towards
+  // the quota (part of totalPages) and are released at the next cycle reset.
+  deletedPages Float @default(0.0)
+  pagesLimit   Int   @default(1000)
+
+  searchUsage Int @default(0)
+  searchLimit Int @default(10000)
+
+  apiRatelimit Int @default(60) // requests per second
+
+  plan              String    @default("free")
+  stripeId          String?   @unique // Stripe customer ID
+  billingCycleStart Int? // day of the month when the billing cycle starts
+  paymentFailedAt   DateTime?
+
+  webhookEnabled Boolean @default(false)
+
+  status OrganizationStatus @default(ACTIVE)
+
+  createdAt        DateTime @default(now())
+  usageLastChecked DateTime @default(now())
+
+  @@unique([slug])
+  @@index(usageLastChecked(sort: Asc))
+  @@index([status])
+  @@map("organization")
+}
+
+model OrganizationApiKey {
+  id             String       @id @default(cuid())
+  key            String
+  label          String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scope          String
+
+  @@unique([key])
+}
+
+model Member {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       @default("member")
+  createdAt      DateTime
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String       @id
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String
+  role           String?
+  status         String       @default("pending")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  inviterId      String
+  user           User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitation")
+}

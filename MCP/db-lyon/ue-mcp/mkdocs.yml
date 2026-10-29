@@ -1,0 +1,95 @@
+# Retained as the source of truth for the docs sidebar: the landing site's
+# convert-docs.mjs parses the nav block below and fails hard without it.
+# Nothing publishes this config any more - the pages are served from
+# ue-mcp.com/docs, built by the landing repo from docs/**.
+site_name: UE-MCP Documentation
+site_url: https://ue-mcp.com/docs/
+site_description: Documentation for UE-MCP - Unreal Engine Model Context Protocol Server
+repo_url: https://github.com/db-lyon/ue-mcp
+repo_name: db-lyon/ue-mcp
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Studio: studio.md
+  - Architecture: architecture.md
+  - Tool Reference: tool-reference.md
+  - Control Rig Animation: control-rig-animation.md
+  - Spatial Instructions: spatial-instructions.md
+  - Collection and Input Editing: collection-and-input-editing.md
+  - Native Tools: native-tools.md
+  - Native Asset Pipeline: native-asset-pipeline.md
+  - Handler Conventions: handler-conventions.md
+  - Release Notes Style: release-notes-style.md
+  - Widgets:
+    - widgets.md
+    - Parameter Contract: widget-parameters.md
+    - Runtime Inspection: runtime-widget-inspection.md
+    - Runtime Interaction: runtime-widget-interaction.md
+    - Layout Diagnostics: runtime-widget-layout-diagnostics.md
+  - PIE testing:
+    - pie.md
+    - Test scripts: pie-scripts.md
+  - Flows:
+    - flows.md
+  - Checkpoints: checkpoints.md
+  - Plugins:
+    - plugins.md
+    - Registry (plugins.ue-mcp.com): https://plugins.ue-mcp.com
+    - Using: plugins-using.md
+    - Authoring: plugins-authoring.md
+    - Native Modules: plugins-native-modules.md
+    - Guards: plugins-guards.md
+    - Troubleshooting: plugins-troubleshooting.md
+  - Configuration: configuration.md
+  - ue-mcp.yml Reference: config-file.md
+  - Neon Shrine Demo: neon-shrine-demo.md
+  - Feedback: feedback.md
+  - Troubleshooting: troubleshooting.md
+  - Development: development.md

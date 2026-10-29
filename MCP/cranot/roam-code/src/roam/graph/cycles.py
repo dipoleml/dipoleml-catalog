@@ -1,0 +1,520 @@
+"""Tarjan SCC / cycle detection for the symbol graph."""
+
+from __future__ import annotations
+
+import sqlite3
+import warnings
+from collections import Counter
+from itertools import combinations
+
+import networkx as nx
+
+from roam.db.connection import batched_in
+
+
+# algebraic connectivity is the most expensive step in
+# `roam health` (~0.8s on roam-code, dominated by `nx.to_undirected()` plus
+# the spectral solve). For repos that haven't changed, the answer is the
+# same; cache it on disk keyed by graph fingerprint (node-count + edge-count
+# + sorted edge sample). Cache lives in `.roam/cache/algconn.json` so it
+# follows the index, not the user's home dir.
+def _graph_fingerprint(G: nx.DiGraph) -> str:
+    import hashlib
+
+    n = G.number_of_nodes()
+    m = G.number_of_edges()
+    h = hashlib.sha1()
+    h.update(f"n={n};m={m};".encode())
+    # Sample 256 edges (deterministic-by-sort) for the fingerprint so the
+    # hash changes when topology changes but stays stable across re-runs.
+    edges = sorted(G.edges())
+    sample = edges[:: max(1, len(edges) // 256)][:256]
+    for u, v in sample:
+        h.update(f"{u}->{v};".encode())
+    return h.hexdigest()
+
+
+def _algconn_cache_path():
+    """Best-effort .roam/cache/algconn.json path; None when filesystem isn't writable."""
+    from pathlib import Path
+
+    try:
+        cache_dir = Path(".roam") / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / "algconn.json"
+    except OSError as exc:
+        # Cache directory creation failed; algebraics will still compute,
+        # but the cache benefit is silently lost unless we make it loud.
+        warnings.warn(
+            f"algebraic_connectivity cache directory unavailable ({type(exc).__name__}): {exc}",
+            category=RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+
+def algebraic_connectivity(G: nx.DiGraph) -> float:
+    """Compute the algebraic connectivity (Fiedler value) of the graph.
+
+    The Fiedler value is the second-smallest eigenvalue of the graph
+    Laplacian.  It measures how well-connected the graph is:
+      0     → graph is disconnected
+      low   → fragile architecture with bridge dependencies
+      high  → robust, well-connected structure
+
+    Uses the undirected projection of the dependency graph.
+    Returns 0.0 when:
+      * the graph is too small (len(G) < 3 or largest CC < 3) — domain-legitimate "no signal"
+      * scipy is unavailable or the spectral solve crashed — emits a
+        ``RuntimeWarning`` with category ``algebraic_connectivity_failed``
+        so the lineage-rule disclosure isn't silent. Callers that need
+        to distinguish "tiny graph" from "compute failed" should attach
+        a warnings filter rather than infer from the float alone.
+
+    Reference: Fiedler (1973), "Algebraic connectivity of graphs."
+    """
+    if len(G) < 3:
+        return 0.0
+    # X10 — disk cache lookup.
+    fp = None
+    cache_path = _algconn_cache_path()
+    if cache_path is not None:
+        try:
+            fp = _graph_fingerprint(G)
+            if cache_path.exists():
+                import json as _json
+
+                cached = _json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("fingerprint") == fp:
+                    return float(cached.get("value", 0.0))
+        except (OSError, ValueError) as exc:
+            # Cache miss is not fatal — fall through and recompute. Loud
+            # the lineage so a corrupt cache file doesn't masquerade as a
+            # legitimately-recomputed 0.0 forever (CLAUDE.md lineage rule).
+            warnings.warn(
+                f"algebraic_connectivity cache read failed ({type(exc).__name__}): {exc}; recomputing",
+                category=RuntimeWarning,
+                stacklevel=2,
+            )
+    try:
+        undirected = G.to_undirected()
+        # Only compute on the largest connected component
+        if not nx.is_connected(undirected):
+            largest_cc = max(nx.connected_components(undirected), key=len)
+            undirected = undirected.subgraph(largest_cc).copy()
+        if len(undirected) < 3:
+            return 0.0
+        value = round(nx.algebraic_connectivity(undirected, method="tracemin_lu", tol=1e-3), 6)
+    except Exception as exc:
+        # scipy missing, eigensolver divergence, or OOM. Returning 0.0
+        # keeps the float contract but downstream consumers (cmd_health
+        # treats fiedler as architectural-fragility signal; fingerprint
+        # ingests it into a hash) would otherwise see "graph disconnected"
+        # rather than "compute unavailable". Emit a loud sentinel so the
+        # failure is at least observable in stderr / pytest warnings.
+        warnings.warn(
+            f"algebraic_connectivity compute failed ({type(exc).__name__}): {exc}; "
+            "returning 0.0 sentinel — value is NOT a legitimate disconnected-graph reading",
+            category=RuntimeWarning,
+            stacklevel=2,
+        )
+        return 0.0
+    # X10 — persist for next run.
+    if cache_path is not None and fp is not None:
+        try:
+            import json as _json
+
+            cache_path.write_text(_json.dumps({"fingerprint": fp, "value": value}), encoding="utf-8")
+        except OSError as exc:
+            # Persist failures aren't fatal but should be loud so a
+            # read-only filesystem doesn't silently kill the cache benefit.
+            warnings.warn(
+                f"algebraic_connectivity cache write failed ({type(exc).__name__}): {exc}",
+                category=RuntimeWarning,
+                stacklevel=2,
+            )
+    return value
+
+
+def find_cycles(G: nx.DiGraph, min_size: int = 2) -> list[list[int]]:
+    """Return strongly connected components with at least *min_size* members.
+
+    Components are sorted by size descending, and each component's node list
+    is sorted for deterministic output.
+    """
+    if len(G) == 0:
+        return []
+
+    sccs = [sorted(c) for c in nx.strongly_connected_components(G) if len(c) >= min_size]
+    sccs.sort(key=len, reverse=True)
+    return sccs
+
+
+def find_minimum_cycle_break_edge_sets(
+    G: nx.DiGraph,
+    scc_members: list[int],
+    *,
+    max_internal_edges: int = 14,
+) -> list[list[tuple[int, int]]]:
+    """Return every minimum edge set that makes one SCC acyclic.
+
+    The exact feedback-edge search is deliberately bounded.  Small SCCs get
+    a provably minimal result; larger tangles return no candidates rather than
+    a heuristic recommendation that may overstate how little must move.
+    """
+    member_set = set(scc_members)
+    internal_edges = sorted(
+        (source, target) for source, target in G.edges() if source in member_set and target in member_set
+    )
+    if not internal_edges or len(internal_edges) > max_internal_edges:
+        return []
+
+    subgraph = G.subgraph(member_set).copy()
+    for size in range(1, len(internal_edges) + 1):
+        candidates = []
+        for removed in combinations(internal_edges, size):
+            candidate = subgraph.copy()
+            candidate.remove_edges_from(removed)
+            if nx.is_directed_acyclic_graph(candidate):
+                candidates.append(list(removed))
+        if candidates:
+            return candidates
+    return []
+
+
+def format_cycles(cycles: list[list[int]], conn: sqlite3.Connection) -> list[dict]:
+    """Annotate each cycle with symbol names and file paths.
+
+    Returns a list of dicts::
+
+        [
+            {
+                "symbols": [{"id": 1, "name": "foo", "kind": "function", "file_path": "..."}],
+                "files": ["src/a.py", "src/b.py"],
+                "size": 3,
+            },
+            ...
+        ]
+    """
+    if not cycles:
+        return []
+
+    # Pre-fetch all symbol IDs we need in one query per cycle (batch)
+    all_ids = {sid for cycle in cycles for sid in cycle}
+    if not all_ids:
+        return []
+
+    rows = batched_in(
+        conn,
+        "SELECT s.id, s.name, s.kind, f.path AS file_path "
+        "FROM symbols s JOIN files f ON s.file_id = f.id "
+        "WHERE s.id IN ({ph})",
+        list(all_ids),
+    )
+    lookup: dict[int, dict] = {}
+    for sid, name, kind, fpath in rows:
+        lookup[sid] = {"id": sid, "name": name, "kind": kind, "file_path": fpath}
+
+    result = []
+    for cycle in cycles:
+        symbols = [lookup[sid] for sid in cycle if sid in lookup]
+        files = sorted({s["file_path"] for s in symbols})
+        result.append({"symbols": symbols, "files": files, "size": len(cycle)})
+    return result
+
+
+def find_cycle_violations(G: nx.DiGraph, conn: sqlite3.Connection, min_size: int = 2) -> list[dict]:
+    """Find cycles in *G* and return them as rule-violation dicts.
+
+    Keeps cycle-specific knowledge (SCC detection, symbol/file lookups,
+    reason formatting) inside the cycles module so rule adapters do not
+    reach into the formatted-cycle structure.
+    """
+    cycles = find_cycles(G, min_size=min_size)
+    if not cycles:
+        return []
+
+    formatted = mark_actionable_cycles(format_cycles(cycles, conn))
+    violations = []
+    for cyc in formatted:
+        if not cyc.get("actionable", False):
+            continue
+        files = cyc.get("files", [])
+        names = [s["name"] for s in cyc.get("symbols", [])]
+        reason = "cycle of {} symbols: {}".format(cyc["size"], ", ".join(names[:5]))
+        if len(names) > 5:
+            reason += " (+{} more)".format(len(names) - 5)
+        fpath = files[0] if files else ""
+        violations.append({"symbol": names[0] if names else "", "file": fpath, "line": None, "reason": reason})
+    return violations
+
+
+def mark_actionable_cycles(formatted_cycles: list[dict]) -> list[dict]:
+    """Annotate cycles with ``local_only``, ``has_test_file``, ``actionable``.
+
+    A cycle is *actionable* when it spans at least two distinct files and
+    none of those files are tests. Vue ``<script setup>`` intra-file refs
+    and same-name test helpers produce non-architectural SCCs that should
+    be excluded from health scoring, fitness gates, and cycle counts.
+    """
+    from roam.commands.changed_files import is_test_file  # noqa: PLC0415 — lazy to avoid layering inversion
+
+    for cyc in formatted_cycles:
+        files = cyc.get("files", [])
+        unique_files = set(files)
+        cyc["file_count"] = len(unique_files)
+        cyc["local_only"] = len(unique_files) <= 1
+        cyc["has_test_file"] = any(is_test_file(f) for f in files)
+        cyc["has_non_import_symbol"] = any(
+            symbol.get("kind") in {"constant", "variable", "property", "parameter", "local"}
+            for symbol in cyc.get("symbols", [])
+        )
+        cyc["actionable"] = not cyc["local_only"] and not cyc["has_test_file"] and not cyc["has_non_import_symbol"]
+    return formatted_cycles
+
+
+# Symbol kinds a destructured-consumer binding can take (`const { x } = ...`
+# in JS/TS/Vue, module-level assignment in Python). Function/class targets are
+# never destructure shadows.
+_SHADOW_TARGET_KINDS = frozenset({"constant", "variable"})
+
+
+def mark_shadow_artifacts(formatted_cycles: list[dict], G: nx.DiGraph, conn: sqlite3.Connection) -> list[dict]:
+    """Annotate each formatted cycle with ``shadow_artifact: true/false``.
+
+    A *shadow artifact* is a cycle that exists only because name-based edge
+    resolution mislinked a reference to a destructured consumer binding
+    (e.g. Vue ``const { total } = useCart()`` creates a non-exported local
+    ``total`` that shadows the composable's exported ``total``). The phantom
+    closing edge points cross-file INTO that non-exported binding.
+
+    The predicate is deliberately narrow (precision-first). A cycle is
+    labelled a shadow artifact only when some in-cycle edge ``u -> v``
+    satisfies ALL of:
+
+    1. ``u`` and ``v`` live in different files (cross-file edge — a
+       same-file reference to a local binding is a correct resolution);
+    2. ``v`` is a NON-exported const/var (the destructured-binding shape);
+    3. a DISTINCT genuine sibling exists: an exported symbol with ``v``'s
+       name in a different file than ``v`` — NOT merely "any exported
+       symbol named X anywhere", because of (4);
+    4. the sibling is plausibly what the reference actually meant:
+       the edge source ``u`` is co-located with the sibling's module,
+       ``u``'s file imports the sibling's module, or ``v``'s file (the
+       consumer) imports the sibling's module (the destructured source).
+
+    A corpus-wide name collision with an UNRELATED export fails (4) and is
+    NOT treated as shadowing — that misclassification suppressed a genuine
+    cycle in the first attempt at this feature.
+
+    Label-only: never filters, reorders, or mutates any other key, so
+    genuine import cycles report unchanged. Renderers may annotate.
+    """
+    for cyc in formatted_cycles:
+        cyc["shadow_artifact"] = False
+
+    member_ids = sorted({s["id"] for cyc in formatted_cycles for s in cyc.get("symbols", [])})
+    if not member_ids:
+        return formatted_cycles
+
+    rows = batched_in(
+        conn,
+        "SELECT id, name, kind, is_exported, file_id FROM symbols WHERE id IN ({ph})",
+        member_ids,
+    )
+    info = {
+        sid: {"name": name, "kind": kind, "is_exported": exported, "file_id": fid}
+        for sid, name, kind, exported, fid in rows
+    }
+
+    candidate_names = sorted(
+        {
+            meta["name"]
+            for meta in info.values()
+            if not meta["is_exported"] and meta["kind"] in _SHADOW_TARGET_KINDS and meta["name"]
+        }
+    )
+    if not candidate_names:
+        return formatted_cycles
+
+    # Genuine-sibling candidates: distinct exported symbols sharing a
+    # candidate name. Filtered per-edge below for cross-file + linkage.
+    sibling_rows = batched_in(
+        conn,
+        "SELECT s.id, s.name, s.file_id, f.path FROM symbols s JOIN files f ON s.file_id = f.id "
+        "WHERE s.is_exported = 1 AND s.name IN ({ph})",
+        candidate_names,
+    )
+    siblings_by_name: dict[str, list[tuple[int, int, str]]] = {}
+    for sid, name, fid, fpath in sibling_rows:
+        siblings_by_name.setdefault(name, []).append((sid, fid, fpath))
+    if not siblings_by_name:
+        return formatted_cycles
+
+    # Import linkage: file_edges FROM any file hosting a cycle member.
+    member_file_ids = sorted({meta["file_id"] for meta in info.values()})
+    import_rows = batched_in(
+        conn,
+        "SELECT source_file_id, target_file_id FROM file_edges WHERE source_file_id IN ({ph})",
+        member_file_ids,
+    )
+    imports: set[tuple[int, int]] = set(import_rows)
+
+    for cyc in formatted_cycles:
+        members = {s["id"] for s in cyc.get("symbols", [])}
+        evidence = None
+        for u, v in G.subgraph(members).edges():
+            u_meta, v_meta = info.get(u), info.get(v)
+            if u_meta is None or v_meta is None:
+                continue
+            if v_meta["is_exported"] or v_meta["kind"] not in _SHADOW_TARGET_KINDS:
+                continue
+            if u_meta["file_id"] == v_meta["file_id"]:
+                continue  # same-file resolution is not the artifact shape
+            for sib_id, sib_file, sib_path in siblings_by_name.get(v_meta["name"], ()):
+                if sib_id == v or sib_file == v_meta["file_id"]:
+                    continue  # sibling must be a DISTINCT cross-file export
+                plausible = (
+                    u_meta["file_id"] == sib_file
+                    or (u_meta["file_id"], sib_file) in imports
+                    or (v_meta["file_id"], sib_file) in imports
+                )
+                if plausible:
+                    evidence = {
+                        "edge": [u, v],
+                        "shadowed_name": v_meta["name"],
+                        "genuine_sibling_file": sib_path,
+                    }
+                    break
+            if evidence:
+                break
+        if evidence:
+            cyc["shadow_artifact"] = True
+            cyc["shadow_evidence"] = evidence
+    return formatted_cycles
+
+
+def actionable_cycles(formatted_cycles: list[dict]) -> list[dict]:
+    """Return only cycles classified as actionable.
+
+    Annotates the inputs in-place if not already marked.
+    """
+    if formatted_cycles and "actionable" not in formatted_cycles[0]:
+        mark_actionable_cycles(formatted_cycles)
+    return [c for c in formatted_cycles if c.get("actionable")]
+
+
+_PROPAGATION_COST_NODE_LIMIT = 500
+
+
+def propagation_cost(G: nx.DiGraph) -> float:
+    """Compute the Propagation Cost metric (MacCormack et al. 2006).
+
+    PC = fraction of the system potentially affected by a change to any
+    single component.  Computed as ``sum(V) / n²`` where V is the
+    transitive closure (visibility) matrix.
+
+    Returns a value in [0, 1]:
+      0 → no transitive dependencies at all (fully decoupled)
+      1 → every component can reach every other (fully coupled)
+
+    For graphs larger than ``_PROPAGATION_COST_NODE_LIMIT`` nodes the
+    full transitive closure (O(V*(V+E))) is prohibitively expensive.
+    In that case we use a BFS-sampled approximation: compute reachable
+    set sizes for a random sample of nodes and extrapolate.
+
+    Reference: MacCormack, Rusnak & Baldwin (2006),
+    "Exploring the Structure of Complex Software Designs."
+    """
+    n = len(G)
+    if n <= 1:
+        return 0.0
+
+    if n > _PROPAGATION_COST_NODE_LIMIT:
+        return _propagation_cost_sampled(G, n)
+
+    # Transitive closure: V[i][j] = 1 iff j is reachable from i
+    TC = nx.transitive_closure(G, reflexive=False)
+    return round(TC.number_of_edges() / (n * (n - 1)), 4)
+
+
+def _propagation_cost_sampled(G: nx.DiGraph, n: int, sample_size: int = 200) -> float:
+    """BFS-sampled approximation of propagation cost for large graphs.
+
+    Picks up to *sample_size* nodes, computes the number of reachable
+    nodes from each via BFS (``descendants``), and averages.  This is
+    O(sample_size * (V+E)) instead of O(V * (V+E)).
+
+    Uses a fixed seed for deterministic output across runs.
+    """
+    import random
+
+    nodes = sorted(G.nodes())
+    k = min(sample_size, n)
+    rng = random.Random(42)
+    sample = rng.sample(nodes, k)
+
+    total_reach = sum(len(nx.descendants(G, v)) for v in sample)
+    avg_reach = total_reach / k
+    return round(avg_reach / (n - 1), 4) if n > 1 else 0.0
+
+
+def find_weakest_edge(G: nx.DiGraph, scc_members: list[int]) -> tuple[int, int, str] | None:
+    """Find the single edge in an SCC whose removal most likely breaks the cycle.
+
+    Uses edge betweenness centrality on the SCC subgraph: the edge with
+    the highest betweenness carries the most shortest paths and is thus
+    the most "critical" bridge in the cycle.  Removing it is most likely
+    to break the cycle into acyclic components.
+
+    Falls back to degree-based heuristic for very large SCCs (>500 nodes)
+    where edge betweenness is too expensive (O(VE)).
+
+    Returns ``(source_id, target_id, reason_string)`` or ``None`` if the SCC
+    has fewer than 2 members or no internal edges.
+    """
+    member_set = set(scc_members)
+    if len(member_set) < 2:
+        return None
+
+    # Collect internal edges (both endpoints inside the SCC)
+    internal_edges = [(u, v) for u, v in G.edges() if u in member_set and v in member_set]
+    if not internal_edges:
+        return None
+
+    # Build SCC subgraph
+    sub = G.subgraph(member_set)
+
+    # For small-to-moderate SCCs, use edge betweenness centrality (Brandes)
+    if len(member_set) <= 500:
+        ebc = nx.edge_betweenness_centrality(sub)
+        if ebc:
+            best_edge = max(ebc, key=ebc.get)
+            u, v = best_edge
+            bw = ebc[best_edge]
+            reason = f"highest edge betweenness in cycle ({bw:.3f})"
+            return (u, v, reason)
+
+    # Fallback for large SCCs: degree-based heuristic
+    out_deg: dict[int, int] = Counter()
+    in_deg: dict[int, int] = Counter()
+    for u, v in internal_edges:
+        out_deg[u] += 1
+        in_deg[v] += 1
+
+    best_edge = None
+    best_score = (-1, -1)
+    for u, v in internal_edges:
+        score = (out_deg[u], in_deg[v])
+        if score > best_score:
+            best_score = score
+            best_edge = (u, v)
+
+    if best_edge is None:
+        return None
+
+    u, v = best_edge
+    src_out = out_deg[u]
+    tgt_in = in_deg[v]
+    reason = f"source has {src_out} outgoing edge{'s' if src_out != 1 else ''} in cycle, target has {tgt_in} incoming"
+    return (u, v, reason)

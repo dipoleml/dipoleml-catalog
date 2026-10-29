@@ -1,0 +1,185 @@
+import { z } from 'zod';
+
+const catalogueTypes = ['alexandria', 'exchange'] as const;
+export const searchSourceSchema = z.union([
+  z.enum(['web', 'images', 'news', ...catalogueTypes]),
+  z
+    .object({ type: z.enum(['web', 'images', 'news', ...catalogueTypes]) })
+    .strict(),
+]);
+export function hasAlexandria(sources: unknown): boolean {
+  return (
+    Array.isArray(sources) &&
+    sources.some((source) =>
+      catalogueTypes.includes(
+        typeof source === 'string' ? source : source?.type
+      )
+    )
+  );
+}
+export function defaultDomainTools(sources: unknown): boolean {
+  return hasAlexandria(sources) && Array.isArray(sources) && sources.some(
+    source => ['web', 'news', 'images'].includes(typeof source === 'string' ? source : source?.type)
+  );
+}
+
+/** Adds alexandria to the requested sources, keeping the caller's entries and their string or object form. */
+export function withAlexandriaSource(sources: unknown): unknown[] {
+  if (!Array.isArray(sources) || sources.length === 0) return ['web', 'alexandria'];
+  if (hasAlexandria(sources)) return sources;
+  return [...sources, typeof sources[0] === 'string' ? 'alexandria' : { type: 'alexandria' }];
+}
+
+/** Zero data retention and anonymous searches cannot run provider discovery. */
+export function enterpriseAllowsAlexandria(enterprise: unknown): boolean {
+  return !(Array.isArray(enterprise) && enterprise.some(mode => mode === 'zdr' || mode === 'anon'));
+}
+
+export function normalizeSearchSources(sources: unknown): unknown {
+  if (!Array.isArray(sources)) return sources;
+  return sources.map((source) =>
+    source === 'exchange'
+      ? 'alexandria'
+      : source?.type === 'exchange'
+        ? { ...source, type: 'alexandria' }
+        : source
+  );
+}
+export function searchQueryIsValid(args: { query?: string }): boolean {
+  return !!args.query?.trim();
+}
+
+export const findToolsSchema = z
+  .object({
+    query: z.string().trim().min(1).max(2000).optional().describe('Semantic lookup of tools for the data you need. Selectors constrain the search.'),
+    urls: z
+      .array(
+        z
+          .string()
+          .url()
+          .regex(/^https?:\/\//)
+      )
+      .min(1)
+      .max(100)
+      .optional(),
+    providers: z.array(z.string().min(1)).min(1).max(50).optional().describe('Values from each listed tool\'s `provider` field (e.g. "apps-apple-com"). Alone, lists that provider\'s compact tools; with capabilities, scopes them.'),
+    categories: z.array(z.string().min(1)).min(1).max(50).optional().describe('Category IDs returned by an empty call. Lists providers by default.'),
+    groups: z.array(z.string().min(1)).min(1).max(50).optional().describe('Optional group IDs for explicit group browsing.'),
+    capabilities: z.array(z.string().min(1)).min(1).max(50).optional().describe('Values from each listed tool\'s `capability` field (e.g. "apps/app"). Put the provider in `providers`: {"providers": ["apps-apple-com"], "capabilities": ["apps/app"]}. A selected capability expands its complete contract by default.'),
+    level: z.enum(['categories', 'providers', 'groups', 'tools']).optional().describe('Usually omit: it follows the arguments (tools for query, urls, providers, capabilities or groups; providers for categories; categories with none). Set providers or groups to list those within a category or url scope instead of tools. query, or a non-empty expand with any other argument, returns tools.'),
+    expand: z.array(z.enum(['options', 'response', 'examples'])).optional().describe('Use ["options", "response"] for inputs and output shape without example payloads; [] keeps results compact. Omit for full contracts on selected capabilities.'),
+    limit: z.number().int().min(1).max(100).optional(),
+    offset: z.number().int().nonnegative().optional(),
+    includeCosts: z.boolean().optional().describe('Include per-capability credit prices (creditsCost, perRecord) in tool results.'),
+  })
+  .strict();
+
+export const ALEXANDRIA_CATALOGUE_VERTICALS =
+  'companies, people, jobs, finance and filings, public records and government spending, real estate, places and restaurants, retail and prices, package registries and developer data, news, research, and more';
+export const ALEXANDRIA_CATALOGUE_SENTENCE =
+  "Alexandria is Firecrawl's catalogue of data providers and workflows across " + ALEXANDRIA_CATALOGUE_VERTICALS + '; providers return typed, sourced records through published contracts.';
+export const ALEXANDRIA_SOURCES_ALWAYS_ON =
+  'Authenticated searches always add alexandria to the sources, so sources: ["web"] also returns providers; domainTools: false turns off website-matched tools only.';
+
+// Claude Code truncates each tool description at 2,048 characters, so the routing
+// copy that changes behaviour sits in the first lines of each description and the
+// mechanics live on the parameters they describe.
+export const ALEXANDRIA_SEARCH_LEAD =
+  'Authenticated search also returns matching Alexandria data providers in data.tools (' + ALEXANDRIA_CATALOGUE_VERTICALS + '). Prefer a provider over scraping pages when the task needs the same fields across several entities, exact figures or timestamps, provenance, or many records; use web results when they already answer the question. ' + ALEXANDRIA_SOURCES_ALWAYS_ON;
+export const ALEXANDRIA_CONTRACT_GUIDANCE =
+  'The selected contract marks required inputs and any requiresOneOf groups (at least one member per group); it may include example.request/example.response and a key field under response (which may differ from records). Where pagination is declared, its fields govern paging with the same filters; catalogue next is separate from provider pagination.';
+export const ALEXANDRIA_TERMS_GUIDANCE =
+  'Some providers require accepted terms; when a response reports a terms requirement, direct the user to the Firecrawl dashboard URL in that response.';
+
+export function findToolsOptions(args: z.infer<typeof findToolsSchema>) {
+  const selected = Boolean(args.query || args.providers?.length || args.categories?.length || args.groups?.length || args.capabilities?.length || args.urls?.length);
+  const level = selected && (args.query || args.expand?.length) ? 'tools' : args.level ?? (args.capabilities?.length || args.providers?.length || args.groups?.length || args.urls?.length ? 'tools' : args.categories?.length ? 'providers' : 'categories');
+  if (level === 'categories' && (selected || args.expand !== undefined)) {
+    throw new Error('Category index accepts only level, limit and offset. Select a category to browse providers.');
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { expand, includeCosts, ...selectors } = args;
+  return { ...selectors, ...(expand !== undefined ? { expand } : {}), level, limit: args.limit ?? 20,
+    ...(args.expand === undefined && args.capabilities?.length ? { expand: level === 'tools' ? ['options', 'response', 'examples'] as const : [] } : {}),
+  };
+}
+
+export function withFindToolsNavigation(envelope: any, carry: Record<string, unknown> = {}) {
+  const page = envelope?.data?.alexandria?.[0]?.data;
+  if (!page || !Array.isArray(page.items)) return envelope;
+  const link = (next: any) => next?.provider === 'firecrawl' && next?.capability === 'find-tools' && next.options
+    ? { name: 'firecrawl_find_tools', arguments: { ...next.options, ...carry } } : undefined;
+  for (const item of page.items) {
+    if (page.level === 'providers' && link(item.next)) {
+      const selectors = { ...item.next.options };
+      delete selectors.expand;
+      item.next = { ...item.next, options: { ...selectors, level: 'tools' } };
+    }
+    const nextTool = link(item.next);
+    if (nextTool) item.nextTool = nextTool;
+  }
+  if (link(page.next)) page.nextTool = link(page.next);
+  return envelope;
+}
+
+export const ALEXANDRIA_SEARCH_INSTRUCTIONS =
+  'Authenticated search combines web results, semantic tool summaries and domain matches. Use sources: ["alexandria"] for semantic tools only. ' + ALEXANDRIA_SOURCES_ALWAYS_ON + ' Tool matches describe available structured-data capabilities, not executed data. toolDetail: "compact" (default) returns only provider, capability and description; "summary" adds metadata; "full" includes their input and output contracts. firecrawl_scrape with an alexandria body executes a selected capability; firecrawl_find_tools provides catalogue browsing and full contracts.';
+
+const TOOL_PRICE_KEYS = ['creditsCost', 'perRecord', 'billing', 'recordsPerUnit', 'zeroDataRetentionCreditsCost'];
+
+/** Drops per-capability price metadata from a discovered tool or an execution result entry. */
+export function withoutToolPrice(tool: any) {
+  if (!tool || typeof tool !== 'object' || Array.isArray(tool)) return tool;
+  const copy = { ...tool };
+  for (const key of TOOL_PRICE_KEYS) delete copy[key];
+  return copy;
+}
+
+/** Strips per-capability prices from `data.tools` in a search or URL scrape response. */
+export function withoutDiscoveredToolPrices(body: any) {
+  const tools = body?.data?.tools ?? body?.tools;
+  if (!Array.isArray(tools)) return body;
+  return body?.data?.tools
+    ? { ...body, data: { ...body.data, tools: tools.map(withoutToolPrice) } }
+    : { ...body, tools: tools.map(withoutToolPrice) };
+}
+
+function withoutPagePrices(page: any) {
+  if (!page || typeof page !== 'object') return page;
+  return {
+    ...page,
+    ...(Array.isArray(page.items) ? { items: page.items.map(withoutToolPrice) } : {}),
+    ...(Array.isArray(page.relatedTools) ? {
+      relatedTools: page.relatedTools.map((group: any) => Array.isArray(group?.tools)
+        ? { ...group, tools: group.tools.map((entry: any) => entry?.tool ? { ...entry, tool: withoutToolPrice(entry.tool) } : withoutToolPrice(entry)) }
+        : group),
+    } : {}),
+  };
+}
+
+/** Strips the per-capability cost from each Alexandria result entry, and tool prices from Find Tools pages. */
+export function withoutResultPrices(body: any) {
+  const results = body?.data?.alexandria;
+  if (!Array.isArray(results)) return body;
+  return {
+    ...body,
+    data: {
+      ...body.data,
+      alexandria: results.map((entry: any) => {
+        const stripped = withoutToolPrice(entry);
+        return entry?.provider === 'firecrawl' && entry?.capability === 'find-tools' && stripped && typeof stripped === 'object'
+          ? { ...stripped, data: withoutPagePrices(entry.data) }
+          : stripped;
+      }),
+    },
+  };
+}
+
+/** Find Tools is free; its envelope drops the zero total along with tool prices. */
+export function withoutFindToolsPrices(envelope: any) {
+  const stripped = withoutResultPrices(envelope);
+  if (!stripped?.data || typeof stripped.data !== 'object') return stripped;
+  const data = { ...stripped.data };
+  delete data.creditsCost;
+  return { ...stripped, data };
+}

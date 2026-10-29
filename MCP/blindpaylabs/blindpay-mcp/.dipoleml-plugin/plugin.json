@@ -1,0 +1,16 @@
+{
+  "name": "blindpay-mcp",
+  "displayName": "Blindpay MCP",
+  "version": "1.8.0",
+  "description": "Official BlindPay MCP server: stablecoin payouts, payins, quotes and receivers. Remote HTTP at https://mcp.blindpay.com/mcp (full) and https://mcp.blindpay.com/mcp/readonly.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Blindpaylabs"
+  },
+  "license": "MIT",
+  "homepage": "https://blindpay.com/docs",
+  "repository": "https://github.com/blindpaylabs/blindpay-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,313 @@
+// Actor input const
+export const ACTOR_README_MAX_LENGTH = 5_000;
+// Max total chars for an enum/items.enum to show in full; over this it's dropped entirely.
+export const ACTOR_ENUM_MAX_LENGTH = 2000;
+export const ACTOR_MAX_DESCRIPTION_LENGTH = 500;
+
+// Actor run const
+// Actors needing more memory than this are rejected: a free-tier user's quota can't fit both
+// the MCP server and the requested Actor running at once (e.g. an 8 GB Actor leaves no room).
+export const ACTOR_MAX_MEMORY_MBYTES = 4_096;
+
+// apify/code-runtime's README documents an exact API contract (method names/shapes) that the
+// auto-generated summary can omit — always return its full README. Hardcoded by Actor name
+// (not an actor.json flag) so no other Actor can opt itself out of the summary. Actor name
+// (not ID) so this stays correct across environments (staging etc. have different IDs).
+export const CODE_RUNTIME_ACTOR_NAME = 'apify/code-runtime';
+
+// Tool output
+/**
+ * Content larger than this is linked out instead of inlined, since inlining it would blow up the context
+ * window (base64 inflates a binary payload ~33%, and a large text/JSON body overflows it just as easily).
+ * The key-value-store-record tool caps binaries here (link to a fetchable URL); the API-resource proxy
+ * caps every body here — its download is also aborted mid-flight at this limit via axios `maxContentLength`.
+ */
+export const MAX_INLINE_BYTES = 256 * 1024;
+
+/**
+ * Advisory threshold (uncompressed bytes) above which dataset tools append a size hint steering the
+ * caller to narrow the fetch. A soft hint, not a truncation cap; ~50 KB mirrors the ~25k-token budget.
+ */
+export const DATASET_SIZE_HINT_BYTES = 50000;
+
+/** Shared steer appended to large-output hints so the model narrows instead of refetching everything. */
+export const NARROW_OUTPUT_HINT = 'narrow with fields= or page with offset';
+
+/** Cap on `storages.keyValueStores.default.keys` array length. */
+export const KV_KEYS_LIMIT = 50;
+
+/** Cap on a TIP record's `message` length. */
+export const TIP_MESSAGE_LIMIT = 300;
+
+// MCP Server
+/** When `false`, `resolveServerMode('auto', ...)` forces {@link SERVER_MODE.DEFAULT} regardless of client capabilities. */
+export const SERVER_MODE_AUTO_DETECTION_ENABLED = true;
+
+/** Matches the Apify API's payload limit (`MAX_PAYLOAD_SIZE_BYTES` in `@apify/consts`): no larger body can reach it. */
+export const MAX_REQUEST_BODY_BYTES = 9 * 1024 * 1024;
+
+export const SERVER_NAME = 'apify-mcp-server';
+export const SERVER_TITLE = 'Apify MCP Server';
+export const HELPER_TOOLS = {
+    ACTOR_BUILD: 'build-actor',
+    ACTOR_BUILD_GET: 'get-actor-build',
+    ACTOR_BUILD_LOG: 'get-actor-build-log',
+    ACTOR_BUILD_LIST_GET: 'get-actor-build-list',
+    ACTOR_CALL: 'call-actor',
+    ACTOR_CREATE: 'create-actor',
+    ACTOR_CALL_WIDGET: 'call-actor-widget',
+    ACTOR_MCP_TOOL_CALL: 'call-actor-mcp-tool',
+    ACTOR_MCP_TOOL_LIST: 'fetch-actor-mcp-tool-list',
+    ACTOR_SERVER_REQUEST: 'send-server-actor-request',
+    ACTOR_DELETE: 'delete-actor',
+    ACTOR_GET_DETAILS: 'fetch-actor-details',
+    ACTOR_GET_DETAILS_WIDGET: 'fetch-actor-details-widget',
+    ACTOR_LIST_GET: 'get-actor-list',
+    ACTOR_RUNS_ABORT: 'abort-actor-run',
+    ACTOR_RUNS_GET: 'get-actor-run',
+    ACTOR_RUNS_GET_WIDGET: 'get-actor-run-widget',
+    ACTOR_RUNS_LOG: 'get-actor-run-log',
+    ACTOR_RUN_LIST_GET: 'get-actor-run-list',
+    ACTOR_TASK_GET: 'get-actor-task',
+    ACTOR_TASK_CREATE: 'create-actor-task',
+    ACTOR_TASK_UPDATE: 'update-actor-task',
+    ACTOR_TASK_PUBLISH: 'publish-actor-task',
+    ACTOR_TASK_UNPUBLISH: 'unpublish-actor-task',
+    ACTOR_VERSION_CREATE: 'create-actor-version',
+    ACTOR_VERSION_DELETE: 'delete-actor-version',
+    ACTOR_VERSION_GET: 'get-actor-version',
+    ACTOR_VERSION_UPDATE: 'update-actor-version',
+    DATASET_GET: 'get-dataset',
+    DATASET_LIST_GET: 'get-dataset-list',
+    DATASET_GET_ITEMS: 'get-dataset-items',
+    DATASET_SCHEMA_GET: 'get-dataset-schema',
+    KEY_VALUE_STORE_LIST_GET: 'get-key-value-store-list',
+    KEY_VALUE_STORE_GET: 'get-key-value-store',
+    KEY_VALUE_STORE_KEYS_GET: 'get-key-value-store-keys',
+    KEY_VALUE_STORE_RECORD_GET: 'get-key-value-store-record',
+    SCHEDULE_CREATE: 'create-schedule',
+    SCHEDULE_GET: 'get-schedule',
+    SCHEDULE_UPDATE: 'update-schedule',
+    SCHEDULE_DELETE: 'delete-schedule',
+    STORE_SEARCH: 'search-actors',
+    STORE_SEARCH_WIDGET: 'search-actors-widget',
+    DOCS_SEARCH: 'search-apify-docs',
+    DOCS_FETCH: 'fetch-apify-docs',
+    API_SEARCH: 'apify-api-search',
+    API_DETAILS: 'apify-api-details',
+    API_READ: 'apify-api-read',
+    API_WRITE: 'apify-api-write',
+    PROBLEM_REPORT: 'report-problem',
+} as const;
+export type HelperToolName = (typeof HELPER_TOOLS)[keyof typeof HELPER_TOOLS];
+
+/**
+ * Retired tool selectors: `add-actor` and `experimental` (add-actor was deleted in the stateless
+ * migration), the deprecated `preview` pseudo-category, `get-actor-log` (renamed to
+ * `get-actor-run-log`), and the `source` category (renamed to `versions`). They name neither a
+ * registry category nor a real tool anymore, so they resolve to nothing — never loaded, never
+ * treated as an Actor ID, never requiring a token by themselves.
+ */
+export const RETIRED_SELECTOR_NAMES: ReadonlySet<string> = new Set([
+    'add-actor',
+    'experimental',
+    'preview',
+    'get-actor-log',
+    'source',
+]);
+
+/**
+ * Anthropic client-name substrings (lowercased): not offered `report-problem` or the search tools' `useCase` input.
+ * `local-agent-mode` is Claude Desktop's local agent mode, named `local-agent-mode-<server name>`. A request with no name matches none.
+ */
+export const ANTHROPIC_CLIENT_NAMES: string[] = ['claude', 'anthropic', 'local-agent-mode'];
+
+/**
+ * `clientInfo.name` sent by the Apify AI agent service (apify/apify-ai-agent) during the MCP
+ * initialize handshake. Runs started by this client are attributed to the APIFY_AI request origin.
+ */
+export const APIFY_AI_CLIENT_NAME = 'apify-ai';
+
+export const RAG_WEB_BROWSER = 'apify/rag-web-browser';
+export const WEB_FETCH = 'apify/web-fetch';
+export const WEB_SEARCH = 'apify/web-search';
+/**
+ * Actors served through the input interface (a run per call) although they declare `webServerMcpPath`.
+ * Hand-wired for selected Apify Actors so the served tool does not change when the Actor's MCP path does.
+ */
+export const INPUT_INTERFACE_ACTORS: ReadonlySet<string> = new Set([WEB_SEARCH, WEB_FETCH]);
+export const defaults = {
+    actors: [RAG_WEB_BROWSER, WEB_FETCH],
+};
+
+/** API rejects `includeInputSchema=true` above this; mirrors apify-core `MAX_LIMIT_WITH_INPUT_SCHEMA`. */
+export const MAX_LIMIT_WITH_INPUT_SCHEMA = 10;
+/** Max `_useCase` length (UTF-16 code units) the API accepts. */
+export const STORE_USE_CASE_MAX_LENGTH = 1024;
+/** Max `_traceId` length (UTF-16 code units) the API accepts. */
+export const STORE_TRACE_ID_MAX_LENGTH = 256;
+/** Max input fields shown inline in text and structured Actor cards. */
+export const MAX_INPUT_FIELDS_IN_ACTOR_CARD = 20;
+
+export const ACTOR_PRICING_MODEL = {
+    /** Rental Actors */
+    FLAT_PRICE_PER_MONTH: 'FLAT_PRICE_PER_MONTH',
+    FREE: 'FREE',
+    /** Pay per result (PPR) Actors */
+    PRICE_PER_DATASET_ITEM: 'PRICE_PER_DATASET_ITEM',
+    /** Pay per event (PPE) Actors */
+    PAY_PER_EVENT: 'PAY_PER_EVENT',
+} as const;
+
+export const DOCS_SOURCES = [
+    {
+        id: 'apify',
+        label: 'Apify',
+        appId: 'N8EOCSBQGH',
+        apiKey: 'e97714a64e2b4b8b8fe0b01cd8592870',
+        indexName: 'test_test_apify_sdk',
+        filters: 'version:latest',
+        description:
+            'Apify Platform documentation including: Platform features, SDKs (JS, Python), CLI, ' +
+            'REST API, Academy (web scraping fundamentals), Actor development and deployment',
+    },
+    {
+        id: 'crawlee-js',
+        label: 'Crawlee (JavaScript)',
+        appId: '5JC94MPMLY',
+        apiKey: '267679200b833c2ca1255ab276731869',
+        indexName: 'crawlee',
+        typeFilter: 'lvl1', // Filter to page-level results only (Docusaurus lvl1)
+        facetFilters: ['language:en', ['docusaurus_tag:default', 'docusaurus_tag:docs-default-3.15']],
+        description:
+            'Crawlee is a web scraping library for JavaScript. ' +
+            'It handles blocking, crawling, proxies, and browsers for you.',
+    },
+    {
+        id: 'crawlee-py',
+        label: 'Crawlee (Python)',
+        appId: '5JC94MPMLY',
+        apiKey: '878493fcd7001e3c179b6db6796a999b',
+        indexName: 'crawlee_python',
+        typeFilter: 'lvl1', // Filter to page-level results only (Docusaurus lvl1)
+        facetFilters: ['language:en', ['docusaurus_tag:docs-default-current']],
+        description:
+            'Crawlee is a web scraping library for Python. ' +
+            'It handles blocking, crawling, proxies, and browsers for you.',
+    },
+] as const;
+
+/**
+ * Word window for Algolia `attributesToSnippet` in `search-apify-docs`. Bounds each hit to a
+ * match-centered snippet instead of the full indexed `content` attribute — API-reference records
+ * inline the whole OpenAPI schema (~34.5k chars each), so 20 hits returned ~173k tokens. The agent
+ * fetches full pages via `fetch-apify-docs`.
+ */
+export const DOCS_SNIPPET_MAX_WORDS = 100;
+
+/**
+ * Sentinel used as Algolia `highlightPreTag`/`highlightPostTag` for docs snippets, stripped before
+ * returning. An empty-string tag is treated as "unset" and falls back to Algolia's default
+ * `<span class="algolia-docsearch-suggestion--highlight">` markup, so we set a private-use
+ * character (U+E000) and remove it.
+ */
+export const DOCS_SNIPPET_HIGHLIGHT_TAG = '\uE000';
+
+export const ALLOWED_DOC_DOMAINS = ['https://docs.apify.com', 'https://crawlee.dev'] as const;
+
+/** Actor usernames treated as official Apify (drives `isOfficialApify` on the Actor card). */
+export const OFFICIAL_APIFY_USERNAMES: ReadonlySet<string> = new Set([
+    'agentify',
+    'apify',
+    'apifyatevents',
+    'clockworks',
+    'compass',
+    'e-commerce',
+    'h_reviews',
+    'hooli',
+    'junglee',
+    'lukaskrivka',
+    'maxcopell',
+    'misceres',
+    'streamers',
+    'tri_angle',
+    'vdrmota',
+    'voyager',
+]);
+
+/**
+ * Official Apify Actors that pass the input checks in `isReadOnlyActor` but still act outside
+ * their run storages, so their tools keep the destructive hints.
+ */
+export const OFFICIAL_ACTORS_WITH_SIDE_EFFECTS: ReadonlySet<string> = new Set([
+    'apify/send-mail', // Sends email.
+    'apify/actor-light-fixture', // Controls a physical light.
+    'apifyatevents/wishlist-raffle', // Submits a raffle entry with terms and marketing consent.
+    'tri_angle/sitemap-change-orchestrator', // Keeps a snapshot between runs and starts other Actor runs.
+]);
+
+export const APIFY_STORE_URL = 'https://apify.com';
+/** Apify Console origin (production). */
+export const CONSOLE_BASE_URL = 'https://console.apify.com';
+/** Apify Console origin on the staging cluster, selected when running on the staging MCP host. */
+export const CONSOLE_BASE_URL_STAGING = 'https://console-securitybyobscurity.apify.com';
+/** Apify API origin clients are told to use (production); where requests go is `getApifyAPIBaseUrl()`. */
+export const API_PUBLIC_BASE_URL = 'https://api.apify.com';
+/** Apify API origin on the staging cluster, selected when running on the staging MCP host. */
+export const API_PUBLIC_BASE_URL_STAGING = 'https://api-securitybyobscurity.apify.com';
+/** Staging MCP host; `getApifyAPIPublicBaseUrl` and `getConsoleBaseUrl` pick the staging origins when running on it. */
+export const STAGING_MCP_HOSTNAME = 'mcp-securitybyobscurity.apify.com';
+export const APIFY_FAVICON_URL = `${APIFY_STORE_URL}/favicon.ico`;
+export const APIFY_LOGO_URL = `${APIFY_STORE_URL}/apple-icon.png`;
+export const APIFY_MCP_URL = 'https://mcp.apify.com';
+export const APIFY_DOCS_MCP_URL = 'https://docs.apify.com/integrations/mcp';
+
+// Telemetry
+export const TELEMETRY_ENV = {
+    DEV: 'DEV',
+    PROD: 'PROD',
+} as const;
+
+export const DEFAULT_TELEMETRY_ENABLED = true;
+export const DEFAULT_TELEMETRY_ENV = TELEMETRY_ENV.PROD;
+
+// Tool status
+/**
+ * Unified status constants for the tool execution lifecycle.
+ * Single source of truth for all tool status values.
+ */
+export const TOOL_STATUS = {
+    SUCCEEDED: 'SUCCEEDED',
+    FAILED: 'FAILED',
+    ABORTED: 'ABORTED',
+    SOFT_FAIL: 'SOFT_FAIL',
+} as const;
+
+export const FAILURE_CATEGORY = {
+    INVALID_INPUT: 'INVALID_INPUT',
+    AUTH: 'AUTH',
+    PERMISSION_APPROVAL_REQUIRED: 'PERMISSION_APPROVAL_REQUIRED',
+    INTERNAL_ERROR: 'INTERNAL_ERROR',
+} as const;
+
+// Apify API error types
+export const APIFY_ERROR_TYPE_FULL_PERMISSION_NOT_APPROVED = 'full-permission-actor-not-approved';
+export const APIFY_ERROR_TYPE_MEMORY_LIMIT_EXCEEDED = 'memory-limit-exceeded';
+export const APIFY_ERROR_TYPE_CANNOT_START_ACTOR_RUNS = 'cannot-start-actor-runs';
+export const APIFY_ERROR_TYPE_CANNOT_PUBLISH_ACTOR_TASK = 'cannot-publish-actor-task';
+export const APIFY_ERROR_TYPE_INVALID_INPUT = 'invalid-input';
+export const APIFY_ERROR_TYPE_ACTOR_NAME_NOT_UNIQUE = 'actor-name-not-unique';
+export const APIFY_ERROR_TYPE_VERSION_ALREADY_EXISTS = 'version-already-exists';
+export const APIFY_ERROR_TYPE_TOO_FEW_VERSIONS = 'too-few-versions';
+export const APIFY_ERROR_TYPE_TOO_MANY_VERSIONS = 'too-many-versions';
+export const APIFY_ERROR_TYPE_VERSIONS_SIZE_EXCEEDED = 'versions-size-exceeded';
+export const APIFY_ERROR_TYPE_PAGE_NOT_FOUND = 'page-not-found';
+
+// HTTP status codes
+export const HTTP_UNAUTHORIZED = 401;
+export const HTTP_PAYMENT_REQUIRED = 402;
+export const HTTP_FORBIDDEN = 403;
+export const HTTP_NOT_FOUND = 404;
+
+// Modes that allow long running task tool executions
+export const ALLOWED_TASK_TOOL_EXECUTION_MODES = ['optional', 'required'] as const;

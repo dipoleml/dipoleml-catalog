@@ -1,0 +1,52 @@
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Aseprite files
+*.aseprite
+*.ase
+*.png
+*.gif
+*.jpg
+
+# README showcase images (everything else in examples/ stays untracked)
+!examples/swordsman/swordsman.png
+!examples/swordsman/swordsman_slash.gif
+!examples/swordsman/swordsman_slash_sheet.png
+!examples/slime/slime.png
+!examples/slime/slime_bounce.gif
+!examples/swordsman/opus_redraw.png
+!examples/swordsman/opus_redraw_slash.gif
+!examples/swordsman_vs_slime/swordsman_vs_slime.gif
+!examples/cosy_room/cosy_room.gif

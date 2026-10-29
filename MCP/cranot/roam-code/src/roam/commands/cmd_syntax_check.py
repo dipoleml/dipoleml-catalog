@@ -1,0 +1,374 @@
+"""Tree-sitter syntax validation for multi-agent Judge pattern.
+
+Parses files with tree-sitter and reports ERROR / MISSING nodes in the AST.
+Works WITHOUT a roam index -- parses files directly.
+
+Exit codes:
+  0  All files are syntactically clean.
+  5  One or more files contain syntax errors (EXIT_GATE_FAILURE).
+
+Output formats: text (default), ``--json``. SARIF is deliberately NOT
+emitted because syntax-check is a validator-not-detector: its output
+is invocation-scoped tree-sitter parse-failure status (ERROR /
+MISSING AST nodes from the underlying grammar). Tree-sitter parse
+errors describe well-formedness of the input text, not analysis
+findings produced by roam's index — surfacing them via SARIF would
+conflate parser-output (file parseable?) with code-analyzer-output
+(code well-designed?). When agents want a SARIF-shaped parse error
+stream, the parser-native tooling for that language is the correct
+producer. See ``cmd_db_check`` / ``cmd_schema`` /
+``cmd_rules_validate`` for the parallel validator-not-detector
+disclosure pattern (W1192) + action.yml _SUPPORTED_SARIF allowlist +
+W1224-audit memo.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import click
+
+from roam.capability import roam_capability
+from roam.commands.changed_files import get_changed_files
+from roam.db.connection import find_project_root
+from roam.index.parser import (
+    GRAMMAR_ALIASES,
+    REGEX_ONLY_LANGUAGES,
+    SYNTAX_UNVERIFIABLE_LANGUAGES,
+    detect_language,
+    read_source,
+)
+from roam.output.formatter import json_envelope, to_json
+
+# ---------------------------------------------------------------------------
+# Core logic
+# ---------------------------------------------------------------------------
+
+
+def _extract_error_context(source: bytes, node) -> str:
+    """Extract a human-readable snippet around an ERROR / MISSING node."""
+    try:
+        text = source.decode("utf-8", errors="replace")
+    except UnicodeDecodeError:
+        return "(unreadable)"
+
+    lines = text.split("\n")
+    start_line = node.start_point[0]
+    end_line = node.end_point[0]
+
+    if node.is_missing:
+        # MISSING nodes have zero width -- describe what was expected
+        expected = node.type.replace("MISSING", "").strip() or "token"
+        return f"missing {expected}"
+
+    # For ERROR nodes, grab the offending source text (max 120 chars)
+    if start_line == end_line and start_line < len(lines):
+        line_text = lines[start_line].rstrip()
+        col_start = node.start_point[1]
+        col_end = node.end_point[1]
+        snippet = line_text[col_start:col_end]
+        if len(snippet) > 120:
+            snippet = snippet[:117] + "..."
+        return snippet if snippet else line_text.strip()[:120]
+
+    # Multi-line error: show first line context
+    if start_line < len(lines):
+        first_line = lines[start_line].rstrip()
+        n_lines = end_line - start_line + 1
+        snippet = first_line[node.start_point[1] :]
+        if len(snippet) > 100:
+            snippet = snippet[:97] + "..."
+        return f"{snippet} (+{n_lines - 1} more lines)"
+
+    return "(syntax error)"
+
+
+def check_syntax(file_path: str, source: bytes, tree) -> list[dict]:
+    """Walk a tree-sitter AST and collect ERROR / MISSING nodes.
+
+    Returns a list of error dicts with line, column, end_line, end_col,
+    node_type, and text fields.
+    """
+    errors: list[dict] = []
+    if tree is None:
+        return errors
+
+    def _visit(node):
+        if node.type == "ERROR" or node.is_missing:
+            line = node.start_point[0] + 1
+            col = node.start_point[1] + 1
+            errors.append(
+                {
+                    "line": line,
+                    "column": col,
+                    "end_line": node.end_point[0] + 1,
+                    "end_col": node.end_point[1] + 1,
+                    "node_type": "MISSING" if node.is_missing else "ERROR",
+                    "text": _extract_error_context(source, node),
+                }
+            )
+        for child in node.children:
+            _visit(child)
+
+    _visit(tree.root_node)
+    return errors
+
+
+def _parse_file_for_syntax(file_path: str) -> dict | None:
+    """Parse a single file with tree-sitter and return error info.
+
+    Returns None if the file type is unsupported or unparseable.
+    Returns a dict with path, language, and errors list.
+    """
+    language = detect_language(file_path)
+    if language is None:
+        return None
+
+    # Regex-only languages have no tree-sitter grammar -- skip
+    if language in REGEX_ONLY_LANGUAGES:
+        return None
+
+    # Stand-in grammars (apex parsed with java, .page/.cmp with html, .jsonc
+    # with json, .mdx with markdown) cannot produce a verdict attributable to
+    # the source: the strict stand-ins reject valid input and the permissive
+    # ones accept anything. Skip rather than publish either answer. The skip is
+    # counted and named by the caller -- it must never be absorbed into "clean".
+    if language in SYNTAX_UNVERIFIABLE_LANGUAGES:
+        return None
+
+    path = Path(file_path)
+    source = read_source(path)
+    if source is None:
+        return None
+
+    # Resolve grammar alias
+    grammar = GRAMMAR_ALIASES.get(language, language)
+
+    try:
+        from roam.parser_pack import LanguageNotFoundError, get_parser, has_language
+
+        if not has_language(grammar):
+            return None
+        parser = get_parser(grammar)
+    except (LanguageNotFoundError, LookupError):
+        return None
+
+    tree = parser.parse(source)
+
+    errors = check_syntax(file_path, source, tree)
+    if errors:
+        # The bundled grammar cannot parse a type-position `import('...')` with
+        # any postfix applied, and that is a limitation of THIS build, not a
+        # defect in the file. `roam verify` already declined to report it as a
+        # syntax error; this command -- whose entire job is reporting syntax --
+        # did not, so the dedicated tool was harsher than the incidental one on
+        # the identical source. See `parser_pack` for the measurement.
+        #
+        # Re-parse with those calls masked to an identifier of equal byte
+        # length. A clean second parse means the construct was the whole
+        # complaint; a genuine error survives, at its true line and column.
+        from roam.parser_pack import reparse_without_import_types
+
+        retried = reparse_without_import_types(source, grammar)
+        if retried is not None:
+            errors = check_syntax(file_path, source, retried)
+    return {
+        "path": file_path.replace("\\", "/"),
+        "language": language,
+        "errors": errors,
+    }
+
+
+def _get_changed_files() -> list[str]:
+    """Get files changed in the working tree (unstaged + staged + untracked)."""
+    root = find_project_root()
+    unstaged = get_changed_files(root, untracked=True)
+    staged = get_changed_files(root, staged=True)
+    return sorted(set(unstaged) | set(staged))
+
+
+# ---------------------------------------------------------------------------
+# CLI command
+# ---------------------------------------------------------------------------
+
+
+@roam_capability(
+    name="syntax-check",
+    category="workflow",
+    summary="Check files for syntax errors using tree-sitter AST parsing",
+    maturity="stable",
+    mcp_expose=True,
+    mcp_preset=("core",),
+    side_effect=False,
+    task_required=False,
+    destructive=False,
+    stale_sensitive=True,
+    ai_safe=True,
+    requires_index=True,
+)
+@click.command("syntax-check")
+@click.argument("paths", nargs=-1)
+@click.option("--changed", is_flag=True, help="Check only git-changed files (unstaged + staged + untracked).")
+@click.pass_context
+def syntax_check(ctx, paths, changed):
+    """Check files for syntax errors using tree-sitter AST parsing.
+
+    Parses each file with tree-sitter and walks the AST looking for ERROR
+    and MISSING nodes.  Works without a roam index -- parses files directly.
+
+    Unlike ``health`` (which scores structural quality from the indexed
+    graph), this command validates raw syntax correctness of source files.
+
+    \b
+    Exit codes:
+      0  All files are syntactically clean.
+      5  One or more files contain syntax errors.
+
+    \b
+    Examples:
+      roam syntax-check src/app.py src/lib.js
+      roam syntax-check --changed
+      roam --json syntax-check --changed
+    """
+    json_mode = ctx.obj.get("json") if ctx.obj else False
+
+    # Resolve file list
+    if changed:
+        file_list = _get_changed_files()
+    elif paths:
+        file_list = list(paths)
+    else:
+        click.echo("Error: provide file paths or use --changed.", err=True)
+        ctx.exit(2)
+        return
+
+    # Filter to files that actually exist
+    file_list = [p for p in file_list if os.path.isfile(p)]
+
+    if not file_list:
+        if json_mode:
+            click.echo(
+                to_json(
+                    json_envelope(
+                        "syntax-check",
+                        summary={
+                            "verdict": "No files to check",
+                            "total_files": 0,
+                            "files_with_errors": 0,
+                            "total_errors": 0,
+                            "clean": True,
+                            "state": "no_changes",
+                        },
+                        files=[],
+                    )
+                )
+            )
+        else:
+            click.echo("VERDICT: No files to check")
+        return
+
+    # Parse each file
+    results: list[dict] = []
+    skipped = 0
+    stand_in_skipped = 0
+    stand_in_langs: set[str] = set()
+    for fp in file_list:
+        result = _parse_file_for_syntax(fp)
+        if result is None:
+            skipped += 1
+            # A stand-in grammar is a NAMED skip, not generic "unsupported":
+            # apex is parsed with java, .page/.cmp with html, .jsonc with json,
+            # .mdx with markdown. Saying which kind of skip it was is the whole
+            # point -- a Salesforce user must be able to see that their .cls was
+            # never syntax-checked, rather than read silence as approval.
+            lang = detect_language(fp)
+            if lang in SYNTAX_UNVERIFIABLE_LANGUAGES:
+                stand_in_skipped += 1
+                stand_in_langs.add(lang)
+            continue
+        results.append(result)
+
+    total_files = len(results)
+    files_with_errors = [r for r in results if r["errors"]]
+    total_errors = sum(len(r["errors"]) for r in results)
+    clean = total_errors == 0
+
+    # W-Pattern2: `skipped` files (unsupported/regex-only language, unreadable
+    # source, grammar-load failure, parse crash) were checked-but-not-checked.
+    # Disclose them instead of letting `total_files` silently undercount and
+    # the verdict claim "clean".
+    all_skipped = total_files == 0 and skipped > 0
+    partial_success = skipped > 0
+
+    # Name the stand-in-grammar share of the skip so it cannot be read as
+    # "unsupported file type, nothing of yours was in scope".
+    stand_in_note = ""
+    if stand_in_skipped > 0:
+        pairs = ", ".join(f"{lang} parsed with {GRAMMAR_ALIASES.get(lang, lang)}" for lang in sorted(stand_in_langs))
+        stand_in_note = f" ({stand_in_skipped} because the grammar is a stand-in: {pairs})"
+
+    if all_skipped:
+        # Nothing was actually parsed -- must NOT claim "clean".
+        verdict = (
+            f"nothing checked -- all {skipped} file{'s' if skipped != 1 else ''} "
+            f"skipped (unparseable/unsupported){stand_in_note}"
+        )
+    elif clean:
+        verdict = f"clean -- {total_files} files checked, 0 errors"
+        if skipped > 0:
+            verdict += f", {skipped} skipped -- unparseable/unsupported{stand_in_note}"
+    else:
+        n_err_files = len(files_with_errors)
+        verdict = (
+            f"{total_errors} syntax error{'s' if total_errors != 1 else ''} "
+            f"in {n_err_files} file{'s' if n_err_files != 1 else ''}"
+        )
+        if skipped > 0:
+            verdict += f", {skipped} skipped -- unparseable/unsupported{stand_in_note}"
+
+    if json_mode:
+        summary = {
+            "verdict": verdict,
+            "total_files": total_files,
+            "files_with_errors": len(files_with_errors),
+            "total_errors": total_errors,
+            "clean": clean,
+        }
+        # W-Pattern2: surface skip disclosure ONLY on the degraded path so
+        # the healthy-path envelope (skipped == 0) stays byte-identical.
+        if partial_success:
+            summary["files_skipped"] = skipped
+            summary["partial_success"] = True
+            if stand_in_skipped > 0:
+                summary["files_skipped_stand_in_grammar"] = stand_in_skipped
+                summary["incomplete_reasons"] = ["grammar_is_stand_in"]
+        click.echo(
+            to_json(
+                json_envelope(
+                    "syntax-check",
+                    summary=summary,
+                    files=[r for r in results if r["errors"]],
+                )
+            )
+        )
+    else:
+        click.echo(f"VERDICT: {verdict}")
+        if files_with_errors:
+            click.echo("")
+            for r in files_with_errors:
+                for err in r["errors"]:
+                    node_label = err["node_type"]
+                    click.echo(f"  {r['path']}:{err['line']}:{err['column']}  {node_label}  {err['text']}")
+            click.echo("")
+            click.echo(
+                f"{total_errors} errors, {len(files_with_errors)} files affected, "
+                f"{total_files} files checked, {skipped} skipped{stand_in_note}"
+            )
+        elif skipped > 0:
+            click.echo(f"  {total_files} files checked, {skipped} skipped (unparseable/unsupported){stand_in_note}")
+
+    if not clean:
+        from roam.exit_codes import EXIT_GATE_FAILURE
+
+        ctx.exit(EXIT_GATE_FAILURE)

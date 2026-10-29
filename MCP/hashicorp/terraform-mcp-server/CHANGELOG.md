@@ -1,0 +1,340 @@
+# 1.4.2
+
+IMPROVEMENTS
+
+* Bump `golang.org/x/net` to v0.62.0 to address [GO-2026-6860](https://pkg.go.dev/vuln/GO-2026-6860) and [GO-2026-6866](https://pkg.go.dev/vuln/GO-2026-6866) in the HTML parser and renderer.
+* Harden CI workflows by updating `actions/checkout` to v7.0.1, which blocks unsafe fork checkouts in privileged workflow contexts, and `dorny/paths-filter` to v4.0.3, which safely escapes multiline filenames in file-list outputs. Other workflow actions now use their current Node.js 24-compatible releases, and artifact uploads include improved rate-limit retry handling.
+
+FIXES
+
+* `search_modules` now returns its "no modules found" message when the registry returns no matches, instead of reporting that it failed to parse the results.
+
+# 1.4.1
+
+FIXES
+
+* In stateless mode, the streamable HTTP server now ignores the `Mcp-Session-Id` header. Client-supplied session IDs were used to key per-session state that was never cleaned up, so arbitrary IDs could grow server memory. Request headers are also now capped at 32 KiB.
+* Tool call logs no longer include argument values. Both the mark3labs and official SDK servers now log the tool name and argument keys only, so customer data such as sensitive variable values is not written to logs.
+* `MCP_REMOTE_IP_METHOD=X-Forwarded-For` now selects the correct entry. The server picked the entry one position too far left, which returned a client-supplied address when one was present, and it only read the first `X-Forwarded-For` header line. It now selects the entry `MCP_XFF_TRUSTED_HOPS` positions from the right and joins multiple header lines.
+
+# 1.4.0
+
+BREAKING CHANGES
+
+* `search_providers` is renamed to `search_provider_docs`. The tool searches documentation within a provider rather than for providers, and the old name was misleading. Update any toolset configuration or client that references the old name.
+
+IMPROVEMENTS
+
+* Bump Go to 1.26.9 and `golang.org/x/net` to v0.61.0, `golang.org/x/crypto` to v0.58.0 and `golang.org/x/text` to v0.43.0 to address known CVEs in the HTTP/2 stack, net/http, crypto/tls and html/template. [571](https://github.com/hashicorp/terraform-mcp-server/pull/571)
+* `get_latest_provider_version`, `get_provider_capabilities` and `search_providers` now tell the agent not to guess the provider namespace when unsure.
+* `get_private_module_details` now reports every submodule published with a private module, each with its own inputs, outputs, dependencies, provider dependencies, resources, and README, matching the detail already provided for the root module. The root module section is now labelled and its README is reported alongside its own inputs and outputs.
+* `get_private_module_details` now reports the module version its details were read from, and the generated usage snippet pins that version instead of the first entry in the module's version statuses, which may be a version whose ingress is still pending or has failed.
+* `get_private_module_details` now requests the registry's latest-version route directly when `private_module_version` is omitted, instead of sending a request with an empty version segment.
+* Add `MCP_REQUIRE_TOKEN`. When set to `true`, the streamable HTTP server rejects requests without an `Authorization: Bearer` token with a 401, on both `/mcp` and `/mcp/official`. Defaults to off, so tokenless use of the registry tools is unchanged. [578](https://github.com/hashicorp/terraform-mcp-server/pull/578)
+
+FIXES
+
+* `list_runs` now applies the `status` filter. The tool accepts `status` as an array but read it as a string, so the filter was always dropped and runs of every status were returned.
+* `list_runs` now reports the `workspace_name` of each run. The runs were listed without including their workspace, so the name was always empty.
+
+# 1.3.0
+
+FEATURES
+
+* [New Tool] `whoami` Returns the identity of the currently authenticated Terraform token. Reports the username, email, and whether the token belongs to a service account (team or organization token) or a real user.
+* [New Tool] `list_teams` Lists all teams within a given Terraform Cloud organization. Requires `terraform_org_name`. Optionally filter by exact team names (`team_names`), or substring search (`search_query`). Supports pagination.
+* [New Tool] `get_team` Fetches full details for a single team by ID, including members, organization access permissions, and SSO settings. Requires `team_id`. [441](https://github.com/hashicorp/terraform-mcp-server/pull/441)
+* [New Tool] `get_project` Fetches detailed information about a Terraform project by its ID. Requires `project_id`.
+* [New Tool] `create_team` Creates a new team in a Terraform Cloud/Enterprise organization. Requires `terraform_org_name` and `team_name`; optional `visibility` ("secret" or "organization"). [427](https://github.com/hashicorp/terraform-mcp-server/pull/427)
+* [New Tool] `add_team_member` Adds a single member to a Terraform Cloud/Enterprise team. Requires `team_id`; accepts either `username` (accepted-invite users only) or `organization_membership_id` (works for pending and accepted invites). Exactly one must be provided.
+* [New Tool] `grant_team_access` Grants a team access to a workspace or project by ID. Requires `team_id`, `access_level`, and either `workspace_id` or `project_id` (mutually exclusive). Valid access levels for workspaces: `admin`, `read`, `write`, `plan`, `custom`. Valid access levels for projects: `admin`, `read`, `write`, `maintain`, `custom`.
+* [New Tool] `delete_team` Permanently deletes a Terraform team by its `team_id`. Requires `team_id` (e.g. `team-abc123def456`). This is a destructive operation and must set `ENABLE_TF_OPERATIONS=true`.
+
+IMPROVEMENTS
+
+* Add a Helm chart for deploying the server on Kubernetes, under `helm/terraform-mcp-server`
+
+FIXES
+
+* `get_apply_logs` now checks the apply status before attempting to stream logs. If the apply is not yet in a terminal state (`finished`, `errored`, `canceled`), the tool returns an informative message instead of timing out. [468](https://github.com/hashicorp/terraform-mcp-server/pull/468)
+* Fix `create_no_code_workspace` elicitation to require only module inputs marked as required, allowing optional inputs to be omitted so Terraform module defaults are applied. [482](https://github.com/hashicorp/terraform-mcp-server/pull/482)
+
+IMPROVEMENTS
+
+* Migrate registry tests to use the official mcp go-sdk
+
+# 1.2.0
+
+FEATURES
+
+* [New Tool] `list_state_versions` Lists all state versions for a given workspace. Requires `terraform_org_name` and `workspace_name`; supports optional pagination params.
+* [New Tool] `get_state_version` Retrieves a Terraform state version. If `state_version_id` is provided, retrieves that specific state version. Otherwise, retrieves the latest state version for the specified `workspace_id`. One of `state_version_id` or `workspace_id` must be provided.
+* [New Tool] `get_run_comments` Lists all discussion comments associated with a given Terraform run. Requires `run_id`.
+* [New Tool] `create_project` Creates a new Terraform project in the specified organization. Requires `terraform_org_name` and `project_name`. [420](https://github.com/hashicorp/terraform-mcp-server/pull/420)
+* [New Tool] `delete_project` Deletes a Terraform project by ID. Requires `project_id`. TFC/TFE will refuse to delete a project that still contains workspaces or stacks. [420](https://github.com/hashicorp/terraform-mcp-server/pull/420)
+
+IMPROVEMENTS
+
+* Extend the existing HTTP-layer `OrganizationAllowlistMiddleware` with a new MCP tool-layer `OrganizationAllowlistToolMiddleware` that rejects tool calls whose `terraform_org_name` argument is not in the allowlist configured via `MCP_ORGANIZATION_ALLOWLIST`. [430](https://github.com/hashicorp/terraform-mcp-server/pull/430)
+* Add `version` field to the `/health` endpoint response to make it easier to identify which version is deployed at a glance. [410](https://github.com/hashicorp/terraform-mcp-server/pull/410)
+* Add optional Instana instrumentation (metrics and HTTP request tracing) for the streamable-http server, gated behind `INSTANA_ENABLED` [411](https://github.com/hashicorp/terraform-mcp-server/pull/411)
+* Add `TF_MCP_SHARED_SECRET` to send an `X-Tf-Mcp-Secret` header on requests to HCP Terraform / TFE, allowing the backend to identify requests from a trusted MCP deployment [392](https://github.com/hashicorp/terraform-mcp-server/pull/392)
+
+FIXES
+
+* Ensure all logs are output in JSON format when `LOG_FORMAT=json` is set in streamable HTTP mode. [402](https://github.com/hashicorp/terraform-mcp-server/pull/402)
+
+# 1.1.0
+
+FIXES
+
+* Ensure organization allowlist validation and downstream Terraform API requests use the same Authorization bearer token, preventing a conflicting `TFE_TOKEN` header from bypassing the allowlist. [396](https://github.com/hashicorp/terraform-mcp-server/pull/396)
+* Disable client-supplied `TFE_ADDRESS` in streamable-http mode. Previously a client could override the Terraform address via HTTP header or query parameter, redirecting the server's requests and Authorization bearer token to an arbitrary endpoint. The address must now be configured server-side via the `TFE_ADDRESS` env var. This is a breaking change: clients supplying the address via header or query parameter now receive a 403. [389](https://github.com/hashicorp/terraform-mcp-server/pull/389)
+* Fix http server not serving TLS when configured [391](https://github.com/hashicorp/terraform-mcp-server/pull/391)
+* Make client IP sourcing configurable and fix insecure X-Forwarded-For handling. The server previously trusted the leftmost `X-Forwarded-For` value,had no IPv6 support, and did not validate IPs. Sourcing is now configurable via `MCP_REMOTE_IP_METHOD` (`RemoteAddr`, `X-Real-IP`, `X-Forwarded-For`) and `MCP_XFF_TRUSTED_HOPS`, defaulting to the secure `RemoteAddr`. This is a breaking change: proxy deployments relying on automatic `X-Forwarded-For` forwarding must now set `MCP_REMOTE_IP_METHOD=X-Forwarded-For` and `MCP_XFF_TRUSTED_HOPS`. [388](https://github.com/hashicorp/terraform-mcp-server/pull/388)
+* Fix security vulnerabilities for cross-tenant HCP Terraform token reuse in stateless HTTP mode (multi-tenant token bleed), session-scoped TFE client cache bypassing per-token request validation in StreamableHTTP mode and cleaning up at end of session [395](https://github.com/hashicorp/terraform-mcp-server/pull/395)
+
+FEATURES
+
+* [New Tool] `force_unlock_workspace` Force unlocks a Terraform workspace stuck in a run-held lock. Requires workspace admin permissions and is gated behind `ENABLE_TF_OPERATIONS=true`
+* [Configuration] Add a `MCP_REDIRECT_ROOT_URL` environment variable to allow redirecting `/` of the server when visited in-browser. 
+
+IMPROVEMENTS
+
+
+# 1.0.0
+
+FEATURES
+
+* [New Tool] `get_sentinel_mock` Export and download Sentinel mock bundle data for a Terraform plan
+
+IMPROVEMENTS
+
+* Add loadtest CLI and CI workflow for HTTP server saturation testing [342](https://github.com/hashicorp/terraform-mcp-server/pull/342)
+* Add a new metric to capture client type and version [355](https://github.com/hashicorp/terraform-mcp-server/pull/355)
+* Run as a non-root user for Kubernetes compatibility. [356] https://github.com/hashicorp/terraform-mcp-server/pull/356
+* Bump go version to 1.26.4 [383](https://github.com/hashicorp/terraform-mcp-server/pull/383)
+* Add support for X-Forwarded-For header [367](https://github.com/hashicorp/terraform-mcp-server/pull/367)
+* Add an organization allowlist gate for StreamableHTTP deployments [386](https://github.com/hashicorp/terraform-mcp-server/pull/386)
+
+FIXES
+
+* Fix JSON marshalling in update_workspace tool [370](https://github.com/hashicorp/terraform-mcp-server/pull/370)
+
+FIXES
+
+* Fix `--tools` alone being falsely flagged as conflicting with `--toolsets` [380](https://github.com/hashicorp/terraform-mcp-server/pull/380)
+
+# 0.5.2
+
+IMPROVEMENTS
+
+* Add http server metrics instrumentation [330](https://github.com/hashicorp/terraform-mcp-server/pull/330)
+* Add support for configuring TFE token via credentials.tfrc.json [333](https://github.com/hashicorp/terraform-mcp-server/pull/333)
+* Bump golang to 1.26.2 to fix security scan
+
+# 0.5.1
+
+HOTFIX
+
+* Bump mark3labs/mcp-go package to fix race condition crash bug
+
+IMPROVEMENTS
+
+* Fix `clean` Makefile target to correctly remove binary from `bin/` directory
+* Add Kiro CLI to README installation instructions
+
+# 0.5.0
+
+FEATURES
+
+* [New Tool] `get_plan_json_output` Retrieves the structured JSON output of a Terraform plan, providing detailed resource changes in a machine-readable format that is easier to parse than plain logs
+* [New Tool] `get_plan_details` Fetches detailed metadata about a specific Terraform plan
+* [New Tool] `get_plan_logs` Retrieves the execution logs of a specific Terraform plan
+* [New Tool] `get_apply_details` Fetches detailed metadata about a specific Terraform apply
+* [New Tool] `get_apply_logs` Retrieves the execution logs of a specific Terraform apply
+
+IMPROVEMENTS
+
+* Add `Authorization: Bearer` header support for Terraform token in proxy environments
+* Add `--heartbeat-interval` CLI flag and `MCP_HEARTBEAT_INTERVAL` env var for HTTP heartbeat in load-balanced environments
+* Set custom User-Agent header for TFE API requests to enable tracking MCP server usage separately from other go-tfe clients [268](https://github.com/hashicorp/terraform-mcp-server/pull/268)
+* Adding a new cli flags `--log-level` to set the desired log level for the server logs and `--log-format` for the logs formatting [286](https://github.com/hashicorp/terraform-mcp-server/pull/286)
+* Add OpenTelemtry instrumentation for tool call metrics - tool call count, tool error count and tool call latency [300](https://github.com/hashicorp/terraform-mcp-server/pull/300)
+
+FIXES
+
+* `list_runs` was returning empty response due to JSON marshalling error 
+
+## 0.4.0
+
+FEATURES
+
+* [New Tool] `list_workspace_policy_sets` Read all policy sets attached to a workspace
+
+* [New Tool] `attach_policy_set_to_workspaces` Attach a policy set to one or more workspaces
+* **Toolsets Flag**: Added `--toolsets` flag to selectively enable tool groups. Three toolset groups are available: `registry` (public Terraform Registry), `registry-private` (private TFE/TFC registry), and `terraform` (TFE/TFC operations). Default is `registry` only.
+* **Individual Tools Flag**: Added `--tools` flag to enable specific tools by name for fine-grained control. Accepts comma-separated list of tool names with validation and security checks.
+* Added `get_token_permissions` tool to allow listing permissions for current token.  
+* Added Stacks support with `list_stacks` and `get_stack_details` tools. 
+
+FIXES
+
+* Skip TLS flag was not propogated properly [243](https://github.com/hashicorp/terraform-mcp-server/issues/243)
+* Change Dockerfile CMD to ENTRYPOINT [246](https://github.com/hashicorp/terraform-mcp-server/issues/246)
+* Truncate large responses in `list_` tools to top level summaries
+* Embedd pagination information in `list_` responses
+
+IMPROVEMENTS
+
+* Return input validation errors as Tool Execution Errors instead of Protocol Errors
+
+## 0.3.3 (Nov 21, 2025)
+
+IMPROVEMENTS
+
+* Adding support for searching Terraform List Resources documentation
+
+## 0.3.2 (Oct 23, 2025)
+
+FEATURES
+
+* [New Tool] `get_provider_capabilities` Adding provider capability discovery tool to analyze available resources, data sources, functions, guides, and actions
+
+* [New Tool] `create_no_code_workspace` Adding capability to trigger a workspace run using a no code module
+
+FIXES
+
+* Added a module id validator to fix issue [182](https://github.com/hashicorp/terraform-mcp-server/issues/182)
+* Fixes in readme for `TFE_HOSTNAME` v/s `TFE_ADDRESS`
+
+IMPROVEMENTS
+
+* Added official MCP Registry Server JSON Specification file [server.json](server.json) to the repo. See [#200](https://github.com/hashicorp/terraform-mcp-server/pull/200)
+
+## 0.3.1 (Oct 3, 2025)
+
+FEATURES
+
+* Adding Gemini extension. See [189](https://github.com/hashicorp/terraform-mcp-server/pull/189)
+
+IMPROVEMENTS
+
+* Adding support for searching Terraform Actions documentation
+
+FIXES
+
+* Minor fixes to example configuration for VS Code, Cursor, etc.
+
+## 0.3.0 (Sep 24, 2025)
+
+FEATURES
+
+* Adding tools for working with workspaces in HCP Terraform and TFE.
+* Authentication for HCP Terraform & TFE and restructure the repo. See [#121](https://github.com/hashicorp/terraform-mcp-server/pull/121) See [#145](https://github.com/hashicorp/terraform-mcp-server/pull/145)
+* Adding 2 new HCP TF/TFE tools for admins. List Terraform organizations & projects. See [#121](https://github.com/hashicorp/terraform-mcp-server/pull/121)
+* Adding 4 new HCP TF/TFE tools for private registry support. See [#142](https://github.com/hashicorp/terraform-mcp-server/pull/142)
+* Adding 3 HCP TF/TFE tools for workspace variables support. See [#170](https://github.com/hashicorp/terraform-mcp-server/pull/170)
+* Adding 2 new HCP TF/TFE tools for workspace tags. See [#171](https://github.com/hashicorp/terraform-mcp-server/pull/171)
+* Adding 4 new HCP TF/TFE tools for creating Terraform runs. See [#159](https://github.com/hashicorp/terraform-mcp-server/pull/159)
+* Adding 6 new HCP TF/TFE tools for Variable Sets. See [#174](https://github.com/hashicorp/terraform-mcp-server/pull/174)
+
+IMPROVEMENTS
+
+* Changes to tool names to be more consistent. See [#121](https://github.com/hashicorp/terraform-mcp-server/pull/121)
+* Implement dynamic tool registration. See [#121](https://github.com/hashicorp/terraform-mcp-server/pull/121)
+* Implement pagination utility. See [#121](https://github.com/hashicorp/terraform-mcp-server/pull/121)
+* Updating `mark3labs/mcp-go` and `hashicorp/tfe-go` versions. See [#121](https://github.com/hashicorp/terraform-mcp-server/pull/121)
+* Adding instructions to the server. See [#156](https://github.com/hashicorp/terraform-mcp-server/pull/156)
+* Implementing TLS for the http mode of the MCP server. See [#168](https://github.com/hashicorp/terraform-mcp-server/pull/168)
+* Implemented rate limiting with the MCP server. See [#155](https://github.com/hashicorp/terraform-mcp-server/pull/155)
+* Enabled explicit approval for certain tools. See [#172](https://github.com/hashicorp/terraform-mcp-server/pull/172)
+* Improved README with one-click install badges for VSCode/VSCode Insiders/Cursor. See [#173](https://github.com/hashicorp/terraform-mcp-server/pull/173)
+
+FIXES
+
+* Fixing paths using in-built library instead of string manipulation. See [#143](https://github.com/hashicorp/terraform-mcp-server/pull/143)
+* Explicitly setting destructive annotation to false. See [#143](https://github.com/hashicorp/terraform-mcp-server/pull/143)
+
+SECURITY
+
+* Rename TFE_SKIP_TLS_VERIFY environment variable and fix GitHub Action security issue. See [#164](https://github.com/hashicorp/terraform-mcp-server/pull/164)
+* Update go version from 1.24.6 to 1.24.7
+
+## 0.2.3 (Aug 13, 2025)
+
+FEATURES
+
+* User agent to identify calls made to the Terraform registry. See [133](https://github.com/hashicorp/terraform-mcp-server/pull/133)
+* Adding Issue templates, GitHub workflows and golang version. See [134](https://github.com/hashicorp/terraform-mcp-server/pull/134)
+
+FIXES
+
+* run-http command in makefile is fixed. See [132](https://github.com/hashicorp/terraform-mcp-server/pull/132)
+
+## 0.2.2 (Aug 5, 2025)
+
+FEATURES
+
+* 2 New tools, get latest provider and module versions. See [#122](https://github.com/hashicorp/terraform-mcp-server/pull/122)
+
+IMPROVEMENTS
+
+* Restructure the codebase, changes too tool names from camelCase to snake_case. See [#118](https://github.com/hashicorp/terraform-mcp-server/pull/118)
+* Change tool names to be more consistent. See [#123](https://github.com/hashicorp/terraform-mcp-server/pull/123)
+
+FIXES
+
+* Enhanced provider documentation tool. See [#120](https://github.com/hashicorp/terraform-mcp-server/pull/120)
+* StreamableHttp endpoint customization, thanks to @sachinmalanki. See [#116](https://github.com/hashicorp/terraform-mcp-server/pull/116)
+
+## 0.2.1 (July 11, 2025)
+
+SECURITY
+
+* Added support for CORS (strict, development, disabled), default mode is strict. See [#108](https://github.com/hashicorp/terraform-mcp-server/pull/108)
+* Added support for CORS allowed origins, default is empty. See [#108](https://github.com/hashicorp/terraform-mcp-server/pull/108)
+* Added support for stateless streamable HTTP mode, see [#108](https://github.com/hashicorp/terraform-mcp-server/pull/108)
+
+IMPROVEMENTS
+
+* Improved the HTTP retry to the registry. See [#109](https://github.com/hashicorp/terraform-mcp-server/pull/109)
+
+## 0.2.0 (July 3, 2025)
+
+SECURITY
+
+* Updated Docker base image to `scratch` for smaller, more secure production images.
+* Integrated security scanning (CodeQL, security scanner) and improved CI workflows for better code quality and vulnerability detection.
+* Update golang stdlib version to 1.24.4
+
+FEATURES
+
+* Added support for publishing Docker images to Amazon ECR
+* Added support for searching and getting documentation for policies from the Terraform Registry
+* Enhanced toolset for resolving provider documentation, fetching provider docs, searching modules, and retrieving module details from the Terraform Registry.
+* Added support for Streamable HTTP, see [#99](https://github.com/hashicorp/terraform-mcp-server/pull/99)
+
+IMPROVEMENTS
+
+* Migrated to `stretchr/testify` for more robust test assertions and refactored test structure for maintainability.
+* Improved and expanded README with installation, usage, and development instructions.
+* Refined GitHub Actions workflows for more reliable builds, security scanning, and dependency management.
+* Updated and pinned dependencies for improved reliability and security.
+* Upgraded `mcp-go` from 0.27.0 to 0.32.0 to support streamable HTTP, update how tool arguments are accesseed. see [#99](https://github.com/hashicorp/terraform-mcp-server/pull/99)
+* Updated e2e test to accomodate both stdio and HTTP mode, improve test report by adding test name and improve clean up process. see [#99](https://github.com/hashicorp/terraform-mcp-server/pull/99)
+
+FIXES
+
+- Fixed function names and improved documentation links for better usability.
+- Addressed issues with CI security scanner and permissions.
+- Corrected Go module name in `go.mod` for compatibility.
+
+## 0.1.0 (May 20, 2025)
+
+FEATURES
+
+- First public release of Terraform MCP Server.
+- Provides seamless integration with Terraform Registry APIs for provider and module discovery, documentation retrieval, and advanced IaC automation.
+- Initial support for VS Code and Claude Desktop integration.
+- Includes basic CI/CD, Docker build, and test infrastructure.

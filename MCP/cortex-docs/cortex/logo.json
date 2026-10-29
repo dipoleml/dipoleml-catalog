@@ -1,0 +1,9 @@
+{
+  "brand": "cortex-docs",
+  "brandName": "cortex-docs",
+  "file": "logo.png",
+  "source": "https://github.com/cortex-docs.png",
+  "license": "GitHub owner avatar; trademark of respective owner",
+  "resolver": "github-avatar",
+  "retrievedAt": "2026-10-29T00:10:49Z"
+}

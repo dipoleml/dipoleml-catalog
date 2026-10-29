@@ -1,0 +1,16 @@
+{
+  "name": "anymd",
+  "displayName": "Anymd",
+  "version": "8.5.5",
+  "description": "Any file to clean Markdown for AI agents: PDF, Word, PowerPoint, Excel, EPUB, HTML and web pages, images (OCR), audio and video. Local Rust MCP server, no API key.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sylphxai"
+  },
+  "license": "MIT",
+  "homepage": "https://sylphxai.github.io/anymd/",
+  "repository": "https://github.com/SylphxAI/anymd",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

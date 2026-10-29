@@ -1,0 +1,261 @@
+import {
+  hasConvenienceRelay,
+  type ConvenienceTransportOptions,
+} from '../../utils/convenienceTransport.js';
+import { geocodeLocation } from '../../utils/geocode.js';
+/**
+ * GS25 API 클라이언트
+ */
+/* c8 ignore start */
+
+import { fetchJson } from '../../utils/http.js';
+import { GS25_API } from './api.js';
+import { normalizeStore, toNumber } from './storeUtils.js';
+import { fetchGs25StoreStockResponse } from './storeStockTransport.js';
+import type { Gs25Store } from './types.js';
+
+export {
+  fetchGs25NormalizedKeyword,
+  fetchGs25SearchProducts,
+  type Gs25SearchProduct,
+} from './productSearch.js';
+export {
+  attachDistanceToGs25Stores,
+  calculateDistanceM,
+  extractGs25ProductCandidates,
+  filterGs25StoresByKeyword,
+  selectGs25StoresForKeyword,
+  sortGs25Stores,
+} from './storeUtils.js';
+
+interface RequestOptions extends ConvenienceTransportOptions {
+  timeout?: number;
+  googleMapsApiKey?: string;
+  kakaoRestApiKey?: string;
+  naverClientId?: string;
+  naverClientSecret?: string;
+  zyteApiKey?: string;
+  apiKey?: string;
+}
+
+interface FetchGs25StoresParams {
+  serviceCode?: string;
+  keyword?: string;
+  itemCode?: string;
+  storeCode?: string;
+  realTimeStockYn?: 'Y' | 'N';
+  latitude?: number;
+  longitude?: number;
+  pageNumber?: number;
+  pageCount?: number;
+  useCache?: boolean;
+}
+
+interface Gs25WebLocationStore {
+  shopCode?: string;
+  shopName?: string;
+  address?: string;
+  posX?: string | number;
+  posY?: string | number;
+}
+
+interface CacheEntry {
+  expiresAt: number;
+  stores: Gs25Store[];
+}
+
+export const GS25_DEFAULT_HEADERS = {
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'User-Agent':
+    'Mozilla/5.0 (Linux; Android 15; SM-S928N) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0 Mobile Safari/537.36',
+  Origin: 'https://woodongs.com',
+  Referer: 'https://woodongs.com/',
+} as const;
+const GS25_DEFAULT_FETCH_OPTIONS = {
+  retries: 1,
+  retryDelayMs: 250,
+} as const;
+
+const GS25_STORES_CACHE_TTL_MS = 60 * 5 * 1000;
+const gs25StoresCache = new Map<string, CacheEntry>();
+
+function normalizeGs25WebStore(raw: Gs25WebLocationStore): Gs25Store {
+  const propertyNames: string[] = [];
+
+  return {
+    storeCode: raw.shopCode || '',
+    storeName: raw.shopName || '',
+    address: raw.address || '',
+    phone: '',
+    latitude: toNumber(raw.posY),
+    longitude: toNumber(raw.posX),
+    serviceCode: '01',
+    realStockQuantity: null,
+    pickupStockQuantity: null,
+    deliveryStockQuantity: null,
+    isSoldOut: false,
+    searchItemName: '',
+    searchItemSellPrice: null,
+    propertyNames,
+    properties: propertyNames.map((name) => ({
+      code: name,
+      name,
+      type: 'service',
+      imageUrl: '',
+    })),
+    distanceM: null,
+  };
+}
+
+function buildCacheKey(
+  params: Required<Pick<FetchGs25StoresParams, 'serviceCode' | 'keyword' | 'storeCode'>> &
+    Pick<FetchGs25StoresParams, 'latitude' | 'longitude' | 'itemCode'>,
+): string {
+  return [
+    params.serviceCode,
+    params.itemCode?.trim() || params.keyword,
+    params.storeCode,
+    typeof params.latitude === 'number' ? params.latitude : '',
+    typeof params.longitude === 'number' ? params.longitude : '',
+  ].join(':');
+}
+
+export async function geocodeGs25Address(address: string, options: RequestOptions = {}) {
+  const location = await geocodeLocation(address, options);
+  return location ? { latitude: location.latitude, longitude: location.longitude } : null;
+}
+
+export async function fetchGs25WebStores(
+  keyword: string,
+  options: RequestOptions = {},
+): Promise<{ totalCount: number; stores: Gs25Store[] }> {
+  const query = keyword.trim();
+  if (query.length === 0) {
+    return { totalCount: 0, stores: [] };
+  }
+
+  const { timeout = 20000 } = options;
+  const endpoint = new URL(GS25_API.WEB_LOCATION_LIST_PATH, GS25_API.WEB_BASE_URL);
+  endpoint.searchParams.set('shopName', query);
+  const body = await fetchJson<Gs25WebLocationStore[]>(endpoint.toString(), {
+    ...GS25_DEFAULT_FETCH_OPTIONS,
+    timeout,
+    headers: { Accept: 'application/json' },
+  });
+  if (!Array.isArray(body)) {
+    throw new Error('GS25 매장 응답 형식이 올바르지 않습니다.');
+  }
+  const stores = body.map(normalizeGs25WebStore).filter((store) => store.storeCode.length > 0);
+  return { totalCount: stores.length, stores };
+}
+
+export async function fetchGs25Stores(
+  params: FetchGs25StoresParams = {},
+  options: RequestOptions = {},
+): Promise<{ totalCount: number; stores: Gs25Store[]; cacheHit: boolean }> {
+  const {
+    serviceCode = '01',
+    keyword = '',
+    itemCode = '',
+    storeCode = '',
+    realTimeStockYn = 'Y',
+    latitude,
+    longitude,
+    pageNumber,
+    pageCount,
+    useCache = true,
+  } = params;
+  const { timeout = 20000 } = options;
+
+  const cacheKey = buildCacheKey({
+    serviceCode,
+    keyword: itemCode.trim() || keyword.trim(),
+    storeCode: storeCode.trim(),
+    itemCode: itemCode.trim(),
+    latitude,
+    longitude,
+  });
+
+  if (useCache && !options.bypassCache && !hasConvenienceRelay(options)) {
+    const cached = gs25StoresCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return {
+        totalCount: cached.stores.length,
+        stores: cached.stores,
+        cacheHit: true,
+      };
+    }
+  }
+
+  const endpoint = new URL(GS25_API.STORE_STOCK_PATH, GS25_API.BFF_BASE_URL);
+  endpoint.searchParams.set('serviceCode', serviceCode);
+  endpoint.searchParams.set('realTimeStockYn', realTimeStockYn);
+  if (typeof pageNumber === 'number' && Number.isFinite(pageNumber)) {
+    endpoint.searchParams.set('pageNumber', String(Math.trunc(pageNumber)));
+  }
+  if (typeof pageCount === 'number' && Number.isFinite(pageCount)) {
+    endpoint.searchParams.set('pageCount', String(Math.trunc(pageCount)));
+  }
+
+  // itemCode가 있으면 itemCode 사용, 없으면 keyword 사용
+  // 주의: itemCode 사용 시 좌표도 필수
+  if (itemCode.trim().length > 0) {
+    endpoint.searchParams.set('itemCode', itemCode.trim());
+  } else if (keyword.trim().length > 0) {
+    endpoint.searchParams.set('keyword', keyword.trim());
+  }
+  if (storeCode.trim().length > 0) {
+    endpoint.searchParams.set('storeCode', storeCode.trim());
+  }
+  // 좌표 파라미터: 앱은 myPosition + centerPosition 모두 필요
+  if (typeof latitude === 'number' && Number.isFinite(latitude)) {
+    endpoint.searchParams.set('myPositionYCoordination', String(latitude));
+    endpoint.searchParams.set('centerPositionYCoordination', String(latitude));
+  }
+  if (typeof longitude === 'number' && Number.isFinite(longitude)) {
+    endpoint.searchParams.set('myPositionXCoordination', String(longitude));
+    endpoint.searchParams.set('centerPositionXCoordination', String(longitude));
+  }
+  // 반경 조건 (미터 단위, 1km로 설정하여 인근 매장 포함)
+  if (typeof latitude === 'number' && typeof longitude === 'number') {
+    endpoint.searchParams.set('radiusCondition', '1000');
+    // 앱에서 사용하는 추가 플래그
+    endpoint.searchParams.set('pickupStoreYn', 'N');
+    endpoint.searchParams.set('isSuperDlvyStoreSelected', 'N');
+    endpoint.searchParams.set('isGs25DlvyStoreSelected', 'N');
+  }
+
+  const body = await fetchGs25StoreStockResponse(
+    endpoint.toString(),
+    {
+      ...options,
+      timeout,
+      zyteApiKey: options.zyteApiKey,
+      apiKey: options.apiKey,
+    },
+    GS25_DEFAULT_HEADERS,
+  );
+
+  const stores = (body.stores || [])
+    .map(normalizeStore)
+    .filter((store) => store.storeCode.length > 0);
+
+  if (useCache && !options.bypassCache && !hasConvenienceRelay(options)) {
+    gs25StoresCache.set(cacheKey, {
+      stores,
+      expiresAt: Date.now() + GS25_STORES_CACHE_TTL_MS,
+    });
+  }
+
+  return {
+    totalCount: stores.length,
+    stores,
+    cacheHit: false,
+  };
+}
+
+export function clearGs25StoresCache(): void {
+  gs25StoresCache.clear();
+}
+/* c8 ignore stop */

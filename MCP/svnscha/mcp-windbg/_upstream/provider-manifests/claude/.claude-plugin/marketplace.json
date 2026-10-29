@@ -1,0 +1,71 @@
+{
+  "name": "mcp-windbg",
+  "owner": {
+    "name": "Sven Scharmentke",
+    "url": "https://github.com/svnscha"
+  },
+  "description": "Windows crash dump analysis and live WinDbg debugging for Claude Code.",
+  "plugins": [
+    {
+      "name": "mcp-windbg-uvx",
+      "displayName": "MCP for WinDbg (uvx version)",
+      "source": "./plugins/mcp-windbg",
+      "description": "WinDbg/CDB MCP server for Windows crash dump analysis and live debugging, launched with uvx.",
+      "version": "1.6.0",
+      "author": {
+        "name": "Sven Scharmentke",
+        "url": "https://github.com/svnscha"
+      },
+      "homepage": "https://svnscha.github.io/mcp-windbg/",
+      "repository": "https://github.com/svnscha/mcp-windbg",
+      "license": "MIT",
+      "keywords": [
+        "debugging",
+        "windbg",
+        "cdb",
+        "kd",
+        "crash-dump",
+        "kernel",
+        "windows"
+      ],
+      "category": "development"
+    },
+    {
+      "name": "mcp-windbg-skills",
+      "source": "./plugins/mcp-windbg-skills",
+      "strict": false,
+      "description": "WinDbg skills for crash dump analysis, remote debugging, kernel debugging, and setup diagnostics.",
+      "version": "1.6.0",
+      "skills": [
+        "./skills/analyze-dump",
+        "./skills/debug-remote",
+        "./skills/kernel-debug",
+        "./skills/windbg-doctor"
+      ],
+      "author": {
+        "name": "Sven Scharmentke"
+      },
+      "homepage": "https://svnscha.github.io/mcp-windbg/reference/plugin/",
+      "repository": "https://github.com/svnscha/mcp-windbg",
+      "license": "MIT",
+      "category": "development"
+    },
+    {
+      "name": "mcp-windbg-agents",
+      "source": "./plugins/mcp-windbg-agents",
+      "strict": false,
+      "description": "Crash-analyst agent for investigating Windows crash dumps and reporting findings.",
+      "version": "1.6.0",
+      "agents": [
+        "./agents/crash-analyst.md"
+      ],
+      "author": {
+        "name": "Sven Scharmentke"
+      },
+      "homepage": "https://svnscha.github.io/mcp-windbg/reference/plugin/",
+      "repository": "https://github.com/svnscha/mcp-windbg",
+      "license": "MIT",
+      "category": "development"
+    }
+  ]
+}

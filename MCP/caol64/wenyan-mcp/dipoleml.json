@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.caol64.wenyan-mcp",
+  "type": "mcp",
+  "name": "Wenyan MCP",
+  "slug": "wenyan-mcp",
+  "vendor": "caol64",
+  "description": "文颜 MCP Server 可以让 AI 自动将 Markdown 文章排版后发布至微信公众号。",
+  "version": "2.0.4",
+  "homepage": "https://github.com/caol64/wenyan-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "wechat",
+    "wenyan"
+  ],
+  "tags": [
+    "mcp-server",
+    "wechat",
+    "wenyan"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "caol64",
+    "brandName": "caol64",
+    "source": "https://github.com/caol64.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "caol64/wenyan-mcp",
+    "url": "https://github.com/caol64/wenyan-mcp",
+    "commit": "83874e9eb3a9ac1b637330df0cceaf8b4784d902",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1350,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@wenyan-md/mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@wenyan-md/mcp"
+    ],
+    "env": [
+      "WECHAT_APP_SECRET",
+      "IMPORTANT",
+      "HOST_FILE_PATH",
+      "MCP_PROXY_AUTH_TOKEN"
+    ],
+    "credentials": [
+      "WECHAT_APP_SECRET",
+      "MCP_PROXY_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

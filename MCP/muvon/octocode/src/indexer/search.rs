@@ -1,0 +1,2067 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Module for search functionality
+
+use crate::config::Config;
+use crate::indexer::branch::BranchManifest;
+use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
+use anyhow::Result;
+use std::collections::HashSet;
+
+#[cfg(test)]
+#[path = "search_tests.rs"]
+mod search_tests;
+
+/// Optional branch context for branch-aware search.
+/// When present, search queries both the main store and the branch delta store,
+/// merging results with branch priority.
+pub struct BranchSearchContext {
+	pub store: Store,
+	pub manifest: BranchManifest,
+}
+
+/// Bundles search parameters to avoid passing many individual arguments.
+pub struct SearchParams<'a> {
+	pub mode: &'a str,
+	pub max_results: usize,
+	pub similarity_threshold: f32,
+	pub language_filter: Option<&'a str>,
+	pub config: &'a Config,
+	pub branch_ctx: Option<&'a BranchSearchContext>,
+}
+
+/// Helper function to format symbols for display without cloning
+/// Returns a formatted string with deduplicated, sorted, and filtered symbols
+fn format_symbols_for_display(symbols: &[String]) -> String {
+	let mut unique_symbols: Vec<&str> = symbols
+		.iter()
+		.map(|s| s.as_str())
+		.filter(|s| !s.contains('_'))
+		.collect();
+	unique_symbols.sort();
+	unique_symbols.dedup();
+	unique_symbols.join(", ")
+}
+
+// Render code blocks in a user-friendly format
+pub fn render_code_blocks(blocks: &[CodeBlock]) {
+	render_code_blocks_with_config(blocks, &Config::default(), "partial");
+}
+
+// Render code blocks in a user-friendly format with configuration
+pub fn render_code_blocks_with_config(blocks: &[CodeBlock], config: &Config, detail_level: &str) {
+	if blocks.is_empty() {
+		println!("No code blocks found for the query.");
+		return;
+	}
+
+	println!("Found {} code blocks:\n", blocks.len());
+
+	// Display results in their sorted order (most relevant first)
+	for (idx, block) in blocks.iter().enumerate() {
+		println!("╔══════════════════ File: {} ══════════════════", block.path);
+		println!("║");
+		println!("║ Result {} of {}", idx + 1, blocks.len());
+		println!("║ Language: {}", block.language);
+		println!("║ Lines: {}-{}", block.start_line, block.end_line);
+
+		// Show similarity score if available
+		if let Some(distance) = block.distance {
+			println!("║ Similarity: {:.4}", 1.0 - distance);
+		}
+
+		if !block.symbols.is_empty() {
+			println!("║ Symbols:");
+			let formatted = format_symbols_for_display(&block.symbols);
+			if !formatted.is_empty() {
+				for symbol in formatted.split(", ") {
+					println!("║   • {}", symbol);
+				}
+			}
+		}
+
+		println!("║ Content:");
+		println!("║ ┌────────────────────────────────────");
+
+		// Stored `content` is the embedding-input form (path/lang/symbols
+		// preamble + raw code). Strip the preamble for display so line
+		// numbers and previews line up with the original source.
+		let display_content = crate::indexer::contextual::strip_enriched_preamble(&block.content);
+
+		// Use detail level for content display (consistent with text/doc CLI format)
+		match detail_level {
+			"signatures" => {
+				// Show smart preview for signatures mode
+				let lines: Vec<&str> = display_content.lines().collect();
+				if !lines.is_empty() {
+					if let Some(first_line) = lines.first() {
+						println!("║ │ {:4} │ {}", block.start_line, first_line.trim());
+					}
+				}
+			}
+			"partial" => {
+				// Show smart truncated content with line numbers (CLI format with │)
+				let lines: Vec<&str> = display_content.lines().collect();
+				if lines.len() <= 10 {
+					// Show all lines if content is short
+					for (i, line) in lines.iter().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+				} else {
+					// Smart truncation: first 4 lines
+					for (i, line) in lines.iter().take(4).enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+
+					// Show separator with count
+					let omitted_lines = lines.len() - 7; // 4 start + 3 end
+					if omitted_lines > 0 {
+						println!("║ │      │ ... ({} more lines)", omitted_lines);
+					}
+
+					// Last 3 lines
+					let last_3_start = lines.len() - 3;
+					for (i, line) in lines.iter().skip(last_3_start).enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + last_3_start + i + 1, line);
+					}
+				}
+			}
+			"full" => {
+				// Show full content with line numbers (fallback to config-based truncation if too large)
+				let max_chars = config.search.search_block_max_characters;
+				if max_chars > 0 && display_content.len() > max_chars {
+					let (content, was_truncated) = crate::indexer::truncate_content_smartly(display_content, max_chars);
+					// Add line numbers to truncated content with │ format
+					for (i, line) in content.lines().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i, line);
+					}
+					if was_truncated {
+						println!("║ │      │ [Content truncated - limit: {} chars]", max_chars);
+					}
+				} else {
+					// Show full content with line numbers using │ format
+					for (i, line) in display_content.lines().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i, line);
+					}
+				}
+			}
+			_ => {
+				// Default to partial
+				let lines: Vec<&str> = display_content.lines().collect();
+				if lines.len() <= 10 {
+					for (i, line) in lines.iter().enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+				} else {
+					// Smart truncation: first 4 lines
+					for (i, line) in lines.iter().take(4).enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + i + 1, line);
+					}
+
+					let omitted_lines = lines.len() - 7;
+					if omitted_lines > 0 {
+						println!("║ │      │ ... ({} more lines)", omitted_lines);
+					}
+
+					// Last 3 lines
+					let last_3_start = lines.len() - 3;
+					for (i, line) in lines.iter().skip(last_3_start).enumerate() {
+						println!("║ │ {:4} │ {}", block.start_line + last_3_start + i + 1, line);
+					}
+				}
+			}
+		}
+
+		println!("║ └────────────────────────────────────");
+		println!("╚════════════════════════════════════════\n");
+	}
+}
+
+// Render search results as JSON
+pub fn render_results_json(results: &[CodeBlock]) -> Result<(), anyhow::Error> {
+	let json = serde_json::to_string_pretty(results)?;
+	println!("{}", json);
+	Ok(())
+}
+
+// Expand symbols in code blocks to include related code while maintaining relevance order
+pub async fn expand_symbols(store: &Store, code_blocks: Vec<CodeBlock>) -> Result<Vec<CodeBlock>, anyhow::Error> {
+	// We'll keep original blocks at the top with their original order
+	let mut expanded_blocks = Vec::new();
+	let mut original_hashes = HashSet::new();
+
+	// Add original blocks and keep track of their hashes
+	for block in &code_blocks {
+		expanded_blocks.push(block.clone());
+		original_hashes.insert(block.hash.clone());
+	}
+
+	let mut symbol_refs = Vec::new();
+
+	// Collect all symbols from the code blocks
+	for block in &code_blocks {
+		for symbol in &block.symbols {
+			// Skip the type symbols (like "function_definition") and only include actual named symbols
+			if !symbol.contains("_") && symbol.chars().next().is_some_and(|c| c.is_alphabetic()) {
+				symbol_refs.push(symbol.clone());
+			}
+		}
+	}
+
+	// Deduplicate symbols
+	symbol_refs.sort();
+	symbol_refs.dedup();
+
+	println!("Found {} unique symbols to expand", symbol_refs.len());
+
+	// Store expanded blocks to sort them by symbol count later
+	let mut additional_blocks = Vec::new();
+
+	// For each symbol, find code blocks that contain it. Lookups run with
+	// bounded concurrency; `buffered` yields in input order, so the first-seen
+	// dedup below behaves exactly as the sequential loop did.
+	use futures::stream::{self, StreamExt};
+	let lookups: Vec<Result<Option<CodeBlock>>> = stream::iter(&symbol_refs)
+		.map(|symbol| store.get_code_block_by_symbol(symbol))
+		.buffered(8)
+		.collect()
+		.await;
+	let mut seen_hashes = original_hashes;
+	for lookup in lookups {
+		if let Some(block) = lookup? {
+			// Check if we already have this block (avoid duplicates)
+			if seen_hashes.insert(block.hash.clone()) {
+				// Add dependencies we haven't seen before
+				additional_blocks.push(block);
+			}
+		}
+	}
+
+	// Sort additional blocks by symbol count (more symbols = more relevant)
+	// This is a heuristic to put more complex/relevant blocks first.
+	// Match counts are computed once per block (symbol_refs is sorted+deduped,
+	// so membership is a binary search) instead of inside the comparator.
+	let mut scored: Vec<(usize, CodeBlock)> = additional_blocks
+		.into_iter()
+		.map(|block| {
+			let matches = block
+				.symbols
+				.iter()
+				.filter(|s| symbol_refs.binary_search(s).is_ok())
+				.count();
+			(matches, block)
+		})
+		.collect();
+	scored.sort_by(|(a_matches, a), (b_matches, b)| {
+		// Primary sort by symbol match count (descending), then by file path
+		// and line number when match counts are equal
+		b_matches
+			.cmp(a_matches)
+			.then_with(|| a.path.cmp(&b.path))
+			.then_with(|| a.start_line.cmp(&b.start_line))
+	});
+	let additional_blocks = scored.into_iter().map(|(_, block)| block);
+
+	// Add the sorted additional blocks to our results
+	expanded_blocks.extend(additional_blocks);
+
+	Ok(expanded_blocks)
+}
+
+/// GraphRAG file-level expansion. Pulls code blocks from files structurally
+/// related (imports/calls/extends) to the strongest retrieved hits, then lets
+/// the existing reranker score the enlarged candidate set — surfacing
+/// cross-file dependencies that dense + BM25 alone miss. File-granular because
+/// the graph is file-granular (`CodeNode.id == relative path`).
+///
+/// Best-effort: any graph error degrades to passthrough, never breaks search.
+/// Default OFF (`search.graph_expansion`); A/B on your eval before trusting it,
+/// since naive expansion can dilute precision.
+/// ponytail: hardcoded caps, not config knobs — prove the flag earns its keep
+/// before adding tuning surface.
+pub async fn expand_code_blocks_via_graph(
+	store: &Store,
+	config: &Config,
+	code_blocks: Vec<CodeBlock>,
+	max_add: usize,
+) -> Vec<CodeBlock> {
+	use crate::indexer::graphrag::types::RelationshipDirection;
+
+	// Seeds are already RRF-ranked; only expand from the strongest few.
+	const SEED_LIMIT: usize = 10;
+	const MAX_NEIGHBOR_FILES: usize = 8;
+	const BLOCKS_PER_FILE: usize = 3;
+
+	if !config.graphrag.enabled || !config.search.graph_expansion || code_blocks.is_empty() || max_add == 0 {
+		return code_blocks;
+	}
+
+	let seed_paths: HashSet<String> = code_blocks.iter().map(|b| b.path.clone()).collect();
+	let mut seen_hashes: HashSet<String> = code_blocks.iter().map(|b| b.hash.clone()).collect();
+
+	// Accumulate neighbor-file -> structural score across all seed files.
+	let mut neighbor_scores: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+	for block in code_blocks.iter().take(SEED_LIMIT) {
+		let rels = match store
+			.get_node_relationships(&block.path, RelationshipDirection::Both)
+			.await
+		{
+			Ok(rels) => rels,
+			Err(e) => {
+				tracing::debug!("graph expansion: relationships for {} failed: {}", block.path, e);
+				continue;
+			}
+		};
+		for rel in rels {
+			// The neighbor is whichever endpoint is not the seed file.
+			let neighbor = if rel.source == block.path {
+				rel.target
+			} else {
+				rel.source
+			};
+			if seed_paths.contains(&neighbor) {
+				continue;
+			}
+			*neighbor_scores.entry(neighbor).or_insert(0.0) += rel.weight * rel.confidence;
+		}
+	}
+
+	if neighbor_scores.is_empty() {
+		return code_blocks;
+	}
+
+	// Strongest structural links first.
+	let mut ranked: Vec<(String, f32)> = neighbor_scores.into_iter().collect();
+	ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+	ranked.truncate(MAX_NEIGHBOR_FILES);
+
+	let mut expanded = code_blocks;
+	let mut added = 0usize;
+	for (path, _score) in ranked {
+		if added >= max_add {
+			break;
+		}
+		match store.get_code_blocks_by_path(&path, BLOCKS_PER_FILE).await {
+			Ok(blocks) => {
+				for b in blocks {
+					if added >= max_add {
+						break;
+					}
+					if seen_hashes.insert(b.hash.clone()) {
+						expanded.push(b);
+						added += 1;
+					}
+				}
+			}
+			Err(e) => tracing::debug!("graph expansion: blocks for {} failed: {}", path, e),
+		}
+	}
+
+	expanded
+}
+
+// Token-efficient text formatting functions for MCP
+
+// Format code search results as text for MCP with detail level control
+pub fn format_code_search_results_as_text(blocks: &[CodeBlock], detail_level: &str) -> String {
+	if blocks.is_empty() {
+		return "No code results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("CODE RESULTS ({})\n", blocks.len()));
+
+	for (idx, block) in blocks.iter().enumerate() {
+		output.push_str(&format!("{}. {}\n", idx + 1, block.path));
+		// output.push_str(&format!("{}-{}", block.start_line, block.end_line));
+
+		if let Some(distance) = block.distance {
+			output.push_str(&format!(" | Similarity {:.3}", 1.0 - distance));
+		}
+		output.push('\n');
+		// Add symbols if available
+		if !block.symbols.is_empty() {
+			let formatted = format_symbols_for_display(&block.symbols);
+			if !formatted.is_empty() {
+				output.push_str(&format!("Symbols: {}\n", formatted));
+			}
+		}
+
+		// Stored content carries the embedding-input preamble; strip it
+		// before rendering so the user sees raw code with correct line numbers.
+		let display_content = crate::indexer::contextual::strip_enriched_preamble(&block.content);
+
+		// Add content as-is without truncation for text mode - only efficient labels
+		match detail_level {
+			"signatures" => {
+				// Extract just function/class signatures
+				let preview = get_code_preview_with_lines(display_content, block.start_line, &block.language);
+				if !preview.is_empty() {
+					if let Some(first_line) = preview.lines().next() {
+						output.push_str(&format!("{}\n", first_line));
+					}
+				}
+			}
+			"partial" => {
+				// Smart truncated content with line numbers
+				let preview = get_code_preview_with_lines(display_content, block.start_line, &block.language);
+				output.push_str(&preview);
+				if !preview.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			"full" => {
+				// Full content with line numbers
+				let content_with_lines = display_content
+					.lines()
+					.enumerate()
+					.map(|(i, line)| format!("{}: {}", block.start_line + i, line))
+					.collect::<Vec<_>>()
+					.join("\n");
+				output.push_str(&content_with_lines);
+				if !content_with_lines.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			_ => {}
+		}
+		output.push('\n');
+	}
+
+	output
+}
+
+// Format text search results as text for MCP with detail level control
+pub fn format_text_search_results_as_text(blocks: &[crate::store::TextBlock], detail_level: &str) -> String {
+	if blocks.is_empty() {
+		return "No text results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("TEXT RESULTS ({})\n", blocks.len()));
+
+	for (idx, block) in blocks.iter().enumerate() {
+		output.push_str(&format!("{}. {}\n", idx + 1, block.path));
+		// output.push_str(&format!("{}-{}", block.start_line, block.end_line));
+
+		if let Some(distance) = block.distance {
+			output.push_str(&format!(" | Similarity {:.3}", 1.0 - distance));
+		}
+		output.push('\n');
+
+		// Strip the `# File:` preamble that batch_processor prepends for
+		// FTS/embedding alignment so the rendered text is just the source.
+		let display_content = crate::indexer::contextual::strip_enriched_preamble(&block.content);
+
+		// Add content with line numbers based on detail level
+		match detail_level {
+			"signatures" => {
+				// Show smart preview for signatures mode
+				let preview = get_text_preview_with_lines(display_content, block.start_line);
+				if !preview.is_empty() {
+					if let Some(first_line) = preview.lines().next() {
+						output.push_str(&format!("{}\n", first_line));
+					}
+				}
+			}
+			"partial" => {
+				// Smart truncated content with line numbers
+				let preview = get_text_preview_with_lines(display_content, block.start_line);
+				output.push_str(&preview);
+				if !preview.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			"full" => {
+				// Full content with line numbers
+				let content_with_lines = display_content
+					.lines()
+					.enumerate()
+					.map(|(i, line)| format!("{}: {}", block.start_line + i, line))
+					.collect::<Vec<_>>()
+					.join("\n");
+				output.push_str(&content_with_lines);
+				if !content_with_lines.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			_ => {}
+		}
+		output.push('\n');
+	}
+
+	output
+}
+
+// Format document search results as text for MCP with detail level control
+pub fn format_doc_search_results_as_text(blocks: &[crate::store::DocumentBlock], detail_level: &str) -> String {
+	if blocks.is_empty() {
+		return "No documentation results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("DOCUMENTATION RESULTS ({})\n", blocks.len()));
+
+	for (idx, block) in blocks.iter().enumerate() {
+		output.push_str(&format!("{}. {}\n", idx + 1, block.path));
+		output.push_str(&format!("{} (Level {})", block.title, block.level));
+		output.push_str(&format!(" | {}-{}", block.start_line, block.end_line));
+
+		if let Some(distance) = block.distance {
+			output.push_str(&format!(" | Similarity {:.3}", 1.0 - distance));
+		}
+		output.push('\n');
+
+		// Strip the `# File:`/context preamble injected for FTS alignment.
+		let display_content = crate::indexer::contextual::strip_enriched_preamble(&block.content);
+
+		// Add content with line numbers based on detail level
+		match detail_level {
+			"signatures" => {
+				// Show smart preview for signatures mode
+				let preview = get_doc_preview_with_lines(display_content, block.start_line);
+				if !preview.is_empty() {
+					if let Some(first_line) = preview.lines().next() {
+						output.push_str(&format!("{}\n", first_line));
+					}
+				}
+			}
+			"partial" => {
+				// Smart truncated content with line numbers
+				let preview = get_doc_preview_with_lines(display_content, block.start_line);
+				output.push_str(&preview);
+				if !preview.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			"full" => {
+				// Full content with line numbers
+				let content_with_lines = display_content
+					.lines()
+					.enumerate()
+					.map(|(i, line)| format!("{}: {}", block.start_line + i, line))
+					.collect::<Vec<_>>()
+					.join("\n");
+				output.push_str(&content_with_lines);
+				if !content_with_lines.ends_with('\n') {
+					output.push('\n');
+				}
+			}
+			_ => {}
+		}
+	}
+
+	output
+}
+
+// Format combined search results as text for MCP with detail level control
+pub fn format_commit_search_results_as_text(blocks: &[crate::store::CommitBlock], detail_level: &str) -> String {
+	if blocks.is_empty() {
+		return "No commit results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("COMMIT RESULTS ({})\n", blocks.len()));
+
+	for (idx, block) in blocks.iter().enumerate() {
+		let display_hash = if detail_level == "full" {
+			block.hash.as_str()
+		} else {
+			&block.hash[..8.min(block.hash.len())]
+		};
+		let date = chrono::DateTime::from_timestamp(block.date, 0)
+			.map(|dt| dt.format("%Y-%m-%d").to_string())
+			.unwrap_or_else(|| block.date.to_string());
+
+		output.push_str(&format!(
+			"{}. {} ({}) by {}\n",
+			idx + 1,
+			display_hash,
+			date,
+			block.author,
+		));
+
+		if let Some(distance) = block.distance {
+			output.push_str(&format!("   Similarity: {:.3}\n", 1.0 - distance));
+		}
+
+		// Subject line (first line of message)
+		let subject = block.message.lines().next().unwrap_or(&block.message);
+
+		match detail_level {
+			"signatures" => {
+				// Compact: just subject line
+				output.push_str(&format!("   Message: {}\n", subject));
+			}
+			"full" => {
+				// Full: complete message body + files + description
+				output.push_str(&format!("   Message: {}\n", block.message));
+
+				let files: Vec<String> = serde_json::from_str(&block.files).unwrap_or_default();
+				if !files.is_empty() {
+					output.push_str(&format!("   Files: {}\n", files.join(", ")));
+				}
+
+				if !block.description.is_empty() {
+					output.push_str(&format!("   Description: {}\n", block.description));
+				}
+			}
+			_ => {
+				// partial (default): subject + files
+				output.push_str(&format!("   Message: {}\n", subject));
+
+				let files: Vec<String> = serde_json::from_str(&block.files).unwrap_or_default();
+				if !files.is_empty() {
+					output.push_str(&format!("   Files: {}\n", files.join(", ")));
+				}
+
+				if !block.description.is_empty() {
+					output.push_str(&format!("   Description: {}\n", block.description));
+				}
+			}
+		}
+
+		output.push('\n');
+	}
+
+	output
+}
+
+pub fn format_combined_search_results_as_text(
+	code_blocks: &[CodeBlock],
+	text_blocks: &[crate::store::TextBlock],
+	doc_blocks: &[crate::store::DocumentBlock],
+	detail_level: &str,
+) -> String {
+	let total_results = code_blocks.len() + text_blocks.len() + doc_blocks.len();
+	if total_results == 0 {
+		return "No results found.".to_string();
+	}
+
+	let mut output = String::new();
+	output.push_str(&format!("SEARCH RESULTS ({} total)\n\n", total_results));
+
+	// Documentation Results
+	if !doc_blocks.is_empty() {
+		output.push_str(&format_doc_search_results_as_text(doc_blocks, detail_level));
+		output.push('\n');
+	}
+
+	// Code Results with detail level
+	if !code_blocks.is_empty() {
+		output.push_str(&format_code_search_results_as_text(code_blocks, detail_level));
+		output.push('\n');
+	}
+
+	// Text Results
+	if !text_blocks.is_empty() {
+		output.push_str(&format_text_search_results_as_text(text_blocks, detail_level));
+	}
+
+	output
+}
+
+// Enhanced search function for MCP server with detail level control - returns formatted text results (token-efficient)
+/// Build a BranchSearchContext if the current checkout is on a non-default branch
+/// and a branch delta index exists AND that delta is still coherent with the
+/// main DB. Used by MCP and other internal search paths.
+///
+/// Coherence rule: the branch DB's recorded `base_db_commit` must match what
+/// the main DB is currently sitting at. If main has moved on, the branch
+/// override mapping is stale — we drop it and search main-only rather than
+/// silently surface mis-overlaid results. v1 manifests (no `base_db_commit`)
+/// are grandfathered through; a re-index upgrades them to v2.
+pub async fn detect_branch_search_context(
+	main_store: &Store,
+	working_directory: &std::path::Path,
+) -> Option<BranchSearchContext> {
+	let branch_name = crate::indexer::branch::detect_branch_context(working_directory)?;
+	let branch_dir = crate::storage::get_branch_dir(working_directory, &branch_name).ok()?;
+	let manifest = crate::indexer::branch::load_manifest(&branch_dir).ok()??;
+
+	let main_commit = main_store.get_last_commit_hash().await.ok().flatten();
+	if !crate::indexer::branch::manifest_is_coherent_with(&manifest, main_commit.as_deref()) {
+		tracing::warn!(
+			branch = %branch_name,
+			recorded = %manifest.base_db_commit,
+			main_now = ?main_commit,
+			"Branch DB base commit doesn't match current main DB commit — dropping branch overlay for this search."
+		);
+		return None;
+	}
+
+	let branch_store = Store::new_for_branch_at(working_directory, &branch_name).await.ok()?;
+	Some(BranchSearchContext {
+		store: branch_store,
+		manifest,
+	})
+}
+
+/// For mode="all": collapse the three per-type result lists down to the
+/// requested total. Code/text/doc come from different embedding models
+/// (e.g. voyage-code-3 vs voyage-3.5-lite), so their raw distances are NOT
+/// comparable across modalities — a global min-distance sort would starve
+/// whichever modality has looser score scaling. We use Reciprocal Rank
+/// Fusion (RRF) instead: each input list is assumed best-first already,
+/// and items are ranked by `1 / (k + rank_in_own_list)`. RRF is
+/// scale-independent, so top picks from every modality survive the cap.
+/// Per-type return shape is preserved so downstream rendering and
+/// reranking stay unchanged — only the *mix* changes.
+fn fuse_all_mode_results(
+	code_blocks: &mut Vec<CodeBlock>,
+	text_blocks: &mut Vec<TextBlock>,
+	doc_blocks: &mut Vec<DocumentBlock>,
+	total_limit: usize,
+) {
+	let total = code_blocks.len() + text_blocks.len() + doc_blocks.len();
+	if total <= total_limit {
+		return;
+	}
+
+	// Reciprocal Rank Fusion: code/text/doc come from different embedding models
+	// (e.g. voyage-code-3 vs voyage-3.5-lite). Their raw distances are NOT on a
+	// shared scale, so a global min-distance sort would bias toward whichever
+	// model produces tighter distances and starve the others (e.g. docs vanish
+	// in `--mode all` even when they're top-ranked within their own modality).
+	// RRF scores by rank-within-list, which is scale-independent: each list's
+	// best item ties on score, so the global cap fairly samples all modalities.
+	// Inputs are already sorted best-first by their native scorer (vector search
+	// or hybrid_search), so position == rank.
+	const RRF_K: f32 = 60.0;
+	let rrf = |rank: usize| 1.0 / (RRF_K + rank as f32);
+
+	// (rrf_score, type-tag, position-in-its-list)
+	let mut ranking: Vec<(f32, u8, usize)> = Vec::with_capacity(total);
+	for i in 0..code_blocks.len() {
+		ranking.push((rrf(i), 0, i));
+	}
+	for i in 0..text_blocks.len() {
+		ranking.push((rrf(i), 1, i));
+	}
+	for i in 0..doc_blocks.len() {
+		ranking.push((rrf(i), 2, i));
+	}
+	// Higher RRF score is better; stable secondary by modality then index keeps
+	// per-modality order deterministic when scores tie.
+	ranking.sort_by(|a, b| {
+		b.0.partial_cmp(&a.0)
+			.unwrap_or(std::cmp::Ordering::Equal)
+			.then(a.1.cmp(&b.1))
+			.then(a.2.cmp(&b.2))
+	});
+	ranking.truncate(total_limit);
+
+	let mut keep_code: HashSet<usize> = HashSet::new();
+	let mut keep_text: HashSet<usize> = HashSet::new();
+	let mut keep_doc: HashSet<usize> = HashSet::new();
+	for (_, kind, idx) in &ranking {
+		match kind {
+			0 => {
+				keep_code.insert(*idx);
+			}
+			1 => {
+				keep_text.insert(*idx);
+			}
+			_ => {
+				keep_doc.insert(*idx);
+			}
+		}
+	}
+
+	*code_blocks = code_blocks
+		.drain(..)
+		.enumerate()
+		.filter_map(|(i, b)| keep_code.contains(&i).then_some(b))
+		.collect();
+	*text_blocks = text_blocks
+		.drain(..)
+		.enumerate()
+		.filter_map(|(i, b)| keep_text.contains(&i).then_some(b))
+		.collect();
+	*doc_blocks = doc_blocks
+		.drain(..)
+		.enumerate()
+		.filter_map(|(i, b)| keep_doc.contains(&i).then_some(b))
+		.collect();
+}
+
+/// Single-query variant of [`search_codebase_with_details_multi_query_text`].
+/// Forwards to the multi-query implementation with a one-element slice so all
+/// search behavior (branch awareness, hybrid scoring, RRF fusion across
+/// modalities, reranking) lives in a single code path.
+/// Bundled parameters for the detail-level search entrypoints (MCP + CLI).
+/// Grouped into a struct so the public functions stay within a sane argument
+/// count and call sites read by field name.
+#[derive(Clone, Copy)]
+pub struct DetailSearchOptions<'a> {
+	pub mode: &'a str,
+	pub detail_level: &'a str,
+	pub max_results: usize,
+	pub similarity_threshold: f32,
+	pub language_filter: Option<&'a str>,
+	pub config: &'a Config,
+	pub working_directory: &'a std::path::Path,
+}
+
+pub async fn search_codebase_with_details_text(query: &str, options: &DetailSearchOptions<'_>) -> Result<String> {
+	search_codebase_with_details_multi_query_text(&[query.to_string()], options).await
+}
+
+// Enhanced search function for MCP server with multi-query support and detail level control - returns text results
+pub async fn search_codebase_with_details_multi_query_text(
+	queries: &[String],
+	options: &DetailSearchOptions<'_>,
+) -> Result<String> {
+	let DetailSearchOptions {
+		mode,
+		detail_level,
+		max_results,
+		similarity_threshold,
+		language_filter,
+		config,
+		working_directory,
+	} = *options;
+
+	// Validate queries (same as CLI)
+	if queries.is_empty() {
+		return Err(anyhow::anyhow!("At least one query is required"));
+	}
+	if queries.len() > octolib::embedding::constants::MAX_QUERIES {
+		return Err(anyhow::anyhow!(
+			"Maximum {} queries allowed, got {}. Use fewer, more specific terms.",
+			crate::constants::MAX_QUERIES,
+			queries.len()
+		));
+	}
+
+	// Opening the store + detecting branch context (disk/DB) and generating the
+	// query embeddings (network or model inference) are independent — overlap
+	// them instead of paying both latencies back to back.
+	let store_fut = async {
+		// Open the project's store by its known path (no current-directory dependency).
+		let store = Store::new_at(working_directory).await?;
+		// Detect branch context for branch-aware search
+		let branch_ctx = detect_branch_search_context(&store, working_directory).await;
+		Ok::<_, anyhow::Error>((store, branch_ctx))
+	};
+	// Generate batch embeddings for all queries
+	let embeddings_fut = generate_batch_embeddings_for_queries(queries, mode, config);
+	let (store_result, embeddings) = tokio::join!(store_fut, embeddings_fut);
+	let (store, branch_ctx) = store_result?;
+	let embeddings = embeddings?;
+
+	// Zip queries with embeddings
+	let query_embeddings: Vec<_> = queries.iter().cloned().zip(embeddings).collect();
+
+	// When reranker is enabled, skip distance pre-filter — let reranker decide relevance.
+	let dedup_distance_threshold = if config.search.reranker.enabled {
+		None
+	} else {
+		Some(1.0 - similarity_threshold)
+	};
+
+	// Execute parallel searches with branch awareness
+	let search_results = execute_parallel_searches(
+		&store,
+		query_embeddings,
+		&SearchParams {
+			mode,
+			max_results,
+			similarity_threshold,
+			language_filter,
+			config,
+			branch_ctx: branch_ctx.as_ref(),
+		},
+	)
+	.await?;
+
+	// Deduplicate and merge via cross-query Reciprocal Rank Fusion.
+	let (mut code_blocks, mut doc_blocks, mut text_blocks, mut commit_blocks) =
+		deduplicate_and_merge_results(search_results, dedup_distance_threshold);
+
+	// GraphRAG file-level expansion (default off): enrich code candidates with
+	// structurally-related files before the reranker scores the enlarged set.
+	// Reserve headroom in the rerank candidate budget for the neighbors — else
+	// they land past `top_k_candidates` and the reranker truncates them away
+	// before scoring, which silently no-ops the whole expansion.
+	if config.graphrag.enabled && config.search.graph_expansion && config.search.reranker.enabled {
+		let cap = config.search.reranker.top_k_candidates;
+		let reserved = (cap / 5).max(1); // ~20% of the budget for structural neighbors
+		code_blocks.truncate(cap.saturating_sub(reserved).max(1));
+		code_blocks = expand_code_blocks_via_graph(&store, config, code_blocks, reserved).await;
+	} else {
+		code_blocks = expand_code_blocks_via_graph(&store, config, code_blocks, usize::MAX).await;
+	}
+
+	// PageIndex-style reasoning selection over CODE candidates (gated). When on,
+	// an LLM reasons over each candidate's structure and becomes the final code
+	// ranker — replacing the cross-encoder for code; other modalities keep it.
+	let reasoning_on = config.search.reasoning.enabled && !queries.is_empty();
+	if reasoning_on {
+		let query = queries.join(" ");
+		code_blocks = crate::reasoning::reason_rank_code_blocks(&query, code_blocks, config).await?;
+	}
+
+	// Apply reranker if enabled, then filter by similarity threshold
+	if config.search.reranker.enabled && !queries.is_empty() {
+		let query = queries.join(" ");
+		// The four rerank calls are independent (each short-circuits on an empty
+		// list), so run them concurrently instead of paying their latencies in series.
+		let rc = &config.search.reranker;
+		let code_input = std::mem::take(&mut code_blocks);
+		let code_fut = async {
+			if reasoning_on {
+				Ok(code_input)
+			} else {
+				crate::reranker::rerank_code_blocks_with_octolib(&query, code_input, rc).await
+			}
+		};
+		(code_blocks, doc_blocks, text_blocks, commit_blocks) = tokio::try_join!(
+			code_fut,
+			crate::reranker::rerank_doc_blocks_with_octolib(&query, doc_blocks, rc),
+			crate::reranker::rerank_text_blocks_with_octolib(&query, text_blocks, rc),
+			crate::reranker::rerank_commit_blocks_with_octolib(&query, commit_blocks, rc),
+		)?;
+	} else {
+		// Apply global result limits (reranker/reasoning already limit code).
+		if !reasoning_on {
+			code_blocks.truncate(max_results);
+		}
+		doc_blocks.truncate(max_results);
+		text_blocks.truncate(max_results);
+		commit_blocks.truncate(max_results);
+	}
+
+	// Format results based on mode with detail level control
+	match mode {
+		"code" => Ok(format_code_search_results_as_text(&code_blocks, detail_level)),
+		"text" => Ok(format_text_search_results_as_text(&text_blocks, detail_level)),
+		"docs" => Ok(format_doc_search_results_as_text(&doc_blocks, detail_level)),
+		"commits" => Ok(format_commit_search_results_as_text(&commit_blocks, detail_level)),
+		"all" => Ok(format_combined_search_results_as_text(
+			&code_blocks,
+			&text_blocks,
+			&doc_blocks,
+			detail_level,
+		)),
+		_ => Err(anyhow::anyhow!(
+			"Invalid search mode '{}'. Use 'all', 'code', 'docs', 'commits', or 'text'.",
+			mode
+		)),
+	}
+}
+
+// Get a clean preview of text content with line numbers and smart truncation
+fn get_text_preview_with_lines(content: &str, start_line: usize) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all with line numbers
+	if lines.len() <= 10 {
+		return lines
+			.iter()
+			.enumerate()
+			.map(|(i, line)| format!("{}: {}", start_line + i, line))
+			.collect::<Vec<_>>()
+			.join("\n");
+	}
+
+	// Skip leading empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+		if !trimmed.is_empty() {
+			start_idx = i;
+			break;
+		}
+	}
+
+	// Take first 4 lines of actual content
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines with line numbers
+	for (i, line) in lines.iter().skip(start_idx).take(preview_start).enumerate() {
+		result.push(format!("{}: {}", start_line + start_idx + i, line));
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push(format!("... ({} more lines)", remaining_lines));
+
+			// Add last few lines with correct line numbers
+			let end_start_idx = lines.len() - preview_end;
+			for (i, line) in lines.iter().skip(end_start_idx).enumerate() {
+				result.push(format!("{}: {}", start_line + end_start_idx + i, line));
+			}
+		} else {
+			// Just add the remaining lines with line numbers
+			for (i, line) in lines.iter().skip(start_idx + preview_start).enumerate() {
+				result.push(format!("{}: {}", start_line + start_idx + preview_start + i, line));
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// Get a clean preview of document content with line numbers and smart truncation
+fn get_doc_preview_with_lines(content: &str, start_line: usize) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all with line numbers
+	if lines.len() <= 10 {
+		return lines
+			.iter()
+			.enumerate()
+			.map(|(i, line)| format!("{}: {}", start_line + i, line))
+			.collect::<Vec<_>>()
+			.join("\n");
+	}
+
+	// Skip leading empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+		if !trimmed.is_empty() {
+			start_idx = i;
+			break;
+		}
+	}
+
+	// Take first 4 lines of actual content
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines with line numbers
+	for (i, line) in lines.iter().skip(start_idx).take(preview_start).enumerate() {
+		result.push(format!("{}: {}", start_line + start_idx + i, line));
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push(format!("... ({} more lines)", remaining_lines));
+
+			// Add last few lines with correct line numbers
+			let end_start_idx = lines.len() - preview_end;
+			for (i, line) in lines.iter().skip(end_start_idx).enumerate() {
+				result.push(format!("{}: {}", start_line + end_start_idx + i, line));
+			}
+		} else {
+			// Just add the remaining lines with line numbers
+			for (i, line) in lines.iter().skip(start_idx + preview_start).enumerate() {
+				result.push(format!("{}: {}", start_line + start_idx + preview_start + i, line));
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// Get a clean preview of code content with line numbers and smart truncation
+fn get_code_preview_with_lines(content: &str, start_line: usize, _language: &str) -> String {
+	let lines: Vec<&str> = content.lines().collect();
+
+	// If content is short, just return it all with line numbers
+	if lines.len() <= 10 {
+		return lines
+			.iter()
+			.enumerate()
+			.map(|(i, line)| format!("{}: {}", start_line + i, line))
+			.collect::<Vec<_>>()
+			.join("\n");
+	}
+
+	// Skip leading comments and empty lines
+	let mut start_idx = 0;
+	for (i, line) in lines.iter().enumerate() {
+		let trimmed = line.trim();
+
+		// Skip empty lines
+		if trimmed.is_empty() {
+			continue;
+		}
+
+		// Skip common comment patterns across languages
+		if trimmed.starts_with("//") ||     // C-style, Rust, JS, etc.
+		   trimmed.starts_with("#") ||      // Python, Shell, Ruby, etc.
+		   trimmed.starts_with("/*") ||     // C-style block comments
+		   trimmed.starts_with("*") ||      // Continuation of block comments
+		   trimmed.starts_with("<!--") ||   // HTML comments
+		   trimmed.starts_with("--") ||     // SQL, Lua comments
+		   trimmed.starts_with("%") ||      // LaTeX, Erlang comments
+		   trimmed.starts_with(";") ||      // Lisp, assembly comments
+		   trimmed.starts_with("\"\"\"") ||  // Python docstrings
+		   trimmed.starts_with("'''")
+		{
+			// Python docstrings
+			continue;
+		}
+
+		// Found first non-comment line
+		start_idx = i;
+		break;
+	}
+
+	// Take first 4 lines of actual code
+	let preview_start = 4;
+	let preview_end = 3;
+
+	let mut result = Vec::new();
+
+	// Add first few lines with line numbers
+	for (i, line) in lines.iter().skip(start_idx).take(preview_start).enumerate() {
+		result.push(format!("{}: {}", start_line + start_idx + i, line));
+	}
+
+	// If there's more content, add separator and last few lines
+	if start_idx + preview_start < lines.len() {
+		let remaining_lines = lines.len() - (start_idx + preview_start);
+		if remaining_lines > preview_end {
+			result.push(format!("... ({} more lines)", remaining_lines));
+
+			// Add last few lines with correct line numbers
+			let end_start_idx = lines.len() - preview_end;
+			for (i, line) in lines.iter().skip(end_start_idx).enumerate() {
+				result.push(format!("{}: {}", start_line + end_start_idx + i, line));
+			}
+		} else {
+			// Just add the remaining lines with line numbers
+			for (i, line) in lines.iter().skip(start_idx + preview_start).enumerate() {
+				result.push(format!("{}: {}", start_line + start_idx + preview_start + i, line));
+			}
+		}
+	}
+
+	result.join("\n")
+}
+
+// ============================================================================
+// SHARED MULTI-QUERY SEARCH FUNCTIONS (Used by both CLI and MCP)
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct QuerySearchResult {
+	pub query_index: usize,
+	pub code_blocks: Vec<crate::store::CodeBlock>,
+	pub doc_blocks: Vec<crate::store::DocumentBlock>,
+	pub text_blocks: Vec<crate::store::TextBlock>,
+	pub commit_blocks: Vec<crate::store::CommitBlock>,
+}
+
+pub async fn generate_batch_embeddings_for_queries(
+	queries: &[String],
+	mode: &str,
+	config: &Config,
+) -> Result<Vec<crate::embedding::SearchModeEmbeddings>> {
+	match mode {
+		"code" => {
+			// Batch generate code embeddings for all queries
+			let code_embeddings = crate::embedding::generate_embeddings_batch(
+				queries,
+				true,
+				config,
+				crate::embedding::types::InputType::Query,
+			)
+			.await?;
+			Ok(code_embeddings
+				.into_iter()
+				.map(|emb| crate::embedding::SearchModeEmbeddings {
+					code_embeddings: Some(emb),
+					text_embeddings: None,
+				})
+				.collect())
+		}
+		"docs" | "text" | "commits" => {
+			// Batch generate text embeddings for all queries
+			let text_embeddings = crate::embedding::generate_embeddings_batch(
+				queries,
+				false,
+				config,
+				crate::embedding::types::InputType::Query,
+			)
+			.await?;
+			Ok(text_embeddings
+				.into_iter()
+				.map(|emb| crate::embedding::SearchModeEmbeddings {
+					code_embeddings: None,
+					text_embeddings: Some(emb),
+				})
+				.collect())
+		}
+		"all" => {
+			let code_model = &config.embedding.code_model;
+			let text_model = &config.embedding.text_model;
+
+			if code_model == text_model {
+				// Same model - generate once and reuse (efficient!)
+				let embeddings = crate::embedding::generate_embeddings_batch(
+					queries,
+					true,
+					config,
+					crate::embedding::types::InputType::Query,
+				)
+				.await?;
+				Ok(embeddings
+					.into_iter()
+					.map(|emb| crate::embedding::SearchModeEmbeddings {
+						code_embeddings: Some(emb.clone()),
+						text_embeddings: Some(emb),
+					})
+					.collect())
+			} else {
+				// Different models - generate both types in parallel
+				let (code_embeddings, text_embeddings) = tokio::try_join!(
+					crate::embedding::generate_embeddings_batch(
+						queries,
+						true,
+						config,
+						crate::embedding::types::InputType::Query
+					),
+					crate::embedding::generate_embeddings_batch(
+						queries,
+						false,
+						config,
+						crate::embedding::types::InputType::Query
+					)
+				)?;
+
+				Ok(code_embeddings
+					.into_iter()
+					.zip(text_embeddings)
+					.map(|(code_emb, text_emb)| crate::embedding::SearchModeEmbeddings {
+						code_embeddings: Some(code_emb),
+						text_embeddings: Some(text_emb),
+					})
+					.collect())
+			}
+		}
+		_ => Err(anyhow::anyhow!("Invalid search mode: {}", mode)),
+	}
+}
+
+/// Bundle of per-batch invariants shared by every `execute_single_search_with_embeddings`
+/// invocation in a single multi-query / multi-store run. Fields are the values that don't
+/// change as we iterate queries; per-query state (embeddings, query string, query index)
+/// stays as standalone arguments.
+pub struct SingleQuerySearchParams<'a> {
+	pub mode: &'a str,
+	pub limit: usize,
+	pub distance_threshold: Option<f32>,
+	pub language_filter: Option<&'a str>,
+	pub hybrid_enabled: bool,
+	/// Per-source weights for the weighted RRF fusion inside hybrid_search.
+	/// Read from `config.search.hybrid.default_vector_weight/keyword_weight`.
+	pub vector_weight: f32,
+	pub keyword_weight: f32,
+}
+
+pub async fn execute_single_search_with_embeddings(
+	store: &Store,
+	embeddings: crate::embedding::SearchModeEmbeddings,
+	params: &SingleQuerySearchParams<'_>,
+	query_index: usize,
+	query: Option<&str>,
+) -> Result<QuerySearchResult> {
+	let mut code_blocks = Vec::new();
+	let mut doc_blocks = Vec::new();
+	let mut text_blocks = Vec::new();
+	let mut commit_blocks = Vec::new();
+
+	// Hybrid path activates when: feature flag on AND a non-empty raw query is provided.
+	// `distance_threshold` is a distance value (lower=better); HybridSearchQuery
+	// expects similarity (higher=better), so invert: similarity = 1.0 - distance.
+	let use_hybrid = params.hybrid_enabled && query.is_some_and(|q| !q.trim().is_empty());
+	let keywords: Option<String> = if use_hybrid { query.map(str::to_string) } else { None };
+	let min_relevance = params.distance_threshold.map(|d| 1.0 - d);
+	let limit = params.limit;
+	let distance_threshold = params.distance_threshold;
+	let language_filter = params.language_filter;
+
+	match params.mode {
+		"code" => {
+			if let Some(code_emb) = embeddings.code_embeddings {
+				code_blocks = if use_hybrid {
+					let hq = crate::store::HybridSearchQuery {
+						vector_query: Some(code_emb),
+						keywords: keywords.clone(),
+						vector_weight: params.vector_weight,
+						keyword_weight: params.keyword_weight,
+						limit,
+						min_relevance,
+						language_filter: language_filter.map(String::from),
+					};
+					store.hybrid_search::<crate::store::CodeBlock>(&hq).await?
+				} else {
+					store
+						.get_code_blocks_with_language_filter(
+							code_emb,
+							Some(limit),
+							distance_threshold,
+							language_filter,
+						)
+						.await?
+				};
+			}
+		}
+		"docs" => {
+			if let Some(text_emb) = embeddings.text_embeddings {
+				doc_blocks = if use_hybrid {
+					let hq = crate::store::HybridSearchQuery {
+						vector_query: Some(text_emb),
+						keywords: keywords.clone(),
+						vector_weight: params.vector_weight,
+						keyword_weight: params.keyword_weight,
+						limit,
+						min_relevance,
+						language_filter: None,
+					};
+					store.hybrid_search::<crate::store::DocumentBlock>(&hq).await?
+				} else {
+					store
+						.get_document_blocks_with_config(text_emb, Some(limit), distance_threshold)
+						.await?
+				};
+			}
+		}
+		"text" => {
+			if let Some(text_emb) = embeddings.text_embeddings {
+				text_blocks = if use_hybrid {
+					let hq = crate::store::HybridSearchQuery {
+						vector_query: Some(text_emb),
+						keywords: keywords.clone(),
+						vector_weight: params.vector_weight,
+						keyword_weight: params.keyword_weight,
+						limit,
+						min_relevance,
+						language_filter: None,
+					};
+					store.hybrid_search::<crate::store::TextBlock>(&hq).await?
+				} else {
+					store
+						.get_text_blocks_with_config(text_emb, Some(limit), distance_threshold)
+						.await?
+				};
+			}
+		}
+		"commits" => {
+			if let Some(text_emb) = embeddings.text_embeddings {
+				commit_blocks = if use_hybrid {
+					let hq = crate::store::HybridSearchQuery {
+						vector_query: Some(text_emb),
+						keywords: keywords.clone(),
+						vector_weight: params.vector_weight,
+						keyword_weight: params.keyword_weight,
+						limit,
+						min_relevance,
+						language_filter: None,
+					};
+					store.hybrid_search::<crate::store::CommitBlock>(&hq).await?
+				} else {
+					store
+						.get_commit_blocks_with_config(text_emb, Some(limit), distance_threshold)
+						.await?
+				};
+			}
+		}
+		"all" => {
+			// Pull the full per-query budget from each modality. The 1/3-each
+			// quota is replaced by global ranking in `fuse_all_mode_results`
+			// after all three lists are gathered.
+			let per_type_limit = limit;
+			let code_embeddings = embeddings.code_embeddings;
+			let text_embeddings = embeddings.text_embeddings;
+
+			// Code and text/doc lookups are independent; run all three tables
+			// concurrently instead of finishing code before starting the rest.
+			let code_fut = async {
+				if let Some(code_emb) = code_embeddings {
+					if use_hybrid {
+						let hq = crate::store::HybridSearchQuery {
+							vector_query: Some(code_emb),
+							keywords: keywords.clone(),
+							vector_weight: params.vector_weight,
+							keyword_weight: params.keyword_weight,
+							limit: per_type_limit,
+							min_relevance,
+							language_filter: language_filter.map(String::from),
+						};
+						store.hybrid_search::<crate::store::CodeBlock>(&hq).await
+					} else {
+						store
+							.get_code_blocks_with_language_filter(
+								code_emb,
+								Some(per_type_limit),
+								distance_threshold,
+								language_filter,
+							)
+							.await
+					}
+				} else {
+					Ok(Vec::new())
+				}
+			};
+			let text_doc_fut = async {
+				if let Some(text_emb) = text_embeddings {
+					let text_emb_clone = text_emb.clone();
+
+					if use_hybrid {
+						let hq_text = crate::store::HybridSearchQuery {
+							vector_query: Some(text_emb),
+							keywords: keywords.clone(),
+							vector_weight: params.vector_weight,
+							keyword_weight: params.keyword_weight,
+							limit: per_type_limit,
+							min_relevance,
+							language_filter: None,
+						};
+						let hq_doc = crate::store::HybridSearchQuery {
+							vector_query: Some(text_emb_clone),
+							keywords: keywords.clone(),
+							vector_weight: params.vector_weight,
+							keyword_weight: params.keyword_weight,
+							limit: per_type_limit,
+							min_relevance,
+							language_filter: None,
+						};
+						let (t, d) = tokio::try_join!(
+							store.hybrid_search::<crate::store::TextBlock>(&hq_text),
+							store.hybrid_search::<crate::store::DocumentBlock>(&hq_doc),
+						)?;
+						Ok((t, d))
+					} else {
+						let (text_result, doc_result) = tokio::try_join!(
+							store.get_text_blocks_with_config(text_emb, Some(per_type_limit), distance_threshold,),
+							store.get_document_blocks_with_config(
+								text_emb_clone,
+								Some(per_type_limit),
+								distance_threshold,
+							)
+						)?;
+						Ok((text_result, doc_result))
+					}
+				} else {
+					Ok((Vec::new(), Vec::new()))
+				}
+			};
+			let (code_result, (text_result, doc_result)) = tokio::try_join!(code_fut, text_doc_fut)?;
+			code_blocks = code_result;
+			text_blocks = text_result;
+			doc_blocks = doc_result;
+
+			fuse_all_mode_results(&mut code_blocks, &mut text_blocks, &mut doc_blocks, limit);
+		}
+		other => return Err(anyhow::anyhow!("Invalid search mode: {}", other)),
+	}
+
+	Ok(QuerySearchResult {
+		query_index,
+		code_blocks,
+		doc_blocks,
+		text_blocks,
+		commit_blocks,
+	})
+}
+
+pub async fn execute_parallel_searches(
+	store: &Store,
+	query_embeddings: Vec<(String, crate::embedding::SearchModeEmbeddings)>,
+	params: &SearchParams<'_>,
+) -> Result<Vec<QuerySearchResult>> {
+	let per_query_limit = if params.config.search.reranker.enabled {
+		params.config.search.reranker.top_k_candidates
+	} else {
+		// `.max(1)`: integer division can floor to 0 when there are more queries
+		// than `max_results * 2` (e.g. max_results=1 with 3 queries), which would
+		// fetch nothing at all instead of at least one candidate per query.
+		((params.max_results * 2) / query_embeddings.len().max(1)).max(1)
+	};
+
+	// Over-fetch from main when branch is active (some results will be filtered out)
+	let main_limit = if params.branch_ctx.is_some() {
+		per_query_limit * 2
+	} else {
+		per_query_limit
+	};
+
+	// When reranker is enabled, skip distance pre-filter — let reranker decide relevance.
+	// When disabled, apply similarity threshold as distance filter.
+	let distance_threshold = if params.config.search.reranker.enabled {
+		None
+	} else {
+		Some(1.0 - params.similarity_threshold)
+	};
+
+	let hybrid_enabled = params.config.search.hybrid.enabled;
+	let auto_weight = params.config.search.hybrid.auto_weight;
+	let base_vw = params.config.search.hybrid.default_vector_weight;
+	let base_kw = params.config.search.hybrid.default_keyword_weight;
+
+	// Search main store. Weights are resolved per query so `auto_weight` can tilt
+	// identifier lookups toward BM25 without touching natural-language queries.
+	let main_futures: Vec<_> = query_embeddings
+		.iter()
+		.enumerate()
+		.map(|(index, (query_str, embeddings))| {
+			let emb = embeddings.clone();
+			let q = query_str.clone();
+			let (vector_weight, keyword_weight) = if auto_weight {
+				classify_query_weights(query_str, base_vw, base_kw)
+			} else {
+				(base_vw, base_kw)
+			};
+			let mp = SingleQuerySearchParams {
+				mode: params.mode,
+				limit: main_limit,
+				distance_threshold,
+				language_filter: params.language_filter,
+				hybrid_enabled,
+				vector_weight,
+				keyword_weight,
+			};
+			async move { execute_single_search_with_embeddings(store, emb, &mp, index, Some(q.as_str())).await }
+		})
+		.collect();
+
+	// If no branch context, return main results directly
+	let Some(branch) = params.branch_ctx else {
+		return futures::future::try_join_all(main_futures).await;
+	};
+
+	// Search branch store (concurrently with the main store below)
+	let branch_futures: Vec<_> = query_embeddings
+		.iter()
+		.enumerate()
+		.map(|(index, (query_str, embeddings))| {
+			let emb = embeddings.clone();
+			let q = query_str.clone();
+			let (vector_weight, keyword_weight) = if auto_weight {
+				classify_query_weights(query_str, base_vw, base_kw)
+			} else {
+				(base_vw, base_kw)
+			};
+			let bp = SingleQuerySearchParams {
+				mode: params.mode,
+				limit: per_query_limit,
+				distance_threshold,
+				language_filter: params.language_filter,
+				hybrid_enabled,
+				vector_weight,
+				keyword_weight,
+			};
+			async move { execute_single_search_with_embeddings(&branch.store, emb, &bp, index, Some(q.as_str())).await }
+		})
+		.collect();
+
+	let (mut main_results, branch_results) = tokio::try_join!(
+		futures::future::try_join_all(main_futures),
+		futures::future::try_join_all(branch_futures),
+	)?;
+
+	// Merge: branch results take priority over main for overridden paths
+	let merged: Vec<QuerySearchResult> = main_results
+		.drain(..)
+		.zip(branch_results)
+		.map(|(main, branch_r)| merge_branch_query_results(main, branch_r, &branch.manifest, per_query_limit))
+		.collect();
+
+	Ok(merged)
+}
+
+/// RRF dampening constant for fusing a block's ranks across sub-queries.
+const DEDUP_RRF_K: f32 = 60.0;
+
+/// Fuse per-query result lists into one ranking via Reciprocal Rank Fusion.
+///
+/// Each block's fused score is `sum over the queries that returned it of
+/// 1 / (DEDUP_RRF_K + rank)`, where `rank` is its 0-based position in that
+/// query's list. Lists arrive best-first from vector/hybrid search, so position
+/// == rank. This replaces the old cosine-min merge + ad-hoc multi-query bonus
+/// and closes two signal leaks:
+///   * it preserves the hybrid RRF ordering `hybrid_search` produced — the old
+///     code re-sorted by recomputed cosine, discarding the BM25 contribution;
+///   * cross-query agreement falls out naturally — a block returned by several
+///     sub-queries accumulates score.
+///     The representative block keeps its lowest (best) cosine `distance` for
+///     display and optional threshold filtering; ranking is by fused score.
+fn fuse_query_lists<B: crate::store::block_trait::BlockType>(
+	per_query: &[&[B]],
+	distance_threshold: Option<f32>,
+) -> Vec<B> {
+	use std::collections::hash_map::Entry;
+	use std::collections::HashMap;
+
+	let mut map: HashMap<String, (B, f32)> = HashMap::new();
+	for list in per_query {
+		for (rank, block) in list.iter().enumerate() {
+			let contrib = 1.0 / (DEDUP_RRF_K + rank as f32);
+			match map.entry(block.get_hash()) {
+				Entry::Vacant(e) => {
+					e.insert((block.clone(), contrib));
+				}
+				Entry::Occupied(mut e) => {
+					let (rep, score) = e.get_mut();
+					*score += contrib;
+					// Keep the representative with the better (lower) cosine.
+					let replace = match (block.distance(), rep.distance()) {
+						(Some(nb), Some(ob)) => nb < ob,
+						(Some(_), None) => true,
+						_ => false,
+					};
+					if replace {
+						let carried = *score;
+						*rep = block.clone();
+						*score = carried;
+					}
+				}
+			}
+		}
+	}
+
+	let mut ranked: Vec<(B, f32)> = map
+		.into_values()
+		.filter(|(b, _)| match distance_threshold {
+			Some(t) => b.distance().is_none_or(|d| d <= t),
+			None => true,
+		})
+		.collect();
+	// Fused score desc; ties broken by cosine asc then hash for a deterministic
+	// order (HashMap drain order is otherwise unspecified).
+	ranked.sort_by(|a, b| {
+		b.1.partial_cmp(&a.1)
+			.unwrap_or(std::cmp::Ordering::Equal)
+			.then(
+				a.0.distance()
+					.partial_cmp(&b.0.distance())
+					.unwrap_or(std::cmp::Ordering::Equal),
+			)
+			.then(a.0.get_hash().cmp(&b.0.get_hash()))
+	});
+	ranked.into_iter().map(|(b, _)| b).collect()
+}
+
+/// Deterministically tilt the vector/keyword RRF weights by query shape (no
+/// LLM). Identifier / symbol-like lookups lean on BM25; natural-language
+/// queries keep the configured defaults. Rationale: BM25 owns exact identifier
+/// matches, dense vectors own paraphrased intent (see `store::weighted_rrf`).
+fn classify_query_weights(query: &str, default_vw: f32, default_kw: f32) -> (f32, f32) {
+	let q = query.trim();
+	let word_count = q.split_whitespace().count();
+	let has_symbol = q
+		.chars()
+		.any(|c| c == '_' || c == ':' || c == '(' || c == '.' || c == '<' || c == '>');
+	let mixed_case = q.chars().any(|c| c.is_lowercase()) && q.chars().any(|c| c.is_uppercase());
+	// Short + code punctuation / camelCase → identifier lookup: keyword-tilted.
+	if word_count <= 3 && (has_symbol || mixed_case) {
+		(0.3, 0.7)
+	} else {
+		(default_vw, default_kw)
+	}
+}
+
+pub fn deduplicate_and_merge_results(
+	search_results: Vec<QuerySearchResult>,
+	distance_threshold: Option<f32>,
+) -> (
+	Vec<crate::store::CodeBlock>,
+	Vec<crate::store::DocumentBlock>,
+	Vec<crate::store::TextBlock>,
+	Vec<crate::store::CommitBlock>,
+) {
+	// Dedup + rank each modality by cross-query Reciprocal Rank Fusion. The
+	// per-query lists arrive best-first (vector or hybrid RRF order), so their
+	// position is the rank the fusion consumes. See `fuse_query_lists`.
+	let code_lists: Vec<&[crate::store::CodeBlock]> = search_results.iter().map(|r| r.code_blocks.as_slice()).collect();
+	let doc_lists: Vec<&[crate::store::DocumentBlock]> =
+		search_results.iter().map(|r| r.doc_blocks.as_slice()).collect();
+	let text_lists: Vec<&[crate::store::TextBlock]> = search_results.iter().map(|r| r.text_blocks.as_slice()).collect();
+	let commit_lists: Vec<&[crate::store::CommitBlock]> =
+		search_results.iter().map(|r| r.commit_blocks.as_slice()).collect();
+
+	(
+		fuse_query_lists(&code_lists, distance_threshold),
+		fuse_query_lists(&doc_lists, distance_threshold),
+		fuse_query_lists(&text_lists, distance_threshold),
+		fuse_query_lists(&commit_lists, distance_threshold),
+	)
+}
+
+/// Merge search results from main and branch stores.
+/// Branch results take priority: for any path present in the branch delta,
+/// main results for that path are excluded.
+fn merge_branch_code_blocks(
+	main: Vec<CodeBlock>,
+	branch: Vec<CodeBlock>,
+	overridden: &HashSet<&str>,
+	limit: usize,
+) -> Vec<CodeBlock> {
+	let filtered_main = main.into_iter().filter(|b| !overridden.contains(b.path.as_str()));
+	let mut combined: Vec<CodeBlock> = branch.into_iter().chain(filtered_main).collect();
+	combined.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+	combined.truncate(limit);
+	combined
+}
+
+fn merge_branch_text_blocks(
+	main: Vec<TextBlock>,
+	branch: Vec<TextBlock>,
+	overridden: &HashSet<&str>,
+	limit: usize,
+) -> Vec<TextBlock> {
+	let filtered_main = main.into_iter().filter(|b| !overridden.contains(b.path.as_str()));
+	let mut combined: Vec<TextBlock> = branch.into_iter().chain(filtered_main).collect();
+	combined.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+	combined.truncate(limit);
+	combined
+}
+
+fn merge_branch_doc_blocks(
+	main: Vec<DocumentBlock>,
+	branch: Vec<DocumentBlock>,
+	overridden: &HashSet<&str>,
+	limit: usize,
+) -> Vec<DocumentBlock> {
+	let filtered_main = main.into_iter().filter(|b| !overridden.contains(b.path.as_str()));
+	let mut combined: Vec<DocumentBlock> = branch.into_iter().chain(filtered_main).collect();
+	combined.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap_or(std::cmp::Ordering::Equal));
+	combined.truncate(limit);
+	combined
+}
+
+/// Merge a QuerySearchResult from main and branch stores.
+fn merge_branch_query_results(
+	main: QuerySearchResult,
+	branch: QuerySearchResult,
+	manifest: &BranchManifest,
+	per_query_limit: usize,
+) -> QuerySearchResult {
+	let overridden = manifest.overridden_paths();
+
+	QuerySearchResult {
+		query_index: main.query_index,
+		code_blocks: merge_branch_code_blocks(main.code_blocks, branch.code_blocks, &overridden, per_query_limit),
+		doc_blocks: merge_branch_doc_blocks(main.doc_blocks, branch.doc_blocks, &overridden, per_query_limit),
+		text_blocks: merge_branch_text_blocks(main.text_blocks, branch.text_blocks, &overridden, per_query_limit),
+		// Commits are global — no branch override needed
+		commit_blocks: main.commit_blocks,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_format_symbols_for_display_empty() {
+		let symbols: Vec<String> = vec![];
+		let result = format_symbols_for_display(&symbols);
+		assert_eq!(result, "");
+	}
+
+	#[test]
+	fn test_format_symbols_for_display_filters_types() {
+		let symbols = vec![
+			"function_definition".to_string(), // contains _, filtered out
+			"my_function".to_string(),         // contains _, filtered out
+			"class_declaration".to_string(),   // contains _, filtered out
+			"MyClass".to_string(),             // no _, kept
+		];
+		let result = format_symbols_for_display(&symbols);
+		// Should filter out symbols containing underscores
+		assert_eq!(result, "MyClass");
+	}
+
+	#[test]
+	fn test_format_symbols_for_display_deduplicates() {
+		let symbols = vec![
+			"foo".to_string(),
+			"bar".to_string(),
+			"foo".to_string(),
+			"baz".to_string(),
+		];
+		let result = format_symbols_for_display(&symbols);
+		// Should deduplicate and sort
+		assert_eq!(result, "bar, baz, foo");
+	}
+
+	#[test]
+	fn test_format_symbols_for_display_sorts() {
+		let symbols = vec!["zebra".to_string(), "apple".to_string(), "mango".to_string()];
+		let result = format_symbols_for_display(&symbols);
+		assert_eq!(result, "apple, mango, zebra");
+	}
+
+	#[test]
+	fn test_format_symbols_for_display_mixed() {
+		let symbols = vec![
+			"my_func".to_string(),       // contains _, filtered out
+			"type_alias".to_string(),    // contains _, filtered out
+			"AnotherFunc".to_string(),   // no _, kept
+			"my_func".to_string(),       // duplicate, filtered out
+			"interface_def".to_string(), // contains _, filtered out
+			"SimpleFunc".to_string(),    // no _, kept
+		];
+		let result = format_symbols_for_display(&symbols);
+		// Should filter types with underscores and sort
+		assert_eq!(result, "AnotherFunc, SimpleFunc");
+	}
+
+	#[test]
+	fn test_format_commit_search_results_empty() {
+		let blocks: Vec<crate::store::CommitBlock> = vec![];
+		let result = format_commit_search_results_as_text(&blocks, "partial");
+		assert_eq!(result, "No commit results found.");
+	}
+
+	#[test]
+	fn test_format_commit_search_results() {
+		let blocks = vec![crate::store::CommitBlock {
+			hash: "abc12345deadbeef".to_string(),
+			author: "Alice".to_string(),
+			date: 1700000000, // 2023-11-14
+			message: "feat: add retry logic\n\nDetailed body here".to_string(),
+			content: "feat: add retry logic\n\nFiles: src/client.rs".to_string(),
+			files: r#"["src/client.rs","src/retry.rs"]"#.to_string(),
+			description: "Adds exponential backoff".to_string(),
+			distance: Some(0.15),
+		}];
+
+		// Partial: shows subject + files + description, not full body
+		let result = format_commit_search_results_as_text(&blocks, "partial");
+		assert!(result.contains("COMMIT RESULTS (1)"));
+		assert!(result.contains("abc12345"));
+		assert!(result.contains("Alice"));
+		assert!(result.contains("feat: add retry logic"));
+		assert!(!result.contains("Detailed body here"));
+		assert!(result.contains("src/client.rs"));
+		assert!(result.contains("Adds exponential backoff"));
+
+		// Full: shows complete message body
+		let result_full = format_commit_search_results_as_text(&blocks, "full");
+		assert!(result_full.contains("Detailed body here"));
+		assert!(result_full.contains("src/client.rs"));
+
+		// Signatures: compact, just subject
+		let result_sig = format_commit_search_results_as_text(&blocks, "signatures");
+		assert!(result_sig.contains("feat: add retry logic"));
+		assert!(!result_sig.contains("Detailed body here"));
+		assert!(!result_sig.contains("src/client.rs"));
+	}
+
+	#[test]
+	fn test_fuse_query_lists_rewards_cross_query_agreement() {
+		// q0: [a, b]   q1: [b, c]  →  b is returned by BOTH queries and must rank
+		// first even though its cosine distance is mediocre.
+		let q0 = vec![make_code_block("a", 0.10), make_code_block("b", 0.50)];
+		let q1 = vec![make_code_block("b", 0.20), make_code_block("c", 0.15)];
+		let fused = fuse_query_lists(&[q0.as_slice(), q1.as_slice()], None);
+		assert_eq!(fused.len(), 3);
+		assert_eq!(fused[0].path, "b");
+		// Representative keeps the better (lower) cosine distance seen for b.
+		assert_eq!(fused[0].distance, Some(0.20));
+	}
+
+	#[test]
+	fn test_fuse_query_lists_preserves_retriever_order() {
+		// Single query: fusion must preserve the incoming rank order (what
+		// hybrid/vector search produced), NOT re-sort by cosine distance —
+		// this is the RRF-preservation fix.
+		let q0 = vec![
+			make_code_block("first", 0.90),  // retriever rank #1 (e.g. exact BM25 hit)
+			make_code_block("second", 0.10), // better cosine but retriever rank #2
+		];
+		let fused = fuse_query_lists(&[q0.as_slice()], None);
+		assert_eq!(fused[0].path, "first");
+		assert_eq!(fused[1].path, "second");
+	}
+
+	#[test]
+	fn test_fuse_query_lists_applies_distance_threshold() {
+		let q0 = vec![make_code_block("keep", 0.10), make_code_block("drop", 0.80)];
+		let fused = fuse_query_lists(&[q0.as_slice()], Some(0.5));
+		assert_eq!(fused.len(), 1);
+		assert_eq!(fused[0].path, "keep");
+	}
+
+	fn make_code_block(path: &str, distance: f32) -> CodeBlock {
+		CodeBlock {
+			path: path.to_string(),
+			language: "rust".to_string(),
+			content: format!("// {}", path),
+			symbols: vec![],
+			start_line: 1,
+			end_line: 10,
+			hash: format!("hash_{}", path),
+			distance: Some(distance),
+		}
+	}
+
+	fn make_text_block(path: &str, distance: f32) -> TextBlock {
+		TextBlock {
+			path: path.to_string(),
+			language: "text".to_string(),
+			content: format!("text {}", path),
+			start_line: 1,
+			end_line: 5,
+			hash: format!("hash_{}", path),
+			distance: Some(distance),
+		}
+	}
+
+	fn make_doc_block(path: &str, distance: f32) -> DocumentBlock {
+		DocumentBlock {
+			path: path.to_string(),
+			title: "Test".to_string(),
+			content: format!("doc {}", path),
+			context: vec![],
+			level: 1,
+			start_line: 1,
+			end_line: 5,
+			hash: format!("hash_{}", path),
+			distance: Some(distance),
+		}
+	}
+
+	#[test]
+	fn test_merge_branch_code_blocks_filters_overridden() {
+		let main = vec![
+			make_code_block("src/a.rs", 0.1),
+			make_code_block("src/b.rs", 0.2),
+			make_code_block("src/c.rs", 0.3),
+		];
+		let branch = vec![make_code_block("src/b.rs", 0.15)];
+		let overridden: HashSet<&str> = ["src/b.rs"].into_iter().collect();
+
+		let result = merge_branch_code_blocks(main, branch, &overridden, 10);
+		assert_eq!(result.len(), 3); // a + branch_b + c
+		assert_eq!(result[0].path, "src/a.rs"); // 0.1
+		assert_eq!(result[1].path, "src/b.rs"); // 0.15 (branch version)
+		assert_eq!(result[2].path, "src/c.rs"); // 0.3
+	}
+
+	#[test]
+	fn test_merge_branch_code_blocks_deleted_files_excluded() {
+		let main = vec![make_code_block("src/a.rs", 0.1), make_code_block("src/deleted.rs", 0.2)];
+		let branch: Vec<CodeBlock> = vec![];
+		let overridden: HashSet<&str> = ["src/deleted.rs"].into_iter().collect();
+
+		let result = merge_branch_code_blocks(main, branch, &overridden, 10);
+		assert_eq!(result.len(), 1);
+		assert_eq!(result[0].path, "src/a.rs");
+	}
+
+	#[test]
+	fn test_merge_branch_code_blocks_respects_limit() {
+		let main = vec![
+			make_code_block("src/a.rs", 0.1),
+			make_code_block("src/b.rs", 0.2),
+			make_code_block("src/c.rs", 0.3),
+		];
+		let branch = vec![make_code_block("src/d.rs", 0.05)];
+		let overridden: HashSet<&str> = ["src/d.rs"].into_iter().collect();
+
+		let result = merge_branch_code_blocks(main, branch, &overridden, 2);
+		assert_eq!(result.len(), 2);
+		assert_eq!(result[0].path, "src/d.rs"); // 0.05 — best
+		assert_eq!(result[1].path, "src/a.rs"); // 0.1
+	}
+
+	#[test]
+	fn test_merge_branch_code_blocks_empty_branch() {
+		let main = vec![make_code_block("src/a.rs", 0.1), make_code_block("src/b.rs", 0.2)];
+		let branch: Vec<CodeBlock> = vec![];
+		let overridden: HashSet<&str> = HashSet::new();
+
+		let result = merge_branch_code_blocks(main, branch, &overridden, 10);
+		assert_eq!(result.len(), 2);
+	}
+
+	#[test]
+	fn test_merge_branch_text_blocks() {
+		let main = vec![make_text_block("docs/a.txt", 0.1)];
+		let branch = vec![make_text_block("docs/a.txt", 0.05)];
+		let overridden: HashSet<&str> = ["docs/a.txt"].into_iter().collect();
+
+		let result = merge_branch_text_blocks(main, branch, &overridden, 10);
+		assert_eq!(result.len(), 1);
+		assert_eq!(result[0].distance, Some(0.05)); // Branch version
+	}
+
+	#[test]
+	fn test_merge_branch_doc_blocks() {
+		let main = vec![make_doc_block("README.md", 0.1), make_doc_block("CHANGELOG.md", 0.3)];
+		let branch = vec![make_doc_block("README.md", 0.2)];
+		let overridden: HashSet<&str> = ["README.md"].into_iter().collect();
+
+		let result = merge_branch_doc_blocks(main, branch, &overridden, 10);
+		assert_eq!(result.len(), 2);
+		// Branch README (0.2) + main CHANGELOG (0.3), sorted by distance
+		assert_eq!(result[0].path, "README.md");
+		assert_eq!(result[0].distance, Some(0.2));
+		assert_eq!(result[1].path, "CHANGELOG.md");
+	}
+
+	#[test]
+	fn test_merge_branch_query_results() {
+		let manifest = BranchManifest {
+			version: 2,
+			branch_name: "feat".to_string(),
+			base_branch: "main".to_string(),
+			base_commit: "aaa".to_string(),
+			branch_commit: "bbb".to_string(),
+			changed_paths: vec!["src/x.rs".to_string()],
+			deleted_paths: vec!["src/old.rs".to_string()],
+			indexed_at: 0,
+			fork_point: "aaa".to_string(),
+			base_db_commit: "aaa".to_string(),
+			remote_base_observed: String::new(),
+		};
+
+		let main = QuerySearchResult {
+			query_index: 0,
+			code_blocks: vec![
+				make_code_block("src/x.rs", 0.1),
+				make_code_block("src/y.rs", 0.2),
+				make_code_block("src/old.rs", 0.3),
+			],
+			doc_blocks: vec![],
+			text_blocks: vec![],
+			commit_blocks: vec![],
+		};
+
+		let branch = QuerySearchResult {
+			query_index: 0,
+			code_blocks: vec![make_code_block("src/x.rs", 0.15)],
+			doc_blocks: vec![],
+			text_blocks: vec![],
+			commit_blocks: vec![],
+		};
+
+		let merged = super::merge_branch_query_results(main, branch, &manifest, 10);
+		// src/x.rs from branch (0.15), src/y.rs from main (0.2)
+		// src/old.rs excluded (deleted on branch)
+		assert_eq!(merged.code_blocks.len(), 2);
+		assert_eq!(merged.code_blocks[0].path, "src/x.rs");
+		assert_eq!(merged.code_blocks[0].distance, Some(0.15));
+		assert_eq!(merged.code_blocks[1].path, "src/y.rs");
+	}
+}

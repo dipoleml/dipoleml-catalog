@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.kucherenko.jscpd",
+  "type": "mcp",
+  "name": "Jscpd",
+  "slug": "jscpd",
+  "vendor": "kucherenko",
+  "description": "Copy/paste detector for source code. 220+ languages, Rust engine, SARIF/HTML/badge reporters, GitHub Action, MCP server for AI agents.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/kucherenko/jscpd",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cli",
+    "clones-detection",
+    "code-duplication",
+    "code-quality",
+    "coding-agents",
+    "copy-paste",
+    "copy-paste-detection",
+    "cpd"
+  ],
+  "tags": [
+    "ai",
+    "cli",
+    "clones-detection",
+    "code-duplication",
+    "code-quality",
+    "coding-agents",
+    "copy-paste",
+    "copy-paste-detection",
+    "cpd",
+    "developer-tools",
+    "dry",
+    "duplicates",
+    "github-action",
+    "linter",
+    "mcp",
+    "rust",
+    "sarif",
+    "skills",
+    "static-analysis",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:11Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "kucherenko/jscpd",
+    "url": "https://github.com/kucherenko/jscpd",
+    "commit": "ef97974680088dfe04960c8289c70fe2a3b93b0e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 6459,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "jscpd-repo"
+    ],
+    "env": [
+      "JSCPD_SEMANTIC_API_KEY"
+    ],
+    "credentials": [
+      "JSCPD_SEMANTIC_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

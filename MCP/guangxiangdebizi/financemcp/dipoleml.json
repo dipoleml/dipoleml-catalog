@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.guangxiangdebizi.financemcp",
+  "type": "mcp",
+  "name": "Financemcp",
+  "slug": "financemcp",
+  "vendor": "guangxiangdebizi",
+  "description": "这是一个金融领域相关的mcp,本项目通过集成 Tushare API 和 Binance API 为语言模型（如DipoleML）提供全面的实时金融数据访问能力，支持股票、基金、债券、宏观经济指标、稳定币、虚拟货币等多维度金融数据分析。其中也包含了金融数据查询、财经新闻查询、国家统计局数据查询等",
+  "version": "4.11.2",
+  "homepage": "https://github.com/guangxiangdebizi/FinanceMCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "binance",
+    "data",
+    "finance",
+    "news",
+    "stablecoin",
+    "tushare"
+  ],
+  "tags": [
+    "binance",
+    "data",
+    "finance",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "news",
+    "stablecoin",
+    "tushare"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "guangxiangdebizi",
+    "brandName": "guangxiangdebizi",
+    "source": "https://github.com/guangxiangdebizi.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:02Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "guangxiangdebizi/FinanceMCP",
+    "url": "https://github.com/guangxiangdebizi/FinanceMCP",
+    "commit": "bed91845005a5f8bbd2816ffd356f0a85b47b2d5",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 865,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:52Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Financemcp | 这是一个金融领域相关的mcp,本项目通过集成 Tushare API 和 Binance API 为语言模型（如Claude）提供全面的实时金融数据访问能力，支持股票、基金、债券、宏观经济指标、稳定币、虚拟货币等多维度金融数据分析。其中也包含了金融数据查询、财经新闻查询、国家统计局数据查询等",
+        "after": "Financemcp | 这是一个金融领域相关的mcp,本项目通过集成 Tushare API 和 Binance API 为语言模型（如DipoleML）提供全面的实时金融数据访问能力，支持股票、基金、债券、宏观经济指标、稳定币、虚拟货币等多维度金融数据分析。其中也包含了金融数据查询、财经新闻查询、国家统计局数据查询等",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "finance-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "finance-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "finance-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "finance-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "finance-mcp"
+    ],
+    "env": [
+      "IMPORTANT",
+      "YOUR_TUSHARE_TOKEN",
+      "YOUR_QVERIS_API_KEY",
+      "YOUR_TWINGLY_API_KEY",
+      "QVERIS_API_KEY",
+      "TWINGLY_API_KEY",
+      "TUSHARE_TOKEN",
+      "QVERIS_BASE_URL",
+      "TWINGLY_BASE_URL",
+      "MCP_HTTP_HOST",
+      "MCP_ALLOWED_HOSTS",
+      "GITHUB_TOKEN"
+    ],
+    "credentials": [
+      "YOUR_TUSHARE_TOKEN",
+      "YOUR_QVERIS_API_KEY",
+      "YOUR_TWINGLY_API_KEY",
+      "QVERIS_API_KEY",
+      "TWINGLY_API_KEY",
+      "TUSHARE_TOKEN",
+      "GITHUB_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

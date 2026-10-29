@@ -1,0 +1,20 @@
+[project]
+name = "unifi-mcp"
+version = "0.0.0"
+description = "UniFi MCP ecosystem workspace"
+requires-python = ">=3.13"
+
+[tool.uv.workspace]
+members = [
+    "apps/*",
+    "packages/*",
+]
+exclude = [
+    "apps/worker",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

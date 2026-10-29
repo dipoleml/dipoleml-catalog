@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qanat-fdtl"
+version = "0.9.0"
+description = "A data platform for processing metrics from filings. It reads company filings, computes the metrics you define, and answers as of any past date. Delivered as an MCP server."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "fidetolabs", email = "dev@fidetolabs.com" }]
+keywords = ["mcp", "mcp-server", "model-context-protocol", "investment-research", "stock-screener", "point-in-time", "financial-data", "data-platform", "duckdb"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Financial and Insurance Industry",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+  "duckdb>=1.0",
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  # round-trips qanat.yaml so an edit keeps the comments somebody wrote
+  "ruamel.yaml>=0.18",
+  "croniter>=2.0",
+  "httpx>=0.27",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+sql = ["sqlalchemy>=2.0"]
+dev = ["pytest>=8.0", "pytest-xdist>=3.5", "ruff>=0.4"]
+prices = [
+    "yfinance>=0.2",
+]
+
+[project.scripts]
+qanat = "qanat.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/fidetolabs/qanat"
+Source = "https://github.com/fidetolabs/qanat"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qanat"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# The probes under audit/runs are the record of how a past run produced its numbers.
+# They were written against a scratch harness and are kept as evidence, not as code
+# -- audit/lab and audit/batteries are the parts that have to keep working.
+extend-exclude = ["audit/runs"]
+
+[tool.pytest.ini_options]
+# `tests` only: the batteries under audit/ are slower and one of them calls live
+# public APIs, so they are opt-in -- `uv run pytest audit/batteries -m audit`.
+testpaths = ["tests"]
+markers = [
+  "audit: a standing chaos battery -- slower, and re-run on every audit",
+  "network: reaches a live public API",
+]
+
+[tool.uv]
+package = true

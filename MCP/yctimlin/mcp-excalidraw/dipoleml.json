@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.yctimlin.mcp-excalidraw",
+  "type": "mcp",
+  "name": "MCP Excalidraw",
+  "slug": "mcp-excalidraw",
+  "vendor": "yctimlin",
+  "description": "MCP server and DipoleML skill for Excalidraw — programmatic canvas toolkit to create, edit, and export diagrams via AI agents with real-time canvas sync.",
+  "version": "2.1.2",
+  "homepage": "https://github.com/yctimlin/mcp_excalidraw",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "yctimlin",
+    "brandName": "yctimlin",
+    "source": "https://github.com/yctimlin.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "yctimlin/mcp_excalidraw",
+    "url": "https://github.com/yctimlin/mcp_excalidraw",
+    "commit": "774a70c1b3f0c7b9901fbbbf66b432d1a8dbbfe7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2577,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "MCP Excalidraw | MCP server and Claude Code skill for Excalidraw — programmatic canvas toolkit to create, edit, and export diagrams via AI agents with real-time canvas sync.",
+        "after": "MCP Excalidraw | MCP server and DipoleML skill for Excalidraw — programmatic canvas toolkit to create, edit, and export diagrams via AI agents with real-time canvas sync.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-excalidraw-server"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-excalidraw-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "mcp-excalidraw-server"
+    ],
+    "env": [
+      "EXPRESS_SERVER_URL",
+      "EXCALIDRAW_EXPORT_DIR",
+      "EXCALIDRAW_SHARE_UPLOAD_URL",
+      "EXCALIDRAW_SHARE_BASE_URL",
+      "CANVAS_TEST_PORT",
+      "VITE_APP_BACKEND_V2_GET_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

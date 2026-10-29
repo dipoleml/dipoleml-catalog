@@ -1,0 +1,166 @@
+# Roam Agent Review — drop-in GitHub Actions workflow.
+#
+# Place at .github/workflows/agent-review.yml in your repo. Runs roam
+# pr-analyze on every pull-request push, posts a sticky markdown comment,
+# and gates merge on BLOCK verdicts. EU AI Act Article 12 audit-trail is
+# emitted as a workflow artifact for procurement / compliance review.
+#
+# Customise the `--block-threshold`, `--language`, and rules path below
+# to match your team's policy. A starter `.roam/rules.yml` is shipped at
+# templates/examples/.roam-rules.yml.
+
+name: Roam Agent Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Single-job workflow: `main` is the workflow entry job invoked by the
+  # `on: pull_request` trigger above (no intra-file `needs:` edge exists or
+  # is needed). Keep the visible job name `agent-review`; consumers may pin it
+  # as a required status check in branch protection.
+  main:
+    name: agent-review
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write   # post + edit the sticky comment
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0   # full history so pr-analyze can compute git stats
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Install roam-code
+        run: python -m pip install "roam-code[mcp]==14.1.0"
+
+      - name: Index repository
+        run: roam init
+
+      - name: Acquire PR diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! printf '%s' "$BASE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Pull-request base SHA is not a lowercase 40-character commit ID."
+            exit 1
+          fi
+          if ! git cat-file -e "${BASE_SHA}^{commit}"; then
+            echo "::error::The checked-out full history does not contain the PR base commit."
+            exit 1
+          fi
+          git diff --binary "${BASE_SHA}...HEAD" -- > pr.diff
+
+      - name: Run pr-analyze
+        id: analyze
+        env:
+          # Untrusted input — never interpolate `${{ }}` into `run:` directly
+          # (a crafted PR title would inject into the shell script).
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          mkdir -p .roam-artifacts
+          roam --json pr-analyze \
+            --input pr.diff \
+            --rules .roam/rules.yml \
+            --with-reviewers \
+            --audit-trail \
+            --save-baseline \
+            --intent "$PR_TITLE" \
+            > .roam-artifacts/pr-analysis.json
+          # Validate the required evidence before exporting a bounded output.
+          #
+          # `summary.verdict` is a DECORATED sentence, not a bare token:
+          # pr-analyze appends the canonical `(risk_level X)` suffix so the
+          # line parses standalone in a PR comment or an audit trail. Match
+          # the whole sentence against both closed vocabularies (the verdict
+          # set plus NOCHANGES; the four canonical risk levels) and publish
+          # only the bare token downstream. The match is ANCHORED on purpose:
+          # when the verdict could not be composed pr-analyze emits the floor
+          # sentence `pr-analyze completed (risk_level low)`, which must keep
+          # failing this step — an uncomputed verdict is not a passing one.
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import re
+          from pathlib import Path
+
+          path = Path(".roam-artifacts/pr-analysis.json")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          summary = payload.get("summary") or {}
+          verdict = summary.get("verdict")
+          pattern = re.compile(
+              r"(INTENTIONAL|SAFE|REVIEW|BLOCK|NOCHANGES) "
+              r"\(risk_level (low|medium|high|critical)\)"
+          )
+          match = pattern.fullmatch(verdict) if isinstance(verdict, str) else None
+          if match is None:
+              raise SystemExit(f"invalid or missing pr-analyze verdict: {verdict!r}")
+          code = match.group(1)
+          # `summary.verdict_code` is the machine-readable mirror of the same
+          # token (roam >= 14.1). When both are present they must agree —
+          # disagreement means the envelope was rewritten between them.
+          declared = summary.get("verdict_code")
+          if declared is not None and declared != code:
+              raise SystemExit(f"pr-analyze verdict_code {declared!r} disagrees with verdict {verdict!r}")
+          print(f"verdict={code}")
+          PY
+
+      - name: Render PR comment
+        run: |
+          roam pr-comment-render \
+            --input .roam-artifacts/pr-analysis.json \
+            --style github \
+            > .roam-artifacts/comment.md
+
+      - name: Verify audit-trail integrity
+        run: |
+          if [ ! -f .roam/audit-trail.jsonl ]; then
+            echo "::error::pr-analyze did not emit the required audit trail."
+            exit 1
+          fi
+          roam audit-trail-verify --gate
+          cp .roam/audit-trail.jsonl .roam-artifacts/
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          path: .roam-artifacts/comment.md
+          header: roam-agent-review
+
+      - name: Upload analysis artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: roam-agent-review
+          path: .roam-artifacts/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Gate merge on BLOCK
+        env:
+          ROAM_VERDICT: ${{ steps.analyze.outputs.verdict }}
+        run: |
+          case "$ROAM_VERDICT" in
+            INTENTIONAL|SAFE|REVIEW|NOCHANGES)
+              echo "Roam Agent Review verdict: $ROAM_VERDICT"
+              ;;
+            BLOCK)
+              echo "::error::Roam Agent Review verdict: BLOCK — see PR comment for findings."
+              exit 1
+              ;;
+            *)
+              echo "::error::Roam Agent Review produced an invalid or missing verdict."
+              exit 1
+              ;;
+          esac

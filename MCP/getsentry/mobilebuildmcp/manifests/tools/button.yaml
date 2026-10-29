@@ -1,0 +1,21 @@
+id: button
+module: mcp/tools/ui-automation/button
+names:
+  mcp: button
+  cli: button
+description: Press simulator hardware button.
+outputSchema:
+  schema: mobilebuildmcp.output.ui-action-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Hardware Button
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Refresh after UI action
+    toolId: snapshot_ui
+    when: success
+    condition: ui_action_needs_refresh

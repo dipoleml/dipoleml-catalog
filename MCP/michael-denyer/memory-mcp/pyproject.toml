@@ -1,0 +1,78 @@
+[project]
+name = "hot-memory-mcp"
+version = "0.8.0"
+description = "Engram-inspired memory MCP server with a hook-injected hot cache and semantic recall"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Memory MCP Contributors" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "fastmcp>=4.0.10,<5",  # >=3.2 required by GHSA advisory; v2 line is EOL
+    "sqlite-vec>=0.1,<1",  # Pre-1.0 package - pin to avoid breaking changes
+    "sentence-transformers>=6.1.0,<7",  # requires get_embedding_dimension; 5.x pulls transformers 5.x (security fix)
+    "pydantic>=2.13.5,<3",
+    "pydantic-settings>=2.0,<3",
+    "loguru>=0.7,<1",
+    "click>=8.0,<9",
+    "rich>=13.0,<16",
+    "fastapi>=0.100,<1",  # Web dashboard
+    "uvicorn[standard]>=0.20,<1",  # ASGI server for dashboard
+    "jinja2>=3.0,<4",  # Template engine for dashboard
+    "transformers>=4.0,<6",  # Required by sentence-transformers; >=5.0.0rc3 fixes GHSA advisory
+]
+
+[project.scripts]
+memory-mcp = "memory_mcp.server:main"
+memory-mcp-cli = "memory_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/michael-denyer/memory-mcp"
+Repository = "https://github.com/michael-denyer/memory-mcp"
+Issues = "https://github.com/michael-denyer/memory-mcp/issues"
+
+[build-system]
+requires = ["hatchling==1.32.4"]  # Exact pin: a compromised build backend executes arbitrary code at install time
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memory_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.mypy]
+ignore_missing_imports = true
+no_strict_optional = true
+
+# Disable attribute checking for mixin classes - mypy can't understand
+# that mixins will be combined with Storage class at runtime
+[[tool.mypy.overrides]]
+module = "memory_mcp.storage.*"
+disable_error_code = ["attr-defined", "misc"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pre-commit>=3.0",
+    "ruff>=0.14,<0.17",
+    "pytest-randomly>=5.0.0",
+]

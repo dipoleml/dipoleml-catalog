@@ -1,0 +1,1402 @@
+"""
+VM-related tools for Proxmox MCP.
+
+This module provides tools for managing and interacting with Proxmox VMs:
+- Listing all VMs across the cluster with their status
+- Retrieving detailed VM information including:
+  * Resource allocation (CPU, memory)
+  * Runtime status
+  * Node placement
+- Executing commands within VMs via QEMU guest agent
+- Handling VM console operations
+- VM power management (start, stop, shutdown, reset)
+- VM creation with customizable specifications
+
+The tools implement fallback mechanisms for scenarios where
+detailed VM information might be temporarily unavailable.
+"""
+from proxmox_mcp.tools.storage_selection import select_storage
+from proxmox_mcp.tools.guest_config import bridge_name, parse_device, vm_media
+import json
+import re
+import math
+from decimal import Decimal
+import urllib.parse
+from typing import Any, Dict, List, Optional
+from mcp.types import TextContent as Content
+from proxmox_mcp.models import ToolResult
+from proxmox_mcp.tools.base import ProxmoxTool, _log_safe, completeness_content
+from proxmox_mcp.tools.console.manager import VMConsoleManager
+from proxmox_mcp.security.resources import validate_segment
+from proxmoxer.core import ResourceException
+
+
+def _as_dict(maybe: Any) -> Dict:
+    """Return dict; unwrap {'data': dict}; else {}."""
+    if isinstance(maybe, dict):
+        data = maybe.get("data")
+        if isinstance(data, dict):
+            return data
+        return maybe
+    return {}
+
+
+def _vm_reference(node: str, vmid: str) -> None:
+    validate_segment(node)
+    if not re.fullmatch(r"[1-9][0-9]{2,8}", str(vmid)):
+        raise ValueError("Invalid VM ID: use a canonical ID between 100 and 999999999")
+
+
+def _records(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError("Malformed API inventory")
+    return value
+
+
+def _content_types(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {part.strip() for part in value.split(",") if part.strip()}
+    if isinstance(value, list) and all(isinstance(part, str) for part in value):
+        return set(value)
+    raise ValueError("Malformed storage content capabilities")
+
+
+def _pve_flag(value: Any) -> bool:
+    if not isinstance(value, (bool, int)) or value not in (0, 1):
+        raise ValueError("Malformed Proxmox boolean flag")
+    return bool(value)
+
+
+def _capacity(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+
+
+class VMTools(ProxmoxTool):
+    """Tools for managing Proxmox VMs.
+    
+    Provides functionality for:
+    - Retrieving cluster-wide VM information
+    - Getting detailed VM status and configuration
+    - Executing commands within VMs
+    - Managing VM console operations
+    - VM power management (start, stop, shutdown, reset)
+    - VM creation with customizable specifications
+    
+    Implements fallback mechanisms for scenarios where detailed
+    VM information might be temporarily unavailable. Integrates
+    with QEMU guest agent for VM command execution.
+    """
+
+    def __init__(
+        self,
+        proxmox_api: Any,
+        command_policy: Optional[Any] = None,
+        metrics: Optional[Any] = None,
+        job_store: Optional[Any] = None,
+    ):
+        """Initialize VM tools.
+
+        Args:
+            proxmox_api: Initialized ProxmoxAPI instance
+        """
+        super().__init__(proxmox_api, metrics=metrics, job_store=job_store)
+        self.console_manager = VMConsoleManager(proxmox_api)
+        self.command_policy = command_policy
+
+    # ---------- error / output ----------
+    def _json_fmt(self, data: Any) -> List[Content]:
+        """Return raw JSON string (never touch project formatters)."""
+        return [Content(type="text", text=json.dumps(data, indent=2, sort_keys=True))]
+
+    def _err(self, action: str, e: Exception) -> List[Content]:
+        self._handle_error(action, e)
+
+    def _get_cluster_vm_inventory(self) -> Optional[list[dict[str, Any]]]:
+        try:
+            resources = self.proxmox.cluster.resources.get(type="vm")
+        except Exception as error:
+            self.logger.debug("Cluster VM inventory unavailable, falling back to node scan: %s", error)
+            return None
+        if not isinstance(resources, list):
+            return None
+
+        result: list[dict[str, Any]] = []
+        for vm in resources:
+            if not isinstance(vm, dict) or vm.get("type") != "qemu":
+                continue
+            vmid = vm.get("vmid")
+            if vmid is None:
+                resource_id = str(vm.get("id", ""))
+                if "/" in resource_id:
+                    vmid = resource_id.rsplit("/", 1)[-1]
+            if vmid is None:
+                continue
+            result.append({
+                "vmid": vmid,
+                "name": vm.get("name") or f"VM-{vmid}",
+                "status": vm.get("status", "unknown"),
+                "node": vm.get("node", "unknown"),
+                "cpus": vm.get("maxcpu", vm.get("cpus", "N/A")),
+                "memory": {
+                    "used": vm.get("mem", 0),
+                    "total": vm.get("maxmem", 0),
+                },
+            })
+        return result
+
+    def get_vm_config(self, node: str, vmid: str) -> List[Content]:
+        """Return the full configuration of a QEMU virtual machine.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: VM ID as a string.
+        """
+        try:
+            config = _as_dict(self.proxmox.nodes(node).qemu(vmid).config.get())
+            config.setdefault("vmid", vmid)
+            return self._json_fmt(config)
+        except Exception as e:
+            return self._err("get_vm_config", e)
+
+    def set_vm_description(
+        self, node: str, vmid: str, description: str
+    ) -> List[Content]:
+        """Set/replace the description (Notes field in the UI) of a QEMU VM.
+
+        Uses PUT /nodes/{node}/qemu/{vmid}/config. Pass an empty string to
+        clear the notes.
+
+        Parameters:
+            node: Proxmox node name.
+            vmid: VM ID as a string.
+            description: New notes text (replaces any existing notes).
+        """
+        try:
+            self.proxmox.nodes(node).qemu(vmid).config.put(description=description)
+            return self._json_fmt({"vmid": vmid, "node": node, "description": description})
+        except Exception as e:
+            return self._err("set_vm_description", e)
+
+    def get_next_vmid(self) -> List[Content]:
+        """Return the next free VM/CT ID from the cluster (GET /cluster/nextid)."""
+        try:
+            next_id = self.proxmox.cluster.nextid.get()
+            return self._json_fmt({"vmid": str(next_id)})
+        except Exception as e:
+            return self._err("get_next_vmid", e)
+
+    def update_vm_config(
+        self,
+        node: str,
+        vmid: str,
+        memory: Optional[int] = None,
+        cores: Optional[int] = None,
+        sockets: Optional[int] = None,
+        name: Optional[str] = None,
+        sshkeys: Optional[str] = None,
+        ciuser: Optional[str] = None,
+        ipconfig0: Optional[str] = None,
+        nameserver: Optional[str] = None,
+        searchdomain: Optional[str] = None,
+        tags: Optional[str] = None,
+        approval_token: Optional[str] = None,
+        iso_volume: Optional[str] = None,
+        cdrom_device: str = "ide3",
+        boot_order: Optional[str] = None,
+        network_bridge: Optional[str] = None,
+    ) -> List[Content]:
+        """Update sizing and cloud-init settings of an existing QEMU VM.
+
+        Uses PUT /nodes/{node}/qemu/{vmid}/config with only the fields that
+        were supplied. Cloud-init fields (sshkeys, ciuser, ipconfig0,
+        nameserver, searchdomain) take effect at the guest's next boot;
+        sizing changes on a running VM are applied as pending changes.
+
+        The ``sshkeys`` value is URL-encoded before it is sent: the Proxmox
+        API expects the *value* of that field to be percent-encoded on top of
+        the form encoding of the request (the same quirk `qm set --sshkeys`
+        hides), and a raw key is rejected with "invalid format".
+        """
+        # Approval is enforced by the target-aware tool wrapper, not the PVE API.
+        _ = approval_token
+        payload: Dict[str, Any] = {}
+        if memory is not None:
+            if memory < 16:
+                raise ValueError("memory must be at least 16 MiB")
+            payload["memory"] = int(memory)
+        if cores is not None:
+            if cores < 1:
+                raise ValueError("cores must be at least 1")
+            payload["cores"] = int(cores)
+        if sockets is not None:
+            if sockets < 1:
+                raise ValueError("sockets must be at least 1")
+            payload["sockets"] = int(sockets)
+        if name is not None:
+            if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?", name):
+                raise ValueError("name must be a valid DNS label (letters, digits and hyphens)")
+            payload["name"] = name
+        if sshkeys is not None:
+            keys = [line.strip() for line in sshkeys.splitlines() if line.strip()]
+            if not keys:
+                raise ValueError("sshkeys must contain at least one public key")
+            for key in keys:
+                if not re.match(r"^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp\d+|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/=]+", key):
+                    raise ValueError("sshkeys must be OpenSSH public keys, one per line")
+            payload["sshkeys"] = urllib.parse.quote("\n".join(keys), safe="")
+        if ciuser is not None:
+            if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", ciuser):
+                raise ValueError("ciuser must be a valid Unix user name")
+            payload["ciuser"] = ciuser
+        if ipconfig0 is not None:
+            if not re.fullmatch(r"(ip=[^,\s]+|ip6=[^,\s]+|gw=[^,\s]+|gw6=[^,\s]+)(,(ip=[^,\s]+|ip6=[^,\s]+|gw=[^,\s]+|gw6=[^,\s]+))*", ipconfig0):
+                raise ValueError("ipconfig0 must look like 'ip=dhcp' or 'ip=10.0.0.5/24,gw=10.0.0.1'")
+            payload["ipconfig0"] = ipconfig0
+        if nameserver is not None:
+            payload["nameserver"] = nameserver
+        if searchdomain is not None:
+            payload["searchdomain"] = searchdomain
+        if tags is not None:
+            payload["tags"] = tags
+        media = vm_media(iso_volume, cdrom_device, boot_order)
+        if network_bridge is not None:
+            bridge_name(network_bridge)
+        if media or network_bridge is not None:
+            current = self.proxmox.nodes(node).qemu(vmid).config.get()
+            payload.update(vm_media(iso_volume, cdrom_device, boot_order, current))
+            if network_bridge is not None:
+                if not current.get("net0"):
+                    raise ValueError("VM has no net0 interface to update")
+                network = parse_device(current["net0"])
+                network["bridge"] = network_bridge
+                payload["net0"] = ",".join(f"{key}={value}" for key, value in network.items())
+            if current.get("digest"):
+                payload["digest"] = current["digest"]
+        if not payload:
+            raise ValueError("update_vm_config needs at least one setting to change")
+
+        try:
+            self.proxmox.nodes(node).qemu(vmid).config.put(**payload)
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}") from e
+            return self._err("update_vm_config", e)
+
+        applied = {key: value for key, value in payload.items() if key != "digest"}
+        if "sshkeys" in applied:
+            applied["sshkeys"] = f"{len(keys)} key(s)"
+        cloud_init_fields = {"sshkeys", "ciuser", "ipconfig0", "nameserver", "searchdomain"}
+        notes = []
+        if cloud_init_fields & payload.keys():
+            notes.append("cloud-init settings are applied by the guest at its next boot")
+        if {"memory", "cores", "sockets"} & payload.keys():
+            notes.append("sizing changes on a running VM stay pending until it is restarted")
+        return self._json_fmt({"vmid": vmid, "node": node, "applied": applied, "notes": notes})
+
+    def get_vm_ip_addresses(self, node: str, vmid: str) -> List[Content]:
+        """Return the guest's interfaces and addresses via the QEMU guest agent.
+
+        Uses GET /nodes/{node}/qemu/{vmid}/agent/network-get-interfaces, so the
+        VM must be running with the guest agent active. Loopback is skipped;
+        ``primary_ip`` is the first non-loopback IPv4 address.
+        """
+        try:
+            raw = self.proxmox.nodes(node).qemu(vmid).agent("network-get-interfaces").get()
+        except Exception as e:
+            message = str(e).lower()
+            # ACL names and request URLs also contain "agent"; preserve those errors.
+            if getattr(e, "status_code", None) in {401, 403}:
+                return self._err("get_vm_ip_addresses", e)
+            unavailable = re.search(
+                r"\b(?:qemu )?guest agent (?:is )?(?:not running|not enabled|not responding)\b"
+                r"|\bvm \d+ (?:is )?not running\b"
+                r"|\bguest-(?:ping|network-get-interfaces)\b.*\b(?:timed out|timeout)\b",
+                message,
+            )
+            if unavailable:
+                raise ValueError(
+                    f"Guest agent on VM {vmid} did not answer; the VM must be running with qemu-guest-agent active"
+                ) from e
+            return self._err("get_vm_ip_addresses", e)
+
+        result_list = raw.get("result") if isinstance(raw, dict) else raw
+        interfaces: List[Dict[str, Any]] = []
+        primary_ip: Optional[str] = None
+        for iface in result_list or []:
+            if not isinstance(iface, dict):
+                continue
+            iface_name = iface.get("name")
+            if iface_name == "lo":
+                continue
+            entry: Dict[str, Any] = {"name": iface_name, "ipv4": [], "ipv6": []}
+            mac = iface.get("hardware-address")
+            if mac:
+                entry["mac"] = mac
+            for addr in iface.get("ip-addresses") or []:
+                ip = addr.get("ip-address")
+                if not ip:
+                    continue
+                kind = "ipv6" if addr.get("ip-address-type") == "ipv6" else "ipv4"
+                entry[kind].append(ip)
+                if kind == "ipv4" and primary_ip is None and not ip.startswith("127."):
+                    primary_ip = ip
+            interfaces.append(entry)
+        return self._json_fmt({"vmid": vmid, "node": node, "interfaces": interfaces, "primary_ip": primary_ip})
+
+    def get_vms(self) -> List[Content]:
+        """List all virtual machines across the cluster with detailed status.
+
+        Retrieves comprehensive information for each VM including:
+        - Basic identification (ID, name)
+        - Runtime status (running, stopped)
+        - Resource allocation and usage:
+          * CPU cores
+          * Memory allocation and usage
+        - Node placement
+        
+        Implements a fallback mechanism that returns basic information
+        if detailed configuration retrieval fails for any VM.
+
+        Returns:
+            List of Content objects containing formatted VM information:
+            {
+                "vmid": "100",
+                "name": "vm-name",
+                "status": "running/stopped",
+                "node": "node-name",
+                "cpus": core_count,
+                "memory": {
+                    "used": bytes,
+                    "total": bytes
+                }
+            }
+
+        Raises:
+            RuntimeError: If the cluster-wide VM query fails
+        """
+        cluster_inventory = self._get_cluster_vm_inventory()
+        if cluster_inventory is not None:
+            return self._format_response(cluster_inventory, "vms")
+
+        try:
+            nodes = self.proxmox.nodes.get()
+        except Exception as e:
+            self._handle_error("get VMs", e)
+
+        result = []
+        warnings = []
+        try:
+            for node in nodes:
+                node_name = node.get("node") if isinstance(node, dict) else None
+                if not node_name:
+                    self.logger.warning(
+                        "Skipping unexpected node entry while gathering VM list: %s",
+                        node,
+                    )
+                    continue
+                try:
+                    vms = self.proxmox.nodes(node_name).qemu.get()
+                except Exception as node_error:
+                    self.logger.warning(
+                        "Unable to list VMs on node %s: %s", _log_safe(node_name), _log_safe(node_error)
+                    )
+                    warnings.append(_log_safe(node_name) + ": " + _log_safe(node_error))
+                    continue
+
+                for vm in vms:
+                    vmid = vm["vmid"]
+                    # Get VM config for CPU cores
+                    try:
+                        config = self.proxmox.nodes(node_name).qemu(vmid).config.get()
+                        result.append({
+                            "vmid": vmid,
+                            "name": vm["name"],
+                            "status": vm["status"],
+                            "node": node_name,
+                            "cpus": config.get("cores", "N/A"),
+                            "memory": {
+                                "used": vm.get("mem", 0),
+                                "total": vm.get("maxmem", 0)
+                            }
+                        })
+                    except Exception:
+                        # Fallback if can't get config
+                        result.append({
+                            "vmid": vmid,
+                            "name": vm["name"],
+                            "status": vm["status"],
+                            "node": node_name,
+                            "cpus": "N/A",
+                            "memory": {
+                                "used": vm.get("mem", 0),
+                                "total": vm.get("maxmem", 0)
+                            }
+                        })
+        except Exception as e:
+            self._handle_error("get VMs", e)
+
+        if not result and warnings:
+            raise RuntimeError("VM inventory is unavailable: " + "; ".join(warnings))
+        return self._format_response(result, "vms") + completeness_content(warnings)
+
+    def create_vm(
+        self,
+        node: str,
+        vmid: str,
+        name: str,
+        cpus: int,
+        memory: int,
+        disk_size: int,
+        storage: Optional[str] = None,
+        ostype: Optional[str] = None,
+        network_bridge: Optional[str] = None,
+        pool: Optional[str] = None,
+        iso_volume: Optional[str] = None,
+        cdrom_device: str = "ide3",
+        boot_order: Optional[str] = None,
+    ) -> List[Content]:
+        """Create a new virtual machine with specified configuration.
+        
+        Args:
+            node: Host node name (e.g., 'pve')
+            vmid: New VM ID number (e.g., '200')
+            name: VM name (e.g., 'my-new-vm')
+            cpus: Number of CPU cores (e.g., 1, 2, 4)
+            memory: Memory size in MB (e.g., 2048 for 2GB)
+            disk_size: Disk size in GB (e.g., 10, 20, 50)
+            storage: Storage name (e.g., 'local-lvm', 'vm-storage'). If None, will auto-detect
+            ostype: OS type (e.g., 'l26' for Linux, 'win10' for Windows). Default: 'l26'
+            network_bridge: Network bridge name (e.g., 'vmbr0'). If None, defaults to 'vmbr0'
+            pool: Proxmox resource pool to create the VM in. If None, no pool is specified
+            
+        Returns:
+            List of Content objects containing creation result
+            
+        Raises:
+            ValueError: If VM ID already exists or invalid parameters
+            RuntimeError: If VM creation fails
+        """
+        media = vm_media(iso_volume, cdrom_device, boot_order)
+        if iso_volume == "none":
+            raise ValueError("Use an ISO volume ID when creating a VM")
+        if network_bridge is not None:
+            bridge_name(network_bridge)
+        try:
+            # Check if VM ID already exists
+            try:
+                self.proxmox.nodes(node).qemu(vmid).config.get()
+                raise ValueError(f"VM {vmid} already exists on node {node}")
+            except Exception as e:
+                if "does not exist" not in str(e).lower():
+                    raise e
+            
+            selected = select_storage(self.proxmox, node, "images", storage, disk_size)
+            storage = selected["storage"]
+            storage_info = {storage: selected}
+
+            # Determine appropriate disk format based on storage type
+            storage_type = storage_info[storage]["type"]
+            
+            if storage_type in ["lvm", "lvmthin"]:
+                # Block storage uses raw disks and supports cloud-init volumes
+                disk_format = "raw"
+                vm_config_storage = {
+                    "scsi0": f"{storage}:{disk_size},format={disk_format}",
+                    "ide2": f"{storage}:cloudinit",
+                }
+            elif storage_type in ["dir", "nfs", "cifs"]:
+                # File-based storages can use qcow2
+                disk_format = "qcow2"
+                vm_config_storage = {
+                    "scsi0": f"{storage}:{disk_size},format={disk_format}",
+                    "ide2": f"{storage}:cloudinit",
+                }
+            else:
+                # Default to raw for unknown storage types
+                disk_format = "raw"
+                vm_config_storage = {
+                    "scsi0": f"{storage}:{disk_size},format={disk_format}",
+                    "ide2": f"{storage}:cloudinit",
+                }
+            
+            # Set default OS type
+            if ostype is None:
+                ostype = "l26"  # Linux 2.6+ kernel
+
+            if not network_bridge:
+                network_bridge = "vmbr0"
+            
+            # Prepare VM configuration
+            vm_config = {
+                "vmid": vmid,
+                "name": name,
+                "cores": cpus,
+                "memory": memory,
+                "ostype": ostype,
+                "scsihw": "virtio-scsi-pci",
+                "boot": "order=scsi0",
+                "agent": "1",  # Enable QEMU guest agent
+                "vga": "std",
+                "net0": f"virtio,bridge={network_bridge}",
+            }
+            
+            # Add storage configuration
+            vm_config.update(vm_config_storage)
+            if iso_volume is not None and boot_order is None:
+                media["boot"] = f"order={cdrom_device};scsi0"
+            # Never replace the disk or cloud-init drive created above.
+            vm_media(iso_volume, cdrom_device, boot_order, vm_config)
+            vm_config.update(media)
+
+            if pool:
+                vm_config["pool"] = pool
+            
+            # Create the VM
+            task_result = self.proxmox.nodes(node).qemu.create(**vm_config)
+            job = self._register_background_job(
+                tool_name="create_vm",
+                summary=f"Create VM {vmid} ({name}) on {node}",
+                node=node,
+                upid=task_result,
+                metadata={"vmid": vmid, "name": name},
+                retry_spec={"kind": "vm.create", "params": {"node": node, "vm_config": vm_config}},
+                retry_factory=lambda: self.proxmox.nodes(node).qemu.create(**vm_config),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+            )
+            
+            cloudinit_note = ""
+            
+            result_text = f"""VM {vmid} created successfully
+
+VM Configuration:
+  - Name: {name}
+  - Node: {node}
+  - VM ID: {vmid}
+  - CPU Cores: {cpus}
+  - Memory: {memory} MB ({memory/1024:.1f} GB)
+  - Disk: {disk_size} GB ({storage}, {disk_format} format)
+  - Storage Type: {storage_type}
+  - OS Type: {ostype}
+  - Network: virtio (bridge={network_bridge})
+  - QEMU Agent: Enabled{cloudinit_note}
+
+Task ID: {task_result}
+Job ID: {job["job_id"] if job else "n/a"}
+
+Next steps:
+  1. Upload an ISO to install the operating system
+  2. Start the VM using start_vm tool
+  3. Access the console to complete OS installation"""
+            
+            return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+            
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            self._handle_error(f"create VM {vmid}", e)
+
+    def clone_vm(
+        self,
+        node: str,
+        source_vmid: str,
+        target_vmid: str,
+        name: Optional[str] = None,
+        target_node: Optional[str] = None,
+        full: bool = True,
+        storage: Optional[str] = None,
+        pool: Optional[str] = None,
+        snapname: Optional[str] = None,
+    ) -> List[Content]:
+        """Clone an existing virtual machine."""
+        destination_node = target_node or node
+
+        try:
+            source_status = self.proxmox.nodes(node).qemu(source_vmid).status.current.get()
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"Source VM {source_vmid} not found on node {node}")
+            self._handle_error(f"lookup source VM {source_vmid}", e)
+
+        source_name = source_status.get("name", f"VM-{source_vmid}")
+
+        try:
+            self.proxmox.nodes(destination_node).qemu(target_vmid).config.get()
+            raise ValueError(f"Target VM ID {target_vmid} already exists on node {destination_node}")
+        except ValueError:
+            raise
+        except Exception as e:
+            if "does not exist" not in str(e).lower() and "not found" not in str(e).lower():
+                self._handle_error(f"check target VM {target_vmid}", e)
+
+        clone_payload: dict[str, Any] = {
+            "newid": int(target_vmid),
+            "full": 1 if full else 0,
+        }
+        if name:
+            clone_payload["name"] = name
+        if target_node:
+            clone_payload["target"] = target_node
+        if storage:
+            clone_payload["storage"] = storage
+        if pool:
+            clone_payload["pool"] = pool
+        if snapname:
+            clone_payload["snapname"] = snapname
+
+        try:
+            task_result = self.proxmox.nodes(node).qemu(source_vmid).clone.post(**clone_payload)
+        except Exception as e:
+            self._handle_error(f"clone VM {source_vmid} -> {target_vmid}", e)
+
+        job = self._register_background_job(
+            tool_name="clone_vm",
+            summary=f"Clone VM {source_vmid} to {target_vmid} on {node}",
+            node=node,
+            upid=task_result,
+            metadata={
+                "source_vmid": source_vmid,
+                "target_vmid": target_vmid,
+                "source_node": node,
+                "target_node": destination_node,
+                "full": full,
+                "name": name,
+            },
+            retry_spec={"kind": "vm.clone", "params": {"node": node, "source_vmid": source_vmid, "clone_payload": clone_payload}},
+            retry_factory=lambda: self.proxmox.nodes(node).qemu(source_vmid).clone.post(**clone_payload),
+            cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+        )
+
+        result_text = f"""VM clone initiated successfully
+
+Clone Configuration:
+  - Source VM: {source_vmid} ({source_name})
+  - Source Node: {node}
+  - Target VM ID: {target_vmid}
+  - Target Node: {destination_node}
+  - Clone Type: {"full" if full else "linked"}"""
+
+        if name:
+            result_text += f"\n  - Target Name: {name}"
+        if storage:
+            result_text += f"\n  - Storage: {storage}"
+        if pool:
+            result_text += f"\n  - Pool: {pool}"
+        if snapname:
+            result_text += f"\n  - Snapshot: {snapname}"
+
+        result_text += f"\n\nTask ID: {task_result}\nJob ID: {job['job_id'] if job else 'n/a'}"
+
+        return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+
+    def _assess_vm_migration(self, node: str, vmid: str, destination: str) -> Dict[str, Any]:
+        """Observe native Proxmox preconditions and conservative offline constraints."""
+        _vm_reference(node, vmid)
+        validate_segment(destination)
+        if node == destination:
+            raise ValueError("source and destination must be distinct named nodes")
+        blockers: List[str] = []
+        unknowns: List[str] = []
+        checks: Dict[str, Any] = {}
+        try:
+            records = _records(self.proxmox.nodes.get())
+            states = {item["node"]: item.get("status") for item in records}
+            if states.get(node) != "online" or states.get(destination) != "online":
+                blockers.append("both source and destination must be online")
+            checks["node_status"] = {node: states.get(node), destination: states.get(destination)}
+        except Exception:
+            unknowns.append("node availability could not be verified")
+        try:
+            inventory = _records(self.proxmox.cluster.resources.get(type="vm"))
+            matches = [r for r in inventory if str(r.get("vmid")) == str(vmid) and r.get("type") == "qemu"]
+            if len(matches) != 1 or matches[0].get("node") != node:
+                blockers.append("VM ownership or identity mismatch")
+        except Exception:
+            unknowns.append("cluster VM inventory unavailable")
+        guest = self.proxmox.nodes(node).qemu(vmid)
+        config: Dict[str, Any] = {}
+        try:
+            observed = guest.config.get()
+            if not isinstance(observed, dict) or not observed:
+                raise ValueError("VM configuration unavailable")
+            config = observed
+            if config.get("lock") or config.get("template"):
+                blockers.append("locked VM or template")
+            if any(str(k).startswith(("unused", "hostpci", "usb", "parallel", "virtiofs", "ivshmem"))
+                   or k in {"args", "cicustom", "hookscript", "vmstate"} for k in config):
+                blockers.append("node-local resources or unused disks need manual review")
+            if any(str(k).startswith("serial") and value != "socket" for k, value in config.items()):
+                blockers.append("physical serial devices need manual review")
+        except Exception:
+            unknowns.append("VM configuration unreadable")
+        try:
+            status = guest.status.current.get()
+            if not isinstance(status, dict) or status.get("status") not in {"running", "stopped"}:
+                raise ValueError("VM runtime status unavailable")
+            checks["vm_status"] = status["status"]
+            if status["status"] != "stopped":
+                blockers.append("offline migration requires VM to be stopped")
+        except Exception:
+            unknowns.append("VM runtime status unavailable")
+        try:
+            ha = _records(self.proxmox.cluster.ha.resources.get())
+            if any(not re.fullmatch(r"(?:vm|ct):[1-9][0-9]*", str(r.get("sid") or r.get("id"))) for r in ha):
+                raise ValueError("malformed HA inventory")
+            if any((r.get("sid") or r.get("id")) == f"vm:{vmid}" for r in ha):
+                blockers.append("HA-managed VM requires manual relocation")
+        except Exception:
+            unknowns.append("HA membership could not be verified")
+
+        # The native endpoint covers pending/snapshot references and node/resource
+        # constraints that cannot be reconstructed from the current drive strings.
+        native_disks: Dict[str, Dict[str, Any]] = {}
+        try:
+            native = guest.migrate.get(target=destination)
+            if not isinstance(native, dict):
+                raise ValueError("missing native migration preconditions")
+            if _pve_flag(native["running"]):
+                blockers.append("native preflight reports a running VM")
+            allowed = native["allowed_nodes"]
+            denied = native.get("not_allowed_nodes", {})
+            if not isinstance(allowed, list) or not all(isinstance(n, str) for n in allowed):
+                raise ValueError("malformed native allowed nodes")
+            if not isinstance(denied, dict) or any(not isinstance(v, dict) for v in denied.values()):
+                raise ValueError("malformed native node restrictions")
+            if destination not in allowed or denied.get(destination):
+                blockers.append("native preflight does not allow the destination")
+            resources = native["local_resources"]
+            mapped = native.get("mapped-resources", [])
+            mapped_info = native.get("mapped-resource-info", {})
+            if not isinstance(resources, list) or not all(isinstance(r, str) for r in resources):
+                raise ValueError("malformed native local resources")
+            if not isinstance(mapped, list) or not isinstance(mapped_info, dict):
+                raise ValueError("malformed native mapped resources")
+            if resources or mapped or mapped_info:
+                blockers.append("native local/mapped resources require manual review")
+            for disk in _records(native["local_disks"]):
+                volid = disk["volid"]
+                if not isinstance(volid, str) or ":" not in volid or volid in native_disks:
+                    raise ValueError("malformed native disk identity")
+                for flag in ("cdrom", "is_unused"):
+                    _pve_flag(disk[flag])
+                for flag in ("is_cloudinit", "is_vmstate", "shared", "is_attached"):
+                    _pve_flag(disk.get(flag, 0))
+                if disk["is_unused"] or disk.get("is_vmstate"):
+                    blockers.append("native unused or saved-state disks require manual review")
+                if disk["cdrom"] and not disk.get("is_cloudinit"):
+                    blockers.append("local ISO/CD-ROM must be ejected before migration")
+                if not disk.get("is_cloudinit") and (not _capacity(disk.get("size")) or disk["size"] <= 0):
+                    raise ValueError("native disk capacity unavailable")
+                native_disks[volid] = disk
+            checks["native_preflight"] = True
+        except Exception:
+            unknowns.append("native migration preconditions unavailable or malformed")
+
+        disk_sizes: Dict[str, int] = {}
+        volume_sizes: Dict[str, int] = {}
+        pool_contents: Dict[str, set[str]] = {}
+        volumes: set[str] = set()
+        for key, value in config.items():
+            if not re.fullmatch(r"(?:scsi|virtio|sata|ide|efidisk|tpmstate)\d+", str(key)):
+                continue
+            try:
+                if not isinstance(value, str):
+                    raise ValueError("malformed drive configuration")
+                volume = value.split(",", 1)[0]
+                if volume == "none" and "media=cdrom" in value.split(","):
+                    continue
+                pool, separator, filename = volume.partition(":")
+                validate_segment(pool)
+                if not separator or not filename:
+                    raise ValueError("unrecognized storage volume")
+                volumes.add(volume)
+                cloudinit = bool(re.fullmatch(rf"(?:{vmid}/)?vm-{vmid}-cloudinit(?:\.(?:qcow2|raw))?", filename))
+                cdrom = "media=cdrom" in value.split(",") and not cloudinit
+                pool_contents.setdefault(pool, set()).add("iso" if cdrom else "images")
+                if cloudinit or cdrom:
+                    continue
+                match = re.search(r"(?:^|,)size=(\d+(?:\.\d+)?)([KMGT])(?:,|$)", value, re.I)
+                if not match:
+                    raise ValueError("disk size unknown")
+                units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+                size = int(Decimal(match.group(1)) * units[match.group(2).upper()])
+                if size <= 0:
+                    raise ValueError("disk size must be positive")
+                native_size = native_disks.get(volume, {}).get("size")
+                if isinstance(native_size, (int, float)) and _capacity(native_size):
+                    size = max(size, int(native_size))
+                volume_sizes[volume] = max(volume_sizes.get(volume, 0), size)
+            except Exception:
+                unknowns.append(f"{key} disk configuration/capacity unavailable")
+        if not volumes:
+            unknowns.append("no VM disks with known storage")
+        for volume, size in volume_sizes.items():
+            pool = volume.partition(":")[0]
+            disk_sizes[pool] = disk_sizes.get(pool, 0) + size
+        if set(native_disks) - volumes:
+            blockers.append("native pending or snapshot-only disk dependencies need manual review")
+        try:
+            pools = _records(self.proxmox.nodes(destination).storage.get())
+            pool_map = {r["storage"]: r for r in pools}
+            if len(pool_map) != len(pools):
+                raise ValueError("ambiguous storage inventory")
+            for pool, content in pool_contents.items():
+                info = pool_map.get(pool)
+                if info is None or not _pve_flag(info.get("active", 0)) or not _pve_flag(info.get("enabled", 1)):
+                    blockers.append(f"destination storage {pool} missing, inactive or disabled")
+                    continue
+                if not content <= _content_types(info.get("content", "")):
+                    blockers.append(f"destination storage {pool} does not support required content")
+                shared = _pve_flag(info.get("shared", 0))
+                # Native local_disks excludes shared storage. Do not reserve the
+                # already allocated provisioned size a second time on shared pools.
+                if shared:
+                    if any(v.startswith(pool + ":") for v in native_disks):
+                        unknowns.append(f"shared storage {pool} contradicts native local disk evidence")
+                    continue
+                local_volumes = {v for v in volumes if v.startswith(pool + ":")}
+                if not local_volumes <= set(native_disks):
+                    unknowns.append(f"native preflight omitted local storage {pool} dependencies")
+                available = info.get("avail")
+                if not _capacity(available):
+                    unknowns.append(f"destination storage {pool} available bytes unknown")
+                elif isinstance(available, (int, float)) and available < disk_sizes.get(pool, 0):
+                    blockers.append(f"destination storage {pool} insufficient free space for provisioned disks")
+            checks["disk_bytes_by_storage"] = disk_sizes
+        except Exception:
+            unknowns.append("destination storage status/capacity unavailable")
+        bridges: set[str] = set()
+        for key, value in config.items():
+            if not re.fullmatch(r"net\d+", str(key)):
+                continue
+            try:
+                if not isinstance(value, str):
+                    raise ValueError("malformed guest network")
+                values = [field.partition("=")[2] for field in value.split(",") if field.startswith("bridge=")]
+                if len(values) != 1:
+                    raise ValueError("guest bridge unknown or ambiguous")
+                bridges.add(bridge_name(values[0]))
+            except Exception:
+                unknowns.append(f"{key} bridge unknown")
+        try:
+            interfaces = _records(self.proxmox.nodes(destination).network.get(type="any_bridge"))
+            available_bridges = {r["iface"] for r in interfaces if r.get("active", 1) in (1, True)}
+            for bridge in bridges:
+                if bridge not in available_bridges:
+                    blockers.append(f"destination bridge {bridge} missing or inactive")
+        except Exception:
+            unknowns.append("destination network bridges unavailable")
+        checks["destination_bridges"] = sorted(bridges)
+        checks["cpu"] = config.get("cpu")
+        return {"ready": not (blockers or unknowns), "source": node,
+                "destination": destination, "vmid": str(vmid), "mode": "offline",
+                "blockers": blockers, "unknowns": unknowns, "checks": checks,
+                "warnings": ["Observations do not reserve capacity or lock guest runtime state",
+                             "Backup restorability, workload drain and CPU compatibility require operator verification"]}
+
+    def preflight_vm_migration(self, node: str, vmid: str, destination: str) -> List[Content]:
+        return self._json_fmt(self._assess_vm_migration(node, vmid, destination))
+
+    def _vm_uncertain(self, node: str, vmid: str) -> List[Content]:
+        return self._json_fmt({"success": False, "status": "unknown", "retryable": False,
+                               "code": "SUBMISSION_UNCERTAIN", "node": node, "vmid": str(vmid),
+                               "message": "Inspect Proxmox tasks, VM config and location before retrying"})
+
+    def migrate_vm(self, node: str, vmid: str, destination: str,
+                   confirm_migration: bool = False,
+                   confirm_backup_verified: bool = False,
+                   confirm_workload_drained: bool = False,
+                   confirm_cpu_compatibility: bool = False,
+                   approval_token: Optional[str] = None) -> List[Content]:
+        """Submit one offline migration; never automatically retry the POST."""
+        _ = approval_token  # Enforced at the target-aware registry boundary.
+        if not all(value is True for value in (
+            confirm_migration, confirm_backup_verified,
+            confirm_workload_drained, confirm_cpu_compatibility
+        )):
+            raise ValueError("Explicit migration, verified-backup, workload-drain and CPU-compatibility confirmations required")
+        assessment = self._assess_vm_migration(node, vmid, destination)
+        if not assessment["ready"]:
+            raise ValueError("Migration blocked: " + "; ".join(assessment["blockers"] + assessment["unknowns"]))
+        try:
+            upid = self.proxmox.nodes(node).qemu(vmid).migrate.post(
+                target=destination, online=0, **{"with-local-disks": 1})
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                self._handle_error("migrate VM", error)
+            return self._vm_uncertain(node, vmid)
+        except Exception:
+            return self._vm_uncertain(node, vmid)
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return self._vm_uncertain(node, vmid)
+        try:
+            job = self._register_background_job(
+                tool_name="migrate_vm", summary=f"Offline migrate VM {vmid} from {node} to {destination}",
+                node=node, upid=upid,
+                metadata={"vmid": str(vmid), "source": node, "destination": destination})
+        except Exception:
+            self.logger.warning("QEMU migration submitted but local job tracking failed")
+            job = None
+        return self._json_fmt({"success": True, "status": "submitted", "vmid": str(vmid),
+                               "task_id": upid, "job_id": job["job_id"] if job else None,
+                               "source": node, "destination": destination}) + self._submission_content(job, upid)
+
+    def _vm_change_config(self, vm: Any) -> Dict[str, Any]:
+        state = vm.status.current.get()
+        if not isinstance(state, dict) or state.get("status") != "stopped":
+            raise ValueError("VM must be stopped before configuration changes")
+        config = vm.config.get()
+        if not isinstance(config, dict) or not config:
+            raise ValueError("VM config unavailable")
+        if config.get("lock") or config.get("template"):
+            raise ValueError("Locked VM or template cannot be modified")
+        if not isinstance(config.get("digest"), str) or not config["digest"].strip():
+            raise ValueError("VM config digest unavailable")
+        return config
+
+    def configure_vm_serial_console(self, node: str, vmid: str,
+                                    confirm_display_change: bool = False,
+                                    approval_token: Optional[str] = None) -> List[Content]:
+        """Set a socket-backed serial console with optimistic config concurrency."""
+        _ = approval_token
+        if confirm_display_change is not True:
+            raise ValueError("confirm_display_change=True required: existing display changes")
+        _vm_reference(node, vmid)
+        vm = self.proxmox.nodes(node).qemu(vmid)
+        config = self._vm_change_config(vm)
+        if config.get("serial0") not in (None, "socket"):
+            raise ValueError("serial0 is already configured differently")
+        if config.get("vga") == "serial0" and config.get("serial0") == "socket":
+            return self._json_fmt({"success": True, "changed": False, "vmid": str(vmid),
+                                   "serial0": "socket", "vga": "serial0"})
+        try:
+            vm.config.put(serial0="socket", vga="serial0", digest=config["digest"])
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                self._handle_error("configure VM serial console", error)
+            return self._vm_uncertain(node, vmid)
+        except Exception:
+            return self._vm_uncertain(node, vmid)
+        return self._json_fmt({"success": True, "changed": True, "vmid": str(vmid),
+                               "serial0": "socket", "vga": "serial0",
+                               "note": "Guest must enable console=ttyS0,115200n8 and serial-getty."})
+
+    def import_cloud_image(self, node: str, vmid: str, source_volume: str,
+                           destination_storage: str, disk_device: str = "scsi1",
+                           confirm_import: bool = False,
+                           approval_token: Optional[str] = None) -> List[Content]:
+        """Attach an existing import volume via PVE's asynchronous import-from API."""
+        _ = approval_token
+        if confirm_import is not True:
+            raise ValueError("confirm_import=True required")
+        _vm_reference(node, vmid)
+        if not isinstance(disk_device, str) or not re.fullmatch(r"scsi(?:[0-9]|[12][0-9]|30)", disk_device):
+            raise ValueError("Only scsi0..scsi30 disk slots supported")
+        if not isinstance(destination_storage, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", destination_storage):
+            raise ValueError("Invalid destination storage")
+        if not isinstance(source_volume, str):
+            raise ValueError("source_volume must identify an uploaded import image")
+        match = re.fullmatch(
+            r"([A-Za-z][A-Za-z0-9_.-]*):import/([A-Za-z0-9][A-Za-z0-9_.-]*\.(?:qcow2|raw|vmdk))",
+            source_volume, re.IGNORECASE)
+        if not match:
+            raise ValueError("source_volume must be a storage:import/file.qcow2|raw|vmdk volume")
+        vm = self.proxmox.nodes(node).qemu(vmid)
+        config = self._vm_change_config(vm)
+        if disk_device in config:
+            raise ValueError("target disk slot already in use")
+        try:
+            pools = _records(self.proxmox.nodes(node).storage.get())
+            by_name = {entry["storage"]: entry for entry in pools}
+            if len(by_name) != len(pools):
+                raise ValueError("ambiguous storage inventory")
+            for name, content in ((match.group(1), "import"), (destination_storage, "images")):
+                pool = by_name.get(name)
+                if pool is None or not _pve_flag(pool.get("active", 0)) or not _pve_flag(pool.get("enabled", 1)):
+                    raise ValueError("source/destination storage must exist and be active/enabled")
+                if content not in _content_types(pool.get("content", "")):
+                    raise ValueError(f"storage must support {content} content")
+            try:
+                images = _records(self.proxmox.nodes(node).storage(match.group(1)).content.get(content="import"))
+            except ValueError as error:
+                raise ValueError("Image inventory is unavailable or malformed") from error
+            if sum(item.get("volid") == source_volume for item in images) != 1:
+                raise ValueError("Image is not uniquely present in import storage")
+        except (KeyError, TypeError) as error:
+            raise ValueError("Storage inventory is unavailable or malformed") from error
+        try:
+            upid = vm.config.post(**{
+                disk_device: f"{destination_storage}:0,import-from={source_volume}", "digest": config["digest"],
+            })
+        except ResourceException as error:
+            if 400 <= error.status_code < 500:
+                self._handle_error("import cloud image", error)
+            return self._vm_uncertain(node, vmid)
+        except Exception:
+            return self._vm_uncertain(node, vmid)
+        if not isinstance(upid, str) or not upid.startswith("UPID:"):
+            return self._vm_uncertain(node, vmid)
+        try:
+            job = self._register_background_job(
+                tool_name="import_cloud_image", summary=f"Import cloud image into VM {vmid}",
+                node=node, upid=upid, metadata={"vmid": str(vmid),
+                                               "source_volume": source_volume, "disk_device": disk_device})
+        except Exception:
+            job = None
+            self.logger.warning("Cloud image import submitted; local job registration failed")
+        return self._json_fmt({"success": True, "status": "submitted", "task_id": upid,
+                               "job_id": job["job_id"] if job else None,
+                               "vmid": str(vmid), "disk_device": disk_device}) + self._submission_content(job, upid)
+
+
+    def start_vm(self, node: str, vmid: str) -> List[Content]:
+        """Start a virtual machine.
+        
+        Args:
+            node: Host node name (e.g., 'pve1', 'proxmox-node2')
+            vmid: VM ID number (e.g., '100', '101')
+            
+        Returns:
+            List of Content objects containing operation result
+            
+        Raises:
+            ValueError: If VM is not found
+            RuntimeError: If start operation fails
+        """
+        job = None
+        task_result = None
+        try:
+            # Check if VM exists and get current status
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            current_status = vm_status.get("status")
+            
+            if current_status == "running":
+                result_text = f"VM {vmid} is already running"
+            else:
+                # Start the VM
+                task_result = self.proxmox.nodes(node).qemu(vmid).status.start.post()
+                job = self._register_background_job(
+                    tool_name="start_vm",
+                    summary=f"Start VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.start", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.start.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+                )
+                result_text = (
+                    f"VM {vmid} start initiated successfully\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
+                
+            return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+            
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}")
+            self._handle_error(f"start VM {vmid}", e)
+
+    def stop_vm(self, node: str, vmid: str) -> List[Content]:
+        """Stop a virtual machine (force stop).
+        
+        Args:
+            node: Host node name (e.g., 'pve1', 'proxmox-node2') 
+            vmid: VM ID number (e.g., '100', '101')
+            
+        Returns:
+            List of Content objects containing operation result
+            
+        Raises:
+            ValueError: If VM is not found
+            RuntimeError: If stop operation fails
+        """
+        job = None
+        task_result = None
+        try:
+            # Check if VM exists and get current status
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            current_status = vm_status.get("status")
+            
+            if current_status == "stopped":
+                result_text = f"VM {vmid} is already stopped"
+            else:
+                # Stop the VM
+                task_result = self.proxmox.nodes(node).qemu(vmid).status.stop.post()
+                job = self._register_background_job(
+                    tool_name="stop_vm",
+                    summary=f"Stop VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.stop", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.stop.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+                )
+                result_text = (
+                    f"VM {vmid} stop initiated successfully\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
+                
+            return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+            
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}")
+            self._handle_error(f"stop VM {vmid}", e)
+
+    def shutdown_vm(self, node: str, vmid: str) -> List[Content]:
+        """Shutdown a virtual machine gracefully.
+        
+        Args:
+            node: Host node name (e.g., 'pve1', 'proxmox-node2')
+            vmid: VM ID number (e.g., '100', '101')
+            
+        Returns:
+            List of Content objects containing operation result
+            
+        Raises:
+            ValueError: If VM is not found
+            RuntimeError: If shutdown operation fails
+        """
+        job = None
+        task_result = None
+        try:
+            # Check if VM exists and get current status
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            current_status = vm_status.get("status")
+            
+            if current_status == "stopped":
+                result_text = f"VM {vmid} is already stopped"
+            else:
+                # Shutdown the VM gracefully
+                task_result = self.proxmox.nodes(node).qemu(vmid).status.shutdown.post()
+                job = self._register_background_job(
+                    tool_name="shutdown_vm",
+                    summary=f"Shutdown VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.shutdown", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.shutdown.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+                )
+                result_text = (
+                    f"VM {vmid} graceful shutdown initiated\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
+                
+            return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+            
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}")
+            self._handle_error(f"shutdown VM {vmid}", e)
+
+    def reset_vm(self, node: str, vmid: str) -> List[Content]:
+        """Reset (restart) a virtual machine.
+        
+        Args:
+            node: Host node name (e.g., 'pve1', 'proxmox-node2')
+            vmid: VM ID number (e.g., '100', '101')
+            
+        Returns:
+            List of Content objects containing operation result
+            
+        Raises:
+            ValueError: If VM is not found
+            RuntimeError: If reset operation fails
+        """
+        job = None
+        task_result = None
+        try:
+            # Check if VM exists and get current status
+            vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+            current_status = vm_status.get("status")
+            
+            if current_status == "stopped":
+                result_text = f"Cannot reset VM {vmid}: VM is currently stopped\nUse start_vm to start it first"
+            else:
+                # Reset the VM
+                task_result = self.proxmox.nodes(node).qemu(vmid).status.reset.post()
+                job = self._register_background_job(
+                    tool_name="reset_vm",
+                    summary=f"Reset VM {vmid} on {node}",
+                    node=node,
+                    upid=task_result,
+                    metadata={"vmid": vmid},
+                    retry_spec={"kind": "vm.reset", "params": {"node": node, "vmid": vmid}},
+                    retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).status.reset.post(),
+                    cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+                )
+                result_text = (
+                    f"VM {vmid} reset initiated successfully\n"
+                    f"Task ID: {task_result}\n"
+                    f"Job ID: {job['job_id'] if job else 'n/a'}"
+                )
+                
+            return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+            
+        except Exception as e:
+            if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                raise ValueError(f"VM {vmid} not found on node {node}")
+            self._handle_error(f"reset VM {vmid}", e)
+
+    async def execute_command(
+        self,
+        node: str,
+        vmid: str,
+        command: str,
+        approval_token: Optional[str] = None,
+        guest_os: str = "posix",
+    ) -> List[Content]:
+        """Execute a command in a VM via QEMU guest agent.
+
+        Uses the QEMU guest agent to execute commands within a running VM.
+        Requires:
+        - VM must be running
+        - QEMU guest agent must be installed and running in the VM
+        - Command execution permissions must be enabled
+
+        Args:
+            node: Host node name (e.g., 'pve1', 'proxmox-node2')
+            vmid: VM ID number (e.g., '100', '101')
+            command: Shell command to run (e.g., 'uname -a', 'systemctl status nginx')
+
+        Returns:
+            List of Content objects containing formatted command output:
+            {
+                "success": true/false,
+                "output": "command output",
+                "error": "error message if any"
+            }
+
+        Raises:
+            ValueError: If VM is not found, not running, or guest agent is not available
+            RuntimeError: If command execution fails due to permissions or other issues
+        """
+        try:
+            if self.command_policy is not None:
+                decision = self.command_policy.evaluate(command, approval_token=approval_token)
+                if not decision.allowed:
+                    policy_result = ToolResult(
+                        success=False,
+                        code=decision.code,
+                        message="Command execution blocked by policy",
+                        data={"reason": decision.message},
+                    )
+                    return [
+                        Content(
+                            type="text",
+                            text=policy_result.model_dump_json(indent=2),
+                        )
+                    ]
+
+            exec_result = await self.console_manager.execute_command(node, vmid, command, guest_os=guest_os)
+            # Use the command output formatter from ProxmoxFormatters
+            from proxmox_mcp.formatting import ProxmoxFormatters
+            formatted = ProxmoxFormatters.format_command_output(
+                success=exec_result["success"],
+                command=command,
+                output=exec_result["output"],
+                error=exec_result.get("error")
+            )
+            return [Content(type="text", text=formatted), Content(type="text", text=json.dumps(exec_result))]
+        except Exception as e:
+            self._handle_error(f"execute command on VM {vmid}", e)
+
+    def delete_vm(
+        self,
+        node: str,
+        vmid: str,
+        force: bool = False,
+        approval_token: Optional[str] = None,
+        *,
+        purge: bool = False,
+    ) -> List[Content]:
+        """Delete/remove a virtual machine completely.
+        
+        This will permanently delete the VM and all its associated data including:
+        - VM configuration
+        - Virtual disks
+        - Snapshots
+        
+        WARNING: This operation cannot be undone!
+        
+        Args:
+            node: Host node name (e.g., 'pve1', 'proxmox-node2')
+            vmid: VM ID number (e.g., '100', '101')
+            force: Force deletion even if VM is running (will stop first)
+            purge: Also remove the VMID from cluster configuration that references
+                it (HA resources, backup and replication jobs). Without it
+                Proxmox refuses to delete a VM that is still an HA resource.
+
+        Returns:
+            List of Content objects containing deletion result
+            
+        Raises:
+            ValueError: If VM is not found or is running and force=False
+            RuntimeError: If deletion fails
+        """
+        _ = approval_token
+        try:
+            # Check if VM exists and get current status
+            try:
+                vm_status = self.proxmox.nodes(node).qemu(vmid).status.current.get()
+                current_status = vm_status.get("status")
+                vm_name = vm_status.get("name", f"VM-{vmid}")
+            except Exception as e:
+                if "does not exist" in str(e).lower() or "not found" in str(e).lower():
+                    raise ValueError(f"VM {vmid} not found on node {node}")
+                raise e
+            
+            # Check if VM is running
+            if current_status == "running":
+                if not force:
+                    raise ValueError(f"VM {vmid} ({vm_name}) is currently running. "
+                                   f"Please stop it first or use force=True to stop and delete.")
+                else:
+                    # Force stop the VM first
+                    stop_upid = self.proxmox.nodes(node).qemu(vmid).status.stop.post()
+                    self._register_background_job(tool_name="stop_vm", summary=f"Stop VM {vmid} before deletion", node=node, upid=stop_upid)
+                    self._wait_for_task(node, stop_upid)
+                    self._wait_for_guest_stopped(self.proxmox.nodes(node).qemu(vmid))
+                    result_text = f"Stopping VM {vmid} ({vm_name}) before deletion...\n"
+            else:
+                result_text = f"Deleting VM {vmid} ({vm_name})...\n"
+            
+            # Delete the VM
+            delete_params = {"purge": 1} if purge else {}
+            task_result = self.proxmox.nodes(node).qemu(vmid).delete(**delete_params)
+            job = self._register_background_job(
+                tool_name="delete_vm",
+                summary=f"Delete VM {vmid} ({vm_name}) on {node}",
+                node=node,
+                upid=task_result,
+                metadata={"vmid": vmid, "force": force, "purge": purge},
+                retry_spec={"kind": "vm.delete", "params": {"node": node, "vmid": vmid, "purge": purge}},
+                retry_factory=lambda: self.proxmox.nodes(node).qemu(vmid).delete(**delete_params),
+                cancel_factory=lambda upid: self.proxmox.nodes(node).tasks(upid).delete(),
+            )
+            
+            result_text += f"""VM {vmid} ({vm_name}) deletion initiated successfully
+
+WARNING: This operation will permanently remove:
+  - VM configuration
+  - All virtual disks
+  - All snapshots
+  - Cannot be undone
+
+Task ID: {task_result}
+Job ID: {job["job_id"] if job else "n/a"}
+
+VM {vmid} ({vm_name}) is being deleted from node {node}"""
+            
+            return [Content(type="text", text=result_text)] + self._submission_content(job, task_result)
+            
+        except ValueError as e:
+            raise e
+        except Exception as e:
+            self._handle_error(f"delete VM {vmid}", e)

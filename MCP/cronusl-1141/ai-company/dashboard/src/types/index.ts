@@ -1,0 +1,284 @@
+export interface Team {
+  id: string;
+  name: string;
+  mode: string;
+  project_id?: string | null;
+  leader_agent_id?: string | null;
+  status: 'active' | 'completed' | 'archived';
+  summary?: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  // 拥有此会话容器队的 CC 进程；后端派生，不落库。同一进程的多支容器队靠它归组。
+  // 证不出来就是 null（历史会话在 CC 的进程登记里查不到），非容器队恒为 null。
+  cc_pid?: number | null;
+}
+
+export interface Agent {
+  id: string;
+  team_id: string;
+  name: string;
+  role: string;
+  system_prompt: string;
+  model: string;
+  harness?: string | null;
+  status: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  source?: 'api' | 'hook';       // 来源标记
+  session_id?: string | null;     // CC会话ID
+  cc_tool_use_id?: string | null; // CC内部agent ID
+  current_task?: string | null;   // 当前正在执行的任务描述
+  last_active_at?: string | null; // 最后活跃时间
+  // Sub-agent context watermark ledger (docs/agent-reuse-design.md section 4).
+  // Populated on SubagentStop; agents with no capture yet leave these null.
+  ctx_tokens?: number | null;
+  ctx_window?: number | null;
+  ctx_pct?: number | null;
+  transcript_path?: string | null;
+  ctx_measured_at?: string | null;
+  reuse_domain?: string | null;
+}
+
+export interface TaskWaiting {
+  kind: 'user' | 'agent';
+  target_id: string;
+  reason: string;
+}
+
+export interface Task {
+  id: string;
+  team_id: string | null;
+  title: string;
+  description: string;
+  status: string;
+  result: string | null;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  horizon: 'short' | 'mid' | 'long';
+  tags: string[];
+  score?: number;
+  assigned_to?: string | null;
+  team_name?: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  project_id?: string | null;
+  parent_id?: string | null;
+  depends_on?: string[];
+  waiting_on?: TaskWaiting | null;
+  block_reason?: string | null;
+  status_note?: string;
+  revision?: number;
+  subtask_progress?: { completed: number; total: number };
+  subtasks?: Task[];
+  latest_progress?: { content: string; author: string; timestamp: string } | null;
+  waiting_user?: boolean;
+  waiting_user_subtasks?: { id: string; title: string; waiting_on: TaskWaiting | null }[];
+  executor_stopped?: boolean;
+  management_hints?: string[];
+  // Open rows of the project wall carry the digest's activity (server-computed).
+  last_activity_at?: string;
+  last_activity_kind?: TaskActivityKind;
+  last_activity_memo_type?: string;
+  last_activity_by?: string;
+  idle_days?: number;
+  wall_days?: number;
+  stale?: boolean;
+  blocked_days?: number | null;
+}
+
+/** What a task's latest work action was (see docs/task-wall-digest-design.md). */
+export type TaskActivityKind =
+  | 'created' | 'started' | 'blocked' | 'reopened' | 'failed' | 'closed' | 'memo' | 'subtask';
+
+/** One task line of the task-wall digest. */
+export interface DigestItem {
+  parent_id?: string | null;
+  parent_title?: string | null;
+  waiting_on?: TaskWaiting | null;
+  id: string;
+  title: string;
+  status: string;
+  priority: Task['priority'];
+  horizon: Task['horizon'];
+  created_at: string;
+  activity_at: string;
+  activity_kind: TaskActivityKind;
+  activity_memo_type: string;
+  activity_by: string;
+  idle_days: number;
+  wall_days: number;
+  stale: boolean;
+  blocked_days: number | null;
+}
+
+/** The task-wall digest: the same numbers the Leader's session briefing shows. */
+export interface TaskWallDigest {
+  project_id: string;
+  as_of: string;
+  open_total: number;
+  by_status: Record<'pending' | 'running' | 'blocked' | 'failed', number>;
+  by_horizon: Record<'short' | 'mid' | 'long', number>;
+  matrix: Record<string, Record<string, number>>;
+  by_priority: Record<string, number>;
+  created_7d: number;
+  closed_7d: number;
+  completed_total: number;
+  stale_days: number;
+  stale_running: number;
+  dormant_days: number;
+  dormant_pending: number;
+  blocked_oldest_days: number | null;
+  recent: DigestItem[];
+  top: DigestItem[];
+  heads: Partial<Record<'mid' | 'long', DigestItem>>;
+  stuck: DigestItem[];
+  text: string;
+  waiting_user?: DigestItem[];
+  executor_stopped?: DigestItem[];
+}
+
+/** A completed task as one short row (task-wall ?completed_limit=). */
+export interface CompletedTaskRow {
+  id: string;
+  title: string;
+  status: string;
+  priority: Task['priority'];
+  horizon: Task['horizon'];
+  assigned_to: string | null;
+  team_name: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface TaskWallResponse {
+  wall: {
+    short: Task[];
+    mid: Task[];
+    long: Task[];
+  };
+  completed?: Task[];
+  stats: {
+    /** Open top-level tasks (completed ones are completed_count). */
+    total: number;
+    by_priority: Record<string, number>;
+    by_status: Record<string, number>;
+    avg_score: number;
+    completed_count?: number;
+  };
+  /** Project wall only: the whole-wall digest and the pending rows left off this page. */
+  digest?: TaskWallDigest;
+  not_shown?: { pending: number };
+  has_more?: boolean;
+}
+
+/** Project wall paged to completed short rows (?status=completed&completed_limit=). */
+export interface CompletedTaskPage {
+  completed: CompletedTaskRow[];
+  completed_total: number;
+  completed_has_more: boolean;
+}
+
+export interface Event {
+  id: string;
+  type: string;
+  source: string;
+  data: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface Memory {
+  id: string;
+  scope: 'global' | 'team' | 'agent' | 'user';
+  scope_id: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  accessed_at: string | null;
+}
+
+export interface APIResponse<T> {
+  data: T;
+  message: string;
+  /** 部分写操作端点（如 task run/decompose）会额外回一句操作指引，
+   *  诚实说明"这只是入队，需要 CC 会话领取"——前端应尽量透出而非丢弃。 */
+  _hint?: string;
+}
+
+export interface APIListResponse<T> {
+  data: T[];
+  total: number;
+  message: string;
+}
+
+export interface TeamStatus {
+  team: Team;
+  agents: Agent[];
+  active_tasks: Task[];
+  completed_tasks: number;
+  total_tasks: number;
+}
+
+export interface Meeting {
+  id: string;
+  team_id: string;
+  topic: string;
+  status: 'active' | 'concluded';
+  participants: string[];
+  created_at: string;
+  concluded_at: string | null;
+}
+
+export interface MeetingMessage {
+  id: string;
+  meeting_id: string;
+  agent_id: string;
+  agent_name: string;
+  content: string;
+  round_number: number;
+  timestamp: string;
+}
+
+export interface WSEvent {
+  type: string;
+  source: string;
+  data: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  root_path: string;
+  description: string;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Phase {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string;
+  status: 'planning' | 'active' | 'completed' | 'archived';
+  order: number;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentActivity {
+  id: string;
+  agent_id: string;
+  agent_name?: string;
+  session_id: string;
+  tool_name: string;
+  input_summary: string;
+  output_summary: string;
+  status: 'running' | 'completed' | 'error';
+  duration_ms: number | null;
+  timestamp: string;
+  error?: string;
+}

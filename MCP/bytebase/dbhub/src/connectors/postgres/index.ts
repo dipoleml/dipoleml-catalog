@@ -1,0 +1,982 @@
+import pg from "pg";
+const { Pool } = pg;
+import {
+  Connector,
+  ConnectorType,
+  ConnectorRegistry,
+  DSNParser,
+  SQLResult,
+  SQLResultSet,
+  TableColumn,
+  TableIndex,
+  StoredProcedure,
+  ExecuteOptions,
+  ConnectorConfig,
+  HealthCheckResult,
+} from "../interface.js";
+import { toNullableNumber } from "../health-check-utils.js";
+import { SafeURL } from "../../utils/safe-url.js";
+import { obfuscateDSNPassword } from "../../utils/dsn-obfuscate.js";
+import { SQLRowLimiter } from "../../utils/sql-row-limiter.js";
+import { quoteIdentifier } from "../../utils/identifier-quoter.js";
+import { splitSQLStatements } from "../../utils/sql-parser.js";
+import { FailedToReadCertificate } from "./failed-to-read-certificate.js";
+import { postgresTypeParsers } from "./type-parsers.js";
+import {
+  CLIENT_CERT_SSL_MODES,
+  SUPPORTED_SSL_MODES,
+  SSL_ROOT_CERT_LABEL,
+  SSL_CLIENT_CERT_LABEL,
+  SSL_CLIENT_KEY_LABEL,
+  readPemFile,
+  isEncryptedPemKey,
+  encryptedKeyMessage,
+  rotatingPemClient,
+} from "./ssl-pems.js";
+import { closeQuietly } from "../../utils/resource-cleanup.js";
+import {
+  CANCEL_QUERY_TIMEOUT_MS,
+  clientQueryTimeoutMs,
+  isClientSideTimeout,
+} from "../../utils/query-timeout.js";
+
+/**
+ * PostgreSQL DSN Parser
+ * Handles DSN strings like: postgres://user:password@localhost:5432/dbname?sslmode=disable
+ * Supported SSL modes:
+ * - sslmode=disable: No SSL
+ * - sslmode=require: SSL connection without certificate verification
+ * - sslmode=verify-ca: SSL with CA certificate verification, no hostname check
+ * - sslmode=verify-full: SSL with CA certificate and hostname verification
+ * - Any other value is rejected (libpq's allow/prefer have no node-postgres equivalent)
+ *
+ * Optional parameter for verify-ca/verify-full:
+ * - sslrootcert=/path/to/ca.pem: Path to CA certificate bundle (supports ~/ expansion).
+ *   Rejected with any other sslmode rather than silently ignored.
+ *
+ * Optional parameters for client certificate authentication (require/verify-ca/verify-full):
+ * - sslcert=/path/to/client.crt: PEM client certificate (supports ~/ expansion)
+ * - sslkey=/path/to/client.key: PEM private key for sslcert (unencrypted; supports ~/ expansion)
+ * Both must be set together, and only take effect when TLS is enabled.
+ */
+class PostgresDSNParser implements DSNParser {
+  async parse(dsn: string, config?: ConnectorConfig): Promise<pg.PoolConfig> {
+    const connectionTimeoutSeconds = config?.connectionTimeoutSeconds;
+    const queryTimeoutSeconds = config?.queryTimeoutSeconds;
+    const poolMaxConnections = config?.poolMaxConnections;
+    // Basic validation
+    if (!this.isValidDSN(dsn)) {
+      const obfuscatedDSN = obfuscateDSNPassword(dsn);
+      const expectedFormat = this.getSampleDSN();
+      throw new Error(
+        `Invalid PostgreSQL DSN format.\nProvided: ${obfuscatedDSN}\nExpected: ${expectedFormat}`
+      );
+    }
+
+    try {
+      // Use the SafeURL helper instead of the built-in URL
+      // This will handle special characters in passwords, etc.
+      const url = new SafeURL(dsn);
+
+      const poolConfig: pg.PoolConfig = {
+        host: url.hostname,
+        port: url.port ? parseInt(url.port) : 5432,
+        database: url.pathname ? url.pathname.substring(1) : '', // Remove leading '/' if exists
+        user: url.username,
+        password: config?.password ?? url.password,
+      };
+
+      let sslmode: string | undefined;
+      let sslrootcert: string | undefined;
+      let sslcert: string | undefined;
+      let sslkey: string | undefined;
+
+      // Handle query parameters (like sslmode, sslrootcert, etc.)
+      url.forEachSearchParam((value, key) => {
+        if (key === "sslmode") {
+          sslmode = value;
+        } else if (key === "sslrootcert") {
+          sslrootcert = value;
+        } else if (key === "sslcert") {
+          sslcert = value;
+        } else if (key === "sslkey") {
+          sslkey = value;
+        }
+        // Add other parameters as needed
+      });
+
+      // An unrecognised mode (libpq's allow/prefer, or a typo) used to fall
+      // through to `ssl: true`, which verifies against the system CA store and
+      // never falls back to plaintext — the opposite of what allow/prefer ask
+      // for. Reject it instead of guessing.
+      if (sslmode !== undefined && !SUPPORTED_SSL_MODES.includes(sslmode)) {
+        throw new Error(
+          `Unsupported sslmode '${sslmode}'. Valid values: ${SUPPORTED_SSL_MODES.join(", ")}`
+        );
+      }
+
+      // sslrootcert is only read for verify-ca/verify-full. libpq treats
+      // require + a root CA as verify-ca, so a DSN copied from psql would
+      // otherwise connect unverified without any warning. Fail fast and let
+      // the user pick the mode explicitly (matches TOML validation).
+      if (sslrootcert !== undefined && sslmode !== "verify-ca" && sslmode !== "verify-full") {
+        throw new FailedToReadCertificate(
+          `sslrootcert requires sslmode 'verify-ca' or 'verify-full' (got '${sslmode ?? "not set"}'). ` +
+            `Use sslmode=verify-ca to verify the server certificate against it, or remove sslrootcert.`
+        );
+      }
+
+      // Client certificate authentication: both halves are needed for a TLS
+      // handshake, and node-postgres only speaks TLS in the modes below, so a
+      // cert on a plaintext connection would be silently dropped. Fail fast.
+      if ((sslcert === undefined) !== (sslkey === undefined)) {
+        throw new FailedToReadCertificate(
+          "sslcert and sslkey must be set together for client certificate authentication"
+        );
+      }
+      if (sslcert !== undefined && !CLIENT_CERT_SSL_MODES.includes(sslmode ?? "")) {
+        throw new FailedToReadCertificate(
+          `sslcert/sslkey require sslmode to be one of ${CLIENT_CERT_SSL_MODES.join(", ")} ` +
+            `(got '${sslmode ?? "not set"}')`
+        );
+      }
+
+      if (sslmode === "disable") {
+        poolConfig.ssl = false;
+      } else if (sslmode === "require") {
+        poolConfig.ssl = { rejectUnauthorized: false };
+      } else if (sslmode === "verify-ca" || sslmode === "verify-full") {
+        const sslConfig: pg.PoolConfig["ssl"] & object = { rejectUnauthorized: true };
+        // verify-ca checks the certificate chain but does not verify the server hostname,
+        // matching libpq behavior. verify-full (the default with rejectUnauthorized: true)
+        // verifies both the certificate chain and the hostname.
+        if (sslmode === "verify-ca") {
+          sslConfig.checkServerIdentity = () => undefined;
+        }
+        if (sslrootcert) {
+          sslConfig.ca = await readPemFile(sslrootcert, SSL_ROOT_CERT_LABEL);
+        }
+        poolConfig.ssl = sslConfig;
+      }
+
+      if (sslcert !== undefined && sslkey !== undefined) {
+        const key = await readPemFile(sslkey, SSL_CLIENT_KEY_LABEL);
+        if (isEncryptedPemKey(key)) {
+          throw new FailedToReadCertificate(encryptedKeyMessage(sslkey));
+        }
+        // sslmode is validated above, so poolConfig.ssl is an object here
+        Object.assign(poolConfig.ssl as object, {
+          cert: await readPemFile(sslcert, SSL_CLIENT_CERT_LABEL),
+          key,
+        });
+      }
+
+      // The reads above validate the configuration at startup. After that,
+      // every new pool connection re-reads the files so short-lived
+      // certificates rotated on disk are picked up without a restart.
+      if (sslrootcert !== undefined || sslcert !== undefined) {
+        poolConfig.Client = rotatingPemClient({ sslrootcert, sslcert, sslkey }) as unknown as pg.PoolConfig["Client"];
+      }
+
+      // Apply connection timeout if specified
+      if (connectionTimeoutSeconds !== undefined) {
+        // pg library expects timeout in milliseconds
+        poolConfig.connectionTimeoutMillis = connectionTimeoutSeconds * 1000;
+      }
+
+      // Apply the configured limit on the server so a timed-out statement does
+      // not keep running after DBHub stops waiting for it. Retain the client-side
+      // timeout as a fallback, with enough grace for PostgreSQL's cancellation
+      // response to arrive first (see query-timeout.ts).
+      if (queryTimeoutSeconds !== undefined) {
+        const queryTimeoutMs = queryTimeoutSeconds * 1000;
+        poolConfig.statement_timeout = queryTimeoutMs;
+        poolConfig.query_timeout = clientQueryTimeoutMs(queryTimeoutMs);
+      }
+
+      if (poolMaxConnections !== undefined) {
+        poolConfig.max = poolMaxConnections;
+      }
+
+      return poolConfig;
+    } catch (error) {
+      if (error instanceof FailedToReadCertificate) {
+        throw error;
+      }
+      const originalError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(
+        `Failed to parse PostgreSQL DSN: ${originalError.message}`,
+        { cause: originalError }
+      );
+    }
+  }
+
+  getSampleDSN(): string {
+    return "postgres://postgres:password@localhost:5432/postgres?sslmode=require";
+  }
+
+  isValidDSN(dsn: string): boolean {
+    try {
+      return dsn.startsWith('postgres://') || dsn.startsWith('postgresql://');
+    } catch (error) {
+      return false;
+    }
+  }
+}
+
+/**
+ * PostgreSQL Connector Implementation
+ */
+export class PostgresConnector implements Connector {
+  id: ConnectorType = "postgres";
+  name = "PostgreSQL";
+  dsnParser = new PostgresDSNParser();
+
+  private pool: pg.Pool | null = null;
+
+  // Source ID is set by ConnectorManager after cloning
+  private sourceId: string = "default";
+
+  // Default schema for discovery methods (first entry from search_path, or "public")
+  private defaultSchema: string = "public";
+
+  getId(): string {
+    return this.sourceId;
+  }
+
+  clone(): Connector {
+    return new PostgresConnector();
+  }
+
+  async connect(dsn: string, initScript?: string, config?: ConnectorConfig): Promise<void> {
+    // Reset default schema in case this connector instance is re-used across connect() calls
+    this.defaultSchema = "public";
+
+    try {
+      const poolConfig = await this.dsnParser.parse(dsn, config);
+
+      // Return date/timestamp values as the server's verbatim text so they are
+      // not shifted by the host's local timezone (see type-parsers.ts).
+      poolConfig.types = postgresTypeParsers;
+
+      // SDK-level readonly enforcement: Set default_transaction_read_only for the entire connection
+      if (config?.readonly) {
+        poolConfig.options = (poolConfig.options || '') + ' -c default_transaction_read_only=on';
+      }
+
+      // Set search_path if configured
+      if (config?.searchPath) {
+        const schemas = config.searchPath.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        if (schemas.length > 0) {
+          this.defaultSchema = schemas[0];
+          const quotedSchemas = schemas.map(s => quoteIdentifier(s, 'postgres'));
+          // Escape backslashes then spaces for PostgreSQL options string parser
+          const optionsValue = quotedSchemas.join(',').replace(/\\/g, '\\\\').replace(/ /g, '\\ ');
+          poolConfig.options = (poolConfig.options || '') + ` -c search_path=${optionsValue}`;
+        }
+      }
+
+      this.pool = new Pool(poolConfig);
+
+      // pg-pool re-emits an idle client's error (server restart, failover,
+      // idle-timeout close) as an 'error' event on the pool. Without a listener
+      // Node treats it as unhandled and exits the whole process. The client has
+      // already been purged from the pool by the time this fires, so logging is
+      // all that is needed; the next query checks out a fresh connection.
+      this.pool.on("error", (err: Error) => {
+        console.error(
+          `PostgreSQL pool (source "${this.sourceId}"): idle connection dropped, will reconnect on next query:`,
+          err.message
+        );
+      });
+
+      // Test the connection
+      const client = await this.acquireClient();
+      client.release();
+    } catch (err) {
+      // Tear down the pool if it was created before the failure, otherwise it
+      // strands sockets and keeps the event loop alive (see closeQuietly).
+      if (this.pool) {
+        const pool = this.pool;
+        this.pool = null;
+        await closeQuietly(() => pool.end());
+      }
+      console.error("Failed to connect to PostgreSQL database:", err);
+      throw err;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
+    }
+  }
+
+  async getSchemas(): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      const result = await client.query(`
+        SELECT schema_name
+        FROM information_schema.schemata
+        WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+        ORDER BY schema_name
+      `);
+
+      return result.rows.map((row) => row.schema_name);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getTables(schema?: string): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      // 'FOREIGN' covers foreign tables (postgres_fdw, file_fdw, ...). They are
+      // queryable like base tables and information_schema.columns already
+      // describes them, so they must be discoverable here too (#418).
+      const result = await client.query(
+        `
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = $1
+        AND table_type IN ('BASE TABLE', 'FOREIGN')
+        ORDER BY table_name
+      `,
+        [schemaToUse]
+      );
+
+      return result.rows.map((row) => row.table_name);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getViews(schema?: string): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      const schemaToUse = schema || this.defaultSchema;
+
+      const result = await client.query(
+        `
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = $1
+        AND table_type = 'VIEW'
+        ORDER BY table_name
+      `,
+        [schemaToUse]
+      );
+
+      return result.rows.map((row) => row.table_name);
+    } finally {
+      client.release();
+    }
+  }
+
+  async tableExists(tableName: string, schema?: string): Promise<boolean> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      const result = await client.query(
+        `
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = $1
+          AND table_name = $2
+        )
+      `,
+        [schemaToUse, tableName]
+      );
+
+      return result.rows[0].exists;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getTableIndexes(tableName: string, schema?: string): Promise<TableIndex[]> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      // Query to get all indexes for the table. attname is of type `name`;
+      // node-pg has no parser for name[] and would hand back the raw '{id}'
+      // string, so the aggregate is cast to text[] to get a real array.
+      const result = await client.query(
+        `
+        SELECT
+          i.relname as index_name,
+          array_agg(a.attname::text) as column_names,
+          ix.indisunique as is_unique,
+          ix.indisprimary as is_primary
+        FROM
+          pg_class t,
+          pg_class i,
+          pg_index ix,
+          pg_attribute a,
+          pg_namespace ns
+        WHERE
+          t.oid = ix.indrelid
+          AND i.oid = ix.indexrelid
+          AND a.attrelid = t.oid
+          AND a.attnum = ANY(ix.indkey)
+          AND t.relkind IN ('r','p')
+          AND t.relname = $1
+          AND ns.oid = t.relnamespace
+          AND ns.nspname = $2
+        GROUP BY
+          i.relname,
+          ix.indisunique,
+          ix.indisprimary
+        ORDER BY
+          i.relname
+      `,
+        [tableName, schemaToUse]
+      );
+
+      return result.rows.map((row) => ({
+        index_name: row.index_name,
+        column_names: row.column_names,
+        is_unique: row.is_unique,
+        is_primary: row.is_primary,
+      }));
+    } finally {
+      client.release();
+    }
+  }
+
+  async getTableSchema(tableName: string, schema?: string): Promise<TableColumn[]> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      // Get table columns with comments from pg_catalog
+      // Use pg_class + pg_namespace directly (more efficient than pg_statio_all_tables)
+      const result = await client.query(
+        `
+        SELECT
+          c.column_name,
+          c.data_type,
+          c.is_nullable,
+          c.column_default,
+          pgd.description
+        FROM information_schema.columns c
+        LEFT JOIN pg_catalog.pg_namespace nsp
+          ON nsp.nspname = c.table_schema
+        LEFT JOIN pg_catalog.pg_class cls
+          ON cls.relnamespace = nsp.oid
+          AND cls.relname = c.table_name
+        LEFT JOIN pg_catalog.pg_description pgd
+          ON pgd.objoid = cls.oid
+          AND pgd.objsubid = c.ordinal_position
+        WHERE c.table_schema = $1
+        AND c.table_name = $2
+        ORDER BY c.ordinal_position
+      `,
+        [schemaToUse, tableName]
+      );
+
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getTableRowCount(tableName: string, schema?: string): Promise<number | null> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      const result = await client.query(
+        `
+        SELECT c.reltuples::bigint as count
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = $1
+        AND n.nspname = $2
+        AND c.relkind IN ('r','p','m','f')
+      `,
+        [tableName, schemaToUse]
+      );
+
+      if (result.rows.length > 0) {
+        const count = Number(result.rows[0].count);
+        return count >= 0 ? count : null;
+      }
+      return null;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getTableComment(tableName: string, schema?: string): Promise<string | null> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      const schemaToUse = schema || this.defaultSchema;
+
+      const result = await client.query(
+        `
+        SELECT obj_description(c.oid) as table_comment
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = $1
+        AND n.nspname = $2
+        AND c.relkind IN ('r','p','m','f','v')
+      `,
+        [tableName, schemaToUse]
+      );
+
+      if (result.rows.length > 0) {
+        return result.rows[0].table_comment || null;
+      }
+      return null;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getHealthCheck(): Promise<HealthCheckResult> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      const [connectionsResult, maxConnectionsResult, bufferCacheResult] = await Promise.all([
+        client.query(`
+          SELECT
+            count(*) AS total,
+            count(*) FILTER (WHERE state = 'active') AS active,
+            count(*) FILTER (WHERE state = 'idle') AS idle,
+            count(*) FILTER (WHERE state = 'idle in transaction') AS idle_in_transaction,
+            count(*) FILTER (WHERE state = 'idle in transaction (aborted)') AS idle_in_transaction_aborted,
+            max(EXTRACT(EPOCH FROM (now() - state_change)))
+              FILTER (WHERE state = 'idle in transaction') AS longest_idle_in_transaction_seconds,
+            max(EXTRACT(EPOCH FROM (now() - query_start)))
+              FILTER (WHERE state = 'active') AS longest_active_query_seconds
+          FROM pg_stat_activity
+          WHERE pid <> pg_backend_pid()
+        `),
+        client.query(`SHOW max_connections`),
+        client.query(
+          `
+          SELECT
+            blks_hit,
+            blks_read,
+            CASE WHEN (blks_hit + blks_read) = 0 THEN NULL
+                 ELSE round(100.0 * blks_hit / (blks_hit + blks_read), 2)
+            END AS hit_ratio_pct
+          FROM pg_stat_database
+          WHERE datname = current_database()
+        `
+        ),
+      ]);
+
+      const conn = connectionsResult.rows[0];
+      const cache = bufferCacheResult.rows[0];
+
+      return {
+        connections: {
+          total: Number(conn.total),
+          active: Number(conn.active),
+          idle: Number(conn.idle),
+          idleInTransaction: Number(conn.idle_in_transaction),
+          idleInTransactionAborted: Number(conn.idle_in_transaction_aborted),
+          maxConnections: Number(maxConnectionsResult.rows[0].max_connections),
+          longestIdleInTransactionSeconds: toNullableNumber(conn.longest_idle_in_transaction_seconds),
+          longestActiveQuerySeconds: toNullableNumber(conn.longest_active_query_seconds),
+        },
+        bufferCache: {
+          hitRatioPct: toNullableNumber(cache.hit_ratio_pct),
+          blocksHit: Number(cache.blks_hit),
+          blocksRead: Number(cache.blks_read),
+        },
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  async getStoredProcedures(schema?: string, routineType?: "procedure" | "function"): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      // Build query with optional routine type filter
+      const params: string[] = [schemaToUse];
+      let typeFilter = "";
+      if (routineType === "function") {
+        typeFilter = " AND routine_type = 'FUNCTION'";
+      } else if (routineType === "procedure") {
+        typeFilter = " AND routine_type = 'PROCEDURE'";
+      }
+
+      // Get stored procedures and/or functions from PostgreSQL
+      const result = await client.query(
+        `
+        SELECT
+          routine_name
+        FROM information_schema.routines
+        WHERE routine_schema = $1${typeFilter}
+        ORDER BY routine_name
+      `,
+        params
+      );
+
+      return result.rows.map((row) => row.routine_name);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getStoredProcedureDetail(procedureName: string, schema?: string): Promise<StoredProcedure> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    try {
+      // Use the configured default schema (from search_path config, defaults to 'public')
+      const schemaToUse = schema || this.defaultSchema;
+
+      // Get stored procedure details from PostgreSQL
+      const result = await client.query(
+        `
+        SELECT
+          routine_name as procedure_name,
+          routine_type,
+          CASE WHEN routine_type = 'PROCEDURE' THEN 'procedure' ELSE 'function' END as procedure_type,
+          external_language as language,
+          data_type as return_type,
+          routine_definition as definition,
+          (
+            SELECT string_agg(
+              parameter_name || ' ' ||
+              parameter_mode || ' ' ||
+              data_type,
+              ', '
+            )
+            FROM information_schema.parameters
+            WHERE specific_schema = $1
+            AND specific_name = $2
+            AND parameter_name IS NOT NULL
+          ) as parameter_list
+        FROM information_schema.routines
+        WHERE routine_schema = $1
+        AND routine_name = $2
+      `,
+        [schemaToUse, procedureName]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error(`Stored procedure '${procedureName}' not found in schema '${schemaToUse}'`);
+      }
+
+      const procedure = result.rows[0];
+
+      // If routine_definition is NULL, try to get the procedure body with pg_get_functiondef
+      let definition = procedure.definition;
+
+      try {
+        // Get the OID for the procedure/function
+        const oidResult = await client.query(
+          `
+          SELECT p.oid, p.prosrc
+          FROM pg_proc p
+          JOIN pg_namespace n ON p.pronamespace = n.oid
+          WHERE p.proname = $1
+          AND n.nspname = $2
+        `,
+          [procedureName, schemaToUse]
+        );
+
+        if (oidResult.rows.length > 0) {
+          // If definition is still null, get the full definition
+          if (!definition) {
+            const oid = oidResult.rows[0].oid;
+            const defResult = await client.query(`SELECT pg_get_functiondef($1)`, [oid]);
+            if (defResult.rows.length > 0) {
+              definition = defResult.rows[0].pg_get_functiondef;
+            } else {
+              // Fall back to prosrc if pg_get_functiondef fails
+              definition = oidResult.rows[0].prosrc;
+            }
+          }
+        }
+      } catch (err) {
+        // Ignore errors trying to get definition - it's optional
+        console.error(`Error getting procedure definition: ${err}`);
+      }
+
+      return {
+        procedure_name: procedure.procedure_name,
+        procedure_type: procedure.procedure_type,
+        language: procedure.language || "sql",
+        parameter_list: procedure.parameter_list || "",
+        return_type: procedure.return_type !== "void" ? procedure.return_type : undefined,
+        definition: definition || undefined,
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+
+  async executeSQL(sql: string, options: ExecuteOptions, parameters?: any[]): Promise<SQLResult> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    const client = await this.acquireClient();
+    // Captured up front, before a timeout can lead to the client being discarded.
+    const backendPid = (client as unknown as { processID: number | null }).processID;
+    let isClientDiscarded = false;
+    try {
+      // Check if this is a multi-statement query
+      const statements = splitSQLStatements(sql, "postgres");
+
+      if (statements.length === 1) {
+        // Single statement - apply maxRows (with a truncation probe row) if applicable
+        const { sql: processedStatement, probeApplied } = SQLRowLimiter.applyMaxRowsWithTruncationProbe(
+            statements[0],
+            options.maxRows,
+            "postgres"
+          );
+
+        // Engine-level read-only enforcement: when the tool is read-only, run the
+        // statement inside a READ ONLY transaction so the database itself rejects any
+        // write, even one the keyword classifier failed to catch (e.g. SELECT setval()).
+        if (options.readonly) {
+          await client.query('BEGIN READ ONLY');
+          try {
+            const result = parameters && parameters.length > 0
+              ? await client.query(processedStatement, parameters)
+              : await client.query(processedStatement);
+            await client.query('COMMIT');
+            const resultSet: SQLResultSet = {
+              sql: statements[0],
+              rows: result.rows,
+              rowCount: result.rowCount ?? result.rows.length,
+            };
+            SQLRowLimiter.flagTruncation(resultSet, options.maxRows, probeApplied);
+            return { resultSets: [resultSet] };
+          } catch (error) {
+            await this.rollbackQuietly(client, error);
+            throw error;
+          }
+        }
+
+        // Use parameters if provided
+        let result;
+        if (parameters && parameters.length > 0) {
+          result = await client.query(processedStatement, parameters);
+        } else {
+          result = await client.query(processedStatement);
+        }
+        // Explicitly return rows and rowCount to ensure rowCount is preserved
+        const resultSet: SQLResultSet = {
+          sql: statements[0],
+          rows: result.rows,
+          rowCount: result.rowCount ?? result.rows.length,
+        };
+        SQLRowLimiter.flagTruncation(resultSet, options.maxRows, probeApplied);
+        return { resultSets: [resultSet] };
+      } else {
+        // Multiple statements - parameters not supported for multi-statement queries
+        if (parameters && parameters.length > 0) {
+          throw new Error("Parameters are not supported for multi-statement queries in PostgreSQL");
+        }
+
+        // Execute all in same session for transaction consistency, keeping
+        // each statement's rows/rowCount as its own result set rather than
+        // merging them into one - a caller needs to tell "SELECT 1 AS a" and
+        // "SELECT 2 AS b" apart, not just see their rows concatenated.
+        const resultSets: SQLResultSet[] = [];
+
+        // Execute within a transaction to ensure session consistency.
+        // In read-only mode, open it READ ONLY so the engine rejects any write the
+        // keyword classifier missed (defense in depth, not a parser).
+        await client.query(options.readonly ? 'BEGIN READ ONLY' : 'BEGIN');
+        try {
+          for (let statement of statements) {
+            // Apply maxRows limit (with a truncation probe row) to SELECT queries if specified
+            const { sql: processedStatement, probeApplied } = SQLRowLimiter.applyMaxRowsWithTruncationProbe(
+            statement,
+            options.maxRows,
+            "postgres"
+          );
+
+            const result = await client.query(processedStatement);
+            const resultSet: SQLResultSet = {
+              sql: statement,
+              rows: result.rows ?? [],
+              rowCount: result.rowCount ?? result.rows?.length ?? 0,
+            };
+            SQLRowLimiter.flagTruncation(resultSet, options.maxRows, probeApplied);
+            resultSets.push(resultSet);
+          }
+          await client.query('COMMIT');
+        } catch (error) {
+          // Read-only violations mid-batch are expected under BEGIN READ ONLY.
+          await this.rollbackQuietly(client, error);
+          throw error;
+        }
+
+        return { resultSets };
+      }
+    } catch (error) {
+      if (isClientSideTimeout(error)) {
+        // node-postgres's query_timeout only aborts client-side: the statement
+        // keeps running on the server and this client is still waiting for its
+        // response, so returning it to the pool would block whichever caller
+        // draws it next. Discard it first (release with a truthy argument
+        // closes the socket and frees the pool slot, which the cancel below
+        // needs when the pool is at its limit), then best-effort cancel the
+        // server-side statement.
+        isClientDiscarded = true;
+        client.release(true);
+        await this.cancelBackend(backendPid);
+      }
+      throw error;
+    } finally {
+      if (!isClientDiscarded) {
+        client.release();
+      }
+    }
+  }
+
+  /**
+   * Checks a client out of the pool with an 'error' listener attached for the
+   * whole checkout, and releases it with that error so the pool discards it.
+   *
+   * pg-pool only listens for a client's 'error' while the client is idle: the
+   * listener is removed on checkout and re-attached on release. If the server
+   * ends the connection while a query is in flight (pg_terminate_backend, a
+   * failover, idle_in_transaction_session_timeout, a proxy reset), pg emits
+   * 'error' on the Client itself, and with nobody listening Node exits the
+   * whole process (#479). The pool-level listener in connect() cannot help:
+   * it only covers idle clients. pool.query() attaches exactly this kind of
+   * per-checkout listener; this does the same for the pool.connect() path.
+   */
+  private async acquireClient(): Promise<pg.PoolClient> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+    const client = await this.pool.connect();
+    let connectionError: Error | undefined;
+    const onError = (err: Error) => {
+      connectionError = err;
+    };
+    client.on("error", onError);
+    const release = client.release;
+    client.release = (err?: Error | boolean) => {
+      client.removeListener("error", onError);
+      // Releasing with a truthy argument makes the pool close and drop the
+      // client instead of handing the dead connection to the next caller.
+      const reason = err ?? connectionError;
+      if (reason === undefined) {
+        release();
+      } else {
+        release(reason);
+      }
+    };
+    return client;
+  }
+
+  /**
+   * Best-effort rollback after a failed statement, so a failed ROLLBACK (e.g.
+   * a dropped connection) cannot mask the original error. Skipped for a
+   * client-side timeout: the client is still busy with the abandoned
+   * statement, so the ROLLBACK would queue behind it (see isClientSideTimeout).
+   * executeSQL discards that client instead.
+   */
+  private async rollbackQuietly(client: pg.PoolClient, error: unknown): Promise<void> {
+    if (isClientSideTimeout(error)) {
+      return;
+    }
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignore; the original error is more useful
+    }
+  }
+
+  /**
+   * Best-effort server-side cancel for a statement abandoned by the
+   * client-side timeout, sent over a separate pooled connection. Closing the
+   * abandoned client's socket is not enough: PostgreSQL only notices a
+   * vanished client when it next writes to it, so a statement that is
+   * sleeping or computing would run to completion.
+   *
+   * Bounded by its own short timeout (CANCEL_QUERY_TIMEOUT_MS), independent
+   * of the user's query_timeout. pool.query discards its client on error, so
+   * a cancel that itself times out does not leak a stuck client.
+   */
+  private async cancelBackend(backendPid: number | null): Promise<void> {
+    if (!this.pool || backendPid === null) return;
+    try {
+      // node-postgres reads a per-query `query_timeout` from the query config;
+      // its typings only declare the pool-level option.
+      const cancel: pg.QueryConfig & { query_timeout: number } = {
+        text: 'SELECT pg_cancel_backend($1)',
+        values: [backendPid],
+        query_timeout: CANCEL_QUERY_TIMEOUT_MS,
+      };
+      await this.pool.query(cancel);
+    } catch {
+      // Unconfirmed cancellation: the statement may still be running on the
+      // server. Nothing more to do from here; the caller already sees the
+      // timeout error.
+    }
+  }
+}
+
+// Create and register the connector
+const postgresConnector = new PostgresConnector();
+ConnectorRegistry.register(postgresConnector);

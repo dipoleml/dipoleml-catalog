@@ -1,0 +1,226 @@
+#!/usr/bin/env osascript -l JavaScript
+
+/**
+ * get-screen-context.jxa
+ *
+ * Combined script: gets windows list + focused window UI tree in ONE osascript spawn.
+ * macOS equivalent of get-screen-context.ps1.
+ *
+ * Output shape (matches PS1 exactly so accessibility.ts needs no changes):
+ *   { windows: WindowInfo[], uiTree: UINode | null }
+ *
+ * Parameters (read from argv):
+ *   -FocusedProcessId <number>  — if provided, include UI tree for that process
+ *   -MaxDepth <number>          — max UI tree depth (default 2)
+ *
+ * Output: script result (last expression) goes to stdout for Node.js execFile.
+ *
+ * Usage: osascript -l JavaScript get-screen-context.jxa -FocusedProcessId 1234 -MaxDepth 2
+ */
+
+ObjC.import('stdlib');
+
+// ─── Argument parsing ────────────────────────────────────────────────────────
+
+function parseArgs() {
+    var args = ObjC.unwrap($.NSProcessInfo.processInfo.arguments);
+    var result = { focusedProcessId: 0, maxDepth: 2 };
+    for (var i = 0; i < args.length; i++) {
+        var arg = ObjC.unwrap(args[i]);
+        if (arg === '-FocusedProcessId' && i + 1 < args.length) {
+            result.focusedProcessId = parseInt(ObjC.unwrap(args[i + 1]), 10) || 0;
+        } else if (arg === '-MaxDepth' && i + 1 < args.length) {
+            result.maxDepth = parseInt(ObjC.unwrap(args[i + 1]), 10) || 2;
+        }
+    }
+    return result;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function safeGet(obj, prop, def) {
+    try { var v = obj[prop](); return (v !== undefined && v !== null) ? v : def; }
+    catch (e) { return def; }
+}
+
+function safeProp(el, prop, def) {
+    try { return el[prop] ? el[prop]() : def; }
+    catch (e) { return def; }
+}
+
+function getBounds(el) {
+    try {
+        var pos = el.position();
+        var sz  = el.size();
+        return { x: pos[0], y: pos[1], width: sz[0], height: sz[1] };
+    } catch (e) {
+        return { x: 0, y: 0, width: 0, height: 0 };
+    }
+}
+
+// ─── Part 1: windows list (same logic as get-windows.jxa) ────────────────────
+
+function getWindows(SystemEvents) {
+    var processes = SystemEvents.processes.where({ backgroundOnly: false });
+    var results = [];
+
+    for (var i = 0; i < processes.length; i++) {
+        try {
+            var proc       = processes[i];
+            var procName   = safeGet(proc, 'name', 'unknown');
+            var procId     = safeGet(proc, 'unixId', 0);
+            var windows    = proc.windows;
+
+            for (var j = 0; j < windows.length; j++) {
+                try {
+                    var win   = windows[j];
+                    var title = safeProp(win, 'name', '');
+                    if (!title || title.trim().length === 0) continue;
+
+                    var isMinimized = false;
+                    try { isMinimized = win.miniaturized(); } catch (e) {}
+
+                    results.push({
+                        handle:      procId,
+                        title:       title,
+                        processName: procName,
+                        processId:   procId,
+                        bounds:      getBounds(win),
+                        isMinimized: isMinimized
+                    });
+                } catch (e) {}
+            }
+        } catch (e) {}
+    }
+
+    return results;
+}
+
+// ─── Part 2: UI tree for focused process ─────────────────────────────────────
+
+// Interactive macOS roles worth sending to the LLM
+var INTERACTIVE_ROLES = {
+    'AXButton': true, 'AXTextField': true, 'AXTextArea': true,
+    'AXComboBox': true, 'AXCheckBox': true, 'AXRadioButton': true,
+    'AXLink': true, 'AXMenuItem': true, 'AXMenu': true,
+    'AXTab': true, 'AXTabGroup': true, 'AXList': true,
+    'AXOutline': true, 'AXSlider': true, 'AXScrollBar': true,
+    'AXToolbar': true, 'AXWebArea': true, 'AXStaticText': true,
+    'AXGroup': true
+};
+
+// Roles never worth descending into: their children are decoration or a
+// closed menu. Skipping them keeps the walk to real containers (groups,
+// scroll areas, split groups, lists, tables, toolbars).
+var LEAF_ROLES = {
+    'AXButton': true, 'AXStaticText': true, 'AXTextField': true, 'AXTextArea': true,
+    'AXCheckBox': true, 'AXRadioButton': true, 'AXImage': true, 'AXSlider': true,
+    'AXValueIndicator': true, 'AXIncrementor': true, 'AXPopUpButton': true,
+    'AXMenuButton': true, 'AXScrollBar': true, 'AXBusyIndicator': true,
+    'AXProgressIndicator': true, 'AXColorWell': true, 'AXSplitter': true,
+    'AXDisclosureTriangle': true, 'AXSearchField': true, 'AXComboBox': true
+};
+
+// One batched read of a property across a whole child collection — a single
+// Apple Event instead of one per element. Falls back to per-element reads if
+// the batch throws (a collection mixing elements that lack the property).
+function batch(kids, prop, n) {
+    try { var v = kids[prop](); if (v && v.length === n) return v; } catch (e) {}
+    var out = [];
+    for (var i = 0; i < n; i++) { try { out.push(kids[i][prop]()); } catch (e) { out.push(null); } }
+    return out;
+}
+
+function makeNode(p, children) {
+    var isInteractive = !!INTERACTIVE_ROLES[p.role];
+    var hasName = String(p.name || '').trim().length > 0;
+    if (!isInteractive && !hasName && children.length === 0) return null;
+    var isSecure = (p.subrole === 'AXSecureTextField');
+    return {
+        name:         p.name || '',
+        automationId: '',            // macOS has no AutomationId concept
+        controlType:  p.role || '',
+        subrole:      p.subrole || undefined,
+        secure:       isSecure || undefined,
+        bounds:       p.bounds,
+        // never emit the secret, even pre-redaction (audit 2026-06-11, M2)
+        value:        (!isSecure && p.value !== null && p.value !== undefined && p.value !== '') ? p.value : undefined,
+        children:     children.length > 0 ? children : undefined
+    };
+}
+
+/**
+ * Build the subtree under `element` (whose own properties are `props`).
+ * Children's properties are read in batches — one Apple Event per property
+ * per container — and only containers are descended. The old per-element
+ * crawl cost ~7 round trips per element, so a 100-control window ran past
+ * the adapter's 12 s timeout and compile_ui silently got no a11y elements
+ * on macOS (live run, 2026-10). An element's name falls back to its
+ * description, which is how AppKit exposes accessibilityLabel.
+ */
+function buildUINode(element, props, maxDepth, depth) {
+    var children = [];
+    if (depth < maxDepth && (!LEAF_ROLES[props.role] || props.popover)) {
+        try {
+            var kids = LEAF_ROLES[props.role] ? element.uiElements.whose({ role: 'AXPopover' }) : element.uiElements;
+            var names = kids.name();
+            var n = names.length;
+            if (n > 0) {
+                var descs = batch(kids, 'description', n), roles = batch(kids, 'role', n),
+                    subs = batch(kids, 'subrole', n), vals = batch(kids, 'value', n),
+                    poss = batch(kids, 'position', n), sizes = batch(kids, 'size', n);
+                // A leaf's children are decoration, except an open popover: AppKit hangs it under the control that presented it.
+                var grand; try { grand = kids.uiElements.role(); } catch (e) { grand = []; }
+                for (var i = 0; i < n; i++) {
+                    var pos = poss[i] || [0, 0], sz = sizes[i] || [0, 0];
+                    var child = buildUINode(kids[i], {
+                        name: names[i] || descs[i] || '', role: roles[i] || '', subrole: subs[i] || '',
+                        value: vals[i], popover: (grand[i] || []).indexOf('AXPopover') !== -1,
+                        bounds: { x: pos[0] || 0, y: pos[1] || 0, width: sz[0] || 0, height: sz[1] || 0 }
+                    }, maxDepth, depth + 1);
+                    if (child) children.push(child);
+                }
+            }
+        } catch (e) {}
+    }
+    return makeNode(props, children);
+}
+
+function getUITree(SystemEvents, focusedProcessId, maxDepth) {
+    if (!focusedProcessId) return null;
+
+    try {
+        var procs = SystemEvents.processes.where({ unixId: focusedProcessId });
+        if (procs.length === 0) return null;
+
+        var proc    = procs[0];
+        var windows = proc.windows;
+        if (windows.length === 0) return null;
+
+        // Use the first (frontmost) window
+        var win = windows[0];
+        var winProps = { name: safeProp(win, 'name', ''), role: safeProp(win, 'role', 'AXWindow'),
+                         subrole: safeProp(win, 'subrole', ''), value: null, bounds: getBounds(win) };
+        return buildUINode(win, winProps, maxDepth, 0);
+    } catch (e) {
+        return null;
+    }
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+var output;
+try {
+    var params       = parseArgs();
+    var SystemEvents = Application('System Events');
+    SystemEvents.includeStandardAdditions = true;
+
+    var windows = getWindows(SystemEvents);
+    var uiTree  = getUITree(SystemEvents, params.focusedProcessId, params.maxDepth);
+
+    output = JSON.stringify({ windows: windows, uiTree: uiTree });
+} catch (error) {
+    output = JSON.stringify({ error: error.toString() });
+    $.exit(1);
+}
+output;

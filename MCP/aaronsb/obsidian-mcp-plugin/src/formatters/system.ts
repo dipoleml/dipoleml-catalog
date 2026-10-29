@@ -1,0 +1,356 @@
+/**
+ * System and workflow operation formatters
+ */
+
+import {
+  header,
+  property,
+  divider,
+  tip,
+  summaryFooter,
+  joinLines
+} from './utils';
+
+/**
+ * Format system.info response
+ * Actual response: { authenticated, cors, ok, service, versions: {obsidian, self}, mcp: {running, port, connections, vault} }
+ */
+export interface SystemInfoResponse {
+  authenticated?: boolean;
+  ok?: boolean;
+  service?: string;
+  versions?: {
+    obsidian?: string;
+    self?: string;
+  };
+  mcp?: {
+    running?: boolean;
+    port?: number;
+    httpEnabled?: boolean;
+    httpsEnabled?: boolean;
+    httpPort?: number;
+    httpsPort?: number;
+    connections?: number;
+    vault?: string;
+  };
+  // Legacy format support
+  plugin?: {
+    name: string;
+    version: string;
+  };
+  vault?: {
+    name: string;
+    fileCount?: number;
+    folderCount?: number;
+  };
+}
+
+export function formatSystemInfo(response: SystemInfoResponse): string {
+  const lines: string[] = [];
+
+  lines.push(header(1, 'System Info'));
+  lines.push('');
+
+  // Handle actual API response format
+  if (response.service || response.versions) {
+    if (response.service) {
+      lines.push(property('Service', response.service, 0));
+    }
+    if (response.versions?.self) {
+      lines.push(property('Version', response.versions.self, 0));
+    }
+    if (response.versions?.obsidian) {
+      lines.push(property('Obsidian', response.versions.obsidian, 0));
+    }
+    lines.push(property('Status', response.ok ? '✓ OK' : '✗ Error', 0));
+    lines.push('');
+
+    if (response.mcp) {
+      lines.push(header(2, 'MCP Server'));
+      lines.push(property('Running', response.mcp.running ? 'Yes' : 'No', 0));
+      if (response.mcp.httpPort !== undefined) {
+        const httpStatus = response.mcp.httpEnabled === false ? ' (disabled)' : '';
+        lines.push(property('HTTP Port', response.mcp.httpPort.toString() + httpStatus, 0));
+      }
+      if (response.mcp.httpsPort !== undefined) {
+        const httpsStatus = response.mcp.httpsEnabled === false ? ' (disabled)' : '';
+        lines.push(property('HTTPS Port', response.mcp.httpsPort.toString() + httpsStatus, 0));
+      }
+      // Legacy: single port field
+      if (response.mcp.port && response.mcp.httpPort === undefined) {
+        lines.push(property('Port', response.mcp.port.toString(), 0));
+      }
+      if (response.mcp.connections !== undefined) {
+        lines.push(property('Connections', response.mcp.connections.toString(), 0));
+      }
+      if (response.mcp.vault) {
+        lines.push(property('Vault', response.mcp.vault, 0));
+      }
+    }
+  } else if (response.plugin) {
+    // Legacy format
+    lines.push(header(2, 'Plugin'));
+    lines.push(property('Name', response.plugin.name, 0));
+    lines.push(property('Version', response.plugin.version, 0));
+    lines.push('');
+
+    if (response.vault) {
+      lines.push(header(2, 'Vault'));
+      lines.push(property('Name', response.vault.name, 0));
+      if (response.vault.fileCount !== undefined) {
+        lines.push(property('Files', response.vault.fileCount.toString(), 0));
+      }
+    }
+  }
+
+  lines.push(summaryFooter());
+
+  return joinLines(lines);
+}
+
+/**
+ * Format system.commands response
+ */
+export interface CommandInfo {
+  id: string;
+  name: string;
+}
+
+export interface SystemCommandsResponse {
+  commands: CommandInfo[];
+}
+
+export function formatSystemCommands(response: SystemCommandsResponse): string {
+  const lines: string[] = [];
+
+  lines.push(header(1, 'Available Commands'));
+  lines.push('');
+  lines.push(`${response.commands.length} commands available`);
+  lines.push('');
+
+  // Group by prefix if possible
+  const grouped = new Map<string, CommandInfo[]>();
+  response.commands.forEach(cmd => {
+    const prefix = cmd.id.split(':')[0] || 'other';
+    const cmds = grouped.get(prefix) || [];
+    cmds.push(cmd);
+    grouped.set(prefix, cmds);
+  });
+
+  // Show top groups
+  const sortedGroups = Array.from(grouped.entries())
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 10);
+
+  sortedGroups.forEach(([prefix, cmds]) => {
+    lines.push(header(2, `${prefix} (${cmds.length})`));
+    cmds.slice(0, 5).forEach(cmd => {
+      lines.push(`- ${cmd.name}`);
+    });
+    if (cmds.length > 5) {
+      lines.push(`  ... and ${cmds.length - 5} more`);
+    }
+    lines.push('');
+  });
+
+  lines.push(divider());
+  lines.push(tip('Commands can be executed via Obsidian\'s command palette'));
+  lines.push(summaryFooter());
+
+  return joinLines(lines);
+}
+
+/**
+ * Format workflow.suggest response
+ * Actual response: { current_context: {...}, suggestions: [...] }
+ */
+export interface WorkflowSuggestion {
+  description: string;
+  command: string;
+  reason: string;
+}
+
+export interface WorkflowSuggestResponse {
+  // Legacy format
+  message?: string;
+  suggested_next?: WorkflowSuggestion[];
+  // Actual format
+  current_context?: {
+    buffer_available?: boolean;
+    has_links?: boolean;
+    has_tags?: boolean;
+  };
+  suggestions?: WorkflowSuggestion[];
+}
+
+export function formatWorkflowSuggest(response: WorkflowSuggestResponse): string {
+  const lines: string[] = [];
+
+  lines.push(header(1, 'Workflow Suggestions'));
+  lines.push('');
+
+  // Show context if available
+  if (response.current_context) {
+    const ctx = response.current_context;
+    const contextItems: string[] = [];
+    if (ctx.buffer_available) contextItems.push('buffer available');
+    if (ctx.has_links) contextItems.push('has links');
+    if (ctx.has_tags) contextItems.push('has tags');
+
+    if (contextItems.length > 0) {
+      lines.push(property('Context', contextItems.join(', '), 0));
+      lines.push('');
+    }
+  }
+
+  if (response.message) {
+    lines.push(response.message);
+    lines.push('');
+  }
+
+  // Handle both formats
+  const suggestions = response.suggestions || response.suggested_next || [];
+
+  if (suggestions.length === 0) {
+    lines.push('No specific suggestions at this time.');
+    lines.push('');
+    lines.push(tip('Try performing an operation first to get contextual suggestions'));
+    lines.push(summaryFooter());
+    return joinLines(lines);
+  }
+
+  lines.push(header(2, 'Suggested Actions'));
+  lines.push('');
+
+  suggestions.forEach((suggestion, i) => {
+    lines.push(`${i + 1}. **${suggestion.description}**`);
+    lines.push(property('Command', `\`${suggestion.command}\``, 1));
+    lines.push(property('Why', suggestion.reason, 1));
+    lines.push('');
+  });
+
+  lines.push(summaryFooter());
+
+  return joinLines(lines);
+}
+
+/**
+ * Format edit operation responses
+ * Note: Response may only contain success status
+ */
+export interface EditResponse {
+  success?: boolean;
+  path?: string;
+  operation?: 'window' | 'append' | 'patch' | 'at_line';
+  linesChanged?: number;
+  message?: string;
+}
+
+export function formatEditResult(response: EditResponse): string {
+  const lines: string[] = [];
+
+  // Handle minimal response (just success)
+  const success = response.success ?? true;
+  const icon = success ? '✓' : '✗';
+
+  // Determine verb from operation if available
+  let verb = 'Edited';
+  if (response.operation) {
+    verb = response.operation === 'window' ? 'Replaced'
+      : response.operation === 'append' ? 'Appended'
+      : response.operation === 'patch' ? 'Patched'
+      : 'Edited';
+  }
+
+  const pathDisplay = response.path || 'file';
+  lines.push(header(1, `${icon} ${verb}: ${pathDisplay}`));
+  lines.push('');
+
+  if (success) {
+    lines.push('Edit successful.');
+    if (response.linesChanged !== undefined) {
+      lines.push(property('Lines Changed', response.linesChanged.toString(), 0));
+    }
+  } else {
+    lines.push(`Edit failed${response.message ? `: ${response.message}` : ''}`);
+  }
+
+  lines.push(divider());
+  lines.push(tip('Use `view.file(path)` to verify the changes'));
+  lines.push(summaryFooter());
+
+  return joinLines(lines);
+}
+
+/**
+ * Format system.fetch_web response
+ */
+export interface WebFetchResponse {
+  content?: string;
+  title?: string;
+  url?: string;
+  contentType?: string;
+  /** Set by the response limiter when the payload was shortened to fit. */
+  _truncated?: boolean;
+  metadata?: {
+    fetchedAt?: string;
+    statusCode?: number;
+  };
+}
+
+export function formatWebFetch(response: WebFetchResponse): string {
+  const lines: string[] = [];
+
+  // Extract content string — handle MCP content array format [{type:'text', text:'...'}]
+  //
+  // A missing body is reported, never stringified. `String(undefined)` yields
+  // the word "undefined", which reads as page content and hides the fact that
+  // nothing arrived (#293). The limiter no longer drops the key, but a
+  // formatter that fails legibly is the reason a limiter regression would be
+  // noticed rather than served.
+  const rawContent: unknown = response.content;
+  const content: string = typeof rawContent === 'string'
+    ? rawContent
+    : Array.isArray(rawContent)
+      ? (rawContent as Array<{type: string; text: string}>)[0]?.text ?? JSON.stringify(rawContent)
+      : rawContent === undefined || rawContent === null
+        ? '_(no content returned — the response was truncated before it reached the formatter)_'
+        : JSON.stringify(rawContent);
+
+  const title = response.title || 'Web Content';
+  lines.push(header(1, `Fetched: ${title}`));
+  lines.push('');
+
+  if (response.url) {
+    lines.push(property('URL', response.url, 0));
+  }
+  if (response.contentType) {
+    lines.push(property('Type', response.contentType, 0));
+  }
+  if (response.metadata?.statusCode) {
+    lines.push(property('Status', response.metadata.statusCode.toString(), 0));
+  }
+  lines.push('');
+
+  lines.push(header(2, 'Content'));
+  lines.push('');
+
+  // Truncate very long content
+  const maxLength = 5000;
+  if (content.length > maxLength) {
+    lines.push(content.substring(0, maxLength));
+    lines.push('');
+    lines.push(`... (${content.length - maxLength} more characters)`);
+  } else {
+    lines.push(content);
+  }
+
+  if (response._truncated) {
+    lines.push('');
+    lines.push('_(response shortened to fit the size limit — request a narrower range with `maxLength`/`startIndex` for the rest)_');
+  }
+
+  lines.push(summaryFooter());
+
+  return joinLines(lines);
+}

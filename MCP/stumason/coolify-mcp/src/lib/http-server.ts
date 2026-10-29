@@ -1,0 +1,454 @@
+/**
+ * Streamable HTTP mode (#303): web-standard request router wiring the SDK's
+ * protected-resource pieces (createMcpHandler, requireBearerAuth, metadata)
+ * to the OAuth 2.1 authorization server in `oauth.ts`.
+ *
+ * Everything here is fetch-shaped (Request in, Response out) so it runs
+ * unchanged under any web-standard host; `http.ts` provides the thin Node
+ * adapter. No framework, no cookies, no sessions — the authorize form is the
+ * only HTML and carries its whole state in the form body.
+ */
+
+import {
+  createMcpHandler,
+  requireBearerAuth,
+  type McpHttpHandler,
+} from '@modelcontextprotocol/server';
+import { CoolifyMcpServer } from './mcp-server.js';
+import { OAuthProvider, OAuthErrorResponse, isClientIdUrl } from './oauth.js';
+import type { CoolifyConfig } from '../types/coolify.js';
+import type { InstanceRegistry } from './instances.js';
+
+export interface HttpServerConfig {
+  /** The default instance: what tier-2 proof of access validates against. */
+  coolify: CoolifyConfig;
+  /** The full fleet (#367); omitted means `coolify` alone. */
+  instances?: InstanceRegistry;
+  /** Public base URL of this container, e.g. https://mcp.example.com */
+  publicUrl: string;
+  accessTokenTtl: number;
+  refreshTokenTtl: number;
+  stateFile: string;
+  readonly: boolean;
+  /** MCP_REDIRECT_HOSTS: non-loopback hosts a client may redirect to. Empty = any. */
+  redirectHosts?: string[];
+  /**
+   * MCP_CLIENT_IP_HEADER: a header the proxy in front sets to the caller's
+   * address (e.g. cf-connecting-ip). Unset, the first X-Forwarded-For hop is
+   * used, which the caller can forge.
+   */
+  clientIpHeader?: string;
+}
+
+/**
+ * Accept the shapes MCP_PUBLIC_URL actually arrives in and produce one
+ * canonical origin. Coolify's SERVICE_FQDN magic variable has carried both
+ * bare domains and full URLs across versions, and a human typing the value
+ * will produce trailing slashes and stray whitespace — none of which should
+ * be a boot failure. A bare domain is assumed https (the TLS-terminating
+ * proxy is the deployment model); anything unparseable throws.
+ */
+export function normalizePublicUrl(raw: string): string {
+  // Parse before any slash-stripping: pre-mangling turns scheme-only garbage
+  // like "http://" into something that survives the https-prefix fallback.
+  let value = raw.trim();
+  if (value === '') throw new Error('empty URL');
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    value = `https://${value}`;
+  }
+  const url = new URL(value);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error(`unsupported protocol: ${url.protocol}`);
+  }
+  if (!url.hostname) {
+    throw new Error('no hostname');
+  }
+  // Origin + path (no trailing slash), dropping query/fragment noise.
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/** Where the HTTP listener binds: the argument handed to `server.listen()`. */
+export interface ListenOptions {
+  port: number;
+  host?: string;
+}
+
+/**
+ * Resolve the listen address from the environment. `MCP_PORT` (or `PORT`)
+ * picks the port, exactly as before. `MCP_HOST` picks the interface.
+ *
+ * Unset or blank means every interface, which is what a container needs: the
+ * platform's proxy reaches it over the container network. Run the same server
+ * on a workstation and that default puts a process holding a Coolify token on
+ * every network the machine joins, so `MCP_HOST=127.0.0.1` keeps it on
+ * loopback. The `host` key is left out rather than set to `undefined`, so an
+ * unconfigured server binds exactly as it did before this option existed.
+ */
+export function listenOptionsFromEnv(env: NodeJS.ProcessEnv): ListenOptions {
+  const port = Number(env.MCP_PORT || env.PORT || 8080);
+  const host = env.MCP_HOST?.trim();
+  return host ? { port, host } : { port };
+}
+
+/**
+ * The address for the startup log line. Unset host keeps the historical
+ * `:8080` form that deploy logs and the docs grep for; an IPv6 literal gets
+ * brackets so the port stays readable.
+ */
+export function describeListen({ port, host }: ListenOptions): string {
+  if (host === undefined) return `:${port}`;
+  return host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`;
+}
+
+/**
+ * Tier-2 proof of access: does this Coolify API token belong to someone with
+ * access to the instance this container manages? `GET /teams/current` 401s on
+ * a bad token and returns the token's team on a good one. The token is used
+ * for exactly this one request and then discarded — never stored, never used
+ * to act.
+ */
+export async function validateCoolifyToken(
+  baseUrl: string,
+  presentedToken: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<{ ok: true; teamName: string } | { ok: false }> {
+  try {
+    // extraHeaders carries the Cloudflare Access service token (#373) when
+    // configured — without it, an Access policy 302s this probe to an SSO
+    // page and every authorization fails while /healthz stays green. Spread
+    // first so it can never displace the Authorization being proven.
+    // `/teams/current`, not the spec's `/team`: the old path is still routed
+    // upstream and is the only one on 4.0–4.2 (#347, CLAUDE.md gotcha).
+    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/teams/current`, {
+      headers: {
+        ...extraHeaders,
+        Authorization: `Bearer ${presentedToken}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(10_000),
+      // Never follow (#453): fetch strips only Authorization on a cross-origin
+      // redirect, so following one would send extraHeaders (the Access
+      // service token) on to whatever host it names. A 3xx is not ok anyway.
+      redirect: 'manual',
+    });
+    if (!response.ok) return { ok: false };
+    const team = (await response.json()) as { name?: string };
+    return { ok: true, teamName: typeof team.name === 'string' ? team.name : 'your team' };
+  } catch {
+    // Coolify unreachable is a "no": proof of access cannot be established.
+    return { ok: false };
+  }
+}
+
+/**
+ * Fixed-window per-IP rate limiter for the endpoints that take guesses
+ * (token, register, authorize POST). Deliberately simple: one container
+ * serves one team, so the goal is blunting brute force, not fairness.
+ */
+export class RateLimiter {
+  private readonly windows = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(
+    private readonly limit: number,
+    private readonly windowMs: number,
+  ) {}
+
+  allow(key: string): boolean {
+    const now = Date.now();
+    const window = this.windows.get(key);
+    if (!window || window.resetAt < now) {
+      // Piggyback stale-entry cleanup on writes so the map cannot grow
+      // unbounded across many source IPs.
+      if (this.windows.size > 10_000) {
+        for (const [k, w] of this.windows) {
+          if (w.resetAt < now) this.windows.delete(k);
+        }
+      }
+      this.windows.set(key, { count: 1, resetAt: now + this.windowMs });
+      return true;
+    }
+    window.count += 1;
+    return window.count <= this.limit;
+  }
+}
+
+function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers },
+  });
+}
+
+function oauthError(error: OAuthErrorResponse): Response {
+  return json({ error: error.code, error_description: error.description }, error.status);
+}
+
+function html(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * The authorize page. One credential field, the rest of the OAuth request
+ * carried as hidden fields. The form posts back to the same origin; there are
+ * no cookies, so there is no ambient authority for CSRF to ride on.
+ */
+/** Where the code goes, in words a person can check before approving. */
+function redirectDestination(redirectUri: string): string {
+  const host = new URL(redirectUri).hostname.replace(/^\[|\]$/g, '');
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+    ? 'an app on this computer (localhost)'
+    : host;
+}
+
+function authorizePage(params: URLSearchParams, clientName: string, error?: string): string {
+  const hidden = [...params.entries()]
+    .map(
+      ([key, value]) =>
+        `<input type="hidden" name="${escapeHtml(key)}" value="${escapeHtml(value)}">`,
+    )
+    .join('\n      ');
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorize ${escapeHtml(clientName)}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 26rem; margin: 12vh auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.2rem; }
+    p { line-height: 1.5; color: #444; }
+    label { display: block; font-weight: 600; margin: 1.2rem 0 0.3rem; }
+    input[type=password] { width: 100%; padding: 0.6rem; font-size: 1rem; border: 1px solid #bbb; border-radius: 6px; box-sizing: border-box; }
+    button { margin-top: 1.2rem; width: 100%; padding: 0.7rem; font-size: 1rem; border: 0; border-radius: 6px; background: #6b16ed; color: #fff; cursor: pointer; }
+    .error { background: #fde8e8; border: 1px solid #f5b5b5; border-radius: 6px; padding: 0.6rem 0.8rem; color: #8a1f1f; }
+    .note { font-size: 0.85rem; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Authorize ${escapeHtml(clientName)}</h1>
+  <p><strong>${escapeHtml(clientName)}</strong> wants to manage your Coolify instance through this MCP server.</p>
+  <p>Approving sends access to <strong>${escapeHtml(redirectDestination(params.get('redirect_uri') ?? ''))}</strong>.
+  The name above is whatever the client chose to call itself; this address is where access actually goes.
+  If you did not just start connecting from there, stop.</p>
+  ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
+  <form method="post" action="authorize">
+      ${hidden}
+      <label for="coolify_token">Your Coolify API token</label>
+      <input type="password" id="coolify_token" name="coolify_token" autocomplete="off" required>
+      <p class="note">Used once to prove you have access to this Coolify instance, then discarded.
+      It is never stored and never sent to the client. Create one under
+      Keys &amp; Tokens &rarr; API tokens in your Coolify dashboard.</p>
+      <p class="note"><strong>Before you paste anything:</strong> check the address bar. It should
+      show the domain <em>you</em> deployed this MCP server on. Only your own server should ever
+      ask for a Coolify token.</p>
+      <button type="submit">Authorize</button>
+  </form>
+</body>
+</html>`;
+}
+
+export function createHttpApp(config: HttpServerConfig): {
+  fetch: (request: Request) => Promise<Response>;
+  provider: OAuthProvider;
+} {
+  const publicUrl = config.publicUrl.replace(/\/$/, '');
+  const resourceUrl = `${publicUrl}/mcp`;
+
+  const provider = new OAuthProvider({
+    issuer: publicUrl,
+    resource: resourceUrl,
+    accessTokenTtl: config.accessTokenTtl,
+    refreshTokenTtl: config.refreshTokenTtl,
+    stateFile: config.stateFile,
+    redirectHosts: config.redirectHosts,
+  });
+
+  const bearer = requireBearerAuth({
+    verifier: { verifyAccessToken: (token) => provider.verifyAccessToken(token) },
+    resourceMetadataUrl: `${publicUrl}/.well-known/oauth-protected-resource`,
+  });
+
+  const mcpHandler: McpHttpHandler = createMcpHandler(
+    () =>
+      new CoolifyMcpServer(config.instances ?? config.coolify, {
+        readonly: config.readonly,
+        requireElicitation: true,
+        // On by default here: a multi-client, internet-facing server is exactly
+        // where "who did what" has to be answerable. COOLIFY_MCP_AUDIT=off opts out.
+        auditByDefault: true,
+      }),
+    {
+      onerror: (error) => console.error('mcp handler:', error.message),
+    },
+  );
+
+  // 20 guesses a minute per IP on the credential-bearing endpoints.
+  const authLimiter = new RateLimiter(20, 60_000);
+  // Registration also has a ceiling across all callers. Every registration is
+  // persisted, and a per-IP limit is only as good as the IP, which behind some
+  // proxies is forgeable or shared. One team's clients register a handful of
+  // times a day; 30 an hour is generous for that and bounds the state file.
+  const registrationLimiter = new RateLimiter(30, 60 * 60_000);
+  const ipHeader = config.clientIpHeader?.trim().toLowerCase();
+
+  async function handle(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname.replace(/\/$/, '') || '/';
+    const clientIp =
+      (ipHeader
+        ? request.headers.get(ipHeader)?.trim()
+        : request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()) || 'local';
+
+    if (path === '/healthz') {
+      // Still "ok": the server is answering. But state that lives only in
+      // memory (#417) is one restart from vanishing, and this is where the
+      // thing doing the restarting looks.
+      return json(
+        provider.persistenceDegraded ? { status: 'ok', persistence: 'degraded' } : { status: 'ok' },
+      );
+    }
+
+    if (
+      path === '/.well-known/oauth-protected-resource' ||
+      path === '/.well-known/oauth-protected-resource/mcp'
+    ) {
+      return json(provider.protectedResourceMetadata());
+    }
+    // The path-suffix form is what a client derives from the resource URL's
+    // /mcp path per RFC 8414 §3.1; both forms must answer.
+    if (
+      path === '/.well-known/oauth-authorization-server' ||
+      path === '/.well-known/oauth-authorization-server/mcp'
+    ) {
+      return json(provider.authorizationServerMetadata());
+    }
+
+    if (path === '/register' && request.method === 'POST') {
+      if (!authLimiter.allow(`reg:${clientIp}`) || !registrationLimiter.allow('reg')) {
+        return json({ error: 'too_many_requests' }, 429);
+      }
+      try {
+        const metadata = (await request.json()) as Record<string, unknown>;
+        return json(provider.registerClient(metadata), 201);
+      } catch (error) {
+        if (error instanceof OAuthErrorResponse) return oauthError(error);
+        return json({ error: 'invalid_client_metadata' }, 400);
+      }
+    }
+
+    if (path === '/authorize' && request.method === 'GET') {
+      const clientId = url.searchParams.get('client_id') ?? '';
+      // A URL client_id makes this leg fetch from a host the requester chose
+      // (#340), so it gets the same per-IP limit as the credential-bearing
+      // legs. A registered id stays unlimited: that page is in-memory work.
+      if (isClientIdUrl(clientId) && !authLimiter.allow(`cimd:${clientIp}`)) {
+        return html('<p>Too many attempts. Try again in a minute.</p>', 429);
+      }
+      try {
+        await provider.resolveClient(clientId);
+        const validated = provider.validateAuthorizationRequest(url.searchParams);
+        return html(
+          authorizePage(url.searchParams, validated.client.client_name ?? 'An MCP client'),
+        );
+      } catch (error) {
+        if (error instanceof OAuthErrorResponse) {
+          // Client/redirect problems must not redirect (open-redirect guard);
+          // render them instead.
+          return html(
+            `<p>Authorization request rejected: ${escapeHtml(error.description)}</p>`,
+            400,
+          );
+        }
+        throw error;
+      }
+    }
+
+    if (path === '/authorize' && request.method === 'POST') {
+      if (!authLimiter.allow(`auth:${clientIp}`)) {
+        return html('<p>Too many attempts. Try again in a minute.</p>', 429);
+      }
+      const form = new URLSearchParams(await request.text());
+      let validated;
+      try {
+        await provider.resolveClient(form.get('client_id') ?? '');
+        validated = provider.validateAuthorizationRequest(form);
+      } catch (error) {
+        if (error instanceof OAuthErrorResponse) {
+          return html(
+            `<p>Authorization request rejected: ${escapeHtml(error.description)}</p>`,
+            400,
+          );
+        }
+        throw error;
+      }
+
+      const presented = form.get('coolify_token') ?? '';
+      const proof = presented
+        ? await validateCoolifyToken(
+            config.coolify.baseUrl,
+            presented,
+            config.coolify.customHeaders,
+          )
+        : ({ ok: false } as const);
+      // `presented` is not referenced past this line: used once as proof,
+      // then gone. That property is the tier-2 design.
+      if (!proof.ok) {
+        form.delete('coolify_token');
+        return html(
+          authorizePage(
+            form,
+            validated.client.client_name ?? 'An MCP client',
+            'That token was not accepted by your Coolify instance. Check it and try again.',
+          ),
+          401,
+        );
+      }
+
+      const { redirectTo } = provider.completeAuthorization(validated);
+      return new Response(null, {
+        status: 302,
+        headers: { location: redirectTo, 'cache-control': 'no-store' },
+      });
+    }
+
+    if (path === '/token' && request.method === 'POST') {
+      if (!authLimiter.allow(`token:${clientIp}`)) {
+        return json({ error: 'too_many_requests' }, 429);
+      }
+      try {
+        const body = new URLSearchParams(await request.text());
+        await provider.resolveClient(body.get('client_id') ?? '');
+        return json(provider.exchange(body));
+      } catch (error) {
+        if (error instanceof OAuthErrorResponse) return oauthError(error);
+        throw error;
+      }
+    }
+
+    if (path === '/mcp') {
+      const authResult = await bearer(request);
+      if (authResult instanceof Response) return authResult;
+
+      // The audit line is written by the server, not here (#370). Peeking at
+      // the request body could only ever say what was ASKED; the line that
+      // matters says what happened, which is only known once the tool has run.
+      // `authInfo` carries the OAuth client id through to it.
+      return mcpHandler.fetch(request, { authInfo: authResult });
+    }
+
+    return json({ error: 'not_found' }, 404);
+  }
+
+  return { fetch: handle, provider };
+}

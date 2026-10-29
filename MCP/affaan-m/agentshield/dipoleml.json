@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.affaan-m.agentshield",
+  "type": "mcp",
+  "name": "Agentshield",
+  "slug": "agentshield",
+  "vendor": "affaan-m",
+  "description": "AI agent security scanner. Detect vulnerabilities in agent configurations, MCP servers, and tool permissions. Available as CLI, GitHub Action, ECC plugin, and GitHub App integration. 🛡️",
+  "version": "1.6.0",
+  "homepage": "https://github.com/affaan-m/agentshield",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "hackathon",
+    "opus",
+    "security"
+  ],
+  "tags": [
+    "ai-agent",
+    "anthropic",
+    "claude-code",
+    "hackathon",
+    "mcp",
+    "opus",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:36Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "affaan-m/agentshield",
+    "url": "https://github.com/affaan-m/agentshield",
+    "commit": "b0891303bdcd6037376a94263d45cfd2ff3dfb98",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1336,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ecc-agentshield"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./dist/index.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "ecc-agentshield"
+    ],
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "CF_API_TOKEN",
+      "ORCAROUTER_API_KEY"
+    ],
+    "credentials": [
+      "ANTHROPIC_API_KEY",
+      "CF_API_TOKEN",
+      "ORCAROUTER_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

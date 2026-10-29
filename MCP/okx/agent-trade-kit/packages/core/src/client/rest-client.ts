@@ -1,0 +1,757 @@
+import { fetch as undiciFetch, ProxyAgent } from "undici";
+import { PilotManager } from "../pilot/manager.js";
+import { getNow, signOkxPayload } from "../utils/signature.js";
+import {
+  AuthenticationError,
+  ConfigError,
+  NetworkError,
+  NotLoggedInError,
+  OkxApiError,
+  RateLimitError,
+} from "../utils/errors.js";
+import { execAuthToken } from "../auth/binary.js";
+
+type CodeBehavior =
+  | { retry: true; suggestion: string }
+  | { retry: false; suggestion: string };
+
+const OKX_CODE_BEHAVIORS: Record<string, CodeBehavior> = {
+  // Rate limit -> throw RateLimitError
+  "50011": { retry: true,  suggestion: "Rate limited. Back off and retry after a delay." },
+  "50061": { retry: true,  suggestion: "Too many connections. Reduce request frequency and retry." },
+
+  // Server temporarily unavailable -> retryable
+  "50001": { retry: true,  suggestion: "Service temporarily unavailable. Retry in a few minutes." },
+  "50004": { retry: true,  suggestion: "Endpoint request timeout. Retry later." },
+  "50013": { retry: true,  suggestion: "System busy. Retry after 1-2 seconds." },
+  "50026": { retry: true,  suggestion: "System error. Retry in a few minutes." },
+
+  // Region / compliance restriction -> do not retry
+  "51155": { retry: false, suggestion: "Feature unavailable in your region (site: {site}). Verify your site setting matches your account registration region. Available sites: global, eea, us, tr. Do not retry." },
+  "51734": { retry: false, suggestion: "Feature not supported for your KYC country (site: {site}). Verify your site setting matches your account registration region. Available sites: global, eea, us, tr. Do not retry." },
+
+  // Account issues -> do not retry
+  "50007": { retry: false, suggestion: "Account suspended. Contact OKX support. Do not retry." },
+  "50009": { retry: false, suggestion: "Account blocked by risk control. Contact OKX support. Do not retry." },
+  "51009": { retry: false, suggestion: "Account mode not supported for this operation. Check account settings." },
+
+  // API key permission / expiry -> do not retry
+  "50100": { retry: false, suggestion: "API key lacks required permissions. Update API key permissions." },
+  "50110": { retry: false, suggestion: "API key expired. Generate a new API key." },
+
+  // Insufficient funds / margin -> do not retry
+  "51008": { retry: false, suggestion: "Insufficient balance in trading account. Check funding account via account_get_asset_balance - funds may be there. Use account_transfer (from=18, to=6) to move funds to trading account, then retry." },
+  "51119": { retry: false, suggestion: "Insufficient margin. Add margin or check funding account (account_get_asset_balance). Transfer via account_transfer (from=18, to=6) if needed." },
+  "51127": { retry: false, suggestion: "Insufficient available margin. Reduce position, add margin, or transfer from funding account (account_transfer from=18 to=6)." },
+
+  // Instrument unavailable -> do not retry
+  "51021": { retry: false, suggestion: "Instrument does not exist. Check instId." },
+  "51022": { retry: false, suggestion: "Instrument not available for trading." },
+  "51027": { retry: false, suggestion: "Contract has expired." },
+
+  // Request parameters invalid -> permanent, do not retry
+  "50014": { retry: false, suggestion: "Missing or invalid required parameter. Check the request against this endpoint's required/conditional parameters - do not retry without correcting the payload." },
+  "50015": { retry: false, suggestion: "One of two mutually-alternative required parameters is missing. Check the request against this endpoint's required/conditional parameters - do not retry without correcting the payload." },
+};
+import { RateLimiter } from "../utils/rate-limiter.js";
+import type { OkxConfig } from "../config.js";
+import type {
+  BinaryRequestOptions,
+  BinaryResult,
+  OkxApiResponse,
+  QueryParams,
+  QueryValue,
+  RequestConfig,
+  RequestResult,
+} from "./types.js";
+
+/**
+ * Returns true when the text body contains a parseable OKX JSON code field.
+ * Used to distinguish dead-node non-JSON errors from genuine OKX business errors.
+ */
+function hasOkxJsonCode(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text) as { code?: unknown };
+    return typeof parsed.code === "string" && parsed.code.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function isDefined(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
+function extractTraceId(headers: Headers): string | undefined {
+  return (
+    headers.get("x-trace-id") ??
+    headers.get("x-request-id") ??
+    headers.get("traceid") ??
+    undefined
+  );
+}
+
+function stringifyQueryValue(value: QueryValue): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(",");
+  }
+  return String(value);
+}
+
+function buildQueryString(query?: QueryParams): string {
+  if (!query) {
+    return "";
+  }
+
+  const entries = Object.entries(query).filter(([, value]) => isDefined(value));
+  if (entries.length === 0) {
+    return "";
+  }
+
+  const params = new URLSearchParams();
+  for (const [key, value] of entries) {
+    params.set(key, stringifyQueryValue(value));
+  }
+  return params.toString();
+}
+
+function maskKey(key: string): string {
+  if (key.length <= 8) return "***";
+  return `${key.slice(0, 3)}***${key.slice(-3)}`;
+}
+
+/** JS-side cache TTL for OAuth tokens (ms). The okx-auth binary handles
+ *  refresh internally (300s TTL lead); we re-call it every 60s so it
+ *  can serve a fresh token when needed. */
+const TOKEN_CACHE_TTL_MS = 60_000;
+
+function vlog(message: string): void {
+  process.stderr.write(`[verbose] ${message}\n`);
+}
+
+export class OkxRestClient {
+  private readonly config: OkxConfig;
+  private readonly rateLimiter: RateLimiter;
+  private readonly dispatcher?: ProxyAgent;
+  private cachedAccessToken?: string;
+  private cachedAccessTokenAt = 0;
+  private readonly pilot: PilotManager;
+  /** Fetch implementation: defaults to undici's fetch so ProxyAgent and fetch
+   *  share the same undici instance and dispatcher interface version. Tests may
+   *  inject a mock via the optional second constructor argument.
+   *  Typed as `typeof globalThis.fetch` to satisfy TypeScript's Response type
+   *  (undici v6 Response is missing `bytes()` vs the global Response). The cast
+   *  is safe: undici's Response implements all methods used in this class. */
+  private readonly _fetchFn: typeof globalThis.fetch;
+
+  public constructor(config: OkxConfig, _fetch?: typeof globalThis.fetch) {
+    this.config = config;
+    this._fetchFn = _fetch ?? (undiciFetch as unknown as typeof globalThis.fetch);
+    this.rateLimiter = new RateLimiter(30_000, config.verbose);
+    if (config.proxyUrl) {
+      this.dispatcher = new ProxyAgent(config.proxyUrl);
+    }
+    this.pilot = new PilotManager({
+      baseUrl: config.baseUrl,
+      packageUserAgent: config.userAgent,
+      verbose: config.verbose,
+      hasCustomProxy: !!config.proxyUrl,
+    });
+  }
+
+  /**
+   * Resolve OAuth access token via the okx-auth binary (fd3 pipe).
+   * Caches the token for 60 s to avoid spawning the binary on every
+   * request. The binary handles refresh internally (300s TTL lead),
+   * so periodic re-calls let it serve a fresh token when needed.
+   * Returns null when not logged in.
+   */
+  private async resolveAccessToken(): Promise<string | null> {
+    if (this.cachedAccessToken && Date.now() - this.cachedAccessTokenAt < TOKEN_CACHE_TTL_MS) {
+      return this.cachedAccessToken;
+    }
+
+    try {
+      const token = await execAuthToken();
+      this.cachedAccessToken = token;
+      this.cachedAccessTokenAt = Date.now();
+      return token;
+    } catch (e) {
+      if (e instanceof NotLoggedInError) {
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Dynamic auth - determines auth method per request.
+   *
+   * 1. API key in config -> HMAC signing (no OAuth fallback)
+   * 2. OAuth token via okx-auth binary -> Bearer token
+   * 3. Neither -> throw ConfigError
+   */
+  private async applyAuth(
+    headers: Headers, method: string, requestPath: string, bodyJson: string, timestamp: string,
+  ): Promise<void> {
+    // 1. API key exists -> HMAC signing (no OAuth fallback)
+    if (this.config.apiKey && this.config.secretKey && this.config.passphrase) {
+      this.setAuthHeaders(headers, method, requestPath, bodyJson, timestamp);
+      return;
+    }
+
+    // 2. OAuth token via okx-auth binary
+    const accessToken = await this.resolveAccessToken();
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+      return;
+    }
+
+    // 3. Neither
+    throw new ConfigError(
+      "No credentials found.",
+      "Run `okx auth login` to authenticate, or configure API key credentials.",
+    );
+  }
+
+  /** The canonical base URL for this client (e.g. https://www.okx.com). */
+  public get baseUrl(): string {
+    return this.config.baseUrl;
+  }
+
+  private logRequest(method: string, url: string, auth: string): void {
+    if (!this.config.verbose) return;
+    vlog(`\u2192 ${method} ${url}`);
+    const authInfo = auth === "private" && this.config.apiKey
+      ? `auth=\u2713(${maskKey(this.config.apiKey)})` : `auth=${auth}`;
+    vlog(`  ${authInfo} demo=${this.config.demo} timeout=${this.config.timeoutMs}ms`);
+  }
+
+  private logResponse(
+    status: number, rawLen: number, elapsed: number,
+    traceId: string | undefined, code?: string, msg?: string,
+  ): void {
+    if (!this.config.verbose) return;
+    if (code && code !== "0" && code !== "1") {
+      vlog(`\u2717 ${status} | code=${code} | msg=${msg ?? "-"} | ${rawLen}B | ${elapsed}ms | trace=${traceId ?? "-"}`);
+    } else {
+      vlog(`\u2190 ${status} | code=${code ?? "0"} | ${rawLen}B | ${elapsed}ms | trace=${traceId ?? "-"}`);
+    }
+  }
+
+  public async publicGet<TData = unknown>(
+    path: string,
+    query?: QueryParams,
+    rateLimit?: RequestConfig["rateLimit"],
+    simulatedTrading?: boolean,
+  ): Promise<RequestResult<TData>> {
+    return this.request<TData>({
+      method: "GET",
+      path,
+      auth: "public",
+      query,
+      rateLimit,
+      simulatedTrading,
+    });
+  }
+
+  public async privateGet<TData = unknown>(
+    path: string,
+    query?: QueryParams,
+    rateLimit?: RequestConfig["rateLimit"],
+    extraHeaders?: Record<string, string>,
+  ): Promise<RequestResult<TData>> {
+    return this.request<TData>({
+      method: "GET",
+      path,
+      auth: "private",
+      query,
+      rateLimit,
+      extraHeaders,
+    });
+  }
+
+  public async publicPost<TData = unknown>(
+    path: string,
+    body?: RequestConfig["body"],
+    rateLimit?: RequestConfig["rateLimit"],
+  ): Promise<RequestResult<TData>> {
+    return this.request<TData>({
+      method: "POST",
+      path,
+      auth: "public",
+      body,
+      rateLimit,
+    });
+  }
+
+  public async privatePost<TData = unknown>(
+    path: string,
+    body?: RequestConfig["body"],
+    rateLimit?: RequestConfig["rateLimit"],
+    retryOnNetworkError?: boolean,
+  ): Promise<RequestResult<TData>> {
+    return this.request<TData>({
+      method: "POST",
+      path,
+      auth: "private",
+      body,
+      rateLimit,
+      retryOnNetworkError,
+    });
+  }
+
+  private setAuthHeaders(
+    headers: Headers, method: string, requestPath: string, bodyJson: string, timestamp: string,
+  ): void {
+    // Caller (applyAuth) already verified apiKey/secretKey/passphrase exist
+    const payload = `${timestamp}${method.toUpperCase()}${requestPath}${bodyJson}`;
+    const signature = signOkxPayload(payload, this.config.secretKey!);
+    headers.set("OK-ACCESS-KEY", this.config.apiKey!);
+    headers.set("OK-ACCESS-SIGN", signature);
+    headers.set("OK-ACCESS-PASSPHRASE", this.config.passphrase!);
+    headers.set("OK-ACCESS-TIMESTAMP", timestamp);
+  }
+
+  private throwOkxError(
+    code: string, msg: string | undefined, reqConfig: RequestConfig, traceId: string | undefined,
+    // Only the !response.ok call site passes this - it restores the generic
+    // "Retry later or verify endpoint parameters." suggestion this class of
+    // error used to always carry, for codes with no table entry. The
+    // response.ok===true call site deliberately omits it: "no suggestion for
+    // an unmapped business code" is existing, tested behavior there
+    // (see "OkxApiError for unknown code has no suggestion" in rest-client.test.ts).
+    fallbackSuggestion?: string,
+  ): never {
+    // Some upstream endpoints (e.g. /orbit/public/*) return code != 0 with an empty `msg`.
+    // The previous fallback "OKX API request failed." dropped the upstream code from the
+    // human-readable message, leaving callers with no way to diagnose what was rejected.
+    // Always include the code in the fallback so the error remains actionable.
+    const message = msg && msg.trim() !== ""
+      ? msg
+      : `OKX API rejected request (code ${code}).`;
+    const endpoint = `${reqConfig.method} ${reqConfig.path}`;
+
+    if (code === "50111" || code === "50112" || code === "50113") {
+      throw new AuthenticationError(
+        message,
+        "Check API key, secret, passphrase and permissions.",
+        endpoint,
+        traceId,
+      );
+    }
+
+    const behavior = OKX_CODE_BEHAVIORS[code];
+    const suggestion = behavior?.suggestion?.replace("{site}", this.config.site) ?? fallbackSuggestion;
+
+    if (code === "50011" || code === "50061") {
+      throw new RateLimitError(message, suggestion, endpoint, traceId);
+    }
+
+    throw new OkxApiError(message, {
+      code,
+      endpoint,
+      suggestion,
+      traceId,
+    });
+  }
+
+  private processResponse<TData>(
+    rawText: string,
+    response: Response,
+    elapsed: number,
+    traceId: string | undefined,
+    reqConfig: RequestConfig,
+    requestPath: string,
+  ): RequestResult<TData> {
+    let parsed: OkxApiResponse<TData>;
+    try {
+      parsed = (rawText ? JSON.parse(rawText) : {}) as OkxApiResponse<TData>;
+    } catch (error) {
+      this.logResponse(response.status, rawText.length, elapsed, traceId, "non-JSON");
+      if (!response.ok) {
+        const messagePreview = rawText.slice(0, 160).replace(/\s+/g, " ").trim();
+        throw new OkxApiError(
+          `HTTP ${response.status} from OKX: ${messagePreview || "Non-JSON response body"}`,
+          {
+            code: String(response.status),
+            endpoint: `${reqConfig.method} ${reqConfig.path}`,
+            suggestion: "Verify endpoint path and request parameters.",
+            traceId,
+          },
+        );
+      }
+      throw new NetworkError(
+        `OKX returned non-JSON response for ${reqConfig.method} ${requestPath}.`,
+        `${reqConfig.method} ${requestPath}`,
+        error,
+      );
+    }
+
+    if (!response.ok) {
+      this.logResponse(response.status, rawText.length, elapsed, traceId, parsed.code ?? "-", parsed.msg);
+      // A specific OKX business code (anything other than the generic "0"/"1"
+      // wrapper) means the body identifies exactly what went wrong - route it
+      // through the same code table used for HTTP-200-with-error-code responses
+      // so a mapped, permanent error (e.g. missing required params) gets its
+      // accurate non-retry suggestion instead of a blanket "Retry later".
+      // Pass the old generic text as fallback so a code with no table entry
+      // still gets *some* actionable suggestion, same as before this change.
+      if (parsed.code && parsed.code !== "0" && parsed.code !== "1") {
+        this.throwOkxError(
+          parsed.code, parsed.msg, reqConfig, traceId,
+          "Retry later or verify endpoint parameters.",
+        );
+      }
+      throw new OkxApiError(
+        `HTTP ${response.status} from OKX: ${parsed.msg ?? "Unknown error"}`,
+        {
+          code: String(response.status),
+          endpoint: `${reqConfig.method} ${reqConfig.path}`,
+          suggestion: "Retry later or verify endpoint parameters.",
+          traceId,
+        },
+      );
+    }
+
+    const responseCode = parsed.code;
+    this.logResponse(response.status, rawText.length, elapsed, traceId, responseCode, parsed.msg);
+
+    if (responseCode && responseCode !== "0" && responseCode !== "1") {
+      this.throwOkxError(responseCode, parsed.msg, reqConfig, traceId);
+    }
+
+    return {
+      endpoint: `${reqConfig.method} ${reqConfig.path}`,
+      requestTime: new Date().toISOString(),
+      data: (parsed.data ?? null) as TData,
+      raw: parsed,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Binary (non-JSON) download - reuses auth, proxy, rate-limit, verbose
+  // ---------------------------------------------------------------------------
+
+  private static readonly DEFAULT_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+
+  /**
+   * Try to parse a text body as OKX JSON error and throw the appropriate error.
+   * Re-throws OkxApiError / AuthenticationError / RateLimitError if matched.
+   * Returns the parsed message string (or fallback) if no specific error was thrown.
+   */
+  private tryThrowJsonError(text: string, path: string, traceId: string | undefined): string {
+    try {
+      const parsed = JSON.parse(text) as { code?: string; msg?: string };
+      if (parsed.code && parsed.code !== "0") {
+        this.throwOkxError(parsed.code, parsed.msg, { method: "POST", path, auth: "private" } as RequestConfig, traceId);
+      }
+      return parsed.msg ?? "";
+    } catch (e) {
+      if (e instanceof OkxApiError || e instanceof AuthenticationError || e instanceof RateLimitError) throw e;
+      return "";
+    }
+  }
+
+  /**
+   * Send a signed POST request and return the raw binary response.
+   * Inherits all client capabilities: auth, proxy, rate-limit, verbose, user-agent.
+   * Security: validates Content-Type and enforces maxBytes limit.
+   */
+  public async privatePostBinary(
+    path: string,
+    body?: Record<string, unknown>,
+    opts?: BinaryRequestOptions,
+  ): Promise<BinaryResult> {
+    this.pilot.preparePilot();
+
+    const maxBytes = opts?.maxBytes ?? OkxRestClient.DEFAULT_MAX_BYTES;
+    const expectedCT = opts?.expectedContentType ?? "application/octet-stream";
+    const bodyJson = body ? JSON.stringify(body) : "";
+    const endpoint = `POST ${path}`;
+    const conn = this.pilot.getConnectionParams();
+
+    this.logRequest("POST", `${conn.baseUrl}${path}`, "private");
+
+    const reqConfig = { method: "POST", path, auth: "private" } as RequestConfig;
+    const headers = await this.buildHeaders(reqConfig, path, bodyJson, getNow());
+    if (conn.userAgent) {
+      headers.set("User-Agent", conn.userAgent);
+    }
+
+    const t0 = Date.now();
+    let response: Response;
+    try {
+      response = await this.fetchBinary(path, endpoint, headers, bodyJson, t0);
+    } catch (error) {
+      // Refresh Pilot state for subsequent requests (but never auto-retry POST)
+      try { await this.pilot.handleNetworkFailure(); } catch {}
+      throw error;
+    }
+    const elapsed = Date.now() - t0;
+    const traceId = extractTraceId(response.headers);
+
+    // Network path is valid - cache direct mode if this was the first successful connection
+    this.pilot.cacheDirectIfNeeded();
+
+    if (!response.ok) {
+      const text = await response.text();
+      this.logResponse(response.status, text.length, elapsed, traceId, String(response.status));
+      const msg = this.tryThrowJsonError(text, path, traceId) || `HTTP ${response.status}`;
+      throw new OkxApiError(msg, { code: String(response.status), endpoint, traceId });
+    }
+
+    const ct = response.headers.get("content-type") ?? "";
+    if (!ct.includes(expectedCT)) {
+      const text = await response.text();
+      this.logResponse(response.status, text.length, elapsed, traceId, "unexpected-ct");
+      this.tryThrowJsonError(text, path, traceId);
+      throw new OkxApiError(`Expected binary response (${expectedCT}) but got: ${ct}`, { code: "UNEXPECTED_CONTENT_TYPE", endpoint, traceId });
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > maxBytes) {
+      throw new OkxApiError(`Response size ${buffer.length} bytes exceeds limit of ${maxBytes} bytes.`, { code: "RESPONSE_TOO_LARGE", endpoint, traceId });
+    }
+
+    if (this.config.verbose) {
+      vlog(`\u2190 ${response.status} | binary ${buffer.length}B | ${elapsed}ms | trace=${traceId ?? "-"}`);
+    }
+
+    return { endpoint, requestTime: new Date().toISOString(), data: buffer, contentType: ct, contentLength: buffer.length, traceId };
+  }
+
+  /**
+   * Send an unauthenticated GET request and return the raw binary response.
+   * Used for pre-signed download URLs where auth is embedded in the token.
+   * Inherits proxy, timeout, Pilot, and verbose capabilities from the client.
+   */
+  public async publicGetBinary(
+    path: string,
+    query?: QueryParams,
+    opts?: BinaryRequestOptions,
+  ): Promise<BinaryResult> {
+    this.pilot.preparePilot();
+
+    const maxBytes = opts?.maxBytes ?? OkxRestClient.DEFAULT_MAX_BYTES;
+    const expectedCT = opts?.expectedContentType ?? "application/octet-stream";
+    const queryString = buildQueryString(query);
+    const requestPath = queryString ? `${path}?${queryString}` : path;
+    const conn = this.pilot.getConnectionParams();
+    const url = `${conn.baseUrl}${requestPath}`;
+
+    this.logRequest("GET", url, "public");
+
+    const headers = new Headers({ Accept: "application/octet-stream" });
+    if (this.config.userAgent) headers.set("User-Agent", this.config.userAgent);
+    if (conn.userAgent) headers.set("User-Agent", conn.userAgent);
+
+    const t0 = Date.now();
+    let response: Response;
+    try {
+      response = await this._fetchFn(url, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+        dispatcher: this.dispatcher ?? conn.dispatcher,
+      } as unknown as RequestInit);
+    } catch (error) {
+      try { await this.pilot.handleNetworkFailure(); } catch {}
+      throw new NetworkError(`Failed to call OKX endpoint GET ${path}.`, `GET ${path}`, error);
+    }
+
+    const elapsed = Date.now() - t0;
+    const traceId = extractTraceId(response.headers);
+    this.pilot.cacheDirectIfNeeded();
+
+    if (!response.ok) {
+      const text = await response.text();
+      this.logResponse(response.status, text.length, elapsed, traceId, String(response.status));
+      const msg = this.tryThrowJsonError(text, path, traceId) || `HTTP ${response.status}`;
+      throw new OkxApiError(msg, { code: String(response.status), endpoint: `GET ${path}`, traceId });
+    }
+
+    const ct = response.headers.get("content-type") ?? "";
+    if (!ct.includes(expectedCT)) {
+      const text = await response.text();
+      this.logResponse(response.status, text.length, elapsed, traceId, "unexpected-ct");
+      this.tryThrowJsonError(text, path, traceId);
+      throw new OkxApiError(`Expected binary response (${expectedCT}) but got: ${ct}`, { code: "UNEXPECTED_CONTENT_TYPE", endpoint: `GET ${path}`, traceId });
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > maxBytes) {
+      throw new OkxApiError(`Response size ${buffer.length} bytes exceeds limit of ${maxBytes} bytes.`, { code: "RESPONSE_TOO_LARGE", endpoint: `GET ${path}`, traceId });
+    }
+
+    if (this.config.verbose) {
+      vlog(`\u2190 ${response.status} | binary ${buffer.length}B | ${elapsed}ms | trace=${traceId ?? "-"}`);
+    }
+
+    return { endpoint: `GET ${path}`, requestTime: new Date().toISOString(), data: buffer, contentType: ct, contentLength: buffer.length, traceId };
+  }
+
+  /** Execute fetch for binary endpoint, wrapping network errors. */
+  private async fetchBinary(path: string, endpoint: string, headers: Headers, bodyJson: string, t0: number): Promise<Response> {
+    const conn = this.pilot.getConnectionParams();
+    try {
+      const fetchOptions: Record<string, unknown> = {
+        method: "POST", headers, body: bodyJson || undefined,
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+        dispatcher: this.dispatcher ?? conn.dispatcher,
+      };
+      return await this._fetchFn(`${conn.baseUrl}${path}`, fetchOptions as unknown as RequestInit);
+    } catch (error) {
+      if (this.config.verbose) {
+        vlog(`\u2717 NetworkError after ${Date.now() - t0}ms: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      throw new NetworkError(`Failed to call OKX endpoint ${endpoint}.`, endpoint, error);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Header building
+  // ---------------------------------------------------------------------------
+
+  /** Build HTTP headers. reqConfig.extraHeaders must NOT contain auth keys (OK-ACCESS-*). */
+  private async buildHeaders(reqConfig: RequestConfig, requestPath: string, bodyJson: string, timestamp: string): Promise<Headers> {
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    });
+
+    // Direct connection UA (e.g. "okx-trade-mcp/1.2.9").
+    // Pilot proxy requests override this with pilotUserAgent in request()/privatePostBinary().
+    if (this.config.userAgent) {
+      headers.set("User-Agent", this.config.userAgent);
+    }
+
+    if (reqConfig.auth === "private") {
+      await this.applyAuth(headers, reqConfig.method, requestPath, bodyJson, timestamp);
+    }
+
+    // simulatedTrading on individual requests takes precedence over config.demo.
+    // If not explicitly set, fall back to config.demo (original behavior for all non-market requests).
+    // Market tools always pass simulatedTrading explicitly, defaulting to false (live data).
+    const useSimulated = reqConfig.simulatedTrading !== undefined
+      ? reqConfig.simulatedTrading
+      : this.config.demo;
+    if (useSimulated) {
+      headers.set("x-simulated-trading", "1");
+    }
+
+    if (reqConfig.extraHeaders) {
+      for (const [key, value] of Object.entries(reqConfig.extraHeaders)) {
+        headers.set(key, value);
+      }
+    }
+
+    return headers;
+  }
+
+  // ---------------------------------------------------------------------------
+  // JSON request
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handle network error during a JSON request: refresh Pilot and maybe retry.
+   * Always either returns a retry result or throws NetworkError.
+   */
+  private async handleRequestNetworkError<TData>(
+    error: unknown,
+    reqConfig: RequestConfig,
+    requestPath: string,
+    t0: number,
+  ): Promise<RequestResult<TData>> {
+    // Network failure -> refresh Pilot state for subsequent requests
+    if (!this.pilot.hasRetried) {
+      if (this.config.verbose) {
+        const cause = error instanceof Error ? error.message : String(error);
+        vlog(`Network failure, refreshing Pilot: ${cause}`);
+      }
+      const shouldRetry = await this.pilot.handleNetworkFailure();
+      // Only auto-retry GET (safe & idempotent) or POST endpoints explicitly
+      // marked retryOnNetworkError=true (idempotent ops like amend/stop bots).
+      // Regular POST/write requests (orders, transfers) must NOT auto-retry:
+      // Pilot re-resolution takes seconds, price may have moved.
+      if (shouldRetry && (reqConfig.method === "GET" || reqConfig.retryOnNetworkError)) {
+        return this.request(reqConfig);
+      }
+    }
+
+    if (this.config.verbose) {
+      const elapsed = Date.now() - t0;
+      const cause = error instanceof Error ? error.message : String(error);
+      vlog(`\u2717 NetworkError after ${elapsed}ms: ${cause}`);
+    }
+    throw new NetworkError(
+      `Failed to call OKX endpoint ${reqConfig.method} ${requestPath}.`,
+      `${reqConfig.method} ${requestPath}`,
+      error,
+    );
+  }
+
+  private async request<TData = unknown>(
+    reqConfig: RequestConfig,
+  ): Promise<RequestResult<TData>> {
+    this.pilot.preparePilot();
+
+    const queryString = buildQueryString(reqConfig.query);
+    const requestPath = queryString.length > 0 ? `${reqConfig.path}?${queryString}` : reqConfig.path;
+
+    // Route: proxy_url -> Pilot proxy -> direct
+    const conn = this.pilot.getConnectionParams();
+    const url = `${conn.baseUrl}${requestPath}`;
+    const bodyJson = reqConfig.body ? JSON.stringify(reqConfig.body) : "";
+    const timestamp = getNow();
+
+    this.logRequest(reqConfig.method, url, reqConfig.auth);
+
+    if (reqConfig.rateLimit) {
+      await this.rateLimiter.consume(reqConfig.rateLimit);
+    }
+
+    const headers = await this.buildHeaders(reqConfig, requestPath, bodyJson, timestamp);
+    if (conn.userAgent) {
+      headers.set("User-Agent", conn.userAgent);
+    }
+
+    const t0 = Date.now();
+    let response: Response;
+    try {
+      const fetchOptions: Record<string, unknown> = {
+        method: reqConfig.method,
+        headers,
+        body: reqConfig.method === "POST" ? bodyJson : undefined,
+        signal: AbortSignal.timeout(this.config.timeoutMs),
+        dispatcher: this.dispatcher ?? conn.dispatcher,
+      };
+      response = await this._fetchFn(url, fetchOptions as unknown as RequestInit);
+    } catch (error) {
+      return await this.handleRequestNetworkError<TData>(error, reqConfig, requestPath, t0);
+    }
+
+    const rawText = await response.text();
+    const elapsed = Date.now() - t0;
+    const traceId = extractTraceId(response.headers);
+
+    // Dead-node guard: Pilot proxy returned a non-2xx response with no OKX JSON
+    // code (e.g. HTML 405 from a CDN/WAF posing as the endpoint). Treat as a
+    // network-level failure and failover to a fresh node, then retry once.
+    if (
+      this.pilot.isProxyActive &&
+      !response.ok &&
+      !hasOkxJsonCode(rawText) &&
+      !this.pilot.hasRetried
+    ) {
+      const shouldRetry = await this.pilot.handleNetworkFailure();
+      if (shouldRetry && (reqConfig.method === "GET" || reqConfig.retryOnNetworkError)) {
+        return this.request(reqConfig);
+      }
+    }
+
+    this.pilot.cacheDirectIfNeeded();
+
+    return this.processResponse<TData>(rawText, response, elapsed, traceId, reqConfig, requestPath);
+  }
+}

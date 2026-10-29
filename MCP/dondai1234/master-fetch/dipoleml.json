@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.dondai1234.master-fetch",
+  "type": "mcp",
+  "name": "Master Fetch",
+  "slug": "master-fetch",
+  "vendor": "dondai1234",
+  "description": "MCP server for web fetching with Cloudflare bypass, Trafilatura extraction, and smart routing. Free, self-hosted, no API keys.",
+  "version": "12.4.1",
+  "homepage": "https://github.com/dondai1234/master-fetch",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "fetch",
+    "hound",
+    "web",
+    "webfetch",
+    "websearch-agent"
+  ],
+  "tags": [
+    "ai",
+    "ai-agents",
+    "fetch",
+    "hound",
+    "mcp",
+    "web",
+    "webfetch",
+    "websearch-agent"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "dondai1234",
+    "brandName": "dondai1234",
+    "source": "https://github.com/dondai1234.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:55Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "dondai1234/master-fetch",
+    "url": "https://github.com/dondai1234/master-fetch",
+    "commit": "86d1b1329c0eed6133f29e3effe6a40a29f9dcdc",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 896,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node",
+      "python3"
+    ],
+    "packages": [
+      "master-fetch",
+      "hound-mcp"
+    ],
+    "env": [
+      "YOUR_SERPER_KEY",
+      "ANOTHER_SERPER_KEY",
+      "YOUR_TAVILY_KEY",
+      "HOUND_SEARCH_SERPER_KEYS",
+      "HOUND_SEARCH_TAVILY_KEYS",
+      "HOUND_SEARCH_EXA_KEYS",
+      "HOUND_SEARCH_FIRECRAWL_KEYS",
+      "HOUND_SEARCH_TINYFISH_KEYS"
+    ],
+    "credentials": [
+      "YOUR_SERPER_KEY",
+      "ANOTHER_SERPER_KEY",
+      "YOUR_TAVILY_KEY",
+      "HOUND_SEARCH_SERPER_KEYS",
+      "HOUND_SEARCH_TAVILY_KEYS",
+      "HOUND_SEARCH_EXA_KEYS",
+      "HOUND_SEARCH_FIRECRAWL_KEYS",
+      "HOUND_SEARCH_TINYFISH_KEYS"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

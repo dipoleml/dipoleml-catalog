@@ -1,0 +1,192 @@
+import path from 'node:path';
+import {
+  listConfigLayerPaths as discoverConfigLayerPaths,
+  resolveConfigPath as discoverConfigPath,
+} from './config/path-discovery.js';
+import { loadConfigLayers, readConfigFile, type ConfigLayer } from './config/read-config.js';
+import { pathsForImport, readExternalEntries } from './config-imports.js';
+import { normalizeServerEntry } from './config-normalize.js';
+import {
+  DEFAULT_IMPORTS,
+  type LoadConfigOptions,
+  type RawConfig,
+  type RawEntry,
+  RawEntrySchema,
+  type ServerDefinition,
+  type ServerSource,
+  type VaultEncryptionPolicy,
+} from './config-schema.js';
+import { expandHome } from './env.js';
+import { writeTextFileAtomic } from './fs-json.js';
+
+export { toFileUrl } from './config-imports.js';
+export { __configInternals } from './config-normalize.js';
+export type {
+  ChromeDevtoolsRelayPolicy,
+  CommandSpec,
+  HttpCommand,
+  ImportKind,
+  LoadConfigOptions,
+  ProtocolVersion,
+  RawConfig,
+  RawEntry,
+  RawLifecycle,
+  RefreshableBearerOptions,
+  ServerDefinition,
+  ServerLifecycle,
+  ServerLoggingOptions,
+  ServerSource,
+  StdioCommand,
+  VaultEncryptionPolicy,
+} from './config-schema.js';
+
+async function buildServerDefinitions(layers: ConfigLayer[], rootDir: string): Promise<ServerDefinition[]> {
+  const merged = new Map<string, { raw: RawEntry; baseDir: string; source: ServerSource; sources: ServerSource[] }>();
+
+  for (const layer of layers) {
+    const configuredImports = layer.config.imports;
+    const imports = configuredImports
+      ? configuredImports.length === 0
+        ? configuredImports
+        : [...configuredImports, ...DEFAULT_IMPORTS.filter((kind) => !configuredImports.includes(kind))]
+      : DEFAULT_IMPORTS;
+
+    for (const importKind of imports) {
+      const candidates = pathsForImport(importKind, rootDir);
+      for (const candidate of candidates) {
+        const resolved = expandHome(candidate);
+        const entries = await readExternalEntries(resolved, { projectRoot: rootDir, importKind: importKind });
+        if (!entries) {
+          continue;
+        }
+        for (const [name, rawEntry] of entries) {
+          const source: ServerSource = { kind: 'import', path: resolved, importKind };
+          const baseDir = path.dirname(resolved);
+          try {
+            normalizeServerEntry(name, rawEntry, baseDir, source, [source]);
+          } catch {
+            continue;
+          }
+          if (merged.has(name)) {
+            continue;
+          }
+          merged.set(name, {
+            raw: rawEntry,
+            baseDir,
+            source,
+            sources: [source],
+          });
+        }
+      }
+    }
+
+    for (const [name, entryRaw] of Object.entries(layer.config.mcpServers)) {
+      const source: ServerSource = { kind: 'local', path: layer.path };
+      const parsed = RawEntrySchema.parse(entryRaw);
+      const existing = merged.get(name);
+      // Local definitions win; stash any prior imports after the local path.
+      merged.set(name, {
+        raw: parsed,
+        baseDir: path.dirname(layer.path),
+        source,
+        sources: [source, ...(existing?.sources ?? [])],
+      });
+    }
+  }
+
+  const servers: ServerDefinition[] = [];
+  for (const [name, { raw, baseDir: entryBaseDir, source, sources }] of merged) {
+    try {
+      servers.push(normalizeServerEntry(name, raw, entryBaseDir, source, sources));
+    } catch (error) {
+      if (source.kind !== 'import') {
+        throw error;
+      }
+    }
+  }
+
+  const vaultPolicy = resolveVaultEncryptionPolicy(layers);
+  if (vaultPolicy !== undefined) {
+    for (const server of servers) Object.assign(server, { oauthVaultEncryption: vaultPolicy });
+  }
+  return servers;
+}
+
+export interface DaemonConfig {
+  readonly idleTimeoutMs?: number;
+}
+
+function buildDaemonConfig(layers: ConfigLayer[]): DaemonConfig {
+  let idleTimeoutMs: number | undefined;
+  for (const layer of layers) {
+    const raw = layer.config.daemonIdleTimeoutMs ?? layer.config.daemon_idle_timeout_ms;
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+      idleTimeoutMs = Math.trunc(raw);
+    }
+  }
+  return { idleTimeoutMs };
+}
+
+// Last layer that sets the key wins, like daemonIdleTimeoutMs. The value was
+// validated by RawConfigSchema when the layer was read.
+function resolveVaultEncryptionPolicy(layers: ConfigLayer[]): VaultEncryptionPolicy | undefined {
+  let policy: VaultEncryptionPolicy | undefined;
+  for (const layer of layers) policy = layer.config.oauthVaultEncryption ?? policy;
+  return policy;
+}
+
+export interface LoadedConfigSnapshot {
+  readonly servers: ServerDefinition[];
+  readonly daemon: DaemonConfig;
+  readonly vaultEncryption: VaultEncryptionPolicy | undefined;
+}
+
+export async function loadConfigSnapshot(options: LoadConfigOptions = {}): Promise<LoadedConfigSnapshot> {
+  const rootDir = options.rootDir ?? process.cwd();
+  const layers = await loadConfigLayers(options, rootDir);
+  return {
+    servers: await buildServerDefinitions(layers, rootDir),
+    daemon: buildDaemonConfig(layers),
+    vaultEncryption: resolveVaultEncryptionPolicy(layers),
+  };
+}
+
+export async function loadServerDefinitions(options: LoadConfigOptions = {}): Promise<ServerDefinition[]> {
+  return (await loadConfigSnapshot(options)).servers;
+}
+
+export async function loadDaemonConfig(options: LoadConfigOptions = {}): Promise<DaemonConfig> {
+  const rootDir = options.rootDir ?? process.cwd();
+  return buildDaemonConfig(await loadConfigLayers(options, rootDir));
+}
+
+export async function loadRawConfig(
+  options: LoadConfigOptions = {}
+): Promise<{ config: RawConfig; path: string; explicit: boolean }> {
+  const rootDir = options.rootDir ?? process.cwd();
+  const resolved = resolveConfigPath(options.configPath, rootDir);
+  const config = await readConfigFile(resolved.path, resolved.explicit);
+  return { config, ...resolved };
+}
+
+export async function listConfigLayerPaths(
+  options: LoadConfigOptions = {},
+  rootDir: string = process.cwd()
+): Promise<string[]> {
+  return await discoverConfigLayerPaths(options, rootDir);
+}
+
+export async function writeRawConfig(targetPath: string, config: RawConfig): Promise<void> {
+  const serialized = `${JSON.stringify(config, null, 2)}\n`;
+  await writeTextFileAtomic(targetPath, serialized);
+}
+
+export function resolveConfigPath(
+  configPath: string | undefined,
+  rootDir: string
+): {
+  path: string;
+  explicit: boolean;
+} {
+  return discoverConfigPath(configPath, rootDir);
+}

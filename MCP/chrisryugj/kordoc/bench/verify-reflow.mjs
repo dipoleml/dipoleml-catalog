@@ -1,0 +1,118 @@
+/**
+ * reflow 자기일관성 게이트 — 한컴 저장본(캐시 有)을 truth로 삼아 reflow 정확도 측정.
+ *
+ * 절차: 원본 render(truth) → linesegarray strip → render({reflow:true}) → 두 SVG의
+ * <text> (내용·x·y) 대조. 폰트 근사로 exact는 아니므로 허용오차(줄 y ±px + 줄수 일치) 기준.
+ *
+ * 사용: node bench/verify-reflow.mjs [glob수 제한] [--gate]
+ *   --gate: 통과율 <90%면 exit 1 (bench:gate 체인 편입용, 기존 --gate 스크립트 관례)
+ */
+import { renderHwpxToSvg } from "../dist/index.js"
+import JSZip from "jszip"
+import fs from "node:fs"
+import path from "node:path"
+
+const CORPUS = "bench/corpus/seoul"
+const args = process.argv.slice(2)
+const GATE_MODE = args.includes("--gate")
+// 게이트는 전체 코퍼스로 판정(소표본은 통과율 노이즈), 관찰 모드는 6건만(빠른 확인).
+const explicitLimit = args.find(a => /^\d+$/.test(a))
+const LIMIT = explicitLimit ? Number(explicitLimit) : (GATE_MODE ? Infinity : 6)
+
+function extractTexts(svg) {
+  // <text ... x="X" y="Y" ...>content</text>
+  const out = []
+  const re = /<text\b[^>]*\bx="([\d.-]+)"[^>]*\by="([\d.-]+)"[^>]*>([^<]*)<\/text>/g
+  let m
+  while ((m = re.exec(svg))) out.push({ x: +m[1], y: +m[2], t: m[3] })
+  return out
+}
+
+async function stripCache(buf) {
+  const zip = await JSZip.loadAsync(buf)
+  const secName = Object.keys(zip.files).find(n => /section0\.xml$/.test(n))
+  let sec = await zip.file(secName).async("string")
+  const before = (sec.match(/<hp:linesegarray/g) || []).length
+  sec = sec.replace(/<hp:linesegarray[\s\S]*?<\/hp:linesegarray>/g, "")
+  zip.file(secName, sec)
+  const out = await zip.generateAsync({ type: "nodebuffer" })
+  return { out, stripped: before }
+}
+
+function compare(truth, reflow) {
+  const ySet = s => [...new Set(s.map(o => Math.round(o.y)))]
+  // 내용별 그룹 → 그룹 내 y 정렬 → 순서 매칭 (표 셀 반복 텍스트·순서 밀림에 강건)
+  const byContent = arr => {
+    const m = new Map()
+    for (const o of arr) {
+      const k = o.t.trim()
+      if (!k) continue
+      if (!m.has(k)) m.set(k, [])
+      m.get(k).push(o)
+    }
+    for (const v of m.values()) v.sort((a, b) => a.y - b.y)
+    return m
+  }
+  const T = byContent(truth), R = byContent(reflow)
+  let matched = 0, total = 0, dySum = 0, dyMax = 0, dxSum = 0
+  for (const [k, tv] of T) {
+    const rv = R.get(k) || []
+    for (let i = 0; i < tv.length; i++) {
+      total++
+      if (i < rv.length) {
+        matched++
+        const dy = Math.abs(tv[i].y - rv[i].y), dx = Math.abs(tv[i].x - rv[i].x)
+        dySum += dy; dxSum += dx; dyMax = Math.max(dyMax, dy)
+      }
+    }
+  }
+  return {
+    truthTexts: truth.length, reflowTexts: reflow.length,
+    truthLines: ySet(truth).length, reflowLines: ySet(reflow).length,
+    matchPct: total ? Math.round((matched / total) * 100) : 0,
+    dyAvg: matched ? +(dySum / matched).toFixed(1) : 0, dyMax: +dyMax.toFixed(1),
+    dxAvg: matched ? +(dxSum / matched).toFixed(1) : 0,
+  }
+}
+
+const files = fs.readdirSync(CORPUS).filter(f => f.endsWith(".hwpx")).slice(0, LIMIT)
+console.log(`reflow 자기일관성 — ${CORPUS} ${files.length}건\n`)
+let pass = 0
+for (const f of files) {
+  const buf = fs.readFileSync(path.join(CORPUS, f))
+  try {
+    // truth도 reflow:true — 원본이 혼합 캐시(일부 문단만 linesegarray 없음)인 파일은
+    // 캐시 없는 문단을 흐름 위치에 합성해야 truth가 성립한다(36264961: p17·p19 무캐시,
+    // 종전 truth는 해당 표를 페이지 상단 0에 겹쳐 그림). 전량 캐시 문서는 reflow가
+    // 전 문단 skip(Tier-1 무회귀)이라 truth 불변.
+    const truth = await renderHwpxToSvg(buf, { reflow: true })
+    const { out, stripped } = await stripCache(buf)
+    const reflow = await renderHwpxToSvg(out, { reflow: true })
+    const c = compare(extractTexts(truth.svg), extractTexts(reflow.svg))
+    // 게이트: 내용 매칭 ≥90%·평균 dy ≤ 200HWPUNIT(2pt)·평균 dx ≤ 150(1.5pt)
+    const ok = c.matchPct >= 90 && c.dyAvg <= 200 && c.dxAvg <= 150
+    if (ok) pass++
+    console.log(`${ok ? "✅" : "⚠️ "} ${f.slice(0, 40)}`)
+    console.log(`   strip ${stripped} · texts ${c.truthTexts}→${c.reflowTexts} · lines ${c.truthLines}→${c.reflowLines} · match ${c.matchPct}% · dyAvg ${c.dyAvg} dyMax ${c.dyMax} dxAvg ${c.dxAvg} (pt/100)`)
+  } catch (e) {
+    console.log(`❌ ${f.slice(0, 40)} — ${e.message}`)
+  }
+}
+console.log(`\n게이트: ${pass}/${files.length} 통과`)
+
+// --gate: 통과율 임계(100%) 미달 시 exit 1 — 기존 bench:gate 스크립트(--gate)와 관례 통일.
+// 기준선 59/59 = 100% (v4.0.4 Phase 3 개체 흐름 — float/inline/빈문단 pitch/혼합 캐시로
+// 36264961 회복, 전 문단 d=0). 무후퇴 플로어: 한 건이라도 깨지면 실패.
+if (GATE_MODE) {
+  const GATE = 1.0
+  if (files.length === 0) {
+    console.error(`❌ reflow 게이트: 코퍼스(${CORPUS})가 비어 검증 불가`)
+    process.exit(1)
+  }
+  const rate = pass / files.length
+  if (rate < GATE) {
+    console.error(`❌ reflow 게이트 실패: ${pass}/${files.length} (${Math.round(rate * 100)}%) < ${GATE * 100}%`)
+    process.exit(1)
+  }
+  console.log(`✅ reflow 게이트 통과 (${Math.round(rate * 100)}% ≥ ${GATE * 100}%)`)
+}

@@ -1,0 +1,51 @@
+---
+title: "Changelog"
+description: "Product updates and announcements"
+rss: true
+---
+
+<Update label="July 2, 2026">
+## Agentic playground chat
+
+The [playground](/search-and-retrieval/playground) and [hosted](/production/hosting-ui) chats now use agentic search. Instead of retrieving once before answering, the model searches your namespace in a tool-calling loop until it has enough context. The playground shows the full step-by-step trace for debugging, while the hosted interface shows end users a compact progress indicator.
+
+### New
+
+- **Agentic search**: The model drives retrieval through `search` and `expand` tools, streaming step-by-step progress
+- **Chunk expansion**: The model can fetch the chunks around a search result when a chunk is cut off (Turbopuffer-backed namespaces)
+- **Accurate and Fast modes**: Replace the previous chat modes. Accurate (default) reranks each semantic search; Fast skips reranking and returns results directly
+- **GPT-5.5**: Added to the model picker as the new default model
+- **Cohere Rerank v4.0 Pro**: Now the default reranker
+- **Inline citations**: Source pills in answers open the retrieved chunk's text and metadata
+
+### Removed
+
+- **Deep Research mode**: Agentic search handles multi-step questions directly
+</Update>
+
+<Update label="December 3, 2025" description="v1.0">
+## General Availability
+
+Agentset is now generally available after 8 months of beta testing. Thanks to all our early users for their feedback.
+
+### New
+
+- **Document processing**: All-new ingestion pipeline with image extraction, table detection, inline math recognition, and layout analysis. Choose from `fast`, `balanced`, or `accurate` modes
+- **Chunk viewer**: View document chunks directly in the dashboard
+- **Document download**: Download managed files from the dashboard
+- **Web crawling**: Crawl and ingest websites with configurable depth, path filters, and CSS selectors
+- **YouTube ingestion**: Ingest video transcripts with configurable language selection and metadata options
+
+### Improved
+
+- Combined upload and URL forms into a single unified ingestion interface
+- Redesigned documents and jobs tables with creation timestamps and file size details
+- Turbopuffer is now the default vector store for new namespaces
+- Revamped model selector in the playground
+
+### Fixed
+
+- Playground chat no longer shows empty settings
+- Email validation now works correctly when inviting organization members
+- Playground chat mode defaults to the correct setting
+</Update>

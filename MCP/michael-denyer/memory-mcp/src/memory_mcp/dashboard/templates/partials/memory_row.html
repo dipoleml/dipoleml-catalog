@@ -1,0 +1,96 @@
+<!-- Single memory row -->
+<tr id="memory-{{ memory.id }}" class="hover:bg-dark-800/50 transition-colors">
+    <td class="px-4 py-3 text-sm text-gray-400">
+        #{{ memory.id }}
+    </td>
+    <td class="px-4 py-3">
+        <div class="flex items-center gap-1.5">
+            <span class="px-2 py-0.5 text-xs font-medium rounded border {{ get_type_badge_class(memory.memory_type) }}">
+                {{ memory.memory_type|type_value }}
+            </span>
+            {% if memory.category %}
+            <span class="px-1.5 py-0.5 text-xs bg-gray-600/50 text-gray-300 rounded">
+                {{ memory.category }}
+            </span>
+            {% endif %}
+        </div>
+    </td>
+    <td class="px-4 py-3">
+        <div class="flex items-start gap-2">
+            <button type="button"
+                    hx-get="/api/memories/{{ memory.id }}/detail"
+                    hx-target="#detail-{{ memory.id }}"
+                    hx-swap="innerHTML"
+                    class="mt-0.5 text-gray-500 hover:text-white shrink-0"
+                    title="Show details">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+            <p class="text-sm text-gray-200 line-clamp-2 max-w-md">{{ memory.content }}</p>
+        </div>
+    </td>
+    <!-- Created At -->
+    <td class="px-4 py-3 text-center">
+        {% if memory.created_at %}
+            {% set created_str = memory.created_at|string %}
+            <div class="flex flex-col">
+                <span class="text-xs text-gray-400">{{ created_str[:10] }}</span>
+                <span class="text-xs text-gray-500">{{ created_str[11:16] }}</span>
+            </div>
+        {% else %}
+            <span class="text-xs text-gray-500">—</span>
+        {% endif %}
+    </td>
+    <!-- Trust Score -->
+    <td class="px-4 py-3 text-center">
+        {% set trust = memory.trust_score|default(0.7) %}
+        {% if trust >= 0.7 %}
+        <span class="text-xs font-medium text-green-400" title="High trust">{{ "%.2f"|format(trust) }}</span>
+        {% elif trust >= 0.4 %}
+        <span class="text-xs font-medium text-yellow-400" title="Medium trust">{{ "%.2f"|format(trust) }}</span>
+        {% else %}
+        <span class="text-xs font-medium text-red-400" title="Low trust">{{ "%.2f"|format(trust) }}</span>
+        {% endif %}
+    </td>
+    <!-- Helpfulness (Used/Retrieved) -->
+    <td class="px-4 py-3 text-center">
+        {% set retrieved = memory.retrieved_count|default(0) %}
+        {% set used = memory.used_count|default(0) %}
+        {% if retrieved > 0 %}
+            {% set rate = (used / retrieved * 100)|int %}
+            {% if rate >= 50 %}
+            <span class="text-xs font-medium text-green-400" title="{{ used }} used / {{ retrieved }} retrieved">{{ used }}/{{ retrieved }}</span>
+            {% elif rate >= 25 %}
+            <span class="text-xs font-medium text-yellow-400" title="{{ used }} used / {{ retrieved }} retrieved">{{ used }}/{{ retrieved }}</span>
+            {% else %}
+            <span class="text-xs font-medium text-red-400" title="{{ used }} used / {{ retrieved }} retrieved">{{ used }}/{{ retrieved }}</span>
+            {% endif %}
+        {% else %}
+        <span class="text-xs text-gray-500" title="Not yet retrieved">—</span>
+        {% endif %}
+    </td>
+    <td class="px-4 py-3 text-right">
+        <div class="flex items-center justify-end gap-1">
+            <button hx-post="/api/memories/{{ memory.id }}/promote"
+                    hx-target="#memory-{{ memory.id }}"
+                    hx-swap="outerHTML"
+                    class="p-1.5 text-gray-400 hover:text-orange-400 hover:bg-orange-500/10 rounded transition-colors"
+                    title="Promote to hot cache">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+            </button>
+            <button hx-delete="/api/memories/{{ memory.id }}"
+                    hx-target="#memory-{{ memory.id }}"
+                    hx-swap="outerHTML swap:300ms"
+                    hx-confirm="Delete this memory permanently?"
+                    class="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                    title="Delete memory">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+            </button>
+        </div>
+    </td>
+</tr>

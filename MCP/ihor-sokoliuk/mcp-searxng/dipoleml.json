@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ihor-sokoliuk.mcp-searxng",
+  "type": "mcp",
+  "name": "MCP Searxng",
+  "slug": "mcp-searxng",
+  "vendor": "ihor-sokoliuk",
+  "description": "Private web search for AI assistants via SearXNG — supports DipoleML, Cursor, and any MCP client",
+  "version": "2.9.0",
+  "homepage": "https://github.com/ihor-sokoliuk/mcp-searxng",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cursor",
+    "privacy",
+    "search",
+    "searxng",
+    "self-hosted",
+    "web-search"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "cursor",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "mcp-servers",
+    "privacy",
+    "search",
+    "searxng",
+    "self-hosted",
+    "web-search"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ihor-sokoliuk",
+    "brandName": "ihor-sokoliuk",
+    "source": "https://github.com/ihor-sokoliuk.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:05Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ihor-sokoliuk/mcp-searxng",
+    "url": "https://github.com/ihor-sokoliuk/mcp-searxng",
+    "commit": "59635c3a4b3cca5aafc183570be3f56a6032dcdc",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1335,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "MCP Searxng | Private web search for AI assistants via SearXNG — supports Claude, Cursor, and any MCP client",
+        "after": "MCP Searxng | Private web search for AI assistants via SearXNG — supports DipoleML, Cursor, and any MCP client",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-searxng"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "mcp-searxng"
+    ],
+    "env": [
+      "SEARXNG_URL",
+      "MCP_HTTP_PORT",
+      "YOUR_SEARXNG_INSTANCE_URL",
+      "FLARESOLVERR_URL",
+      "BYPARR_URL",
+      "MCP_HTTP_HOST"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

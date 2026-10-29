@@ -1,0 +1,124 @@
+"use strict";
+// Pure JSDoc typedef module. Empty runtime export; the @typedefs feed the typecheck gate.
+
+/**
+ * @typedef {Object} FileRef
+ * @property {string} [path]
+ * @property {string} [dir]
+ * @property {string} [file_id]
+ * @property {string} [file_url]
+ * @property {("auto"|"inline"|"upload")} [mode]
+ * @property {number} [headBytes]  path entries only: read at most this many bytes (head truncation; see core/head-read.js)
+ */
+
+/**
+ * @typedef {Object} DelegationRequest
+ * @property {AbortSignal} [signal]
+ * @property {string} [timeoutPolicy]
+ * @property {string} [tool]
+ * @property {number} [deadlineAt]
+ * @property {("own"|"shared"|"outer"|"host")} [deadlineOrigin]  what set deadlineAt (a fan-out says; a caller's own is `outer`)
+ * @property {string[]} [sharedBy]  the peer(s) whose configured limit set a shared fan-out deadline
+ * @property {number} [sharedLimitMs]  that limit
+ * @property {any} [provenance]
+ * @property {string}  prompt
+ * @property {string}  [developerInstructions]
+ * @property {string}  [cwd]
+ * @property {FileRef[]} [files]
+ * @property {("low"|"medium"|"high"|"none")} [reasoningEffort]
+ * @property {number}  [temperature]
+ * @property {number}  [timeoutMs]
+ * @property {number}  [hostBudgetRemainingMs]  what is left of the host's per-tool-call cap (MCP_TOOL_TIMEOUT) for this leg; stamped by core/host-budget.js fitToHostBudget, read by the adapters' clamp
+ * @property {string}  [threadId]
+ * @property {string}  [expert]
+ * @property {string}  [model]
+ * @property {string}  [preset]
+ * @property {string}  [apiKey]  per-request provider key override; when set, a provider
+ *   prefers it over its `process.env` key. The seam a remote/multi-tenant adapter injects
+ *   per request (Phase 3). Unset in the stdio path - providers fall back to `process.env`.
+ *   Phase-3 note: when this is used for real multi-tenancy, the remote adapter must also
+ *   scope any per-thread session state (e.g. the openai-compatible `threadId` map) by tenant,
+ *   so a reused threadId cannot resume another tenant's context under a different key.
+ * @property {("ask"|"consensus")} [context]  calling context: "consensus" applies consensusReasoningEffort, "ask" (default) applies reasoningEffort
+ * @property {("advisory"|"implement")} [mode]  delegation mode. Absent/"advisory" keeps the
+ *   call read-only (OS-sandboxed). Only the literal "implement" requests workspace-write, and
+ *   only takes effect when the provider was constructed with `allowImplement:true` (the second
+ *   of two AND-ed locks). A stray/injected `mode` alone never writes. No unified-server tool
+ *   sets this yet - the implement surface is section 3; today the field is exercised in-process
+ *   (and by tests) only. Closed enum on purpose: read-only is anything that is not exactly
+ *   "implement", so a truthy-coercion bug cannot open writes.
+ */
+
+/**
+ * Token usage, when the provider reports it. HTTP providers (OpenRouter, Grok)
+ * return a `usage` object; CLI providers (Codex, Gemini) do not. Logged for
+ * debugging only - never rendered in command output.
+ * @typedef {Object} Usage
+ * @property {number} [promptTokens]
+ * @property {number} [completionTokens]
+ * @property {number} [totalTokens]
+ */
+
+/**
+ * @typedef {Object} DelegationSuccess
+ * @property {false}    isError
+ * @property {string}   provider
+ * @property {string}   model
+ * @property {string}   text
+ * @property {string}   [threadId]
+ * @property {number}   ms
+ * @property {(string|null)} [reasoningEffort]  effective reasoning effort the call
+ *   used; `null` for providers with no such knob (Codex, Gemini CLIs).
+ * @property {Usage}    [usage]  HTTP-provider token usage; absent for CLIs.
+ * @property {any} [provenance]
+ * @property {boolean}  [cached]  true when served from the in-session dedup cache.
+ * @property {boolean}  [workspaceMutated]  true when an advisory (read-only) run
+ *   nonetheless changed the consulted workspace (git mutation detected); the result
+ *   should be treated as tainted.
+ */
+
+/**
+ * @typedef {Object} DelegationError
+ * @property {true}     isError
+ * @property {string}   provider
+ * @property {string}   model
+ * @property {string}   errorKind
+ * @property {boolean}  retryable
+ * @property {string}   [message]
+ * @property {boolean} [cached]
+ * @property {number}   ms
+ * @property {(string|null)} [reasoningEffort]
+ * @property {number}   [retryAfterMs]  upstream Retry-After hint on a 429, in ms.
+ * @property {any} [provenance]
+ * @property {string}   [transportCode]  low-level transport cause behind a coarse
+ *   `errorKind` (e.g. UND_ERR_HEADERS_TIMEOUT, ECONNRESET, ENOTFOUND). Content-free,
+ *   so it is safe to write to the debug log; see core/debug-log.js `errorCode`.
+ */
+
+/** @typedef {DelegationSuccess | DelegationError} DelegationResult */
+
+/**
+ * @typedef {Object} ProviderCapabilities
+ * @property {boolean} canImplement
+ * @property {boolean} fileUpload
+ * @property {boolean} multiTurn
+ * @property {boolean} [fixedModelEffort]  model and effort are fixed at construction;
+ *   request overrides must not replace their effective settings in pinned fan-outs.
+ * @property {boolean} [walksFilesystem]  true when the provider runs locally and can
+ *   read any file under cwd itself (Codex/Gemini, read-only sandbox). false/absent for
+ *   HTTP advisory providers (Grok/OpenRouter) that only see explicitly-attached files.
+ */
+
+/**
+ * @typedef {Object} Provider
+ * @property {(req: DelegationRequest) => any} [resolveSettings]
+ * @property {string} name
+ * @property {ProviderCapabilities} capabilities
+ * @property {() => Promise<{ok:boolean, reason?:string}>} health
+ * @property {(req: DelegationRequest) => Promise<DelegationResult>} ask
+ * @property {string} [alias]
+ * @property {string} [provider]
+ * @property {string} [model]
+ */
+
+module.exports = {};

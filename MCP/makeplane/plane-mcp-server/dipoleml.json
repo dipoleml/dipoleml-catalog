@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.makeplane.plane-mcp-server",
+  "type": "mcp",
+  "name": "Plane MCP Server",
+  "slug": "plane-mcp-server",
+  "vendor": "makeplane",
+  "description": "Plane's Official Model Context Protocol Server 🔌 ⌨️ 🔥",
+  "version": "0.0.0",
+  "homepage": "https://github.com/makeplane/plane-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "mcp-server",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "makeplane",
+    "brandName": "makeplane",
+    "source": "https://github.com/makeplane.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "makeplane/plane-mcp-server",
+    "url": "https://github.com/makeplane/plane-mcp-server",
+    "commit": "dc7cfd9f3c305891909e2372f0cc507291353801",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 352,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "plane-mcp-server"
+    ],
+    "env": [
+      "PLANE_API_KEY",
+      "PLANE_BASE_URL",
+      "PLANE_INTERNAL_BASE_URL",
+      "REDIS_URL",
+      "REDIS_HOST",
+      "REDIS_PORT",
+      "PLANE_TEST_API_KEY",
+      "PLANE_TEST_MCP_URL",
+      "PLANE_API_HOST_URL"
+    ],
+    "credentials": [
+      "PLANE_API_KEY",
+      "PLANE_TEST_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

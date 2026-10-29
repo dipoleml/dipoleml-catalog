@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Audio/Video files
+*.mp3
+*.mp4
+*.wav
+*.avi
+*.mov
+
+# Output files
+output/
+runs/
+inbox/
+.chubby/
+chubby.yaml
+*.md.bak
+*.assets/
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# Personal vault instance created by `init --vault` (see README quickstart).
+# Holds private notes plus generated briefs, digests and site output — never commit.
+creator-vault/
+
+# Local working artifacts: release tarballs, feasibility notes, exports.
+# Root-anchored on purpose — examples/outputs/ is tracked sample data.
+/outputs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model cache
+.cache/
+modelscope/
+
+# Scratch working directories
+.work/
+.manus/

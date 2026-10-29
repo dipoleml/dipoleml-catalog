@@ -1,0 +1,17 @@
+{
+  "skill": "security",
+  "should_trigger": [
+    "Add OAuth login with GitHub",
+    "Hash and validate passwords securely",
+    "Implement rate limiting on the login endpoint",
+    "Prevent XSS in user-generated content",
+    "Add admin authorization checks to my routes"
+  ],
+  "should_not_trigger": [
+    "Add pagination to the product listing page",
+    "Refactor the notification context to use PubSub",
+    "Fix N+1 query in the dashboard LiveView",
+    "Write a migration to add a tags column to posts",
+    "Deploy the app to Fly.io with a Dockerfile"
+  ]
+}

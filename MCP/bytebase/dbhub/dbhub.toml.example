@@ -1,0 +1,450 @@
+# DBHub Multi-Database Configuration
+#
+# Documentation: https://dbhub.ai/config/toml
+#
+# Quick Start:
+#   1. Copy this file to 'dbhub.toml' in your project directory
+#   2. Uncomment and edit the sources you need
+#   3. Delete or comment out sources you don't need
+#
+# Usage:
+#   pnpm run dev                         # Uses ./dbhub.toml
+#   pnpm run dev -- --config=/path/to/config.toml
+
+# ============================================================================
+# POSTGRESQL EXAMPLES (Local → Dev → Prod progression)
+# ============================================================================
+
+# Local PostgreSQL - DSN format (typical Docker/local dev setup)
+[[sources]]
+id = "local_pg"
+description = "Local development database"
+dsn = "postgres://postgres:postgres@localhost:5432/myapp"
+# pool_max_connections = 5  # Optional: per-process, per-source pool limit (default: 10)
+
+# Local PostgreSQL - Individual parameters (use when password contains special characters like @, :, /)
+# [[sources]]
+# id = "local_pg"
+# type = "postgres"
+# host = "localhost"
+# port = 5432
+# database = "myapp"
+# user = "postgres"
+# password = "p@ss:word/123"
+# sslmode = "disable"  # Optional: "disable" or "require"
+
+# Local PostgreSQL with custom schema (non-public schema)
+# [[sources]]
+# id = "local_pg_custom_schema"
+# dsn = "postgres://postgres:postgres@localhost:5432/myapp"
+# search_path = "myschema,public"  # Comma-separated list of schemas; first is the default for discovery
+
+# Development PostgreSQL (shared dev server)
+# [[sources]]
+# id = "dev_pg"
+# dsn = "postgres://dev_user:dev_password@dev-db.internal.company.com:5432/myapp_dev?sslmode=require"
+# connection_timeout = 30
+
+# PostgreSQL on AWS RDS with IAM authentication (no password in config)
+# [[sources]]
+# id = "rds_pg_iam"
+# type = "postgres"
+# host = "mydb.abc123.eu-west-1.rds.amazonaws.com"
+# port = 5432
+# database = "myapp"
+# user = "dbuser@example.com"
+# aws_iam_auth = true
+# aws_region = "eu-west-1"
+# aws_profile = "my-profile"  # Optional: named AWS profile; requires aws_iam_auth = true
+# sslmode = "require"
+
+# PostgreSQL with certificate verification (e.g., AWS RDS)
+# [[sources]]
+# id = "rds_pg_verified"
+# type = "postgres"
+# host = "mydb.abc123.eu-west-1.rds.amazonaws.com"
+# port = 5432
+# database = "myapp"
+# user = "app_user"
+# password = "secure_password"
+# sslmode = "verify-ca"
+# sslrootcert = "~/.ssl/rds-combined-ca-bundle.pem"
+
+# PostgreSQL with client certificate authentication (pg_hba.conf `hostssl ... cert`)
+# [[sources]]
+# id = "pg_client_cert"
+# type = "postgres"
+# host = "db.example.internal"
+# port = 5432
+# database = "app"
+# user = "app"
+# password = "${PG_PASSWORD}"
+# sslmode = "verify-ca"
+# sslrootcert = "~/.certs/ca.crt"
+# sslcert = "~/.certs/client.crt"
+# sslkey = "~/.certs/client.key"
+
+# Production PostgreSQL (behind SSH bastion, lazy connection)
+# [[sources]]
+# id = "prod_pg"
+# dsn = "postgres://app_user:secure_password@10.0.1.100:5432/myapp_prod?sslmode=require"
+# lazy = true  # Defer connection until first query (avoids startup overhead for remote DBs)
+# connection_timeout = 30
+# # SSH tunnel configuration
+# ssh_host = "bastion.company.com"
+# ssh_port = 22
+# ssh_user = "deploy"
+# ssh_key = "~/.ssh/id_ed25519"
+# # ssh_passphrase = "your_key_passphrase"  # If key is encrypted
+# # ssh_agent = "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"  # SSH agent socket instead of ssh_key (default: $SSH_AUTH_SOCK)
+# # ssh_keepalive_interval = 60  # Send keepalive every 60 seconds to prevent idle disconnects
+# # ssh_keepalive_count_max = 3  # Disconnect after 3 missed responses
+
+# Production PostgreSQL (multi-hop SSH through multiple jump hosts)
+# [[sources]]
+# id = "prod_pg_multihop"
+# dsn = "postgres://app_user:secure_password@10.0.1.100:5432/myapp_prod?sslmode=require"
+# # SSH tunnel with ProxyJump (connects through jump hosts in order)
+# ssh_host = "internal-server.company.com"
+# ssh_user = "deploy"
+# ssh_key = "~/.ssh/id_ed25519"
+# # ProxyJump: comma-separated list of jump hosts
+# # Format: [user@]host[:port] - user/port optional, inherits from ssh_user if not specified
+# # Note: While each jump host can have a different username, the same SSH key (or password)
+# #       specified in ssh_key/ssh_password will be used for authentication to ALL hosts in the chain
+# ssh_proxy_jump = "bastion.company.com,admin@jump2.internal:2222"
+
+# ============================================================================
+# MYSQL (Local development)
+# ============================================================================
+
+# [[sources]]
+# id = "local_mysql"
+# dsn = "mysql://root:mysql@localhost:3306/myapp"
+
+# MySQL with explicit timezone for DATETIME interpretation (MySQL/MariaDB only)
+# [[sources]]
+# id = "local_mysql_tz"
+# dsn = "mysql://root:mysql@localhost:3306/myapp"
+# timezone = "+09:00"       # How the driver interprets DATETIME values: "Z", "local", or "±HH:MM"
+
+# MySQL with an explicit connection charset and/or collation (MySQL/MariaDB only).
+# Set either one, or both together (a collation implies its character set).
+# [[sources]]
+# id = "local_mysql_charset"
+# dsn = "mysql://root:mysql@localhost:3306/myapp"
+# charset = "utf8mb4"               # Connection character set (uses its default collation)
+# collation = "utf8mb4_0900_ai_ci"  # Connection collation
+
+# MySQL on AWS RDS with IAM authentication (no password in config)
+# [[sources]]
+# id = "rds_mysql_iam"
+# type = "mysql"
+# host = "mydb.abc123.eu-west-1.rds.amazonaws.com"
+# port = 3306
+# database = "myapp"
+# user = "dbuser@example.com"
+# aws_iam_auth = true
+# aws_region = "eu-west-1"
+# aws_profile = "my-profile"  # Optional: named AWS profile; requires aws_iam_auth = true
+# sslmode = "require"
+
+# ============================================================================
+# MARIADB (Local development)
+# ============================================================================
+
+# [[sources]]
+# id = "local_mariadb"
+# dsn = "mariadb://root:mariadb@localhost:3306/myapp"
+
+# MariaDB on AWS RDS with IAM authentication (no password in config)
+# [[sources]]
+# id = "rds_mariadb_iam"
+# type = "mariadb"
+# host = "mydb.abc123.eu-west-1.rds.amazonaws.com"
+# port = 3306
+# database = "myapp"
+# user = "dbuser@example.com"
+# aws_iam_auth = true
+# aws_region = "eu-west-1"
+# aws_profile = "my-profile"  # Optional: named AWS profile; requires aws_iam_auth = true
+# sslmode = "require"
+
+# ============================================================================
+# SQL SERVER (Local development)
+# ============================================================================
+
+# [[sources]]
+# id = "local_sqlserver"
+# dsn = "sqlserver://sa:YourStrong@Passw0rd@localhost:1433/myapp"
+# # For named instances, use:
+# # dsn = "sqlserver://sa:YourStrong@Passw0rd@localhost:1433/myapp?instanceName=SQLEXPRESS"
+# query_timeout = 60  # Query timeout in seconds (works for all databases except SQLite)
+
+# SQL Server - Individual parameters (use when password contains special characters)
+# [[sources]]
+# id = "local_sqlserver"
+# type = "sqlserver"
+# host = "localhost"
+# port = 1433
+# database = "myapp"
+# user = "sa"
+# password = "YourStrong@Passw0rd"
+# instanceName = "SQLEXPRESS"  # Optional: for named instances
+# sslmode = "disable"          # Optional: "disable", "require" or "verify-full"
+
+# SQL Server with Windows/NTLM authentication (DSN format)
+# [[sources]]
+# id = "corp_sqlserver"
+# dsn = "sqlserver://jsmith:secret@sqlserver.corp.local:1433/app_db?authentication=ntlm&domain=CORP"
+
+# SQL Server with Windows/NTLM authentication (individual parameters)
+# [[sources]]
+# id = "corp_sqlserver"
+# type = "sqlserver"
+# host = "sqlserver.corp.local"
+# port = 1433
+# database = "app_db"
+# user = "jsmith"
+# password = "secret"
+# authentication = "ntlm"      # Required for Windows auth
+# domain = "CORP"              # Required when authentication = "ntlm"
+
+# SQL Server with Azure AD authentication (no password required)
+# [[sources]]
+# id = "azure_sqlserver"
+# type = "sqlserver"
+# host = "myserver.database.windows.net"
+# port = 1433
+# database = "mydb"
+# user = "admin@mytenant.onmicrosoft.com"
+# authentication = "azure-active-directory-access-token"
+# sslmode = "require"
+
+# ============================================================================
+# ORACLE
+# ============================================================================
+
+# The DSN path is the service name (e.g. FREEPDB1 on Oracle Free). Uses
+# node-oracledb Thin mode, so no Oracle Instant Client is needed.
+# [[sources]]
+# id = "local_oracle"
+# dsn = "oracle://app:secret@localhost:1521/FREEPDB1"
+# # Address an old-style SID instead of a service name:
+# # dsn = "oracle://app:secret@localhost:1521/?sid=ORCL"
+# # TCPS: sslmode=require (no certificate DN check) or verify-full (DN checked)
+# # dsn = "oracle://app:secret@db.example.com:2484/PROD?sslmode=verify-full"
+
+# Oracle - Individual parameters
+# [[sources]]
+# id = "local_oracle"
+# type = "oracle"
+# host = "localhost"
+# port = 1521
+# database = "FREEPDB1"   # service name
+# user = "app"
+# password = "secret"
+
+# ============================================================================
+# SQLITE (Local file or in-memory)
+# ============================================================================
+
+# File-based SQLite
+# [[sources]]
+# id = "local_sqlite"
+# dsn = "sqlite:///path/to/database.db"
+
+# In-memory SQLite (great for testing)
+# [[sources]]
+# id = "memory_sqlite"
+# dsn = "sqlite:///:memory:"
+
+# ============================================================================
+# TOOL CONFIGURATION (Optional)
+# ============================================================================
+#
+# By default, all sources get 'execute_sql' and 'search_objects' tools enabled.
+# Use [[tools]] entries to customize behavior per source.
+
+# [[tools]]
+# name = "execute_sql"
+# source = "local_pg"
+# readonly = true
+# max_rows = 1000
+
+# [[tools]]
+# name = "search_objects"
+# source = "local_pg"
+
+# 'explain_sql' is opt-in only (not part of the default pair above) - add it
+# explicitly to expose an EXPLAIN tool for a source. It only ever shows the
+# query plan and never executes the statement, so it's safe to enable
+# regardless of the source's own readonly setting; it takes no readonly/
+# max_rows options of its own.
+# [[tools]]
+# name = "explain_sql"
+# source = "local_pg"
+
+# 'health_check' is opt-in only, like explain_sql. It reports operational
+# metrics (connection pool state, buffer cache hit ratio) for the source.
+# Currently implemented for PostgreSQL, MySQL, MariaDB, SQL Server, and
+# Oracle; enabling it on other database types returns an "unsupported" error
+# rather than partial data. On MySQL/MariaDB, idle-in-transaction detection
+# additionally requires the PROCESS privilege; on SQL Server, both metrics
+# require VIEW SERVER STATE (VIEW DATABASE STATE on Azure SQL Database); on
+# Oracle, both require SELECT_CATALOG_ROLE (or SELECT ANY DICTIONARY).
+# Without the right grant, the tool still returns what it can and adds a
+# `notes` entry explaining the reduced visibility instead of failing
+# outright. Always read-only, no readonly/max_rows options of its own.
+# [[tools]]
+# name = "health_check"
+# source = "local_pg"
+
+# ============================================================================
+# CUSTOM TOOLS (Optional)
+# ============================================================================
+#
+# Define reusable SQL queries as MCP tools. Great for common operations.
+
+# Example: Current department managers (PostgreSQL - no parameters)
+# [[tools]]
+# name = "current_managers"
+# description = "List all current department managers"
+# source = "local_pg"
+# readonly = true       # Optional: restrict to read-only operations
+# max_rows = 100        # Optional: limit result set size
+# statement = """
+#   SELECT e.emp_no, e.first_name, e.last_name, d.dept_name, dm.from_date
+#   FROM dept_manager dm
+#   JOIN employee e ON dm.emp_no = e.emp_no
+#   JOIN department d ON dm.dept_no = d.dept_no
+#   ORDER BY d.dept_name
+# """
+
+# Example: Search employees by salary range (PostgreSQL - required + optional parameter)
+# [[tools]]
+# name = "salary_search"
+# description = "Find employees earning at least min_salary, optionally capped by max_salary"
+# source = "local_pg"
+# readonly = true       # Optional: restrict to read-only operations
+# max_rows = 1000       # Optional: limit result set size
+# statement = """
+#   SELECT e.emp_no, e.first_name, e.last_name, s.amount as salary
+#   FROM employee e
+#   JOIN salary s ON e.emp_no = s.emp_no
+#   WHERE s.amount >= $1
+#     AND ($2::int IS NULL OR s.amount <= $2)
+#   ORDER BY s.amount DESC
+#   LIMIT 100
+# """
+#
+# [[tools.parameters]]
+# name = "min_salary"
+# type = "integer"
+# description = "Minimum salary (required)"
+# required = true
+#
+# [[tools.parameters]]
+# name = "max_salary"
+# type = "integer"
+# description = "Maximum salary (optional, defaults to no limit)"
+# required = false
+
+# Example: Delete employee salaries (PostgreSQL - with required parameter)
+# [[tools]]
+# name = "delete_employee_salaries"
+# description = "Delete salary records for a specific employee"
+# source = "local_pg"
+# readonly = false  # Explicitly allow DELETE operations
+# statement = "DELETE FROM salary WHERE emp_no = $1"
+#
+# [[tools.parameters]]
+# name = "emp_no"
+# type = "integer"
+# description = "Employee number"
+# required = true
+
+# Example: Update employee department (PostgreSQL - with two required parameters)
+# [[tools]]
+# name = "update_employee_department"
+# description = "Update an employee's department assignment"
+# source = "local_pg"
+# readonly = false  # Explicitly allow UPDATE operations
+# statement = "UPDATE dept_emp SET dept_no = $2 WHERE emp_no = $1"
+#
+# [[tools.parameters]]
+# name = "emp_no"
+# type = "integer"
+# description = "Employee number"
+# required = true
+#
+# [[tools.parameters]]
+# name = "dept_no"
+# type = "string"
+# description = "New department number (e.g., d001, d002)"
+# required = true
+
+# ============================================================================
+# QUICK REFERENCE
+# ============================================================================
+#
+# Source Fields:
+#   id = "unique_id"           # Required: unique identifier
+#   description = "..."        # Optional: human-readable description
+#   dsn = "..."                # Connection string (or use individual params below)
+#   lazy = true                # Defer connection until first query (default: false)
+#   search_path = "schema1,public"  # PostgreSQL only: comma-separated schemas
+#   timezone = "+09:00"         # MySQL/MariaDB only: "Z", "local", or "±HH:MM"
+#   charset = "utf8mb4"         # MySQL/MariaDB only: connection character set
+#   collation = "utf8mb4_0900_ai_ci"  # MySQL/MariaDB only: connection collation
+#   aws_iam_auth = true         # Optional: enable AWS RDS IAM auth (postgres/mysql/mariadb)
+#   aws_region = "eu-west-1"    # Required when aws_iam_auth = true
+#   aws_profile = "my-profile"  # Optional: named AWS profile; requires aws_iam_auth = true
+#
+# DSN Formats:
+#   PostgreSQL:  postgres://user:pass@host:5432/database?sslmode=require
+#   MySQL:       mysql://user:pass@host:3306/database
+#   MariaDB:     mariadb://user:pass@host:3306/database
+#   SQL Server:  sqlserver://user:pass@host:1433/database
+#   Oracle:      oracle://user:pass@host:1521/service_name  (or ?sid=ORCL)
+#   SQLite:      sqlite:///path/to/file.db  or  sqlite:///:memory:
+#
+# Default Ports:
+#   PostgreSQL: 5432 | MySQL/MariaDB: 3306 | SQL Server: 1433 | Oracle: 1521
+#
+# SSH Tunnel Options:
+#   ssh_host, ssh_port (default: 22), ssh_user
+#   ssh_key (path to private key) OR ssh_password
+#   ssh_passphrase (if key is encrypted)
+#   ssh_agent (SSH agent socket path; defaults to $SSH_AUTH_SOCK)
+#   ssh_proxy_jump (ProxyJump for multi-hop: "jump1.com,user@jump2.com:2222")
+#   ssh_keepalive_interval (seconds between keepalive packets, default: 0 = disabled)
+#   ssh_keepalive_count_max (max missed keepalive responses, default: 3)
+#
+# SSL Mode (for network databases, not SQLite):
+#   sslmode = "disable"      # No SSL
+#   sslmode = "require"      # SSL without certificate verification
+#   sslmode = "verify-ca"    # SSL with CA certificate verification (PostgreSQL only)
+#   sslmode = "verify-full"  # SSL with CA + hostname verification (PostgreSQL, SQL Server, Oracle)
+#   sslrootcert = "~/.ssl/ca.pem"  # CA certificate path (PostgreSQL only; requires verify-ca or verify-full)
+#   sslcert = "~/.ssl/client.crt"  # PEM client certificate (PostgreSQL only; set with sslkey, needs sslmode require/verify-*)
+#   sslkey = "~/.ssl/client.key"   # Unencrypted PEM private key for sslcert (PostgreSQL only)
+#   SQL Server verify-full uses Node's trust roots; set NODE_EXTRA_CA_CERTS
+#   to a PEM CA bundle before process startup if an additional CA is needed.
+#
+# SQL Server Authentication:
+#   authentication = "ntlm"                              # Windows/NTLM auth (requires domain)
+#   authentication = "azure-active-directory-access-token"  # Azure AD auth
+#   domain = "MYDOMAIN"                                  # Required for NTLM
+#
+# Tool Options:
+#   readonly = true    # Restrict to SELECT, SHOW, DESCRIBE, EXPLAIN (works for execute_sql and custom tools)
+#   max_rows = 1000    # Limit result set size (works for execute_sql and custom tools)
+#   explain_sql        # Opt-in tool (name = "explain_sql"); no readonly/max_rows options - always safe
+#   health_check       # Opt-in tool (name = "health_check"); PostgreSQL/MySQL/MariaDB/SQL Server/Oracle for now, always safe
+#
+# Parameter Placeholders by Database:
+#   PostgreSQL:     $1, $2, $3
+#   MySQL/MariaDB:  ?, ?, ?
+#   SQL Server:     @p1, @p2, @p3
+#   SQLite:         ?, ?, ?

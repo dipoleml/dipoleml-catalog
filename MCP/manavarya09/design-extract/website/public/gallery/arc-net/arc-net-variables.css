@@ -1,0 +1,207 @@
+:root {
+  /* Colors — Primary */
+  --color-primary: #2702c2;
+  --color-secondary: #fffadd;
+  --color-accent: #3139fb;
+
+  /* Colors — Neutrals */
+  --color-neutral-50: #000000;
+  --color-neutral-100: #fffcec;
+  --color-neutral-200: #ffffff;
+  --color-neutral-300: #696969;
+
+  /* Colors — Backgrounds */
+  --color-bg: #fffcec;
+  --color-bg-1: #3139fb;
+  --color-bg-2: #ffffff;
+
+  /* Colors — Text */
+  --color-text: #000000;
+  --color-text-1: #ffffff;
+  --color-text-2: #fffadd;
+  --color-text-3: #fffcec;
+  --color-text-4: #2702c2;
+
+  /* Typography — Families */
+  --font-sans: 'Marlin', sans-serif;
+  --font-heading: 'Marlin Soft SQ', sans-serif;
+  --font-body: 'Times', sans-serif;
+  --font-body: 'InterVariable', sans-serif;
+  --font-body: 'ABC Favorit Mono', sans-serif;
+  --font-body: 'ABC Oracle', sans-serif;
+  --font-body: 'Exposure VAR', sans-serif;
+
+  /* Typography — Scale */
+  --font-size-45.51: 45.51px;
+  --font-size-40: 40px;
+  --font-size-36: 36px;
+  --font-size-32: 32px;
+  --font-size-28: 28px;
+  --font-size-24: 24px;
+  --font-size-20: 20px;
+  --font-size-17: 17px;
+  --font-size-16: 16px;
+  --font-size-14: 14px;
+  --font-size-13.3333: 13.3333px;
+  --font-size-12: 12px;
+
+  /* Spacing */
+  --spacing-2: 2px;
+  --spacing-32: 32px;
+  --spacing-37: 37px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+  --spacing-72: 72px;
+  --spacing-80: 80px;
+  --spacing-90: 90px;
+  --spacing-128: 128px;
+  --spacing-150: 150px;
+  --spacing-155: 155px;
+  --spacing-160: 160px;
+  --spacing-383: 383px;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-xl: 22px;
+
+  /* Box Shadows */
+  --shadow-md: rgba(0, 0, 0, 0.25) 0px 2px 8px 0px;
+  --shadow-md: rgba(0, 0, 0, 0.1) 0px 5px 5px 0px;
+
+  /* Original Site Variables */
+  /* — colors — */
+  --colors-primary7: rgb(207, 56, 40);
+  --colors-focusOutline: #96C4FF;
+  --colors-highContrast: #000;
+  --colors-primary6: rgb(250, 69, 49);
+  --colors-students-light_grey-hover: rgb(215, 214, 196);
+  --colors-brandOffwhite: #FFFCEC;
+  --colors-secondary4: rgb(0, 130, 121);
+  --colors-brandDeepBlue: #2404AA;
+  --colors-secondary2: rgb(0, 201, 195);
+  --colors-lowContrast: #FFF;
+  --colors-students-light_green: rgb(211, 224, 129);
+  --colors-primary4: rgb(252, 130, 121);
+  --colors-primary12: rgb(9, 2, 1);
+  --colors-secondary7: rgb(0, 56, 40);
+  --colors-secondary11: rgb(0, 4, 2);
+  --colors-secondary5: rgb(0, 105, 88);
+  --colors-students-off_white: rgb(245, 244, 226);
+  --colors-primary11: rgb(26, 4, 2);
+  --colors-students-arc_pinkish: rgb(242, 94, 107);
+  --colors-students-dark_blue: rgb(39, 2, 194);
+  --colors-students-light_blue: rgb(205, 204, 223);
+  --colors-primary8: rgb(162, 43, 31);
+  --colors-secondary8: rgb(0, 43, 31);
+  --colors-secondary3: rgb(0, 163, 159);
+  --colors-students-deep_blue: rgb(36, 4, 170);
+  --colors-secondary10: rgb(0, 17, 12);
+  --colors-students-arc_blue: rgb(12, 80, 255);
+  --colors-secondary9: rgb(0, 30, 21);
+  --colors-brandDarkBlue: #000354;
+  --colors-primary5: rgb(253, 105, 88);
+  --colors-secondary6: rgb(0, 69, 49);
+  --colors-secondary1: rgb(0, 234, 231);
+  --colors-students-light_grey: rgb(225, 224, 206);
+  --colors-brandBlue: #3139FB;
+  --colors-students-text_dark: rgb(118, 110, 106);
+  --colors-primary9: rgb(116, 30, 21);
+  --colors-students-arc_blue_pale: rgb(69, 138, 255);
+  --colors-students-salmon: rgb(242, 194, 172);
+  --colors-secondary12: rgb(0, 2, 1);
+  --colors-students-text_light: rgb(151, 146, 143);
+  --colors-primary10: rgb(71, 17, 12);
+  --colors-primary3: rgb(252, 163, 159);
+  --colors-primary2: rgb(255, 201, 195);
+  --colors-primary1: rgb(255, 234, 231);
+  --colors-brandRed: #FB3A4D;
+  --colors-students-dark_grey: rgb(60, 59, 58);
+  /* — spacing — */
+  --padding: 32px;
+  --page-padding-left: max(env(safe-area-inset-left), var(--padding));
+  --page-padding-right: max(env(safe-area-inset-right), var(--padding));
+  --fontSizes-20: 20px;
+  --space-16: 16px;
+  --space-72: 72px;
+  --space-4: 4px;
+  --space-40: 40px;
+  --space-8: 8px;
+  --space-32: 32px;
+  --sizes-24: 24px;
+  --sizes-64: 64px;
+  --fontSizes-24: 24px;
+  --fontSizes-48: 48px;
+  --space-64: 64px;
+  --sizes-40: 40px;
+  --sizes-48: 48px;
+  --sizes-56: 56px;
+  --sizes-8: 8px;
+  --sizes-16: 16px;
+  --fontSizes-10: 10px;
+  --space-56: 56px;
+  --fontSizes-36: 36px;
+  --sizes-12: 12px;
+  --sizes-4: 4px;
+  --space-12: 12px;
+  --fontSizes-40: 40px;
+  --fontSizes-12: 12px;
+  --sizes-72: 72px;
+  --fontSizes-16: 16px;
+  --fontSizes-32: 32px;
+  --sizes-32: 32px;
+  --space-48: 48px;
+  --fontSizes-14: 14px;
+  --space-24: 24px;
+  /* — typography — */
+  --fonts-body: "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --fontWeights-700: 700;
+  --fonts-boostSans: -apple-system, BlinkMacSystemFont, sans-serif;
+  --fonts-sans: Marlin, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --fonts-exposure: "Exposure VAR", "Helvetica", sans-serif;
+  --fontWeights-500: 500;
+  --fonts-referralSans: -apple-system, BlinkMacSystemFont, sans-serif;
+  --fontWeights-800: 800;
+  --fonts-oracle: "ABC Oracle", "Helvetica", sans-serif;
+  --fontWeights-400: 400;
+  --fonts-boostsSoft: Marlin Soft Basic, -apple-system, BlinkMacSystemFont, sans-serif;
+  --fonts-cta: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --fonts-mono: ABC Favorit Mono, Menlo, Monaco, Lucida Console, Liberation Mono, DejaVu Sans Mono, Bitstream Vera Sans Mono, Courier New, monospace;
+  --fonts-referralCode: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --fonts-softSans: Marlin Soft SQ, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --fontWeights-600: 600;
+  /* — shadows — */
+  --shadows-large: 0 30px 60px rgba(0, 0, 0, 0.12);
+  --shadows-medium: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --shadows-small: 0 5px 10px rgba(0, 0, 0, 0.12);
+  /* — other — */
+  --max-width: 1280px;
+  --navbar-height: 64px;
+  --mobile-cta-height: 56px;
+  --announcement-banner-height: 0px;
+  --announcement-banner-height-desktop: 0px;
+  --lineHeights-20: 20px;
+  --radii-12: 12px;
+  --lineHeights-48: 48px;
+  --radii-32: 32px;
+  --lineHeights-32: 32px;
+  --lineHeights-56: 56px;
+  --lineHeights-12: 12px;
+  --lineHeights-24: 24px;
+  --radii-4: 4px;
+  --radii-round: 9999px;
+  --radii-16: 16px;
+  --lineHeights-40: 40px;
+  --lineHeights-16: 16px;
+  --radii-8: 8px;
+  --radii-2: 2px;
+  /* — dependencies — */
+  --page-padding-left: --padding;
+  --page-padding-right: --padding;
+  /* — semantic — */
+  success: [object Object];
+  warning: [object Object];
+  error: [object Object];
+  info: [object Object];
+
+}

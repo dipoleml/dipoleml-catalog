@@ -1,0 +1,17 @@
+{
+  "skill": "review",
+  "should_trigger": [
+    "Review my authentication changes for security vulnerabilities",
+    "Check this code for Oban anti-patterns before I commit",
+    "Can you review this LiveView component for performance issues?",
+    "Review these Ecto changes",
+    "Go over this PR for potential bugs"
+  ],
+  "should_not_trigger": [
+    "Verify this compiles and all tests pass",
+    "Analyze the project for technical debt",
+    "Help me fix this N+1 query",
+    "Grill me harder on these changes",
+    "Implement this feature quickly"
+  ]
+}

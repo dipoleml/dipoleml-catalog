@@ -1,0 +1,571 @@
+import * as dotenv from 'dotenv';
+import TOML from '@iarna/toml';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { logger } from './logger.js';
+import { VALID_MODES } from './policy.js';
+import { SecretStore, defaultVaultPath } from './secret-store.js';
+import { resolveConfigOptions } from './config-paths.js';
+
+/**
+ * A resolved SSH server configuration, as produced by this loader and consumed
+ * by every handler. **Field names are camelCase, always** — the `.env` keys
+ * (`SUDO_PASSWORD`) and TOML keys (`sudo_password`) are source syntax and are
+ * mapped here; they never survive into a resolved config.
+ *
+ * This is the contract that broke in issue #49: handlers kept reading the
+ * pre-v3.0.0 snake_case names, which silently evaluated to `undefined`. Anything
+ * typed as a `ServerConfig` now makes that a type error rather than a runtime
+ * no-op. `tests/test-config-field-names.js` guards the same contract at runtime.
+ *
+ * @typedef {Object} ServerConfig
+ * @property {string} name Normalized (lowercased) server name.
+ * @property {string} host Hostname or IP address.
+ * @property {string} [user] SSH user.
+ * @property {string} [password] Password for password authentication.
+ * @property {string} [keyPath] Path to the private key (`KEYPATH` / `key_path`).
+ * @property {string} [certPath] OpenSSH user certificate for keyPath (`CERTPATH` / `cert_path`).
+ * @property {string} [passphrase] Passphrase for a protected private key.
+ * @property {number} [port] TCP port; defaults to 22.
+ * @property {string} [defaultDir] Working directory used when a tool omits `cwd`.
+ * @property {string} [sudoPassword] Password piped to `sudo -S`.
+ * @property {string} [description] Free-form description.
+ * @property {string} [group] Free-form group label; also feeds server groups.
+ * @property {string} [platform] `'linux'` (default) or `'windows'`.
+ * @property {string} [proxyJump] Name of another configured server to jump through.
+ * @property {string} [proxyCommand] Custom proxy command (`%h` / `%p` placeholders).
+ * @property {boolean} [forwardAgent] Forward the local ssh-agent to this server.
+ * @property {boolean} [announceAgent] Send AI_AGENT=mcp-ssh-manager on each command channel. Unset defers to SSH_MANAGER_ANNOUNCE_AGENT (off by default); false keeps a host silent even when that is on.
+ * @property {string} [mode] Security mode: `unrestricted`, `readonly` or `restricted`.
+ * @property {string} [approval] Human approval mode: `never`, `destructive` or `always`.
+ * @property {string[]} [allowPatterns] Regex sources allowed in `restricted` mode.
+ * @property {string[]} [denyPatterns] Regex sources always refused.
+ * @property {string} [auditLog] Path to a per-server audit log.
+ * @property {'env'|'toml'} [source] Which configuration source won for this server.
+ */
+
+// Parse a `;`-separated list of regex pattern strings. Empty entries are dropped.
+// We do NOT compile here — that happens lazily in policy.js so config-loader stays
+// free of regex error handling.
+function parsePatternList(raw) {
+  if (!raw || typeof raw !== 'string') return [];
+  return raw
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+// Normalize a mode string. Returns 'unrestricted' for any falsy/unknown input,
+// after logging a warning when the input is set but invalid. This keeps existing
+// configs (no MODE field) on the fast path.
+function normalizeMode(raw, serverName) {
+  if (raw === undefined || raw === null || raw === '') return 'unrestricted';
+  const normalized = String(raw).toLowerCase().trim();
+  if (!VALID_MODES.has(normalized)) {
+    logger.warn(
+      `Unknown security mode "${raw}" for server "${serverName}" — falling back to "unrestricted". Valid: ${[...VALID_MODES].join(', ')}.`
+    );
+    return 'unrestricted';
+  }
+  return normalized;
+}
+
+// Parse a boolean-ish config value. Accepts native booleans (TOML) and the
+// strings "true"/"1"/"yes"/"on" (case-insensitive) from .env, where every value
+// is a string. Everything else — "false", "0", "", undefined — is false, so an
+// opt-in flag never turns on by accident.
+function parseBool(raw) {
+  if (raw === true) return true;
+  if (typeof raw !== 'string') return false;
+  return ['true', '1', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+// Three states rather than two. An unset value has to stay unset, so that a
+// global switch can still decide; only an explicit value is a per-server
+// decision. A malformed value is treated as unset, never as a choice.
+function parseOptionalBool(raw) {
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const value = raw.trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(value)) return true;
+  if (['false', '0', 'no', 'off'].includes(value)) return false;
+  return undefined;
+}
+
+export class ConfigLoader {
+  constructor() {
+    /** @type {Map<string, ServerConfig>} */
+    this.servers = new Map();
+    /** @type {string|null} */
+    this.configSource = null;
+    /** @type {string|null} The .env actually read, once one has been. */
+    this.envPath = null;
+  }
+
+  /**
+   * Load configuration from multiple sources with priority:
+   * 1. Environment variables (highest priority)
+   * 2. .env file
+   * 3. TOML config file (lowest priority)
+   *
+   * @returns {Promise<Map<string, ServerConfig>>}
+   */
+  async load(options = {}) {
+    const defaults = resolveConfigOptions(options.envPath);
+    const {
+      envPath = defaults.envPath,
+      tomlPath = defaults.tomlPath,
+      preferToml = defaults.preferToml
+    } = options;
+
+    // Clear existing servers
+    this.servers.clear();
+    this.envPath = null;
+    this.configSource = null;
+
+    // Load in reverse priority order (lowest to highest)
+    let loadedFromToml = false;
+    let loadedFromEnv = false;
+
+    // Try loading TOML config first (lowest priority)
+    if (fs.existsSync(tomlPath)) {
+      try {
+        await this.loadTomlConfig(tomlPath);
+        loadedFromToml = true;
+        logger.info(`Loaded SSH configuration from TOML: ${tomlPath}`);
+      } catch (error) {
+        logger.warn(`Failed to load TOML config: ${error.message}`);
+      }
+    }
+
+    // Load .env file (higher priority, overwrites TOML)
+    if (!preferToml && fs.existsSync(envPath)) {
+      try {
+        this.loadEnvConfig(envPath);
+        // Kept so callers can name the file they are talking about — the
+        // control plane tells the operator which .env it found.
+        this.envPath = envPath;
+        loadedFromEnv = true;
+        logger.info(`Loaded SSH configuration from .env: ${envPath}`);
+      } catch (error) {
+        logger.warn(`Failed to load .env config: ${error.message}`);
+      }
+    }
+
+    // Load the encrypted vault (v4). It sits above the files and below the
+    // process environment: a credential the user deliberately stored in the
+    // vault should win over one left in a .env, but an operator overriding
+    // things from the environment for one run must still win over both.
+    // Absent vault → this is a no-op, and behaviour is exactly as before.
+    let loadedFromVault = false;
+    const vaultPath = options.vaultPath === null ? null : options.vaultPath || defaultVaultPath();
+    const store = new SecretStore(vaultPath || defaultVaultPath());
+    if (vaultPath && store.exists()) {
+      try {
+        const vaultServers = store.getAllDecrypted();
+        for (const [name, config] of Object.entries(vaultServers)) {
+          const existing = this.servers.get(name);
+          this.servers.set(name, { ...(existing || {}), ...config, name });
+        }
+        loadedFromVault = Object.keys(vaultServers).length > 0;
+        if (loadedFromVault) {
+          logger.info(`Loaded ${Object.keys(vaultServers).length} server(s) from the encrypted vault`);
+        }
+      } catch (error) {
+        // Once adopted, the vault owns security settings as well as secrets.
+        // Falling back to files could silently remove approval or policy rules.
+        // The control plane can still start independently to restore the vault.
+        logger.error(`Failed to read the vault at ${vaultPath}`, { error: error.message });
+        this.servers.clear();
+        throw Object.assign(new Error(
+          `The encrypted vault at ${vaultPath} cannot be read. SSH operations are blocked to preserve its security settings. `
+          + 'Run ssh-manager control and restore a recovery file in Options > Vault, '
+          + 'or run ssh-manager vault restore <file>. '
+          + `Cause: ${error.message}`
+        ), { code: 'VAULT_UNREADABLE' });
+      }
+    }
+
+    // Load from environment variables (highest priority, overwrites everything)
+    this.loadEnvironmentVariables();
+
+    this.#rejectFileApproval();
+
+    // Determine primary config source
+    if (loadedFromVault) {
+      this.configSource = 'vault';
+    } else if (loadedFromEnv) {
+      this.configSource = 'env';
+    } else if (loadedFromToml) {
+      this.configSource = 'toml';
+    } else if (this.servers.size > 0) {
+      this.configSource = 'environment';
+    } else {
+      this.configSource = null;
+      logger.warn('No SSH server configurations found');
+    }
+
+    return this.servers;
+  }
+
+  /**
+   * Tell anyone who set approval in a file that it no longer does anything.
+   *
+   * Silently ignoring it would be the worst outcome available: they would
+   * believe an agent stops and waits for them on that server, and it would not.
+   * Better to say so on every start until they move it.
+   */
+  #rejectFileApproval() {
+    const named = new Set();
+    for (const key of Object.keys(process.env)) {
+      const match = key.match(/^SSH_SERVER_(.+)_APPROVAL$/);
+      if (match) named.add(match[1].toLowerCase());
+    }
+    if (process.env.SSH_MANAGER_APPROVAL) named.add('(all servers)');
+    if (named.size === 0) return;
+    logger.warn(
+      'Approval can no longer be set from a file or the environment, and these '
+      + 'settings are being ignored. Set it in the control plane instead: '
+      + '`ssh-manager control`, then the server\'s Approval field. It moved so '
+      + 'that a shell on one of your machines cannot turn off the gate that '
+      + 'exists to stop it.',
+      { ignored: [...named] });
+  }
+
+  /**
+   * Load configuration from TOML file
+   */
+  async loadTomlConfig(tomlPath) {
+    const content = fs.readFileSync(tomlPath, 'utf8');
+    const config = TOML.parse(content);
+
+    if (config.ssh_servers) {
+      for (const [name, serverConfig] of Object.entries(config.ssh_servers)) {
+        const normalizedName = name.toLowerCase();
+        // allow_patterns / deny_patterns may be either a TOML array of strings
+        // or a single `;`-separated string. Normalize to a string[] of regex
+        // sources — compilation happens in policy.js.
+        const tomlAllow = Array.isArray(serverConfig.allow_patterns)
+          ? serverConfig.allow_patterns
+          : parsePatternList(serverConfig.allow_patterns);
+        const tomlDeny = Array.isArray(serverConfig.deny_patterns)
+          ? serverConfig.deny_patterns
+          : parsePatternList(serverConfig.deny_patterns);
+        const mode = normalizeMode(serverConfig.mode, normalizedName);
+        if (mode === 'restricted' && tomlAllow.length === 0) {
+          logger.warn(
+            `Server "${normalizedName}" is in "restricted" mode but has no allow_patterns — every command will be refused. Set allow_patterns to enable any execution.`
+          );
+        }
+
+        this.servers.set(normalizedName, {
+          name: normalizedName,
+          host: serverConfig.host,
+          user: serverConfig.user || serverConfig.username,
+          password: serverConfig.password,
+          keyPath: serverConfig.key_path || serverConfig.keypath || serverConfig.ssh_key,
+          certPath: serverConfig.cert_path,
+          passphrase: serverConfig.passphrase,
+          port: serverConfig.port || 22,
+          defaultDir: serverConfig.default_dir || serverConfig.default_directory || serverConfig.cwd,
+          sudoPassword: serverConfig.sudo_password,
+          description: serverConfig.description,
+          group: serverConfig.group,
+          platform: serverConfig.platform ? serverConfig.platform.toLowerCase() : undefined,
+          proxyJump: serverConfig.proxy_jump,
+          proxyCommand: serverConfig.proxy_command || serverConfig.proxycommand,
+          forwardAgent: parseBool(serverConfig.forward_agent),
+          announceAgent: parseOptionalBool(serverConfig.announce_agent),
+          mode,
+          // approval is deliberately NOT read here — see loadEnvConfig below.
+
+          allowPatterns: tomlAllow,
+          denyPatterns: tomlDeny,
+          auditLog: serverConfig.audit_log,
+          source: 'toml'
+        });
+      }
+    }
+  }
+
+  /**
+   * Load configuration from .env file
+   */
+  loadEnvConfig(envPath) {
+    const result = dotenv.config({ path: envPath, processEnv: {} });
+    if (result.error) {
+      throw result.error;
+    }
+
+    this.parseEnvVariables({
+      ...process.env,
+      ...(result.parsed || {})
+    });
+  }
+
+  /**
+   * Load configuration from environment variables
+   */
+  loadEnvironmentVariables() {
+    this.parseEnvVariables(process.env);
+  }
+
+  /**
+   * Parse environment variables for SSH server configurations
+   */
+  parseEnvVariables(env) {
+    const serverPattern = /^SSH_SERVER_([A-Z0-9_]+)_HOST$/;
+    const processedServers = new Set();
+
+    for (const [key, value] of Object.entries(env)) {
+      const match = key.match(serverPattern);
+      if (match) {
+        const serverName = match[1].toLowerCase();
+
+        // Skip if already processed from a higher priority source
+        if (processedServers.has(serverName)) continue;
+
+        const envAllow = parsePatternList(env[`SSH_SERVER_${match[1]}_ALLOW_PATTERNS`]);
+        const envDeny = parsePatternList(env[`SSH_SERVER_${match[1]}_DENY_PATTERNS`]);
+        const mode = normalizeMode(env[`SSH_SERVER_${match[1]}_MODE`], serverName);
+        if (mode === 'restricted' && envAllow.length === 0) {
+          logger.warn(
+            `Server "${serverName}" is in "restricted" mode but has no SSH_SERVER_${match[1]}_ALLOW_PATTERNS — every command will be refused. Set ALLOW_PATTERNS to enable any execution.`
+          );
+        }
+
+        /** @type {ServerConfig} */
+        const server = {
+          name: serverName,
+          host: value,
+          user: env[`SSH_SERVER_${match[1]}_USER`],
+          password: env[`SSH_SERVER_${match[1]}_PASSWORD`],
+          keyPath: env[`SSH_SERVER_${match[1]}_KEYPATH`],
+          certPath: env[`SSH_SERVER_${match[1]}_CERTPATH`],
+          passphrase: env[`SSH_SERVER_${match[1]}_PASSPHRASE`],
+          port: parseInt(env[`SSH_SERVER_${match[1]}_PORT`] || '22'),
+          defaultDir: env[`SSH_SERVER_${match[1]}_DEFAULT_DIR`],
+          sudoPassword: env[`SSH_SERVER_${match[1]}_SUDO_PASSWORD`],
+          description: env[`SSH_SERVER_${match[1]}_DESCRIPTION`],
+          group: env[`SSH_SERVER_${match[1]}_GROUP`],
+          platform: (env[`SSH_SERVER_${match[1]}_PLATFORM`] || '').toLowerCase() || undefined,
+          proxyJump: env[`SSH_SERVER_${match[1]}_PROXYJUMP`],
+          proxyCommand: env[`SSH_SERVER_${match[1]}_PROXYCOMMAND`],
+          forwardAgent: parseBool(env[`SSH_SERVER_${match[1]}_FORWARD_AGENT`]),
+          announceAgent: parseOptionalBool(env[`SSH_SERVER_${match[1]}_ANNOUNCE_AGENT`]),
+          mode,
+          // approval is deliberately NOT read from files. It is the switch
+          // that makes an agent stop and wait for a human, and a switch that
+          // lives in a plain-text file next to the code is a switch the agent
+          // can flip on its own: one `sed -i` in .env and the gate it was meant
+          // to pass is gone. It lives in the vault instead, and the control
+          // plane is the only thing that writes it — a deliberate act by the
+          // person the gate exists to protect.
+          //
+          // This is defence in depth, not a wall: the vault key sits in the
+          // same user's keychain, so the same shell can in principle reach it.
+          // What it removes is the trivial path, which is the one that gets
+          // taken. See rejectFileApproval() for what happens to an old setting.
+          allowPatterns: envAllow,
+          denyPatterns: envDeny,
+          auditLog: env[`SSH_SERVER_${match[1]}_AUDIT_LOG`],
+          source: 'env'
+        };
+
+        // The environment keeps its published precedence for connection fields,
+        // but it cannot switch off a gate that is controlled only by the vault.
+        const approval = this.servers.get(serverName)?.approval;
+        if (approval !== undefined) server.approval = approval;
+
+        this.servers.set(serverName, server);
+        processedServers.add(serverName);
+      }
+    }
+  }
+
+  /**
+   * Get server configuration by name
+   *
+   * @param {string} name
+   * @returns {ServerConfig|undefined}
+   */
+  getServer(name) {
+    return this.servers.get(name.toLowerCase());
+  }
+
+  /**
+   * Get all server configurations
+   *
+   * @returns {ServerConfig[]}
+   */
+  getAllServers() {
+    return Array.from(this.servers.values());
+  }
+
+  /**
+   * Check if server exists
+   */
+  hasServer(name) {
+    return this.servers.has(name.toLowerCase());
+  }
+
+  /**
+   * Export current configuration to TOML format
+   */
+  exportToToml() {
+    const config = {
+      ssh_servers: {}
+    };
+
+    for (const [name, server] of this.servers) {
+      const serverConfig = {
+        host: server.host,
+        user: server.user,
+        port: server.port
+      };
+
+      if (server.password) serverConfig.password = server.password;
+      if (server.keyPath) serverConfig.key_path = server.keyPath;
+      if (server.certPath) serverConfig.cert_path = server.certPath;
+      if (server.passphrase) serverConfig.passphrase = server.passphrase;
+      if (server.defaultDir) serverConfig.default_dir = server.defaultDir;
+      if (server.sudoPassword) serverConfig.sudo_password = server.sudoPassword;
+      if (server.description) serverConfig.description = server.description;
+      if (server.group) serverConfig.group = server.group;
+      if (server.platform) serverConfig.platform = server.platform;
+      if (server.proxyJump) serverConfig.proxy_jump = server.proxyJump;
+      if (server.proxyCommand) serverConfig.proxy_command = server.proxyCommand;
+      // Only emit when opted in, so generated TOML stays clean by default.
+      if (server.forwardAgent) serverConfig.forward_agent = true;
+      // Either explicit value is a decision worth keeping; unset is not written,
+      // so the global switch still applies after a round trip.
+      if (typeof server.announceAgent === 'boolean') serverConfig.announce_agent = server.announceAgent;
+      // Only emit security fields if they diverge from defaults — keeps generated
+      // TOML files clean for users who never opted in.
+      if (server.mode && server.mode !== 'unrestricted') serverConfig.mode = server.mode;
+      if (server.allowPatterns && server.allowPatterns.length > 0) {
+        serverConfig.allow_patterns = server.allowPatterns;
+      }
+      if (server.denyPatterns && server.denyPatterns.length > 0) {
+        serverConfig.deny_patterns = server.denyPatterns;
+      }
+      if (server.auditLog) serverConfig.audit_log = server.auditLog;
+
+      config.ssh_servers[name] = serverConfig;
+    }
+
+    return TOML.stringify(config);
+  }
+
+  /**
+   * Export current configuration to .env format
+   */
+  exportToEnv() {
+    const lines = ['# SSH Server Configuration'];
+    lines.push('# Generated by MCP SSH Manager');
+    lines.push('');
+
+    for (const [name, server] of this.servers) {
+      const upperName = name.toUpperCase();
+      lines.push(`# Server: ${name}`);
+      lines.push(`SSH_SERVER_${upperName}_HOST=${server.host}`);
+      lines.push(`SSH_SERVER_${upperName}_USER=${server.user}`);
+      if (server.password) lines.push(`SSH_SERVER_${upperName}_PASSWORD="${server.password}"`);
+      if (server.keyPath) lines.push(`SSH_SERVER_${upperName}_KEYPATH=${server.keyPath}`);
+      if (server.certPath) lines.push(`SSH_SERVER_${upperName}_CERTPATH=${server.certPath}`);
+      if (server.passphrase) lines.push(`SSH_SERVER_${upperName}_PASSPHRASE="${server.passphrase}"`);
+      lines.push(`SSH_SERVER_${upperName}_PORT=${server.port || 22}`);
+      if (server.defaultDir) lines.push(`SSH_SERVER_${upperName}_DEFAULT_DIR=${server.defaultDir}`);
+      if (server.sudoPassword) lines.push(`SSH_SERVER_${upperName}_SUDO_PASSWORD="${server.sudoPassword}"`);
+      if (server.description) lines.push(`SSH_SERVER_${upperName}_DESCRIPTION="${server.description}"`);
+      // Quoted like DESCRIPTION: free-form text, so an unquoted value would be
+      // truncated at the first ` #` when the generated file is read back.
+      if (server.group) lines.push(`SSH_SERVER_${upperName}_GROUP="${server.group}"`);
+      if (server.platform) lines.push(`SSH_SERVER_${upperName}_PLATFORM=${server.platform}`);
+      // Written whenever it was set, true or false: an explicit false has to
+      // survive a round trip, or a global switch would re-enable that host.
+      if (typeof server.announceAgent === 'boolean') lines.push(`SSH_SERVER_${upperName}_ANNOUNCE_AGENT=${server.announceAgent}`);
+      if (server.proxyJump) lines.push(`SSH_SERVER_${upperName}_PROXYJUMP=${server.proxyJump}`);
+      if (server.proxyCommand) lines.push(`SSH_SERVER_${upperName}_PROXYCOMMAND=${server.proxyCommand}`);
+      // Security fields — only emit when non-default to avoid clutter in
+      // generated .env files for users who never opted in.
+      if (server.mode && server.mode !== 'unrestricted') {
+        lines.push(`SSH_SERVER_${upperName}_MODE=${server.mode}`);
+      }
+      if (server.allowPatterns && server.allowPatterns.length > 0) {
+        lines.push(`SSH_SERVER_${upperName}_ALLOW_PATTERNS="${server.allowPatterns.join(';')}"`);
+      }
+      if (server.denyPatterns && server.denyPatterns.length > 0) {
+        lines.push(`SSH_SERVER_${upperName}_DENY_PATTERNS="${server.denyPatterns.join(';')}"`);
+      }
+      // Not exported: writing APPROVAL into a .env would produce a file that
+      // looks like it configures approval and silently does not.
+      if (server.auditLog) lines.push(`SSH_SERVER_${upperName}_AUDIT_LOG=${server.auditLog}`);
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Save configuration to Codex TOML format
+   */
+  async saveToCodexConfig(codexConfigPath = path.join(os.homedir(), '.codex', 'config.toml')) {
+    /** @type {Record<string, any>} */
+    let config = {};
+
+    // Load existing config if it exists. Read first and handle ENOENT, rather
+    // than checking then reading: between the two the file can be replaced or
+    // removed, and the check buys nothing the error handling does not.
+    try {
+      config = TOML.parse(fs.readFileSync(codexConfigPath, 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+
+    // Add MCP server configuration
+    if (!config.mcp_servers) {
+      config.mcp_servers = {};
+    }
+
+    config.mcp_servers['ssh-manager'] = {
+      command: 'node',
+      args: [path.join(process.cwd(), 'src', 'index.js')],
+      env: {
+        SSH_CONFIG_PATH: path.join(os.homedir(), '.codex', 'ssh-config.toml')
+      },
+      startup_timeout_ms: 20000
+    };
+
+    // Write back to config file
+    const tomlContent = TOML.stringify(config);
+    fs.writeFileSync(codexConfigPath, tomlContent, 'utf8');
+
+    logger.info(`Updated Codex configuration at ${codexConfigPath}`);
+  }
+
+  /**
+   * Migrate .env configuration to TOML
+   */
+  async migrateEnvToToml(envPath, tomlPath) {
+    // Load from .env
+    this.servers.clear();
+    this.loadEnvConfig(envPath);
+
+    // Export to TOML
+    const tomlContent = this.exportToToml();
+
+    // Ensure directory exists
+    const tomlDir = path.dirname(tomlPath);
+    if (!fs.existsSync(tomlDir)) {
+      fs.mkdirSync(tomlDir, { recursive: true });
+    }
+
+    // Write TOML file
+    fs.writeFileSync(tomlPath, tomlContent, 'utf8');
+
+    logger.info(`Migrated ${this.servers.size} servers from ${envPath} to ${tomlPath}`);
+    return this.servers.size;
+  }
+}

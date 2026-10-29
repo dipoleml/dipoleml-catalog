@@ -1,0 +1,59 @@
+/* Theme: Dracula 黑紫 (H) */
+[data-theme="dracula"] {
+  --color-base: #282a36;
+  --color-frame: #191a21;
+  --color-bar: #21222c;
+  --color-content: #282a36;
+  --color-sidebar: #21222c;
+  --color-surface: #343746;
+  --color-elevated: #44475a;
+
+  --color-border: #44475a;
+  --color-border-subtle: #363949;
+  --color-border-hover: #6272a4;
+
+  --color-hover: rgba(248, 248, 242, 0.04);
+  --color-active: #44475a;
+  --color-selected: rgba(255, 121, 198, 0.08);
+  --color-focus-ring: rgba(189, 147, 249, 0.4);
+
+  --text-primary: #f8f8f2;
+  --text-secondary: #c0c0c0;
+  --text-muted: #6272a4;
+  --text-label: #565b7e;
+  --text-disabled: #44475a;
+
+  --color-accent: #bd93f9;
+  --color-accent-bg: rgba(189, 147, 249, 0.1);
+  --color-accent-border: rgba(189, 147, 249, 0.2);
+
+  --color-success: #50fa7b;
+  --color-success-bg: rgba(80, 250, 123, 0.08);
+  --color-success-border: rgba(80, 250, 123, 0.15);
+
+  --color-info: #8be9fd;
+  --color-info-bg: rgba(139, 233, 253, 0.08);
+  --color-info-border: rgba(139, 233, 253, 0.15);
+
+  --color-warning: #f1fa8c;
+  --color-warning-bg: rgba(241, 250, 140, 0.08);
+  --color-warning-border: rgba(241, 250, 140, 0.15);
+
+  --color-error: #ff5555;
+  --color-error-bg: rgba(255, 85, 85, 0.08);
+  --color-error-border: rgba(255, 85, 85, 0.15);
+
+  --color-primary: #ff79c6;
+  --color-primary-hover: #ff92d0;
+  --color-primary-text: #282a36;
+
+  --color-purple: #bd93f9;
+  --color-purple-bg: rgba(189, 147, 249, 0.1);
+  --color-orange: #ffb86c;
+  --color-orange-bg: rgba(255, 184, 108, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.6);
+}

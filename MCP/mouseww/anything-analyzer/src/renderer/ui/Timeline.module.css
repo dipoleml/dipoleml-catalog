@@ -1,0 +1,42 @@
+.timeline {
+  padding: var(--space-xs) 0;
+}
+
+.item {
+  display: flex;
+  padding-bottom: var(--space-lg);
+}
+
+.item:last-child {
+  padding-bottom: 0;
+}
+
+.tail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--color-info);
+  background: var(--color-content);
+  flex-shrink: 0;
+}
+
+.line {
+  flex: 1;
+  width: 1px;
+  background: var(--color-border);
+  margin-top: 4px;
+}
+
+.content {
+  flex: 1;
+  padding-left: var(--space-sm);
+  min-width: 0;
+}

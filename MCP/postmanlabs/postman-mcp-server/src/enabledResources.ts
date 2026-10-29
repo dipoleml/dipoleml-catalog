@@ -1,0 +1,453 @@
+const full = [
+  // Collections
+  'createCollection',
+  'deleteCollection',
+  'generateCollection',
+  'getCollection',
+  'getCollections',
+  'patchCollection',
+  'putCollection',
+  'getCollectionTags',
+  'updateCollectionTags',
+  'getCollectionUpdatesTasks',
+  'syncCollectionWithSpec',
+  'syncSpecWithCollection',
+  'generateSpecFromCollection',
+  'getGeneratedCollectionSpecs',
+  'getSpecCollections',
+
+  // Collection Forks
+  'getCollectionForks',
+  'getSourceCollectionStatus',
+  'getCollectionsForkedByUser',
+  'pullCollectionChanges',
+  'createCollectionFork',
+  'mergeCollectionFork',
+  'asyncMergePullCollectionFork',
+  'asyncMergePullCollectionTaskStatus',
+
+  // Collection Roles
+  'getCollectionRoles',
+  'updateCollectionRoles',
+
+  // Collection Pull Requests
+  'getCollectionPullRequests',
+  'createCollectionPullRequest',
+  'getPullRequest',
+  'updatePullRequest',
+  'reviewPullRequest',
+
+  // Collection Folders
+  'createCollectionFolder',
+  'deleteCollectionFolder',
+  'getCollectionFolder',
+  'updateCollectionFolder',
+  'transferCollectionFolders',
+
+  // Collection Requests
+  'createCollectionRequest',
+  'deleteCollectionRequest',
+  'getCollectionRequest',
+  'updateCollectionRequest',
+  'transferCollectionRequests',
+
+  // Collection Responses
+  'createCollectionResponse',
+  'deleteCollectionResponse',
+  'getCollectionResponse',
+  'updateCollectionResponse',
+  'transferCollectionResponses',
+
+  // Collection Runner
+  'runCollection',
+
+  // Comments
+  'createCollectionComment',
+  'deleteCollectionComment',
+  'getCollectionComments',
+  'updateCollectionComment',
+  'createFolderComment',
+  'deleteFolderComment',
+  'getFolderComments',
+  'updateFolderComment',
+  'createRequestComment',
+  'deleteRequestComment',
+  'getRequestComments',
+  'updateRequestComment',
+  'createResponseComment',
+  'deleteResponseComment',
+  'getResponseComments',
+  'updateResponseComment',
+  'resolveCommentThread',
+
+  // Environments
+  'createEnvironment',
+  'deleteEnvironment',
+  'getEnvironment',
+  'getEnvironments',
+  'patchEnvironment',
+  'putEnvironment',
+
+  // Environment Forks
+  'getEnvironmentForks',
+  'forkEnvironment',
+  'mergeEnvironmentFork',
+  'pullEnvironment',
+
+  // Mocks
+  'createMock',
+  'deleteMock',
+  'getMock',
+  'getMocks',
+  'updateMock',
+  'publishMock',
+  'unpublishMock',
+
+  // Mock Server Responses
+  'createMockServerResponse',
+  'deleteMockServerResponse',
+  'getMockServerResponse',
+  'getMockServerResponses',
+  'updateMockServerResponse',
+
+  // Monitors
+  'createMonitor',
+  'deleteMonitor',
+  'getMonitor',
+  'getMonitors',
+  'updateMonitor',
+  'runMonitor',
+  'listMonitorExecutions',
+  'listRunsForExecution',
+  'getMonitorRunResults',
+
+  // Packages
+  'createPackage',
+  'deletePackage',
+  'getPackage',
+  'getPackages',
+  'updatePackage',
+
+  // API Catalog
+  'getApiCatalogDiscoveryServices',
+  'postApiCatalogDiscoveryServices',
+  'getApiCatalogDiscoveryService',
+  'getApiCatalogServices',
+  'getApiCatalogService',
+  'getApiCatalogServiceEndpoints',
+  'getApiCatalogServiceMonitorRuns',
+  'getApiCatalogServiceSpecificationLints',
+  'getApiCatalogServiceCiRuns',
+  'getApiCatalogSystemEnvironments',
+  'createApiCatalogSystemEnvironment',
+  'getApiCatalogSystemEnvironment',
+  'updateApiCatalogSystemEnvironment',
+  'getApiCatalogSystemEnvironmentAssociations',
+  'addApiCatalogSystemEnvironmentAssociations',
+  'removeApiCatalogSystemEnvironmentAssociations',
+
+  // API Governance
+  'getAllRulesets',
+  'createRuleset',
+  'getRuleset',
+  'updateRuleset',
+  'deleteRuleset',
+  'getRulesetAssignments',
+  'createRulesetAssignment',
+  'deleteRulesetAssignment',
+  'getAllGovernanceGroups',
+  'createGovernanceGroup',
+  'updateGovernanceGroup',
+  'deleteGovernanceGroup',
+  'getGovernanceGroupAssignments',
+  'getGovernanceGroupWorkspaces',
+  'updateGovernanceGroupWorkspaces',
+  'getAllCustomFunctions',
+  'createCustomFunction',
+  'getCustomFunction',
+  'updateCustomFunction',
+  'deleteCustomFunction',
+
+  // Component Library
+  'createComponent',
+  'getAllComponents',
+  'getComponent',
+  'updateComponent',
+  'getComponentDraft',
+  'updateComponentDraft',
+  'createComponentVersion',
+  'getComponentVersions',
+  'getComponentVersion',
+
+  // Specs
+  'createSpec',
+  'deleteSpec',
+  'getSpec',
+  'getAllSpecs',
+  'getSpecDefinition',
+  'updateSpecProperties',
+  'createSpecFile',
+  'getSpecFile',
+  'getSpecFiles',
+  'updateSpecFile',
+  'updateSpecSyncOptions',
+
+  // Spec Version Tags
+  'getSpecVersionTags',
+  'createSpecVersionTag',
+  'getSpecVersionTag',
+
+  // Workspaces
+  'createWorkspace',
+  'deleteWorkspace',
+  'getWorkspace',
+  'getWorkspaces',
+  'updateWorkspace',
+  'getWorkspaceGlobalVariables',
+  'updateWorkspaceGlobalVariables',
+  'getWorkspaceTags',
+  'updateWorkspaceTags',
+  'getWorkspaceActivityFeed',
+  'transferWorkspaceElement',
+  'transferWorkspaceToTeam',
+  'managePartnerWorkspaceInvites',
+
+  // Workspace Roles
+  'getAllWorkspaceRoles',
+  'getWorkspaceRoles',
+  'updateWorkspaceRoles',
+
+  // Workspace Updates
+  'getWorkspaceUpdates',
+  'createWorkspaceUpdate',
+  'getWorkspaceUpdate',
+  'patchWorkspaceUpdate',
+  'deleteWorkspaceUpdate',
+
+  // PAN (Private API Network)
+  'listPrivateNetworkWorkspaces',
+  'listPrivateNetworkAddRequests',
+  'removeWorkspaceFromPrivateNetwork',
+  'addWorkspaceToPrivateNetwork',
+  'respondPrivateNetworkAddRequest',
+
+  // // Documentation
+  'publishDocumentation',
+  'unpublishDocumentation',
+
+  // Tasks and Status
+  'getAsyncSpecTaskStatus',
+  'getStatusOfAnAsyncApiTask',
+
+  // Secret Scanner
+  'detectedSecretsQueries',
+  'getDetectedSecretsLocations',
+  'updateDetectedSecretResolutions',
+  'getSecretTypes',
+
+  // Audit Logs
+  'getAuditLogs',
+  'getAuditLogEventActions',
+
+  // SDKs
+  'getSdks',
+  'createSdk',
+  'getSdk',
+  'deleteSdk',
+  'getSdkDownloadUrl',
+
+  // SDK Git Connections
+  'getSdkGitConnections',
+  'createSdkGitConnection',
+  'getSdkGitConnection',
+  'updateSdkGitConnection',
+  'getSdkGitConnectionPullRequests',
+
+  // Teams
+  'getTeams',
+  'getTeam',
+  'createTeam',
+  'getTeamSettings',
+  'updateTeamSettings',
+  'getTeamAccessRequests',
+  'createAccessRequest',
+  'approveDenyAccessRequest',
+  'manageTeamMemberRoles',
+  'removeTeamMembers',
+
+  // User and Tags
+  'getAuthenticatedUser',
+  'getTeamUsers',
+  'getTeamUser',
+  'getTaggedEntities',
+
+  // Groups
+  'getGroups',
+  'getGroup',
+
+  // Instructions
+  'getCodeGenerationInstructions',
+  'getPostmanContextOverview',
+  'getApiDiscoveryInstructions',
+  'getInstalledApiMaintenanceInstructions',
+
+  // Duplicate Collection
+  'duplicateCollection',
+  'getDuplicateCollectionTaskStatus',
+  'deleteSpecFile',
+  'getEnabledTools',
+  'searchPostmanElements',
+
+  // Learning Center
+  'searchLearningCenter',
+
+  // Analytics
+  'getAnalyticsData',
+  'getAnalyticsMetadata',
+
+  // Context Graph
+  'submitContextGraphAsk',
+  'getContextGraphAsk',
+] as const;
+
+const minimal = [
+  'createCollection',
+  'createEnvironment',
+  'createMock',
+  'createSpec',
+  'createSpecFile',
+  'createWorkspace',
+  'generateCollection',
+  'generateSpecFromCollection',
+  'getAllSpecs',
+  'getAuthenticatedUser',
+  'getCollection',
+  'getCollections',
+  'getEnvironment',
+  'getEnvironments',
+  'getGeneratedCollectionSpecs',
+  'getMock',
+  'getMocks',
+  'getSpec',
+  'getSpecCollections',
+  'getSpecDefinition',
+  'getSpecFile',
+  'getSpecFiles',
+  'getTaggedEntities',
+  'getWorkspace',
+  'getWorkspaces',
+  'publishMock',
+  'putCollection',
+  'putEnvironment',
+  'syncCollectionWithSpec',
+  'syncSpecWithCollection',
+  'updateMock',
+  'updateSpecFile',
+  'updateSpecProperties',
+  'updateWorkspace',
+  'createCollectionRequest',
+  'createCollectionResponse',
+  'duplicateCollection',
+  'getDuplicateCollectionTaskStatus',
+  'runCollection',
+  'getEnabledTools',
+  'updateCollectionRequest',
+  'searchPostmanElements',
+] as const;
+
+const code = [
+  'getCodeGenerationInstructions',
+  'getPostmanContextOverview',
+  'getApiDiscoveryInstructions',
+  'getInstalledApiMaintenanceInstructions',
+  'getWorkspace',
+  'getWorkspaces',
+  'searchPostmanElements',
+  'getCollectionRequest',
+  'getCollectionResponse',
+  'getCollectionFolder',
+  'getAuthenticatedUser',
+  'getCollection',
+  'getEnvironment',
+  'getEnvironments',
+  // Context tools (AI-optimized markdown views)
+  'getCollectionContext',
+  'getFolderContext',
+  'getRequestContext',
+  'getResponseContext',
+  'getRequestCodeContext',
+  'getEnvironmentContext',
+  'getWorkspacesContext',
+  'getWorkspaceContext',
+  'getWorkspaceEnvironmentsContext',
+] as const;
+
+const learn = ['searchLearningCenter'] as const;
+
+/**
+ * Context Graph asks. Two tools that are one workflow: submit an ask, then poll it.
+ * Kept as its own toolset so a client that only needs to question the team's software
+ * estate does not have to load the whole API surface to do it.
+ */
+const contextGraph = ['submitContextGraphAsk', 'getContextGraphAsk'] as const;
+
+const excludedFromGeneration = [
+  'runCollection',
+  'getEnabledTools',
+  'listMonitorExecutions',
+  'listRunsForExecution',
+  'getMonitorRunResults',
+  'getCodeGenerationInstructions',
+  'getPostmanContextOverview',
+  'getApiDiscoveryInstructions',
+  'getInstalledApiMaintenanceInstructions',
+  'getCollectionMap',
+  'getCollection',
+  'searchPostmanElements',
+  'searchPostmanElementsInPublicNetwork',
+  'searchPostmanElementsInPrivateNetwork',
+  'searchLearningCenter',
+  // Context tools (hand-written, not generated from spec)
+  'getCollectionContext',
+  'getFolderContext',
+  'getRequestContext',
+  'getResponseContext',
+  'getRequestCodeContext',
+  'getEnvironmentContext',
+  'getWorkspacesContext',
+  'getWorkspaceContext',
+  'getWorkspaceEnvironmentsContext',
+] as const;
+
+/**
+ * Subtools are tools that are grouped under a parent tool orchestrator.
+ * Each subtool is defined with:
+ * - orchestrator: The main tool that will be exposed (the index.ts file)
+ * - subtools: Array of tools that will be placed in the orchestrator's folder
+ *
+ * Example structure for 'getCollection':
+ * tools/
+ *   getCollection/
+ *     index.ts          <- orchestrator (handles routing logic)
+ *     getCollection.ts  <- subtool (the actual API call)
+ *     getCollectionMap.ts <- subtool (the map variant)
+ */
+const subtools = {
+  getCollection: {
+    orchestrator: 'getCollection',
+    subtools: ['getCollection', 'getCollectionMap'],
+  },
+} as const;
+
+const templated = ['getCollections', 'getWorkspaces'] as const;
+
+export const enabledResources = {
+  full,
+  minimal,
+  code,
+  learn,
+  contextGraph,
+  excludedFromGeneration,
+  subtools,
+  templated,
+};

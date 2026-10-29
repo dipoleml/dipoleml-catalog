@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mcpjungle.mcpjungle",
+  "type": "mcp",
+  "name": "Mcpjungle",
+  "slug": "mcpjungle",
+  "vendor": "mcpjungle",
+  "description": "One place to manage & connect to all your MCP servers",
+  "version": "0.0.0",
+  "homepage": "https://github.com/mcpjungle/MCPJungle",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "infrastructure",
+    "mcp-gateway",
+    "mcp-registry",
+    "model-context-protocol",
+    "self-hosted"
+  ],
+  "tags": [
+    "ai-agents",
+    "infrastructure",
+    "mcp",
+    "mcp-gateway",
+    "mcp-registry",
+    "mcp-server",
+    "model-context-protocol",
+    "self-hosted"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mcpjungle",
+    "brandName": "mcpjungle",
+    "source": "https://github.com/mcpjungle.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mcpjungle/MCPJungle",
+    "url": "https://github.com/mcpjungle/MCPJungle",
+    "commit": "c3bde729d26880d9b7dcb540fca54231ff1e9c2a",
+    "path": "",
+    "license": "MPL-2.0",
+    "licenseClass": "green",
+    "stars": 1312,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT",
+      "DATABASE_URL",
+      "POSTGRES_HOST",
+      "POSTGRES_PORT",
+      "AFFINE_API_TOKEN",
+      "API_TOKEN",
+      "CLIENT_TOKEN_ENV_NAME"
+    ],
+    "credentials": [
+      "AFFINE_API_TOKEN",
+      "API_TOKEN",
+      "CLIENT_TOKEN_ENV_NAME"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MPL-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

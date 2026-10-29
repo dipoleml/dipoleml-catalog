@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.apify.mcpc",
+  "type": "mcp",
+  "name": "Mcpc",
+  "slug": "mcpc",
+  "vendor": "apify",
+  "description": "The most compatible MCP CLI client. Supports: tools, resources, prompts, completions, async tasks, skills, stdio and streamable HTTP (MCP 2026-07-28 and 2025-11-25), persistent sessions, OAuth 2.1 with DCR, CIMD, client credentials, and ID-JAG, OS keychain, --json for code mode, grep for tool discovery, proxy for AI sandboxes, x402, and more.",
+  "version": "0.7.0",
+  "homepage": "https://github.com/apify/mcpc",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "bash",
+    "cli",
+    "code-mode",
+    "command-line",
+    "mcp-client",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "ai-agents",
+    "bash",
+    "claude",
+    "cli",
+    "code-mode",
+    "command-line",
+    "mcp",
+    "mcp-client",
+    "model-context-protocol",
+    "shell"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "apify",
+    "brandName": "apify",
+    "source": "https://github.com/apify.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "apify/mcpc",
+    "url": "https://github.com/apify/mcpc",
+    "commit": "ba41cde6bb663f5fd6d93b8caab46137d1e5a8ad",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1077,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@apify/mcpc"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "bin/mcpc"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.12.0"
+    ],
+    "packages": [
+      "@apify/mcpc"
+    ],
+    "env": [
+      "GITHUB_TOKEN",
+      "APIFY_TOKEN",
+      "IMPORTANT"
+    ],
+    "credentials": [
+      "GITHUB_TOKEN",
+      "APIFY_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

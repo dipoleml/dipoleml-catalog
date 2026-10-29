@@ -1,0 +1,126 @@
+{
+  "tone": "neutral",
+  "pronoun": "you-only",
+  "headingStyle": "Title Case",
+  "headingLengthClass": "tight",
+  "ctaVerbs": [
+    {
+      "value": "get",
+      "count": 6
+    },
+    {
+      "value": "sign",
+      "count": 5
+    },
+    {
+      "value": "learn",
+      "count": 4
+    },
+    {
+      "value": "start",
+      "count": 3
+    },
+    {
+      "value": "log",
+      "count": 2
+    },
+    {
+      "value": "ai",
+      "count": 2
+    },
+    {
+      "value": "deploy",
+      "count": 2
+    },
+    {
+      "value": "enterprise",
+      "count": 2
+    },
+    {
+      "value": "security",
+      "count": 2
+    },
+    {
+      "value": "more",
+      "count": 2
+    }
+  ],
+  "buttonPatterns": [
+    {
+      "value": "sign up",
+      "count": 4
+    },
+    {
+      "value": "log in",
+      "count": 2
+    },
+    {
+      "value": "get your ticket",
+      "count": 2
+    },
+    {
+      "value": "start deploying",
+      "count": 2
+    },
+    {
+      "value": "get a demo",
+      "count": 2
+    },
+    {
+      "value": "deploy ai apps in seconds",
+      "count": 2
+    },
+    {
+      "value": "enterprise",
+      "count": 2
+    },
+    {
+      "value": "security",
+      "count": 2
+    },
+    {
+      "value": "more about infrastructure",
+      "count": 2
+    },
+    {
+      "value": "learn about enterprise",
+      "count": 2
+    },
+    {
+      "value": "learn more",
+      "count": 2
+    },
+    {
+      "value": "talk to an expert",
+      "count": 2
+    },
+    {
+      "value": "get an enterprise trial",
+      "count": 2
+    },
+    {
+      "value": "products",
+      "count": 1
+    },
+    {
+      "value": "resources",
+      "count": 1
+    }
+  ],
+  "sampleHeadings": [
+    "Build and deploy on the AI Cloud.",
+    "Build and deploy on the AI Cloud.",
+    "Your product, delivered.",
+    "Agents",
+    "AI Apps",
+    "Build and deploy on the AI Cloud.",
+    "Build and deploy on the AI Cloud.",
+    "Your product, delivered.",
+    "Agents",
+    "AI Apps"
+  ],
+  "stats": {
+    "buttons": 42,
+    "headings": 33
+  }
+}

@@ -1,0 +1,217 @@
+import { logger, schemaTask } from "@trigger.dev/sdk";
+import { Ratelimit } from "@upstash/ratelimit";
+
+import { DocumentStatus } from "@agentset/db";
+import {
+  deletePartitionTextSource,
+  getNamespaceVectorStore,
+} from "@agentset/engine";
+import {
+  deleteDocumentChunksFile,
+  deleteDocumentImages,
+  deleteObject,
+} from "@agentset/storage";
+import { isEuRegion } from "@agentset/utils";
+
+import { getDb } from "../db";
+import { sanitizeRunErrors } from "../errors";
+import { rateLimit } from "../rate-limit";
+import { DELETE_DOCUMENT_JOB_ID, deleteDocumentBodySchema } from "../schema";
+import { emitDocumentWebhook } from "../webhook";
+
+export const deleteDocument = schemaTask({
+  id: DELETE_DOCUMENT_JOB_ID,
+  maxDuration: 60 * 30, // 30 minutes
+  queue: {
+    concurrencyLimit: 90,
+  },
+  schema: deleteDocumentBodySchema,
+  run: sanitizeRunErrors(async (payload) => {
+    const { documentId, skipWebhooks, updateCounters } = payload;
+    const db = getDb();
+
+    // Get document data
+    const document = await db.document.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true,
+        name: true,
+        tenantId: true,
+        source: true,
+        totalPages: true,
+        totalCharacters: true,
+        totalChunks: true,
+        status: true,
+        completedAt: true,
+        error: true,
+        createdAt: true,
+        updatedAt: true,
+        namespaceId: true,
+        namespace: {
+          select: {
+            id: true,
+            vectorStoreConfig: true,
+            organizationId: true,
+          },
+        },
+      },
+    });
+
+    if (!document) {
+      return {
+        documentId,
+        deleted: false as const,
+        reason: "Document not found",
+      };
+    }
+
+    const namespace = document.namespace!;
+
+    // Update status to deleting
+    await db.document.update({
+      where: { id: document.id },
+      data: {
+        status: DocumentStatus.DELETING,
+      },
+      select: { id: true },
+    });
+
+    // Pinecone has a limit of 5 requests per second per namespace
+    const vectorStoreProvider = namespace.vectorStoreConfig?.provider;
+    if (
+      vectorStoreProvider === "MANAGED_PINECONE" ||
+      vectorStoreProvider === "MANAGED_PINECONE_OLD" ||
+      vectorStoreProvider === "PINECONE"
+    ) {
+      logger.info("Rate-limiting pinecone deletion");
+
+      await rateLimit(
+        {
+          queue: "delete-document",
+          // since tenants are in separate namespaces, we can rate limit them separately
+          concurrencyKey: document.tenantId
+            ? `${namespace.id}:${document.tenantId}`
+            : namespace.id,
+        },
+        Ratelimit.tokenBucket(5, "1s", 5),
+      );
+    }
+
+    // Get vector store and clean up chunks
+    const vectorStore = await getNamespaceVectorStore(
+      namespace,
+      document.tenantId,
+    );
+
+    logger.info("Deleting vector chunks");
+    const deletedChunks = await vectorStore.deleteByFilter({
+      documentId: document.id,
+    });
+
+    logger.info("Deleting chunks.json");
+    try {
+      await deleteDocumentChunksFile(namespace.id, document.id);
+    } catch (error) {
+      logger.error("Failed to delete chunks.json for document", {
+        documentId: document.id,
+        error,
+      });
+    }
+
+    logger.info("Deleting images");
+    // Delete any images associated with this document in the images bucket
+    await deleteDocumentImages(namespace.id, document.id);
+
+    // Delete managed file if needed
+    if (document.source.type === "MANAGED_FILE") {
+      logger.info("Deleting managed file");
+      await deleteObject(document.source.key);
+    }
+
+    // EU: text sources are uploaded for the partition API
+    if (isEuRegion && document.source.type === "TEXT") {
+      logger.info("Deleting text source");
+      await deletePartitionTextSource(document.id);
+    }
+
+    // Delete document and update counters
+    let pagesDeleted = 0;
+    if (updateCounters) {
+      await db.$transaction(async (tx) => {
+        // re-read right before deleting: totalPages may have changed since
+        // the initial read (the vector store cleanup above can take minutes)
+        const freshDocument = await tx.document.findUnique({
+          where: { id: document.id },
+          select: { totalPages: true, completedAt: true },
+        });
+
+        if (!freshDocument) return;
+
+        // a document's pages only count towards namespace/organization totals
+        // once it has been processed successfully (e.g. docs that failed with
+        // "Pages limit exceeded" carry totalPages that was never counted)
+        pagesDeleted = freshDocument.completedAt ? freshDocument.totalPages : 0;
+
+        await tx.document.delete({
+          where: { id: document.id },
+          select: { id: true },
+        });
+
+        await tx.namespace.update({
+          where: { id: namespace.id },
+          data: {
+            totalDocuments: { decrement: 1 },
+            ...(pagesDeleted > 0 && {
+              totalPages: { decrement: pagesDeleted },
+            }),
+            organization: {
+              update: {
+                totalDocuments: { decrement: 1 },
+                // deleted pages keep counting towards the quota until the
+                // next billing cycle, so we don't decrement totalPages here
+                ...(pagesDeleted > 0 && {
+                  deletedPages: { increment: pagesDeleted },
+                }),
+              },
+            },
+          },
+          select: { id: true },
+        });
+      });
+    } else {
+      pagesDeleted = document.completedAt ? document.totalPages : 0;
+      await db.document.delete({
+        where: { id: document.id },
+        select: { id: true },
+      });
+    }
+
+    // Emit document.deleted webhook (skip if deleting namespace/org)
+    if (!skipWebhooks) {
+      await emitDocumentWebhook({
+        trigger: "document.deleted",
+        document: {
+          id: document.id,
+          name: document.name,
+          namespaceId: document.namespaceId,
+          organizationId: namespace.organizationId,
+          status: "DELETING",
+          source: document.source,
+          totalCharacters: document.totalCharacters,
+          totalChunks: document.totalChunks,
+          totalPages: document.totalPages,
+          error: document.error,
+          createdAt: document.createdAt,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    return {
+      documentId: document.id,
+      deleted: true as const,
+      vectorChunksDeleted: deletedChunks.deleted,
+      pagesDeleted,
+    };
+  }),
+});

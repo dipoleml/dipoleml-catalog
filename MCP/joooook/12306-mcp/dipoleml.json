@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.joooook.12306-mcp",
+  "type": "mcp",
+  "name": "12306 MCP",
+  "slug": "12306-mcp",
+  "vendor": "joooook",
+  "description": "This is a 12306 ticket search server based on the Model Context Protocol (MCP).",
+  "version": "0.3.10",
+  "homepage": "https://github.com/Joooook/12306-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "12306",
+    "train-tickets"
+  ],
+  "tags": [
+    "12306",
+    "mcp",
+    "mcp-server",
+    "train-tickets"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "joooook",
+    "brandName": "joooook",
+    "source": "https://github.com/Joooook.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Joooook/12306-mcp",
+    "url": "https://github.com/Joooook/12306-mcp",
+    "commit": "ff6439da6f63d7d72181abea4568abd69878c600",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2411,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "12306-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./build/index.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "12306-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

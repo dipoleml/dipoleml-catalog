@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.yuniko-software.minecraft-mcp-server",
+  "type": "mcp",
+  "name": "Minecraft MCP Server",
+  "slug": "minecraft-mcp-server",
+  "vendor": "yuniko-software",
+  "description": "A Minecraft MCP Server powered by Mineflayer API. It allows to control a Minecraft character in real-time, allowing AI assistants to build structures, explore the world, and interact with the game environment through natural language instruction",
+  "version": "2.0.4",
+  "homepage": "https://github.com/yuniko-software/minecraft-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "artificial-intelligence",
+    "large-language-models",
+    "minecraft",
+    "modelcontextprotocol",
+    "natural-language-processing"
+  ],
+  "tags": [
+    "artificial-intelligence",
+    "claude",
+    "javascript",
+    "large-language-models",
+    "mcp",
+    "mcp-server",
+    "minecraft",
+    "modelcontextprotocol",
+    "natural-language-processing",
+    "nodejs",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "yuniko-software",
+    "brandName": "yuniko-software",
+    "source": "https://github.com/yuniko-software.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "yuniko-software/minecraft-mcp-server",
+    "url": "https://github.com/yuniko-software/minecraft-mcp-server",
+    "commit": "240c8cec337ce152cc9e058ebdef511055808406",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 799,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "minecraft-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.10.0"
+    ],
+    "packages": [
+      "minecraft-mcp-server"
+    ],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

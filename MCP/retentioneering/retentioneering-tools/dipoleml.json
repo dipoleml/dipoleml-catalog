@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.retentioneering.retentioneering-tools",
+  "type": "mcp",
+  "name": "Retentioneering Tools",
+  "slug": "retentioneering-tools",
+  "vendor": "retentioneering",
+  "description": "Python toolkit, MCP server, and agent skills for reproducible, auditable clickstream and event log analytics. Helps AI agents, data scientists and analysts build, validate, and cross-check product analytics, quantitative UX, customer journeys, graph-based user flows, behavioral segmentation, A/B tests, process mining models, Markov chain simulation",
+  "version": "0.0.0",
+  "homepage": "https://github.com/retentioneering/retentioneering-tools",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-skills",
+    "analytics-mcp",
+    "behaviour-analysis",
+    "clickstream",
+    "clickstream-analysis",
+    "customer-journey-analytics",
+    "customer-journey-map",
+    "data-visualization"
+  ],
+  "tags": [
+    "agent-skills",
+    "analytics-mcp",
+    "behaviour-analysis",
+    "clickstream",
+    "clickstream-analysis",
+    "customer-journey-analytics",
+    "customer-journey-map",
+    "data-visualization",
+    "graph-visualizer",
+    "machine-learning",
+    "predictive-analytics",
+    "predictive-modeling",
+    "product-analytics",
+    "python",
+    "quant-ux",
+    "segmentation",
+    "user-flow",
+    "user-trajectories",
+    "user-trajectories-analysis",
+    "web-analytics"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "retentioneering",
+    "brandName": "retentioneering",
+    "source": "https://github.com/retentioneering.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "retentioneering/retentioneering-tools",
+    "url": "https://github.com/retentioneering/retentioneering-tools",
+    "commit": "e597bfbdb63ad5a5fb517894f4f68eda9ca84e36",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 942,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "retentioneering"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

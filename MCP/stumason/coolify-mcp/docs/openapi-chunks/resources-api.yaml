@@ -1,0 +1,27 @@
+openapi: 3.1.0
+info:
+  title: Coolify
+  version: '0.1'
+paths:
+  /resources:
+    get:
+      tags:
+        - Resources
+      summary: List
+      description: 'Get all resources.'
+      operationId: list-resources
+      responses:
+        '200':
+          description: 'Get all resources'
+          content:
+            application/json:
+              schema:
+                type: string
+              example: 'Content is very complex. Will be implemented later.'
+        '401':
+          $ref: '#/components/responses/401'
+        '400':
+          $ref: '#/components/responses/400'
+      security:
+        -
+          bearerAuth: []

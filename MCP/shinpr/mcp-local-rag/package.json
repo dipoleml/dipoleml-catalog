@@ -1,0 +1,104 @@
+{
+  "name": "mcp-local-rag",
+  "version": "0.23.1",
+  "description": "Local RAG MCP Server - Easy-to-setup document search with minimal configuration",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-local-rag": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "keywords": [
+    "typescript",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "rag",
+    "vector-search",
+    "semantic-search",
+    "embeddings",
+    "lancedb",
+    "transformers",
+    "huggingface",
+    "local-ai",
+    "offline",
+    "privacy",
+    "document-search",
+    "pdf",
+    "claude-code",
+    "cursor",
+    "codex",
+    "skills"
+  ],
+  "author": "Shinsuke Kagawa",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shinpr/mcp-local-rag.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "watch": "tsx watch src/index.ts",
+    "type-check": "tsc --noEmit",
+    "type-check:test": "tsc -p tsconfig.test.json",
+    "test": "node scripts/run-vitest-with-device.mjs cpu run --exclude 'src/__tests__/e2e/visual-ingest-e2e.test.ts' --exclude '**/*.perf.test.ts'",
+    "test:perf": "node scripts/run-vitest-with-device.mjs cpu run src/server/__tests__/rag-server.read-neighbors.perf.test.ts",
+    "test:webgpu": "pnpm run test:webgpu:main-path",
+    "test:webgpu:main-path": "node scripts/run-vitest-with-device.mjs webgpu run src/server/__tests__/rag-server.embedding.integration.test.ts src/server/__tests__/rag-server.ingest.integration.test.ts src/server/__tests__/rag-server.search.integration.test.ts src/__tests__/cli/ingest-cross-path-equivalence.test.ts",
+    "test:webgpu:full": "node scripts/run-vitest-with-device.mjs webgpu run --exclude 'src/__tests__/e2e/visual-ingest-e2e.test.ts'",
+    "test:watch": "vitest",
+    "test:e2e": "RUN_E2E=1 vitest run src/__tests__/e2e/visual-ingest-e2e.test.ts",
+    "format": "biome format --write src",
+    "format:check": "biome format src",
+    "lint": "biome lint --error-on-warnings src",
+    "lint:fix": "biome lint --error-on-warnings --write src",
+    "check": "biome check --error-on-warnings src",
+    "check:fix": "biome check --error-on-warnings --write src",
+    "check:unused": "knip --include exports",
+    "check:deps": "dpdm --no-tree --no-warning --exit-code circular:1 -T --tsconfig ./tsconfig.json --exclude \"(node_modules|__tests__|\\.test\\.ts$|\\.spec\\.ts$)\" \"src/**/*.ts\"",
+    "check:all": "pnpm run check && pnpm run lint && pnpm run format:check && pnpm run check:unused && pnpm run check:deps && pnpm run build && pnpm run type-check:test && pnpm run test",
+    "test:safe": "pnpm test",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
+    "@lancedb/lancedb": "^0.40.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@mozilla/readability": "0.6.0",
+    "jsdom": "^30.1.3",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
+    "mupdf": "^1.28.1",
+    "turndown": "7.2.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^26.6.5",
+    "@types/turndown": "5.0.6",
+    "dpdm": "^4.3.0",
+    "husky": "^9.1.7",
+    "knip": "^6.42.0",
+    "lint-staged": "^17.6.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  },
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "biome check --write --no-errors-on-unmatched",
+      "biome format --write --no-errors-on-unmatched"
+    ]
+  },
+  "mcpName": "io.github.shinpr/mcp-local-rag"
+}

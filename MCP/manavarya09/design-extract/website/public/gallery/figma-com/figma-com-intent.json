@@ -1,0 +1,569 @@
+{
+  "pageIntent": {
+    "type": "landing",
+    "confidence": 0.29,
+    "path": "/",
+    "title": "Figma: The Collaborative Interface Design Tool",
+    "description": "Figma is the leading collaborative design platform for building meaningful products. Design, prototype, and build products faster—while gathering feedback all in one place.",
+    "signals": [
+      {
+        "kind": "dom",
+        "type": "blog-post",
+        "weight": 0.35,
+        "detail": "byline|min-read"
+      },
+      {
+        "kind": "dom",
+        "type": "legal",
+        "weight": 0.4
+      },
+      {
+        "kind": "url",
+        "type": "landing",
+        "weight": 0.45,
+        "detail": "root-path"
+      }
+    ],
+    "alternates": [
+      {
+        "type": "legal",
+        "score": 0.4
+      },
+      {
+        "type": "blog-post",
+        "score": 0.35
+      }
+    ],
+    "needsSmart": true
+  },
+  "sectionRoles": {
+    "sections": [
+      {
+        "index": 0,
+        "tag": "header",
+        "role": "cta",
+        "subrole": null,
+        "confidence": 0.75,
+        "heading": "Use cases",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 81.1875
+        },
+        "buttonCount": 4,
+        "cardCount": 65,
+        "slots": {
+          "heading": "Use cases",
+          "subheadings": [
+            "Roles",
+            "Organizations",
+            "Get started",
+            "Learn"
+          ],
+          "ctaCount": 4,
+          "lede": "Products\nSolutions\nCommunity\nResources\nPricing\nLog in\nContact sales\nGet started for free"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 1,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": "Use cases",
+        "bounds": {
+          "x": 103.328125,
+          "y": 20,
+          "w": 541.828125,
+          "h": 41.1875
+        },
+        "buttonCount": 4,
+        "cardCount": 62,
+        "slots": {
+          "heading": "Use cases",
+          "subheadings": [
+            "Roles",
+            "Organizations",
+            "Get started",
+            "Learn"
+          ],
+          "ctaCount": 4,
+          "lede": "Products\nSolutions\nCommunity\nResources\nPricing"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 2,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 0,
+        "cardCount": 13,
+        "slots": {},
+        "needsSmart": false
+      },
+      {
+        "index": 3,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": "Use cases",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 0,
+        "cardCount": 20,
+        "slots": {
+          "heading": "Use cases",
+          "subheadings": [
+            "Roles",
+            "Organizations"
+          ],
+          "lede": "Use casesDesign systemsPrototypingUX designWeb designWireframingOnline whiteboardAgileStrategic planningBrainstormingDiagrammingProduct developmentWeb developmentDesign handoffSee all solutionsRolesDesignEngineeringProduct managersOrganizationsEnterpriseEducationGovernment"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 4,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 0,
+        "cardCount": 4,
+        "slots": {
+          "lede": "EventsLearn best practices at virtual eventsUser groupsJoin a local Friends of Figma groupCustomer storiesRead about leading product teamsFigma GalleryExplore Figma Make and Figma Sites projects made by our users"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 5,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": "Get started",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 0,
+        "cardCount": 16,
+        "slots": {
+          "heading": "Get started",
+          "subheadings": [
+            "Learn"
+          ],
+          "lede": "Shortcut: The Figma blogStories about how products take shape—and shape our worldGet startedPluginsUI kitsIconsWidgetsTemplatesToolsPartnersSee allLearnBest practicesReports & insightsResource libraryDemosWebinarsHelp centerFigma Support"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 6,
+        "tag": "header",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 1,
+        "cardCount": 3,
+        "slots": {
+          "ctaCount": 1,
+          "lede": "Log inContact salesGet startedGet started for free"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 7,
+        "tag": "nav",
+        "role": "nav",
+        "subrole": null,
+        "confidence": 0.9,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "buttonCount": 1,
+        "cardCount": 0,
+        "slots": {
+          "ctaCount": 1
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 8,
+        "tag": "main",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Make anything possible, all in Figma",
+        "bounds": {
+          "x": 0,
+          "y": 121,
+          "w": 1280,
+          "h": 7052.4375
+        },
+        "buttonCount": 16,
+        "cardCount": 82,
+        "slots": {
+          "heading": "Make anything possible, all in Figma",
+          "subheadings": [
+            "Prompt, code, and design from first idea to final product",
+            "Bring everyone together with systems that scale",
+            "Share libraries and design systems across teams.",
+            "Unlock your team with on-brand templates."
+          ],
+          "ctaCount": 16,
+          "lede": "Make anything possible, all in Figma\nMake an infinite canvas gallery\nMake an infinite canvas gallery\nGet started\nSLIDE 3 OF 8\n3 OF 8"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 9,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.85,
+        "heading": "Make anything possible, all in Figma",
+        "bounds": {
+          "x": 0,
+          "y": 121,
+          "w": 1280,
+          "h": 527.4375
+        },
+        "buttonCount": 3,
+        "cardCount": 8,
+        "slots": {
+          "heading": "Make anything possible, all in Figma",
+          "ctaCount": 3,
+          "lede": "Make anything possible, all in Figma\nMake an infinite canvas gallery\nMake an infinite canvas gallery\nGet started\nSLIDE 3 OF 8\n3 OF 8"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 10,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 728.4375,
+          "w": 1280,
+          "h": 128
+        },
+        "buttonCount": 0,
+        "cardCount": 48,
+        "slots": {},
+        "needsSmart": true
+      },
+      {
+        "index": 11,
+        "tag": "section",
+        "role": "hero",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": "Prompt, code, and design from first idea to final product",
+        "bounds": {
+          "x": 0,
+          "y": 976.4375,
+          "w": 1280,
+          "h": 882.09375
+        },
+        "buttonCount": 8,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Prompt, code, and design from first idea to final product",
+          "ctaCount": 8,
+          "lede": "Prompt, code, and design from first idea to final product\nPrompt\nDesign\nDraw\nBuild\nPublish\nPromote\nJam\nPresent"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 12,
+        "tag": "section",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 1858.53125,
+          "w": 1280,
+          "h": 393.171875
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "Figma helps us paint the north star for the whole company. It keeps everyone aligned and excited."
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 13,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Bring everyone together with systems that scale",
+        "bounds": {
+          "x": 0,
+          "y": 2251.703125,
+          "w": 1280,
+          "h": 1650.296875
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Bring everyone together with systems that scale",
+          "subheadings": [
+            "Share libraries and design systems across teams.",
+            "Unlock your team with on-brand templates.",
+            "Create one source of truth for devs and designers."
+          ],
+          "lede": "Bring everyone together with systems that scale\nShare libraries and design systems across teams."
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 14,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Share libraries and design systems across teams.",
+        "bounds": {
+          "x": 53.328125,
+          "y": 2532.484375,
+          "w": 1173.328125,
+          "h": 1249.515625
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Share libraries and design systems across teams.",
+          "subheadings": [
+            "Unlock your team with on-brand templates.",
+            "Create one source of truth for devs and designers."
+          ],
+          "lede": "Share libraries and design systems across teams."
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 15,
+        "tag": "section",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": "Ship products, any way you want",
+        "bounds": {
+          "x": 0,
+          "y": 3902,
+          "w": 1280,
+          "h": 688.390625
+        },
+        "buttonCount": 3,
+        "cardCount": 0,
+        "slots": {
+          "heading": "Ship products, any way you want",
+          "subheadings": [
+            "Turn Figma context into code",
+            "Publish custom websites—with or without code",
+            "Ship products faster with AI"
+          ],
+          "ctaCount": 3,
+          "lede": "Ship products, any way you want\nTurn Figma context into code"
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 16,
+        "tag": "section",
+        "role": "testimonial",
+        "subrole": null,
+        "confidence": 0.8,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 4590.390625,
+          "w": 1280,
+          "h": 344.78125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "Nearly everything that designers and developers need is available in Figma."
+        },
+        "needsSmart": false
+      },
+      {
+        "index": 17,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Explore what people are making",
+        "bounds": {
+          "x": 0,
+          "y": 4935.171875,
+          "w": 1280,
+          "h": 965.6875
+        },
+        "buttonCount": 0,
+        "cardCount": 16,
+        "slots": {
+          "heading": "Explore what people are making",
+          "subheadings": [
+            "Virtual Teleportation Portal App",
+            "Bubbles Design System",
+            "Virtual Graffiti Wall",
+            "Pixel Editor"
+          ],
+          "lede": "Explore what people are making\nVirtual Teleportation Portal App\nMasaya Takizawa\nBubbles Design System\nRaul Marin Calleja\nVirtual Graffiti Wall\nSeungmee Lee\nPixel Editor\nAyaneshu Bhardwaj\nCursor Images\nGui Seiz\nPattern Generator\nBenjamin Leonard\nFlower Catcher\nNayli C. Naza\nEarworm Studio\nHolly Li\nExplore more"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 18,
+        "tag": "section",
+        "role": "pricing",
+        "subrole": null,
+        "confidence": 0.4,
+        "heading": null,
+        "bounds": {
+          "x": 0,
+          "y": 5900.859375,
+          "w": 1280,
+          "h": 533.328125
+        },
+        "buttonCount": 0,
+        "cardCount": 0,
+        "slots": {
+          "lede": "Get started for free"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 19,
+        "tag": "section",
+        "role": "content",
+        "subrole": null,
+        "confidence": 0.3,
+        "heading": "Start with a template. Make just about anything.",
+        "bounds": {
+          "x": 0,
+          "y": 6434.1875,
+          "w": 1280,
+          "h": 739.25
+        },
+        "buttonCount": 2,
+        "cardCount": 10,
+        "slots": {
+          "heading": "Start with a template. Make just about anything.",
+          "subheadings": [
+            "Websites",
+            "Social media",
+            "Mobile apps",
+            "Presentations"
+          ],
+          "ctaCount": 2,
+          "lede": "Start with a template. Make just about anything.\nExplore all templates\nSlide 1 of 10\n1 of 10\nWebsites\nSocial media\nMobile apps\nPresentations\nInvitations\nIllustrations\nPortfolio templates\nPlugins\nWeb ads\nIcons"
+        },
+        "needsSmart": true
+      },
+      {
+        "index": 20,
+        "tag": "footer",
+        "role": "footer",
+        "subrole": null,
+        "confidence": 0.95,
+        "heading": "Figma Socials",
+        "bounds": {
+          "x": 0,
+          "y": 7173.4375,
+          "w": 1280,
+          "h": 1237.484375
+        },
+        "buttonCount": 1,
+        "cardCount": 79,
+        "slots": {
+          "heading": "Figma Socials",
+          "subheadings": [
+            "PRODUCT",
+            "PLANS",
+            "USE CASES",
+            "RESOURCES"
+          ],
+          "ctaCount": 1
+        },
+        "needsSmart": false
+      }
+    ],
+    "counts": {
+      "cta": 1,
+      "nav": 7,
+      "testimonial": 4,
+      "hero": 2,
+      "content": 5,
+      "pricing": 1,
+      "footer": 1
+    },
+    "readingOrder": [
+      "cta",
+      "nav",
+      "nav",
+      "nav",
+      "nav",
+      "nav",
+      "nav",
+      "nav",
+      "testimonial",
+      "hero",
+      "content",
+      "hero",
+      "testimonial",
+      "content",
+      "content",
+      "testimonial",
+      "testimonial",
+      "content",
+      "pricing",
+      "content",
+      "footer"
+    ]
+  }
+}

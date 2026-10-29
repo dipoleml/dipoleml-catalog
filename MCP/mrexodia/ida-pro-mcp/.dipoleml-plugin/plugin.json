@@ -1,0 +1,16 @@
+{
+  "name": "ida-pro-mcp",
+  "displayName": "IDA Pro MCP",
+  "version": "0.1.0",
+  "description": "AI-powered reverse engineering assistant that bridges IDA Pro with language models through MCP.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mrexodia"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/mrexodia/ida-pro-mcp",
+  "repository": "https://github.com/mrexodia/ida-pro-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

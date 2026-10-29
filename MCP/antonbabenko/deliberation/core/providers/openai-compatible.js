@@ -1,0 +1,92 @@
+"use strict";
+/** @typedef {import("../types.js").Provider} Provider */
+/** @typedef {import("../types.js").DelegationRequest} DelegationRequest */
+const crypto = require("node:crypto");
+const { toErrorResult } = require("../provider.js");
+
+// Cap the in-memory session map so a long-running server cannot leak unbounded
+// conversation history. Oldest (insertion-order) entry is evicted past the cap.
+const MAX_SESSIONS = 100;
+
+/**
+ * @param {Object} opts
+ * @param {string} [opts.name]
+ * @param {string} opts.apiBase
+ * @param {string} opts.apiKeyEnv
+ * @param {(req:DelegationRequest)=>string} opts.resolveModel
+ * @param {(req:DelegationRequest)=>(string|undefined)} [opts.resolvePreset]
+ * @param {string} [opts.preset]
+ * @param {Object} [opts.bridge]  // injectable for tests; defaults to the real bridge
+ * @param {number} [opts.timeoutMs]  construction-time default per-call ceiling (ms), from
+ *   providers.openrouter.timeout / providers.defaults.timeout. A pinned alias's
+ *   models.<alias>.timeout still wins - registry.js merges it into req.timeoutMs first.
+ * @returns {Provider}
+ */
+function makeOpenAICompatibleProvider(opts) {
+  const { name = "openrouter", apiBase, apiKeyEnv, resolveModel, resolvePreset, preset: defaultPreset } = opts;
+  // Undefined (not 0) when unset, so the bridge applies its own default.
+  const defaultTimeoutMs = typeof opts.timeoutMs === "number" && opts.timeoutMs > 0 ? opts.timeoutMs : undefined;
+  // Core is transport-agnostic: the caller injects the bridge. Cast to any - the
+  // CJS bridge exports as a bare Object, and the cast also stops tsc from
+  // deep-checking the legacy bridge transitively.
+  const bridge = /** @type {any} */ (opts.bridge);
+  if (!bridge) throw new Error("makeOpenAICompatibleProvider requires opts.bridge (core is transport-agnostic; inject the bridge)");
+  const sessions = new Map(); // threadId -> turns
+
+  return /** @type {any} */ ({
+    name,
+    capabilities: { canImplement: false, fileUpload: false, multiTurn: true, walksFilesystem: false },
+    /** Test-only: current number of cached sessions. */
+    get __sessionCount() { return sessions.size; },
+    async health() {
+      if (!apiKeyEnv) return { ok: true };
+      return process.env[apiKeyEnv] ? { ok: true } : { ok: false, reason: `${apiKeyEnv} unset` };
+    },
+    async ask(/** @type {import("../types.js").DelegationRequest} */ req) {
+      const started = Date.now();
+      const model = req.model !== undefined ? req.model : resolveModel(req);
+      const preset = req.preset ?? (resolvePreset ? resolvePreset(req) : defaultPreset);
+      const effectiveModel = model || (preset ? (preset.startsWith("@preset/") ? preset : `@preset/${preset}`) : "");
+      const prior = req.threadId && sessions.get(req.threadId);
+      // Inline attached files into TEXT blocks before building turns. buildInitialTurns
+      // (and the prior-session user turn) expect already-inlined strings; passing the raw
+      // { path, mode } objects makes buildMessages string-coerce them to "[object Object]".
+      let blocks = [], notes = [];
+      if (req.files && req.files.length) {
+        try {
+          // Defaults guard a bridge that returns only { blocks }.
+          ({ blocks = [], notes = [] } = bridge.inlineFiles(req.files, { roots: [req.cwd || process.cwd()] }));
+        } catch (e) {
+          return toErrorResult(name, effectiveModel, started, /** @type {any} */ (e), () => ({ errorKind: "config", retryable: false }), { reasoningEffort: req.reasoningEffort ?? null });
+        }
+      }
+      const turns = prior
+        ? [...prior, { role: "user", text: req.prompt, inlineBlocks: blocks }]
+        : bridge.buildInitialTurns(req.developerInstructions, req.prompt, blocks);
+      try {
+        const { text, usage } = await bridge.callOpenRouter({
+          apiBase, apiKey: (req && req.apiKey) || (apiKeyEnv ? process.env[apiKeyEnv] : undefined), model, preset,
+          messages: bridge.buildMessages(turns),
+          reasoningEffort: req.reasoningEffort, temperature: req.temperature,
+          timeoutMs: typeof req.timeoutMs === "number" && req.timeoutMs > 0 ? req.timeoutMs : defaultTimeoutMs,
+          hostBudgetRemainingMs: req.hostBudgetRemainingMs,signal:req.signal,
+        });
+        const threadId = req.threadId || crypto.randomUUID();
+        sessions.set(threadId, [...turns, { role: "assistant", text }]);
+        if (sessions.size > MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
+        // Surface skip notes (missing/binary/over-cap/over-budget files) like the standalone
+        // bridge, so a file-based ask is never silently answered with no file content.
+        const outText = notes.length ? `${text}\n\n[files] ${notes.join("; ")}` : text;
+        // `req.reasoningEffort` is already the EFFECTIVE effort on the ask-all/consensus
+        // path: registry.js `pinAlias` merges the per-alias `reasoning_effort` into the
+        // request before this runs. (The global `openrouter.defaults` block applies only
+        // on the standalone /ask-openrouter bridge, not here.) So echoing it is correct.
+        return { provider: name, model: effectiveModel, text: outText, threadId, isError: false, ms: Date.now() - started, reasoningEffort: req.reasoningEffort ?? null, usage };
+      } catch (e) {
+        return toErrorResult(name, effectiveModel, started, /** @type {any} */ (e), bridge.classifyError, { reasoningEffort: req.reasoningEffort ?? null });
+      }
+    },
+  });
+}
+
+module.exports = { makeOpenAICompatibleProvider, MAX_SESSIONS };

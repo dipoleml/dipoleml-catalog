@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.hetpatel-11.adobe-premiere-pro-mcp",
+  "type": "mcp",
+  "name": "Adobe Premiere Pro MCP",
+  "slug": "adobe-premiere-pro-mcp",
+  "vendor": "hetpatel-11",
+  "description": "Adobe Premiere Pro MCP. Tools for AI-driven video editing via MCP, for Codex, DipoleML, and other MCP clients.",
+  "version": "1.2.11",
+  "homepage": "https://github.com/hetpatel-11/Adobe_Premiere_Pro_MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "adobe",
+    "adobe-mcp",
+    "adobe-premiere-pro",
+    "adobe-premiere-pro-mcp",
+    "ai-automation",
+    "ai-video-editing",
+    "cep",
+    "claude-desktop"
+  ],
+  "tags": [
+    "adobe",
+    "adobe-mcp",
+    "adobe-premiere-pro",
+    "adobe-premiere-pro-mcp",
+    "ai-automation",
+    "ai-video-editing",
+    "cep",
+    "claude-code",
+    "claude-desktop",
+    "codex",
+    "cursor",
+    "extendscript",
+    "mcp",
+    "mcp-server",
+    "mcp-tools",
+    "model-context-protocol",
+    "premiere-automation",
+    "uxp",
+    "video-automation",
+    "video-editing"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "hetpatel-11",
+    "brandName": "hetpatel-11",
+    "source": "https://github.com/hetpatel-11.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:02Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "hetpatel-11/Adobe_Premiere_Pro_MCP",
+    "url": "https://github.com/hetpatel-11/Adobe_Premiere_Pro_MCP",
+    "commit": "b866e6486749d25b3b4922002d2b49ffbbf6a43a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 775,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Adobe Premiere Pro MCP | Adobe Premiere Pro MCP. Tools for AI-driven video editing via MCP, for Codex, Claude, and other MCP clients.",
+        "after": "Adobe Premiere Pro MCP | Adobe Premiere Pro MCP. Tools for AI-driven video editing via MCP, for Codex, DipoleML, and other MCP clients.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "adobe-premiere-pro-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "adobe-premiere-pro-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

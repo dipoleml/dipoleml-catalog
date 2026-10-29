@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.firecrawl.firecrawl-mcp-server",
+  "type": "mcp",
+  "name": "Firecrawl MCP Server",
+  "slug": "firecrawl-mcp-server",
+  "vendor": "firecrawl",
+  "description": "Official Firecrawl MCP server, the context API for AI agents: search, scrape, and interact with the web, plus parse, crawl, map, Agent and Monitor, from any MCP client.",
+  "version": "3.36.0",
+  "homepage": "https://github.com/firecrawl/firecrawl-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "batch-processing",
+    "content-extraction",
+    "data-collection",
+    "firecrawl",
+    "firecrawl-ai",
+    "gemini-cli-extension",
+    "javascript-rendering",
+    "llm-tools"
+  ],
+  "tags": [
+    "batch-processing",
+    "claude",
+    "content-extraction",
+    "data-collection",
+    "firecrawl",
+    "firecrawl-ai",
+    "gemini-cli-extension",
+    "javascript-rendering",
+    "llm-tools",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "search-api",
+    "web-crawler",
+    "web-scraping"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "firecrawl",
+    "brandName": "firecrawl",
+    "source": "https://github.com/firecrawl.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:59Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "firecrawl/firecrawl-mcp-server",
+    "url": "https://github.com/firecrawl/firecrawl-mcp-server",
+    "commit": "6c6aed6039a9e27502ea3f240aa75bb1d68c716f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7709,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:24Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "firecrawl-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "firecrawl-mcp"
+    ],
+    "env": [
+      "FIRECRAWL_API_KEY",
+      "YOUR_API_KEY",
+      "FIRECRAWL_MCP_ALLOWED_HOSTS",
+      "FIRECRAWL_API_URL",
+      "FIRECRAWL_OAUTH_TOKEN",
+      "YOUR_API_KEY_HERE"
+    ],
+    "credentials": [
+      "FIRECRAWL_API_KEY",
+      "YOUR_API_KEY",
+      "FIRECRAWL_OAUTH_TOKEN",
+      "YOUR_API_KEY_HERE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.adhikasp.mcp-reddit",
+  "type": "mcp",
+  "name": "MCP Reddit",
+  "slug": "mcp-reddit",
+  "vendor": "adhikasp",
+  "description": "A Model Context Protocol (MCP) server that provides tools for fetching and analyzing Reddit content.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/adhikasp/mcp-reddit",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol",
+    "reddit"
+  ],
+  "tags": [
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "reddit"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "adhikasp",
+    "brandName": "adhikasp",
+    "source": "https://github.com/adhikasp.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "adhikasp/mcp-reddit",
+    "url": "https://github.com/adhikasp/mcp-reddit",
+    "commit": "5dcae6742a5246a33dee6da2ad77e7b703715491",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 434,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-reddit-server"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

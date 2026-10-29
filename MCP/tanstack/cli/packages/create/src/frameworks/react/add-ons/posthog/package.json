@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@posthog/react": "^1.7.0",
+    "posthog-js": "^1.358.1"
+  }
+}

@@ -1,0 +1,557 @@
+"""Intelligence Collector Daemon — continuous vector store population.
+
+Fetches all intelligence sources in parallel and stores results in the
+Qdrant vector store. Runs independently of the MCP server and dashboard,
+ensuring data accumulates 24/7 for semantic search and historical analysis.
+
+Every source outcome of a cycle (ok, degraded or error, with duration and
+payload hash) is also written to the history store (``history.py``) in the
+cache DB, in one transaction per cycle. That run log is what
+``intel_collection_health`` and the other history tools read. Each source
+runs inside ``fetcher.recording_stale_serves()``, so a run answered from
+expired cache is recorded as a stale-cache replay even when the source
+module dropped the fetcher's ``_stale`` marker. A failed write is retried
+once, then kept as a lost-cycle record beside the DB.
+
+Usage:
+    intel-collector                    # Single collection cycle
+    intel-collector --daemon           # Run every 5 minutes
+    intel-collector --interval 120     # Custom interval (seconds)
+    intel-collector --sources markets,conflict  # Specific sources only
+"""
+
+import asyncio
+import logging
+import os
+import signal
+import sqlite3
+import sys
+import time
+from contextlib import AsyncExitStack
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+
+logging.basicConfig(
+    level=os.environ.get("WORLD_INTEL_LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("world-intel-collector")
+
+from .cache import Cache
+from .circuit_breaker import CircuitBreaker
+from .fetcher import Fetcher, recording_stale_serves
+from .history import HistoryStore, SourceOutcome, record_write_failure
+from .vector_store import VectorStore
+
+# All fetchable sources grouped by domain.
+# Each entry: (name, module_path, function_name, kwargs)
+SOURCES = [
+    # Markets (7)
+    ("market_quotes", "sources.markets", "fetch_market_quotes", {}),
+    ("crypto_quotes", "sources.markets", "fetch_crypto_quotes", {}),
+    ("macro_signals", "sources.markets", "fetch_macro_signals", {}),
+    ("sector_heatmap", "sources.markets", "fetch_sector_heatmap", {}),
+    ("stablecoin_status", "sources.markets", "fetch_stablecoin_status", {}),
+    ("etf_flows", "sources.markets", "fetch_etf_flows", {}),
+    ("commodity_quotes", "sources.markets", "fetch_commodity_quotes", {}),
+    ("btc_technicals", "sources.markets", "fetch_btc_technicals", {}),
+    # Economic (6)
+    ("energy_prices", "sources.economic", "fetch_energy_prices", {}),
+    ("gas_prices", "sources.economic", "fetch_gas_prices", {}),
+    ("residential_natgas", "sources.economic", "fetch_residential_natgas_prices", {}),
+    ("electricity_rates", "sources.economic", "fetch_electricity_rates", {}),
+    ("central_bank_rates", "sources.central_banks", "fetch_central_bank_rates", {}),
+    # Liquidity (2): FRED H.4.1 data are weekly (Thursday release), RRP
+    # daily, M2 and euro area M1-M3 monthly. The fetcher caches FRED CSVs
+    # 1 h and ECB responses 3 h, so a 5-minute daemon cycle reaches each
+    # upstream at most once per TTL; the response's freshness block, not
+    # the cycle, says whether the data are current.
+    ("liquidity_board", "sources.liquidity", "fetch_liquidity_board", {}),
+    ("net_liquidity", "sources.liquidity", "fetch_net_liquidity", {}),
+    # Natural Disasters & Hazards (5)
+    ("earthquakes", "sources.seismology", "fetch_earthquakes", {}),
+    ("wildfires", "sources.wildfire", "fetch_wildfires", {}),
+    ("weather_alerts", "sources.weather", "fetch_weather_alerts", {}),
+    ("volcano_activity", "sources.volcano", "fetch_volcano_activity", {}),
+    ("cyclones", "sources.cyclones", "fetch_cyclones", {}),
+    # Conflict & Security (4)
+    ("acled_events", "sources.conflict", "fetch_acled_events", {}),
+    ("ucdp_events", "sources.conflict", "fetch_ucdp_events", {}),
+    ("displacement", "sources.displacement", "fetch_displacement_summary", {}),
+    # Migration (2): UNHCR year-over-year surges and World Bank net migration.
+    # Both are annual series; the fetcher cache keeps repeat cycles cheap.
+    ("migration_surges", "sources.migration", "fetch_migration_surges", {}),
+    ("net_migration", "sources.migration", "fetch_net_migration", {}),
+    # Military (2)
+    ("military_flights", "sources.military", "fetch_military_flights", {}),
+    # Infrastructure (4)
+    ("internet_outages", "sources.infrastructure", "fetch_internet_outages", {}),
+    ("cable_health", "sources.infrastructure", "fetch_cable_health", {}),
+    ("service_status", "sources.service_status", "fetch_service_status", {}),
+    # Maritime (1)
+    ("nav_warnings", "sources.maritime", "fetch_nav_warnings", {}),
+    # Climate (1)
+    ("climate_anomalies", "sources.climate", "fetch_climate_anomalies", {}),
+    # News (4)
+    ("news_feed", "sources.news", "fetch_news_feed", {}),
+    ("trending_keywords", "sources.news", "fetch_trending_keywords", {}),
+    # Ranked situations and outlet-breadth stories over the same RSS read:
+    # fetch_news_feed shares one in-flight read among concurrent callers,
+    # so these four request each feed once per cycle.
+    ("situations", "analysis.news_signals", "fetch_situations", {}),
+    ("top_stories", "analysis.news_signals", "fetch_top_stories", {}),
+    # Prediction (3)
+    ("prediction_markets", "sources.prediction", "fetch_prediction_markets", {}),
+    # Kalshi: the Economics category's top series (Fed, CPI, gas prices);
+    # the unfiltered scan reads 4 MB pages of far-dated events instead.
+    ("kalshi_markets", "sources.kalshi", "fetch_kalshi_markets", {"category": "Economics", "limit": 50}),
+    ("prediction_compare", "sources.prediction_cross", "fetch_prediction_compare", {"category": "Economics"}),
+    # Aviation (4)
+    ("airport_delays", "sources.aviation", "fetch_airport_delays", {}),
+    ("domestic_flights", "sources.aviation", "fetch_domestic_flights", {}),
+    # Aircraft cohorts (2): each run learns cohort members that the
+    # intel_jet_activity_anomaly / intel_jet_excess_origins tools need.
+    ("bizjet_cohort", "sources.jet_cohort", "fetch_cohort_snapshot", {"cohort": "bizjet"}),
+    ("military_cohort", "sources.jet_cohort", "fetch_cohort_snapshot", {"cohort": "military"}),
+    # Cyber (1)
+    ("cyber_threats", "sources.cyber", "fetch_cyber_threats", {}),
+    # Space (2)
+    ("space_weather", "sources.space_weather", "fetch_space_weather", {}),
+    ("launch_schedule", "sources.launches", "fetch_launch_schedule", {}),
+    # AI/Tech (1)
+    ("ai_watch", "sources.ai_watch", "fetch_ai_watch", {}),
+    # Health (1)
+    ("disease_outbreaks", "sources.health", "fetch_disease_outbreaks", {}),
+    # Elections (1)
+    ("election_calendar", "sources.elections", "fetch_election_calendar", {}),
+    # Shipping (1)
+    ("shipping_index", "sources.shipping", "fetch_shipping_index", {}),
+    # Social (1)
+    ("social_signals", "sources.social", "fetch_social_signals", {}),
+    # Nuclear (1)
+    ("nuclear_monitor", "sources.nuclear", "fetch_nuclear_monitor", {}),
+    # Traffic (2)
+    ("traffic_flow", "sources.traffic", "fetch_traffic_flow", {}),
+    ("traffic_incidents", "sources.traffic", "fetch_traffic_incidents", {}),
+    # Analysis (cross-domain, runs after raw sources)
+    ("risk_scores", "sources.intelligence", "fetch_risk_scores", {}),
+    ("signal_convergence", "sources.intelligence", "fetch_signal_convergence", {}),
+    ("alert_digest", "analysis.alerts", "fetch_alert_digest", {}),
+    ("weekly_trends", "analysis.alerts", "fetch_weekly_trends", {}),
+    ("strategic_posture", "analysis.posture", "fetch_strategic_posture", {}),
+    ("fleet_report", "sources.fleet", "fetch_fleet_report", {}),
+    ("usni_fleet", "sources.usni_fleet", "fetch_usni_fleet", {}),
+    # AOI (change sweep across every user-defined geofence; each AOI's
+    # snapshot advances, so the daemon interval IS the watch cadence)
+    ("aoi_digest", "analysis.aoi", "fetch_aoi_sweep", {}),
+]
+
+# Per-source timeout overrides (seconds), consulted instead of the flat
+# collect_once budget. The AOI sweep fans out to ~8 domains per defined
+# AOI, several behind rate floors: one 50 km AOI on a cold cache was
+# measured (2026-09-01) to exceed the default 45 s.
+SOURCE_TIMEOUTS: dict[str, float] = {
+    "aoi_digest": 240.0,
+}
+
+# Domain name → list of source names for --sources filtering
+DOMAIN_GROUPS = {
+    "markets": [
+        "market_quotes",
+        "crypto_quotes",
+        "macro_signals",
+        "sector_heatmap",
+        "stablecoin_status",
+        "etf_flows",
+        "commodity_quotes",
+        "btc_technicals",
+    ],
+    "economic": [
+        "energy_prices",
+        "gas_prices",
+        "residential_natgas",
+        "electricity_rates",
+        "central_bank_rates",
+    ],
+    "liquidity": ["liquidity_board", "net_liquidity"],
+    "natural": [
+        "earthquakes",
+        "wildfires",
+        "weather_alerts",
+        "volcano_activity",
+        "cyclones",
+    ],
+    "conflict": ["acled_events", "ucdp_events", "displacement"],
+    "migration": ["displacement", "migration_surges", "net_migration"],
+    "military": ["military_flights"],
+    "infrastructure": ["internet_outages", "cable_health", "service_status"],
+    "maritime": ["nav_warnings"],
+    "climate": ["climate_anomalies"],
+    "news": ["news_feed", "trending_keywords", "situations", "top_stories"],
+    "prediction": ["prediction_markets", "kalshi_markets", "prediction_compare"],
+    "aviation": ["airport_delays", "domestic_flights", "bizjet_cohort", "military_cohort"],
+    "cyber": ["cyber_threats"],
+    "space": ["space_weather", "launch_schedule"],
+    "ai": ["ai_watch"],
+    "health": ["disease_outbreaks"],
+    "elections": ["election_calendar"],
+    "shipping": ["shipping_index"],
+    "social": ["social_signals"],
+    "nuclear": ["nuclear_monitor"],
+    "traffic": ["traffic_flow", "traffic_incidents"],
+    "aoi": ["aoi_digest"],
+    "analysis": [
+        "risk_scores",
+        "signal_convergence",
+        "alert_digest",
+        "weekly_trends",
+        "strategic_posture",
+        "fleet_report",
+        "usni_fleet",
+    ],
+}
+
+
+def _resolve_source_filter(source_filter: str | None) -> set[str] | None:
+    """Resolve --sources argument to a set of source names."""
+    if not source_filter:
+        return None
+    names: set[str] = set()
+    for part in source_filter.split(","):
+        part = part.strip()
+        if part in DOMAIN_GROUPS:
+            names.update(DOMAIN_GROUPS[part])
+        else:
+            names.add(part)
+    return names
+
+
+def _import_fetch_fn(module_path: str, fn_name: str):
+    """Dynamically import a fetch function from world_intel_mcp."""
+    import importlib
+
+    full_module = f"world_intel_mcp.{module_path}"
+    mod = importlib.import_module(full_module)
+    return getattr(mod, fn_name)
+
+
+def _record_history(fetcher: Fetcher, outcomes: list) -> dict:
+    """Write one cycle's outcomes to the history store in the fetcher's
+    cache DB. A history failure never fails the cycle itself: it is
+    reported in the cycle summary and the log, and kept as a lost-cycle
+    record beside the DB that ``intel_collection_health`` reports."""
+    db_path = getattr(getattr(fetcher, "cache", None), "db_path", None)
+    if db_path is None:
+        logger.warning("History not recorded: fetcher has no cache db_path")
+        return {
+            "recorded": 0,
+            "error": "fetcher has no cache db_path; history not recorded",
+        }
+    for attempt in (1, 2):
+        try:
+            store = HistoryStore(db_path)
+            try:
+                return store.record_cycle(outcomes)
+            finally:
+                store.close()
+        except sqlite3.OperationalError as exc:
+            # Usually another writer held the lock past the busy timeout.
+            # The cycle's transaction rolled back, so a retry cannot write
+            # it twice.
+            if attempt == 1:
+                logger.warning("History write failed (%s); retrying once", exc)
+                continue
+            logger.warning("History write failed: %s", exc)
+            failure = {"recorded": 0, "error": f"history write failed: {exc}"}
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("History write failed: %s", exc)
+            failure = {"recorded": 0, "error": f"history write failed: {exc}"}
+        except Exception as exc:  # a history bug must not cost the cycle
+            logger.exception("History write failed unexpectedly")
+            failure = {
+                "recorded": 0,
+                "error": f"history write failed: {type(exc).__name__}: {exc}",
+            }
+        break
+    record_write_failure(db_path, outcomes, failure["error"])
+    return failure
+
+
+async def collect_once(
+    fetcher: Fetcher,
+    vector_store: VectorStore,
+    source_filter: set[str] | None = None,
+    timeout: float = 45.0,
+) -> dict:
+    """Run one collection cycle across all sources.
+
+    Returns dict with counts of successes and failures. A fetch that
+    completed counts as a success even when its payload carries an upstream
+    error; those are also listed in ``upstream_errors`` and are not stored.
+    Stale cache copies (``_stale``) are listed in ``stale_not_stored`` and
+    are not stored in the vector store as this cycle's data.
+    """
+    start = time.time()
+    sources_to_run = [
+        s for s in SOURCES if source_filter is None or s[0] in source_filter
+    ]
+
+    # Per-source wall time and finish time, for the history run log.
+    timings: dict[str, tuple[float, float]] = {}
+    # Per-source stale-cache serves. Sources run concurrently and name
+    # their fetches differently ("usgs" for earthquakes), so each run gets
+    # its own task-scoped log rather than a per-fetch-source counter.
+    stale_serves: dict[str, list] = {}
+
+    async def _fetch_one(name: str, module_path: str, fn_name: str, kwargs: dict):
+        budget = SOURCE_TIMEOUTS.get(name, timeout)
+        t0 = time.monotonic()
+        with recording_stale_serves() as served:
+            stale_serves[name] = served
+            try:
+                fn = _import_fetch_fn(module_path, fn_name)
+                result = await asyncio.wait_for(fn(fetcher, **kwargs), timeout=budget)
+                return name, result, None
+            except asyncio.TimeoutError:
+                return name, None, f"timeout ({budget}s)"
+            except Exception as exc:
+                return name, None, str(exc)[:120]
+            finally:
+                timings[name] = (time.monotonic() - t0, time.time())
+
+    tasks = [_fetch_one(name, mod, fn, kw) for name, mod, fn, kw in sources_to_run]
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    successes = 0
+    failures = 0
+    errors = []
+    upstream_errors = []
+    stale_not_stored = []
+    outcomes = []
+
+    for (source_name, _, _, _), item in zip(sources_to_run, results):
+        duration, finished = timings.get(source_name, (None, time.time()))
+        served = tuple(stale_serves.get(source_name, ()))
+        if isinstance(item, BaseException):
+            reason = str(item)[:500] or repr(item)
+            outcomes.append(
+                SourceOutcome(source_name, finished, duration, error=reason,
+                              stale_serves=served)
+            )
+        else:
+            outcomes.append(
+                SourceOutcome(
+                    source_name, finished, duration, payload=item[1], error=item[2],
+                    stale_serves=served,
+                )
+            )
+
+    for item in results:
+        # BaseException, not Exception: gather() also returns a source's
+        # CancelledError or other BaseException, which cannot be unpacked.
+        if isinstance(item, BaseException):
+            failures += 1
+            errors.append(str(item)[:100])
+            continue
+        name, data, error = item
+        if error:
+            failures += 1
+            errors.append(f"{name}: {error}")
+            logger.warning("Collect %s failed: %s", name, error)
+        elif data is not None:
+            # A completed fetch counts as a success even when its payload
+            # carries an upstream error; that error is listed separately so
+            # the summary never reads it as data collected.
+            successes += 1
+            if isinstance(data, dict) and data.get("error"):
+                upstream_errors.append(f"{name}: {str(data['error'])[:100]}")
+                logger.warning("Collect %s returned an upstream error: %s", name, data["error"])
+            elif isinstance(data, dict) and data.get("_stale"):
+                # A stale cache copy is old data; storing it again would
+                # file it in the vector store as if collected this cycle.
+                stale_not_stored.append(name)
+            else:
+                # The fetcher already stores in vector_store via its hook,
+                # but for sources that return composite data (analysis modules),
+                # we also store the high-level result directly.
+                await vector_store.store(name, data)
+        else:
+            failures += 1
+
+    history = _record_history(fetcher, outcomes)
+
+    elapsed = time.time() - start
+    stats = await vector_store.collection_stats()
+
+    summary = {
+        "cycle_time_s": round(elapsed, 1),
+        "sources_attempted": len(sources_to_run),
+        "successes": successes,
+        "failures": failures,
+        "errors": errors[:10],
+        "upstream_errors": upstream_errors,
+        "stale_not_stored": stale_not_stored,
+        "vector_store_points": stats.get("points_count", 0),
+        "history": history,
+    }
+
+    logger.info(
+        "Collection cycle: %d/%d sources in %.1fs, %d vector points",
+        successes,
+        len(sources_to_run),
+        elapsed,
+        stats.get("points_count", 0),
+    )
+
+    return summary
+
+
+async def run_daemon(
+    interval: int = 300,
+    source_filter: str | None = None,
+) -> None:
+    """Run the collector in daemon mode with a configurable interval."""
+    async with AsyncExitStack() as resources:
+        cache = Cache()
+        resources.callback(cache.close)
+        breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=300)
+        vector_store = VectorStore(enabled=True)
+        resources.push_async_callback(vector_store.stop)
+        await vector_store.start()
+        fetcher = Fetcher(cache=cache, breaker=breaker, vector_store=vector_store)
+        resources.push_async_callback(fetcher.close)
+
+        resolved_filter = _resolve_source_filter(source_filter)
+        filter_desc = source_filter or "all"
+
+        logger.info(
+            "Collector daemon starting: interval=%ds, sources=%s",
+            interval,
+            filter_desc,
+        )
+
+        stop_event = asyncio.Event()
+
+        def _handle_signal(sig, frame):
+            logger.info("Received signal %s, stopping...", sig)
+            stop_event.set()
+
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
+
+        cycle = 0
+        while not stop_event.is_set():
+            cycle += 1
+            logger.info("Starting collection cycle %d", cycle)
+            try:
+                summary = await collect_once(fetcher, vector_store, resolved_filter)
+                logger.info("Cycle %d complete: %s", cycle, summary)
+            except Exception as exc:
+                logger.error("Cycle %d failed: %s", cycle, exc)
+
+            # Evict expired cache entries periodically
+            if cycle % 12 == 0:  # Every ~hour at 5min interval
+                evicted = cache.evict_expired()
+                if evicted:
+                    logger.info("Evicted %d expired cache entries", evicted)
+
+            # Wait for next cycle or stop signal
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+
+    logger.info("Collector daemon stopped")
+
+
+async def run_once(source_filter: str | None = None) -> dict:
+    """Run a single collection cycle and exit."""
+    async with AsyncExitStack() as resources:
+        cache = Cache()
+        resources.callback(cache.close)
+        breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=300)
+        vector_store = VectorStore(enabled=True)
+        resources.push_async_callback(vector_store.stop)
+        await vector_store.start()
+        fetcher = Fetcher(cache=cache, breaker=breaker, vector_store=vector_store)
+        resources.push_async_callback(fetcher.close)
+
+        resolved_filter = _resolve_source_filter(source_filter)
+        summary = await collect_once(fetcher, vector_store, resolved_filter)
+
+        # Wait for vector store queue to drain
+        if vector_store._store_queue:
+            await vector_store._store_queue.join()
+
+        return summary
+
+
+def main():
+    """CLI entry point for the collector."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="World Intelligence Collector — populate vector store from all sources"
+    )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Run continuously at --interval seconds",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=300,
+        help="Collection interval in seconds (default: 300 = 5 minutes)",
+    )
+    parser.add_argument(
+        "--sources",
+        type=str,
+        default=None,
+        help="Comma-separated source names or domain groups (e.g., 'markets,conflict,cyber')",
+    )
+    args = parser.parse_args()
+
+    if args.daemon:
+        asyncio.run(run_daemon(interval=args.interval, source_filter=args.sources))
+    else:
+        summary = asyncio.run(run_once(source_filter=args.sources))
+        print("Collection complete:")
+        upstream = summary.get("upstream_errors") or []
+        line = f"  Sources: {summary['successes']}/{summary['sources_attempted']} succeeded"
+        if upstream:
+            line += f"; {len(upstream)} of them returned an upstream error and stored nothing"
+        print(line)
+        stale = summary.get("stale_not_stored") or []
+        if stale:
+            print(f"  Stale copies, not stored as new ({len(stale)}): {', '.join(sorted(stale))}")
+        print(f"  Time: {summary['cycle_time_s']}s")
+        print(f"  Vector store: {summary['vector_store_points']} points")
+        history = summary.get("history") or {}
+        if history.get("error"):
+            print(f"  History: NOT recorded ({history['error']})")
+        elif history:
+            counts = history.get("status_counts", {})
+            print(
+                f"  History: {history.get('recorded', 0)} captures "
+                f"(ok {counts.get('ok', 0)}, degraded {counts.get('degraded', 0)}, "
+                f"error {counts.get('error', 0)}), "
+                f"{history.get('observations_stored', 0)} new observations"
+            )
+        if summary["errors"]:
+            print(f"  Errors ({len(summary['errors'])}):")
+            for e in summary["errors"]:
+                print(f"    - {e}")
+        if upstream:
+            print(f"  Upstream errors ({len(upstream)}):")
+            for e in upstream:
+                print(f"    - {e}")
+        sys.exit(0 if summary["failures"] == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()

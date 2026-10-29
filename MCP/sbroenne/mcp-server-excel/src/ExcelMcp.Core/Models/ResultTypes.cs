@@ -1,0 +1,3142 @@
+using System.Text.Json.Serialization;
+
+namespace Sbroenne.ExcelMcp.Core.Models;
+
+/// <summary>
+/// Base result type for all Core operations.
+/// NOTE: Core commands should NOT set SuggestedNextActions (workflow guidance is MCP/CLI layer responsibility).
+/// Exceptions propagate naturally — batch.Execute() re-throws them via TaskCompletionSource.
+/// The MCP/CLI layer catches exceptions and converts them to error responses.
+/// </summary>
+public abstract class ResultBase
+{
+    private bool _success;
+
+    /// <summary>
+    /// Indicates whether the operation was successful
+    /// </summary>
+    public bool Success
+    {
+        get => _success && string.IsNullOrEmpty(ErrorMessage);
+        set => _success = value;
+    }
+
+    /// <summary>
+    /// Error message if operation failed
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// File path of the Excel file
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FilePath { get; set; }
+}
+
+/// <summary>
+/// Result for operations that don't return data (create, delete, etc.)
+/// </summary>
+public class OperationResult : ResultBase
+{
+    /// <summary>
+    /// Action that was performed
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Action { get; set; }
+
+    /// <summary>
+    /// Success message describing what was done
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; set; }
+}
+
+/// <summary>
+/// Result for rename operations across Core features
+/// </summary>
+public class RenameResult : ResultBase
+{
+    /// <summary>
+    /// Type of object being renamed (power-query, data-model-table)
+    /// </summary>
+    public string ObjectType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Original name provided by the caller
+    /// </summary>
+    public string OldName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Desired new name provided by the caller
+    /// </summary>
+    public string NewName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Trimmed old name used for comparisons
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string NormalizedOldName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Trimmed new name used for comparisons
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string NormalizedNewName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for listing worksheets
+/// </summary>
+public class WorksheetListResult : ResultBase
+{
+    /// <summary>
+    /// List of worksheets in the workbook
+    /// </summary>
+    public List<WorksheetInfo> Worksheets { get; set; } = [];
+}
+
+/// <summary>
+/// Information about a worksheet
+/// </summary>
+public class WorksheetInfo
+{
+    /// <summary>
+    /// Name of the worksheet
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Index of the worksheet (1-based)
+    /// </summary>
+    public int Index { get; set; }
+
+    /// <summary>
+    /// Whether the worksheet is visible
+    /// </summary>
+    public bool Visible { get; set; }
+}
+
+/// <summary>
+/// Sheet visibility levels (maps to Excel XlSheetVisibility)
+/// </summary>
+public enum SheetVisibility
+{
+    /// <summary>
+    /// Sheet is visible (xlSheetVisible = -1)
+    /// </summary>
+    Visible = -1,
+
+    /// <summary>
+    /// Sheet is hidden but user can unhide via Excel UI (xlSheetHidden = 0)
+    /// </summary>
+    Hidden = 0,
+
+    /// <summary>
+    /// Sheet is very hidden, requires code to unhide (xlSheetVeryHidden = 2)
+    /// </summary>
+    VeryHidden = 2
+}
+
+/// <summary>
+/// Result for getting worksheet tab color
+/// </summary>
+public class TabColorResult : ResultBase
+{
+    /// <summary>
+    /// Whether the sheet has a tab color set
+    /// </summary>
+    public bool HasColor { get; set; }
+
+    /// <summary>
+    /// Red component (0-255), null if no color
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Red { get; set; }
+
+    /// <summary>
+    /// Green component (0-255), null if no color
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Green { get; set; }
+
+    /// <summary>
+    /// Blue component (0-255), null if no color
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Blue { get; set; }
+
+    /// <summary>
+    /// Hex color string (#RRGGBB), null if no color
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? HexColor { get; set; }
+}
+
+/// <summary>
+/// Result for getting worksheet visibility
+/// </summary>
+public class SheetVisibilityResult : ResultBase
+{
+    /// <summary>
+    /// Visibility level
+    /// </summary>
+    public SheetVisibility Visibility { get; set; }
+
+    /// <summary>
+    /// Visibility name (Visible, Hidden, VeryHidden)
+    /// </summary>
+    public string VisibilityName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for getting worksheet protection state
+/// </summary>
+public class SheetProtectionResult : ResultBase
+{
+    /// <summary>
+    /// Whether the worksheet is protected
+    /// </summary>
+    public bool IsProtected { get; set; }
+
+    /// <summary>Whether locked cell contents are protected.</summary>
+    public bool ProtectContents { get; set; }
+    /// <summary>Whether drawing objects are protected.</summary>
+    public bool ProtectDrawingObjects { get; set; }
+    /// <summary>Whether scenarios are protected.</summary>
+    public bool ProtectScenarios { get; set; }
+    /// <summary>Native runtime-only UI protection, not persisted after reopening.</summary>
+    public bool UserInterfaceOnly { get; set; }
+    /// <summary>Native permission flags; only effective while their protection is enabled.</summary>
+    public Sbroenne.ExcelMcp.Core.Commands.SheetProtectionOptions Permissions { get; set; } = new();
+    /// <summary>Runtime-only protection must be explicitly requested again after reopening.</summary>
+    public string RuntimeOnlyCoverage { get; } = "UserInterfaceOnly is not persisted after reopening.";
+}
+
+/// <summary>
+/// Result for getting workbook view options.
+/// </summary>
+public class WorkbookViewOptionsResult : ResultBase
+{
+    /// <summary>
+    /// Whether workbook gridlines are displayed.
+    /// </summary>
+    public bool DisplayGridlines { get; set; }
+
+    /// <summary>
+    /// Whether workbook headings are displayed.
+    /// </summary>
+    public bool DisplayHeadings { get; set; }
+}
+
+/// <summary>
+/// Result for getting workbook protection state
+/// </summary>
+public class WorkbookProtectionResult : ResultBase
+{
+    /// <summary>
+    /// Whether the workbook is protected
+    /// </summary>
+    public bool IsProtected { get; set; }
+}
+
+/// <summary>
+/// Result for reading a legacy worksheet cell note
+/// </summary>
+public class SheetCommentResult : ResultBase
+{
+    /// <summary>
+    /// Whether the cell has a legacy note
+    /// </summary>
+    public bool HasComment { get; set; }
+
+    /// <summary>
+    /// Cell note text, null when no note exists
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; set; }
+}
+
+/// <summary>
+/// Result for reading worksheet image count
+/// </summary>
+public class WorksheetImageCountResult : ResultBase
+{
+    /// <summary>
+    /// Number of images currently on the worksheet
+    /// </summary>
+    public int ImageCount { get; set; }
+}
+
+/// <summary>
+/// Result for reading worksheet shape count
+/// </summary>
+public class WorksheetShapeCountResult : ResultBase
+{
+    /// <summary>
+    /// Number of shapes currently on the worksheet
+    /// </summary>
+    public int ShapeCount { get; set; }
+}
+
+/// <summary>
+/// Result for reading worksheet page setup properties
+/// </summary>
+public class SheetPageSetupResult : ResultBase
+{
+    /// <summary>Fixed scale percentage, or null while fit-to-page scaling is active.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int? ZoomPercent { get; set; }
+    /// <summary>Native print area; empty means automatic.</summary>
+    public string PrintArea { get; set; } = string.Empty;
+    /// <summary>Native repeated title rows; empty means none.</summary>
+    public string PrintTitleRows { get; set; } = string.Empty;
+    /// <summary>Native repeated title columns; empty means none.</summary>
+    public string PrintTitleColumns { get; set; } = string.Empty;
+    /// <summary>Left margin in points.</summary>
+    public double LeftMargin { get; set; }
+    /// <summary>Right margin in points.</summary>
+    public double RightMargin { get; set; }
+    /// <summary>Top margin in points.</summary>
+    public double TopMargin { get; set; }
+    /// <summary>Bottom margin in points.</summary>
+    public double BottomMargin { get; set; }
+    /// <summary>Header margin in points.</summary>
+    public double HeaderMargin { get; set; }
+    /// <summary>Footer margin in points.</summary>
+    public double FooterMargin { get; set; }
+    /// <summary>Native left header text.</summary>
+    public string LeftHeader { get; set; } = string.Empty;
+    /// <summary>Native center header text.</summary>
+    public string CenterHeader { get; set; } = string.Empty;
+    /// <summary>Native right header text.</summary>
+    public string RightHeader { get; set; } = string.Empty;
+    /// <summary>Native left footer text.</summary>
+    public string LeftFooter { get; set; } = string.Empty;
+    /// <summary>Native center footer text.</summary>
+    public string CenterFooter { get; set; } = string.Empty;
+    /// <summary>Native right footer text.</summary>
+    public string RightFooter { get; set; } = string.Empty;
+    /// <summary>Native XlPaperSize name.</summary>
+    public string PaperSize { get; set; } = string.Empty;
+    /// <summary>Native XlOrder name.</summary>
+    public string PageOrder { get; set; } = string.Empty;
+    /// <summary>Whether gridlines print.</summary>
+    public bool PrintGridlines { get; set; }
+    /// <summary>Whether headings print.</summary>
+    public bool PrintHeadings { get; set; }
+    /// <summary>Whether black-and-white printing is enabled.</summary>
+    public bool BlackAndWhite { get; set; }
+    /// <summary>Whether draft printing is enabled.</summary>
+    public bool Draft { get; set; }
+    /// <summary>First page number; zero means automatic.</summary>
+    public int FirstPageNumber { get; set; }
+    /// <summary>Native XlPrintLocation name.</summary>
+    public string PrintComments { get; set; } = string.Empty;
+    /// <summary>Native XlPrintErrors name.</summary>
+    public string PrintErrors { get; set; } = string.Empty;
+    /// <summary>Whether headers/footers scale with the document.</summary>
+    public bool ScaleWithDocHeaderFooter { get; set; }
+    /// <summary>Whether headers/footers align to page margins.</summary>
+    public bool AlignMarginsHeaderFooter { get; set; }
+    /// <summary>
+    /// Page orientation (portrait or landscape)
+    /// </summary>
+    public string Orientation { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of pages to fit the printout across
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int? FitToPagesWide { get; set; }
+
+    /// <summary>
+    /// Number of pages to fit the printout down
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public int? FitToPagesTall { get; set; }
+
+    /// <summary>
+    /// Whether the worksheet is centered horizontally on the printed page
+    /// </summary>
+    public bool CenterHorizontally { get; set; }
+
+    /// <summary>
+    /// Whether the worksheet is centered vertically on the printed page
+    /// </summary>
+    public bool CenterVertically { get; set; }
+}
+
+/// <summary>
+/// Result for reading worksheet data
+/// </summary>
+public class WorksheetDataResult : ResultBase
+{
+    /// <summary>
+    /// Name of the worksheet
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range that was read
+    /// </summary>
+    public string Range { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Data rows and columns
+    /// </summary>
+    public List<List<object?>> Data { get; set; } = [];
+
+    /// <summary>
+    /// Column headers
+    /// </summary>
+    public List<string> Headers { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+/// <summary>
+/// Result for listing Power Queries
+/// </summary>
+public class PowerQueryListResult : ResultBase
+{
+    /// <summary>
+    /// List of Power Queries in the workbook
+    /// </summary>
+    public List<PowerQueryInfo> Queries { get; set; } = [];
+}
+
+/// <summary>
+/// Compact metadata for a Power Query list item.
+/// Full M code is available only through the Power Query view action.
+/// </summary>
+public class PowerQueryInfo
+{
+    /// <summary>
+    /// Name of the Power Query
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Bounded preview of the formula (at most 80 characters).
+    /// Use Power Query view to retrieve the full M code.
+    /// </summary>
+    public string FormulaPreview { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of characters in the full M code
+    /// </summary>
+    public int CharacterCount { get; set; }
+
+    /// <summary>
+    /// Exact current load mode
+    /// </summary>
+    public PowerQueryLoadMode LoadMode { get; set; }
+
+    /// <summary>
+    /// Target worksheet name for worksheet and combined loads
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetSheet { get; set; }
+
+    /// <summary>
+    /// Whether the query has no worksheet or Data Model destination
+    /// </summary>
+    public bool IsConnectionOnly { get; set; }
+
+    /// <summary>
+    /// Whether the query is loaded to the Data Model
+    /// </summary>
+    public bool IsLoadedToDataModel { get; set; }
+}
+
+/// <summary>
+/// Result for viewing Power Query code
+/// </summary>
+public class PowerQueryViewResult : ResultBase
+{
+    /// <summary>
+    /// Name of the Power Query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Full M code
+    /// </summary>
+    public string MCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of characters in the M code
+    /// </summary>
+    public int CharacterCount { get; set; }
+
+    /// <summary>
+    /// Exact current load mode
+    /// </summary>
+    public PowerQueryLoadMode LoadMode { get; set; }
+
+    /// <summary>
+    /// Target worksheet name for worksheet and combined loads
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetSheet { get; set; }
+
+    /// <summary>
+    /// Whether the query has an active worksheet or Data Model destination
+    /// </summary>
+    public bool HasConnection { get; set; }
+
+    /// <summary>
+    /// Whether the query is loaded to the Data Model
+    /// </summary>
+    public bool IsLoadedToDataModel { get; set; }
+
+    /// <summary>
+    /// Whether the query has no worksheet or Data Model destination
+    /// </summary>
+    public bool IsConnectionOnly { get; set; }
+}
+
+/// <summary>
+/// Power Query load configuration modes
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<PowerQueryLoadMode>))]
+public enum PowerQueryLoadMode
+{
+    /// <summary>
+    /// Connection only - no data loaded to worksheet or data model
+    /// </summary>
+    [JsonStringEnumMemberName("connection-only")]
+    ConnectionOnly,
+
+    /// <summary>
+    /// Load to table in worksheet
+    /// </summary>
+    [Attributes.EnumAlias("worksheet")]
+    [Attributes.EnumAlias("table")]
+    [JsonStringEnumMemberName("load-to-table")]
+    LoadToTable,
+
+    /// <summary>
+    /// Load to Data Model (PowerPivot)
+    /// </summary>
+    [Attributes.EnumAlias("data-model")]
+    [Attributes.EnumAlias("datamodel")]
+    [JsonStringEnumMemberName("load-to-data-model")]
+    LoadToDataModel,
+
+    /// <summary>
+    /// Load to both table and data model
+    /// </summary>
+    [Attributes.EnumAlias("both")]
+    [JsonStringEnumMemberName("load-to-both")]
+    LoadToBoth
+}
+
+/// <summary>
+/// Result for Power Query load configuration
+/// </summary>
+public class PowerQueryLoadConfigResult : ResultBase
+{
+    /// <summary>
+    /// Name of the query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current load mode
+    /// </summary>
+    public PowerQueryLoadMode LoadMode { get; set; }
+
+    /// <summary>
+    /// Target worksheet name (if LoadToTable or LoadToBoth)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetSheet { get; set; }
+
+    /// <summary>
+    /// Whether the query has an active worksheet or Data Model destination
+    /// </summary>
+    public bool HasConnection { get; set; }
+
+    /// <summary>
+    /// Whether the query is loaded to data model
+    /// </summary>
+    public bool IsLoadedToDataModel { get; set; }
+}
+
+/// <summary>
+/// Configured workbook-level Power Query FastCombine setting.
+/// Excel's global privacy option may override whether the setting is applied.
+/// </summary>
+public class PowerQueryPrivacySettingsResult : ResultBase
+{
+    /// <summary>
+    /// Configured workbook FastCombine value; this may not match effective behavior
+    /// when Excel's global privacy option overrides whether the setting is applied.
+    /// </summary>
+    public bool IgnorePrivacyLevels { get; set; }
+
+    /// <summary>
+    /// Description of the configured setting and its possible data-sharing effect.
+    /// Effective behavior may differ when Excel's global privacy option overrides it.
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for Power Query load-to-data-model operations with verification
+/// Extends OperationResult to provide detailed verification of atomic operation
+/// </summary>
+public class PowerQueryLoadToDataModelResult : OperationResult
+{
+    /// <summary>
+    /// Name of the query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the load configuration was successfully applied
+    /// </summary>
+    public bool ConfigurationApplied { get; set; }
+
+    /// <summary>
+    /// Whether data was actually loaded to the Data Model
+    /// </summary>
+    public bool DataLoadedToModel { get; set; }
+
+    /// <summary>
+    /// Number of rows loaded to the Data Model (0 if not loaded)
+    /// </summary>
+    public int RowsLoaded { get; set; }
+
+    /// <summary>
+    /// Total number of tables in the Data Model after operation
+    /// </summary>
+    public int TablesInDataModel { get; set; }
+
+    /// <summary>
+    /// Overall workflow status: "Complete" | "Failed" | "Partial"
+    /// </summary>
+    public string WorkflowStatus { get; set; } = "Failed";
+}
+
+/// <summary>
+/// Result for Power Query load-to-table operations with verification
+/// Extends OperationResult to provide detailed verification of atomic operation
+/// </summary>
+public class PowerQueryLoadToTableResult : OperationResult
+{
+    /// <summary>
+    /// Name of the query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Name of the target worksheet
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the load configuration was successfully applied
+    /// </summary>
+    public bool ConfigurationApplied { get; set; }
+
+    /// <summary>
+    /// Whether data was actually loaded to the worksheet table
+    /// </summary>
+    public bool DataLoadedToTable { get; set; }
+
+    /// <summary>
+    /// Number of rows loaded to the worksheet table (0 if not loaded)
+    /// </summary>
+    public int RowsLoaded { get; set; }
+
+    /// <summary>
+    /// Overall workflow status: "Complete" | "Failed" | "Partial"
+    /// </summary>
+    public string WorkflowStatus { get; set; } = "Failed";
+}
+
+/// <summary>
+/// Result for Power Query load-to-both operations with verification
+/// Extends OperationResult to provide detailed verification of atomic operation
+/// </summary>
+public class PowerQueryLoadToBothResult : OperationResult
+{
+    /// <summary>
+    /// Name of the query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Name of the target worksheet
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the load configuration was successfully applied
+    /// </summary>
+    public bool ConfigurationApplied { get; set; }
+
+    /// <summary>
+    /// Whether data was actually loaded to the worksheet table
+    /// </summary>
+    public bool DataLoadedToTable { get; set; }
+
+    /// <summary>
+    /// Whether data was actually loaded to the Data Model
+    /// </summary>
+    public bool DataLoadedToModel { get; set; }
+
+    /// <summary>
+    /// Number of rows loaded to the worksheet table (0 if not loaded)
+    /// </summary>
+    public int RowsLoadedToTable { get; set; }
+
+    /// <summary>
+    /// Number of rows loaded to the Data Model (0 if not loaded)
+    /// </summary>
+    public int RowsLoadedToModel { get; set; }
+
+    /// <summary>
+    /// Total number of tables in the Data Model after operation
+    /// </summary>
+    public int TablesInDataModel { get; set; }
+
+    /// <summary>
+    /// Overall workflow status: "Complete" | "Failed" | "Partial"
+    /// </summary>
+    public string WorkflowStatus { get; set; } = "Failed";
+}
+
+/// <summary>
+/// Result for Power Query create operations
+/// Atomic operation: Import M code + Load data to destination in ONE call
+/// </summary>
+public class PowerQueryCreateResult : PowerQueryOperationResult
+{
+    /// <summary>
+    /// Load destination applied
+    /// </summary>
+    public PowerQueryLoadMode LoadDestination { get; set; }
+
+    /// <summary>
+    /// Target worksheet name (if LoadToTable or LoadToBoth)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorksheetName { get; set; }
+
+    /// <summary>
+    /// Target cell address used when loading to a worksheet (e.g., "A1")
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetCellAddress { get; set; }
+
+    /// <summary>
+    /// Whether the query was created successfully
+    /// </summary>
+    public bool QueryCreated { get; set; }
+
+    /// <summary>
+    /// Whether data was loaded (true for all except ConnectionOnly)
+    /// </summary>
+    public bool DataLoaded { get; set; }
+
+}
+
+/// <summary>
+/// Result for Power Query load operations
+/// Atomic operation: Set destination + Refresh data in ONE call
+/// </summary>
+public class PowerQueryLoadResult : PowerQueryOperationResult
+{
+    /// <summary>
+    /// Load destination applied
+    /// </summary>
+    public PowerQueryLoadMode LoadDestination { get; set; }
+
+    /// <summary>
+    /// Target worksheet name (if applicable)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WorksheetName { get; set; }
+
+    /// <summary>
+    /// Target cell address used for the worksheet load destination (null defaults to A1)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetCellAddress { get; set; }
+
+    /// <summary>
+    /// Whether load configuration was applied
+    /// </summary>
+    public bool ConfigurationApplied { get; set; }
+
+    /// <summary>
+    /// Whether data was refreshed
+    /// </summary>
+    public bool DataRefreshed { get; set; }
+
+}
+
+/// <summary>
+/// Result for Power Query syntax validation
+/// Pre-flight syntax check before creating permanent query
+/// </summary>
+public class PowerQueryValidationResult : ResultBase
+{
+    /// <summary>
+    /// Whether the M code syntax is valid
+    /// </summary>
+    public bool IsValid { get; set; }
+
+    /// <summary>
+    /// Validation errors (if any)
+    /// </summary>
+    public List<string> ValidationErrors { get; set; } = [];
+
+    /// <summary>
+    /// M code expression that was validated
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MCodeExpression { get; set; }
+}
+
+/// <summary>
+/// Result for listing named ranges/parameters
+/// </summary>
+public class NamedRangeListResult : ResultBase
+{
+    /// <summary>
+    /// List of named ranges/parameters
+    /// </summary>
+    public List<NamedRangeInfo> NamedRanges { get; set; } = [];
+}
+
+/// <summary>
+/// Information about a named range/parameter
+/// </summary>
+public class NamedRangeInfo
+{
+    /// <summary>
+    /// Name of the named range
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What the named range refers to
+    /// </summary>
+    public string RefersTo { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current value
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Value { get; set; }
+
+    /// <summary>
+    /// Type of the value
+    /// </summary>
+    public string ValueType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of cells referenced by the named range, when available
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? CellCount { get; set; }
+
+    /// <summary>
+    /// Reason the value preview was omitted, when the list operation skips value materialization
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ValueOmittedReason { get; set; }
+}
+
+/// <summary>
+/// Named range value information (for Read operation)
+/// </summary>
+public class NamedRangeValue
+{
+    /// <summary>
+    /// Name of the named range
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What the named range refers to
+    /// </summary>
+    public string RefersTo { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current value
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Value { get; set; }
+
+    /// <summary>
+    /// Type of the value
+    /// </summary>
+    public string ValueType { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for getting parameter value
+/// </summary>
+public class NamedRangeValueResult : ResultBase
+{
+    /// <summary>
+    /// Name of the named range
+    /// </summary>
+    public string NamedRangeName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current value
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Value { get; set; }
+
+    /// <summary>
+    /// Type of the value
+    /// </summary>
+    public string ValueType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What the named range refers to
+    /// </summary>
+    public string RefersTo { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for listing VBA scripts
+/// </summary>
+public class VbaListResult : ResultBase
+{
+    /// <summary>
+    /// List of VBA scripts
+    /// </summary>
+    public List<ScriptInfo> Scripts { get; set; } = [];
+}
+
+/// <summary>VBA project access and execution status.</summary>
+public class VbaProjectStatusResult : ResultBase
+{
+    /// <summary>Whether Excel allows access to the VBA project object.</summary>
+    public bool ProjectAccess { get; set; }
+    /// <summary>Explanation when project access is blocked; this does not change Excel settings.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AccessMessage { get; set; }
+    /// <summary>Project name, when accessible.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProjectName { get; set; }
+    /// <summary>None or Locked, when project access allows inspection.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Protection { get; set; }
+    /// <summary>Design, Run, or Break, when project access allows inspection.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Mode { get; set; }
+}
+
+/// <summary>VBA library references inspected without modification.</summary>
+public class VbaReferencesResult : ResultBase
+{
+    /// <summary>References in their native project order.</summary>
+    public List<VbaReferenceInfo> References { get; set; } = [];
+    /// <summary>Whether any library reference is broken.</summary>
+    public bool HasBrokenReferences { get; set; }
+}
+
+/// <summary>One VBA library reference.</summary>
+public class VbaReferenceInfo
+{
+    /// <summary>One-based reference index, including broken references whose metadata cannot be read.</summary>
+    public int Index { get; set; }
+    /// <summary>Whether Excel reports the reference as broken.</summary>
+    public bool IsBroken { get; set; }
+    /// <summary>Library name; unavailable for broken references.</summary>
+    public string? Name { get; set; }
+    /// <summary>Library description; unavailable for broken references.</summary>
+    public string? Description { get; set; }
+    /// <summary>Library identifier; unavailable for broken references.</summary>
+    public string? LibraryId { get; set; }
+    /// <summary>Major version; unavailable for broken references.</summary>
+    public int? Major { get; set; }
+    /// <summary>Minor version; unavailable for broken references.</summary>
+    public int? Minor { get; set; }
+    /// <summary>Whether this is a built-in reference; unavailable for broken references.</summary>
+    public bool? BuiltIn { get; set; }
+}
+
+/// <summary>Limited VBA source search results.</summary>
+public class VbaSearchResult : ResultBase
+{
+    /// <summary>Located matches in module and source order.</summary>
+    public List<VbaSearchMatch> Matches { get; set; } = [];
+    /// <summary>Whether additional matches were omitted; narrow the search to inspect them.</summary>
+    public bool HasMore { get; set; }
+}
+
+/// <summary>One literal text match in VBA source.</summary>
+public class VbaSearchMatch
+{
+    /// <summary>Module containing the match.</summary>
+    public string ModuleName { get; set; } = string.Empty;
+    /// <summary>One-based source line.</summary>
+    public int Line { get; set; }
+    /// <summary>One-based source column.</summary>
+    public int Column { get; set; }
+    /// <summary>Source excerpt, at most 200 characters.</summary>
+    public string Excerpt { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for viewing VBA module code
+/// </summary>
+public class VbaViewResult : ResultBase
+{
+    /// <summary>
+    /// Module name
+    /// </summary>
+    public string ModuleName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Module type
+    /// </summary>
+    public string ModuleType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Complete VBA code
+    /// </summary>
+    public string Code { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of lines in the module
+    /// </summary>
+    public int LineCount { get; set; }
+
+    /// <summary>
+    /// List of procedures in the module
+    /// </summary>
+    public List<string> Procedures { get; set; } = [];
+}
+
+/// <summary>
+/// Result for reading part of a VBA module.
+/// </summary>
+public class VbaReadResult : ResultBase
+{
+    /// <summary>Name of the VBA module.</summary>
+    public string ModuleName { get; set; } = string.Empty;
+    /// <summary>First line of the selected source in the module.</summary>
+    public int StartLine { get; set; }
+    /// <summary>Number of lines in the full selection.</summary>
+    public int TotalLineCount { get; set; }
+    /// <summary>Number of lines returned in Code.</summary>
+    public int ReturnedLineCount { get; set; }
+    /// <summary>Selected source text returned by this read.</summary>
+    public string Code { get; set; } = string.Empty;
+    /// <summary>Whether more lines remain in the selected procedure.</summary>
+    public bool HasMore { get; set; }
+    /// <summary>First line to request to continue, when more lines remain.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? NextStartLine { get; set; }
+    /// <summary>Fingerprint of the full procedure or selected line range.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceHash { get; set; }
+}
+
+/// <summary>
+/// Result for replacing one VBA procedure.
+/// </summary>
+public class VbaProcedureEditResult : OperationResult
+{
+    /// <summary>Name of the replaced procedure.</summary>
+    public string ProcedureName { get; set; } = string.Empty;
+    /// <summary>Kind of the replaced procedure.</summary>
+    public string ProcedureKind { get; set; } = string.Empty;
+    /// <summary>Fingerprint of the source read back after replacement.</summary>
+    public string SourceHash { get; set; } = string.Empty;
+    /// <summary>Line where the procedure now starts.</summary>
+    public int StartLine { get; set; }
+    /// <summary>Number of lines in the procedure now stored.</summary>
+    public int LineCount { get; set; }
+}
+
+/// <summary>
+/// Information about a VBA script
+/// </summary>
+public class ScriptInfo
+{
+    /// <summary>
+    /// Name of the script module
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Type of the script module
+    /// </summary>
+    public string Type { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of lines in the module
+    /// </summary>
+    public int LineCount { get; set; }
+
+    /// <summary>
+    /// List of procedures in the module
+    /// </summary>
+    public List<string> Procedures { get; set; } = [];
+
+    /// <summary>
+    /// Procedure names, kinds, and source ranges.
+    /// </summary>
+    public List<VbaProcedureInfo> ProcedureDetails { get; set; } = [];
+}
+
+/// <summary>
+/// Name, kind, and source range for a VBA procedure.
+/// </summary>
+public class VbaProcedureInfo
+{
+    /// <summary>Procedure name.</summary>
+    public string Name { get; set; } = string.Empty;
+    /// <summary>Procedure kind: Sub, Function, Property Get, Property Let, or Property Set.</summary>
+    public string Kind { get; set; } = string.Empty;
+    /// <summary>First line of the procedure in its module.</summary>
+    public int StartLine { get; set; }
+    /// <summary>Line containing the Sub, Function, or Property declaration, excluding introductory comments.</summary>
+    public int BodyStartLine { get; set; }
+    /// <summary>Number of lines in the procedure.</summary>
+    public int LineCount { get; set; }
+}
+
+/// <summary>
+/// File validation details for FileCommands.Test
+/// </summary>
+public class FileValidationInfo
+{
+    /// <summary>
+    /// Whether the file passed validation and can be opened
+    /// </summary>
+    public bool Success => CanOpen;
+
+    /// <summary>
+    /// Full file path being validated
+    /// </summary>
+    public string FilePath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the file exists
+    /// </summary>
+    public bool Exists { get; set; }
+
+    /// <summary>
+    /// Size of the file in bytes
+    /// </summary>
+    public long Size { get; set; }
+
+    /// <summary>
+    /// File extension
+    /// </summary>
+    public string Extension { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Last modification time
+    /// </summary>
+    public DateTime LastModified { get; set; }
+
+    /// <summary>
+    /// Whether Excel successfully opened the workbook during validation.
+    /// IRM/AIP containers require interactive Excel validation and report false.
+    /// </summary>
+    public bool IsValid { get; set; }
+
+    /// <summary>
+    /// Whether Excel opened the workbook using ExcelMcp's required validation
+    /// mode. IRM/AIP openability requires
+    /// interactive authentication and reports false during preflight.
+    /// </summary>
+    public bool CanOpen { get; set; }
+
+    /// <summary>
+    /// Whether the file is IRM/AIP-protected (OLE2 compound document format).
+    /// IRM-protected files require show=true for visible authentication.
+    /// Excel determines the signed-in user's editing permissions; protection alone
+    /// does not force read-only access.
+    /// </summary>
+    public bool IsIrmProtected { get; set; }
+
+    /// <summary>
+    /// Whether normal opening forces read-only access. False does not guarantee
+    /// editing rights; inspect workbook readOnly after Excel opens it.
+    /// </summary>
+    public bool WillOpenReadOnly { get; set; }
+
+    /// <summary>
+    /// Whether opening requires a visible Excel session for authentication
+    /// </summary>
+    public bool RequiresVisibleSession { get; set; }
+
+    /// <summary>
+    /// Optional message describing validation outcome (missing file, invalid extension, etc.)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; set; }
+
+}
+
+/// <summary>
+/// Result for cell operations
+/// </summary>
+public class CellValueResult : ResultBase
+{
+    /// <summary>
+    /// Address of the cell (e.g., A1)
+    /// </summary>
+    public string CellAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current value of the cell
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Value { get; set; }
+
+    /// <summary>
+    /// Type of the value
+    /// </summary>
+    public string ValueType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Formula in the cell, if any
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Formula { get; set; }
+}
+
+/// <summary>
+/// Result for Excel range value operations
+/// </summary>
+public class RangeValueResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address (e.g., A1:D10)
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Mapped Excel error values found in the range, including canonical names, cell
+    /// addresses, formulas, raw COM codes, and suggested fixes. This can include formula
+    /// errors and transient or service states such as #BUSY!, #CONNECT!, and #PYTHON!.
+    /// </summary>
+    public List<RangeCellError> CellErrors { get; set; } = [];
+
+    /// <summary>
+    /// 2D array of cell values (row-major order). Mapped Excel errors use canonical names
+    /// such as #REF!; their raw COM values are preserved in <see cref="CellErrors"/>.
+    /// </summary>
+    public List<List<object?>> Values { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows in the range
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns in the range
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+/// <summary>
+/// Result for Excel range formula operations
+/// </summary>
+public class RangeFormulaResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address (e.g., A1:D10)
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Mapped Excel error values found in the range, including canonical names, cell
+    /// addresses, formulas, raw COM codes, and suggested fixes. This can include formula
+    /// errors and transient or service states such as #BUSY!, #CONNECT!, and #PYTHON!.
+    /// </summary>
+    public List<RangeCellError> CellErrors { get; set; } = [];
+
+    /// <summary>
+    /// 2D array of cell formulas (row-major order, empty string if no formula)
+    /// </summary>
+    public List<List<string>> Formulas { get; set; } = [];
+
+    /// <summary>
+    /// 2D array of cell values (calculated results). Mapped Excel errors use canonical
+    /// names such as #REF!; their raw COM values are preserved in <see cref="CellErrors"/>.
+    /// </summary>
+    public List<List<object?>> Values { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows in the range
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns in the range
+    /// </summary>
+    public int ColumnCount { get; set; }
+
+}
+
+/// <summary>
+/// Represents an error in a single cell
+/// </summary>
+public class RangeCellError
+{
+    /// <summary>
+    /// Cell address (e.g., "D2")
+    /// </summary>
+    public string CellAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Canonical Excel error name (e.g., "#REF!" or "#N/A")
+    /// </summary>
+    public string ErrorName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Full formula text returned by Excel, when the affected cell contains a formula
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Formula { get; set; }
+
+    /// <summary>
+    /// Row number (1-based)
+    /// </summary>
+    public int Row { get; set; }
+
+    /// <summary>
+    /// Column number (1-based)
+    /// </summary>
+    public int Column { get; set; }
+
+    /// <summary>
+    /// Raw cell value returned by Excel COM
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? CurrentValue { get; set; }
+
+    /// <summary>
+    /// Excel error code (negative integer like -2146826259)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ErrorCode { get; set; }
+
+    /// <summary>
+    /// Human-readable error message
+    /// </summary>
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Suggested fix if available
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Suggestion { get; set; }
+}
+
+/// <summary>
+/// Result for formula validation operations
+/// </summary>
+public class RangeFormulaValidationResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address that was validated
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether all formulas in range are valid
+    /// </summary>
+    public bool IsValid { get; set; } = true;
+
+    /// <summary>
+    /// Number of formulas validated
+    /// </summary>
+    public int FormulaCount { get; set; }
+
+    /// <summary>
+    /// Number of valid formulas
+    /// </summary>
+    public int ValidCount { get; set; }
+
+    /// <summary>
+    /// Number of invalid/problematic formulas
+    /// </summary>
+    public int ErrorCount { get; set; }
+
+    /// <summary>
+    /// 2D array of formulas that were validated
+    /// </summary>
+    public List<List<string>> Formulas { get; set; } = [];
+
+    /// <summary>
+    /// Detailed validation errors by cell
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FormulaValidationError>? Errors { get; set; }
+
+    /// <summary>
+    /// Warnings for formulas that are technically valid but potentially problematic
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FormulaValidationWarning>? Warnings { get; set; }
+}
+
+/// <summary>
+/// Represents a validation error in a formula
+/// </summary>
+public class FormulaValidationError
+{
+    /// <summary>
+    /// Cell address (e.g., "D2")
+    /// </summary>
+    public string CellAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Row number (1-based)
+    /// </summary>
+    public int Row { get; set; }
+
+    /// <summary>
+    /// Column number (1-based)
+    /// </summary>
+    public int Column { get; set; }
+
+    /// <summary>
+    /// The formula that has the error
+    /// </summary>
+    public string Formula { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Error message
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Suggested fix
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Suggestion { get; set; }
+
+    /// <summary>
+    /// Error category (e.g., "undefined-function", "missing-namespace", "syntax-error", "invalid-reference")
+    /// </summary>
+    public string Category { get; set; } = "unknown";
+}
+
+/// <summary>
+/// Represents a warning for a formula
+/// </summary>
+public class FormulaValidationWarning
+{
+    /// <summary>
+    /// Cell address (e.g., "D2")
+    /// </summary>
+    public string CellAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The formula with the warning
+    /// </summary>
+    public string Formula { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Warning message
+    /// </summary>
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Warning category (e.g., "circular-reference", "array-formula", "deprecated-function")
+    /// </summary>
+    public string Category { get; set; } = "unknown";
+}
+
+/// <summary>
+/// Result for range find operations
+/// </summary>
+public class RangeFindResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address that was searched
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Search value
+    /// </summary>
+    public string SearchValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Matching cell details, limited to the requested maximum (default: 10).
+    /// </summary>
+    public List<RangeCell> MatchingCells { get; set; } = [];
+
+    /// <summary>
+    /// Exact number of matching cells in the searched range.
+    /// </summary>
+    public long TotalCount { get; set; }
+
+    /// <summary>
+    /// Number of matching cells included in this response.
+    /// </summary>
+    public int ReturnedCount => MatchingCells.Count;
+
+    /// <summary>
+    /// Whether matching cells were omitted because of the return limit.
+    /// </summary>
+    public bool Truncated => TotalCount > ReturnedCount;
+}
+
+/// <summary>
+/// Represents a single cell in a range
+/// </summary>
+public class RangeCell
+{
+    /// <summary>
+    /// Cell address (e.g., "A5")
+    /// </summary>
+    public string Address { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Row number (1-based)
+    /// </summary>
+    public int Row { get; set; }
+
+    /// <summary>
+    /// Column number (1-based)
+    /// </summary>
+    public int Column { get; set; }
+
+    /// <summary>
+    /// Cell value
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Value { get; set; }
+}
+
+/// <summary>
+/// Result for range information operations
+/// </summary>
+public class RangeInfoResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Absolute address from Excel COM (e.g., "$A$1:$D$10")
+    /// </summary>
+    public string Address { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Number of rows (Excel COM: range.Rows.Count)
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns (Excel COM: range.Columns.Count)
+    /// </summary>
+    public int ColumnCount { get; set; }
+
+    /// <summary>
+    /// Number format code (Excel COM: range.NumberFormat, first cell)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NumberFormat { get; set; }
+
+    /// <summary>
+    /// Left position of the range in points (Excel COM: range.Left). 72 points = 1 inch.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Left { get; set; }
+
+    /// <summary>
+    /// Top position of the range in points (Excel COM: range.Top). 72 points = 1 inch.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Top { get; set; }
+
+    /// <summary>
+    /// Width of the range in points (Excel COM: range.Width). 72 points = 1 inch.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Width { get; set; }
+
+    /// <summary>
+    /// Height of the range in points (Excel COM: range.Height). 72 points = 1 inch.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? Height { get; set; }
+}
+
+/// <summary>
+/// Result for hyperlink operations
+/// </summary>
+public class RangeHyperlinkResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range or cell address
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// List of hyperlinks
+    /// </summary>
+    public List<HyperlinkInfo> Hyperlinks { get; set; } = [];
+}
+
+/// <summary>
+/// Result for Excel range style operations
+/// </summary>
+public class RangeStyleResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address (e.g., A1:D10)
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current style name applied to the range (first cell)
+    /// </summary>
+    public string StyleName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this is a built-in Excel style
+    /// </summary>
+    public bool IsBuiltInStyle { get; set; }
+
+    /// <summary>
+    /// Additional style information if available
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StyleDescription { get; set; }
+}
+
+/// <summary>
+/// Result for VBA trust operations
+/// </summary>
+public class VbaTrustResult : ResultBase
+{
+    /// <summary>
+    /// Whether VBA project access is trusted
+    /// </summary>
+    public bool IsTrusted { get; set; }
+
+    /// <summary>
+    /// Number of VBA components found (when checking trust)
+    /// </summary>
+    public int ComponentCount { get; set; }
+
+    /// <summary>
+    /// Registry paths where trust was set
+    /// </summary>
+    public List<string> RegistryPathsSet { get; set; } = [];
+
+    /// <summary>
+    /// Manual setup instructions if automated setup failed
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ManualInstructions { get; set; }
+}
+
+/// <summary>
+/// Per-source Power Query privacy levels for data combining.
+/// Individual source privacy levels cannot be set programmatically; the workbook-level
+/// FastCombine setting controls whether Excel applies those levels when combining sources.
+/// </summary>
+[Obsolete("Individual source privacy levels cannot be set programmatically.")]
+public enum PowerQueryPrivacyLevel
+{
+    /// <summary>
+    /// Ignores privacy levels, allows combining any data sources (least secure)
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// Prevents sharing data with other sources (most secure, recommended for sensitive data)
+    /// </summary>
+    Private,
+
+    /// <summary>
+    /// Data can be shared within organization (recommended for internal data)
+    /// </summary>
+    Organizational,
+
+    /// <summary>
+    /// Publicly available data sources (appropriate for public APIs)
+    /// </summary>
+    Public
+}
+
+/// <summary>
+/// Result for Power Query refresh operations with error detection
+/// </summary>
+public class PowerQueryRefreshResult : PowerQueryOperationResult
+{
+    /// <summary>
+    /// Whether query has errors after refresh attempt
+    /// </summary>
+    public bool HasErrors { get; set; }
+
+    /// <summary>
+    /// List of error messages detected
+    /// </summary>
+    public List<string> ErrorMessages { get; set; } = [];
+
+    /// <summary>
+    /// When the refresh was attempted
+    /// </summary>
+    public DateTime RefreshTime { get; set; }
+
+    /// <summary>
+    /// Whether this is a connection-only query
+    /// </summary>
+    public bool IsConnectionOnly { get; set; }
+
+    /// <summary>
+    /// Worksheet name where data was loaded (if applicable)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LoadedToSheet { get; set; }
+
+    /// <summary>Compact Power Query trace summary when requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PowerQueryTraceSummaryResult? TraceSummary { get; set; }
+
+    /// <summary>Guidance about trace availability or a slow refresh.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TraceNote { get; set; }
+}
+
+/// <summary>
+/// Result for refreshing every Power Query in a workbook. Each query appears in exactly
+/// one of the refreshed, skipped, or failed lists. Failures are not rolled back: queries
+/// listed as refreshed keep their new data even when the result is unsuccessful.
+/// </summary>
+public class PowerQueryRefreshAllResult : OperationResult
+{
+    /// <summary>Verified metrics for successfully refreshed queries, excluding skipped or failed queries.</summary>
+    [ResultOutcome]
+    public List<PowerQueryOperationResult> QueryMetrics { get; set; } = [];
+
+    /// <summary>
+    /// Queries whose worksheet, Data Model, or workbook connection loads were refreshed.
+    /// </summary>
+    public List<string> RefreshedQueries { get; set; } = [];
+
+    /// <summary>
+    /// Queries with nothing to refresh on their own, such as parameter and
+    /// connection-only staging queries.
+    /// </summary>
+    public List<PowerQueryRefreshSkip> SkippedQueries { get; set; } = [];
+
+    /// <summary>
+    /// Queries whose refresh failed. The operation continued with the remaining queries.
+    /// </summary>
+    public List<PowerQueryRefreshFailure> FailedQueries { get; set; } = [];
+
+    /// <summary>
+    /// PivotTables whose caches were refreshed because they depend on refreshed query loads.
+    /// Names are qualified with the worksheet name.
+    /// </summary>
+    public List<string> RefreshedPivotTables { get; set; } = [];
+
+    /// <summary>
+    /// PivotTables whose refresh failed. The operation continued with other caches.
+    /// </summary>
+    public List<PowerQueryPivotRefreshFailure> FailedPivotTables { get; set; } = [];
+
+    /// <summary>Compact Power Query trace summary when requested.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PowerQueryTraceSummaryResult? TraceSummary { get; set; }
+
+    /// <summary>Guidance about trace availability or a slow or failed refresh.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TraceNote { get; set; }
+
+    /// <summary>
+    /// Failure category shared by every failed query; omitted when no query failed or
+    /// the failed queries have different (or unknown) categories.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCategory
+    {
+        get
+        {
+            var categories = FailedQueries.Select(f => f.ErrorCategory).Distinct().ToList();
+            return categories.Count == 1 ? categories[0] : null;
+        }
+    }
+}
+
+/// <summary>
+/// A PivotTable whose cache refresh failed during Power Query refresh-all.
+/// </summary>
+public class PowerQueryPivotRefreshFailure
+{
+    /// <summary>Worksheet-qualified PivotTable name.</summary>
+    public string PivotTableName { get; set; } = string.Empty;
+
+    /// <summary>Error message reported for this PivotTable.</summary>
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>.NET exception type that reported the failure.</summary>
+    public string ExceptionType { get; set; } = string.Empty;
+
+    /// <summary>HRESULT from the underlying Excel/COM failure, when available.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("hresult")]
+    public string? HResult { get; set; }
+}
+
+/// <summary>
+/// Result for refreshing every workbook data connection and PivotTable.
+/// Successful items are not rolled back when another item fails.
+/// </summary>
+public class WorkbookRefreshAllResult : OperationResult
+{
+    /// <summary>Power Query loads refreshed.</summary>
+    public List<string> RefreshedQueries { get; set; } = [];
+
+    /// <summary>Power Query definitions with nothing to refresh on their own.</summary>
+    public List<PowerQueryRefreshSkip> SkippedQueries { get; set; } = [];
+
+    /// <summary>Power Queries that failed.</summary>
+    public List<PowerQueryRefreshFailure> FailedQueries { get; set; } = [];
+
+    /// <summary>Non-Power-Query workbook connections refreshed.</summary>
+    public List<string> RefreshedConnections { get; set; } = [];
+
+    /// <summary>Non-Power-Query workbook connections that failed to refresh.</summary>
+    public List<WorkbookRefreshFailure> FailedConnections { get; set; } = [];
+
+    /// <summary>PivotTables refreshed; each name is qualified with its worksheet.</summary>
+    public List<string> RefreshedPivotTables { get; set; } = [];
+
+    /// <summary>PivotTables whose shared cache failed to refresh.</summary>
+    public List<WorkbookPivotRefreshFailure> FailedPivotTables { get; set; } = [];
+}
+
+/// <summary>
+/// A workbook connection that failed during workbook refresh-all.
+/// </summary>
+public class WorkbookRefreshFailure
+{
+    /// <summary>Workbook connection name.</summary>
+    public string ConnectionName { get; set; } = string.Empty;
+
+    /// <summary>Error message reported for this connection.</summary>
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>.NET exception type that reported the failure.</summary>
+    public string ExceptionType { get; set; } = string.Empty;
+
+    /// <summary>HRESULT from the underlying Excel/COM failure, when available.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("hresult")]
+    public string? HResult { get; set; }
+}
+
+/// <summary>
+/// A PivotTable that failed during workbook refresh-all.
+/// </summary>
+public class WorkbookPivotRefreshFailure
+{
+    /// <summary>Worksheet name containing the PivotTable.</summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>PivotTable name.</summary>
+    public string PivotTableName { get; set; } = string.Empty;
+
+    /// <summary>Error message reported for this PivotTable.</summary>
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>.NET exception type that reported the failure.</summary>
+    public string ExceptionType { get; set; } = string.Empty;
+
+    /// <summary>HRESULT from the underlying Excel/COM failure, when available.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("hresult")]
+    public string? HResult { get; set; }
+}
+
+/// <summary>
+/// A query that refresh-all did not refresh because it has nothing to refresh on its own.
+/// </summary>
+public class PowerQueryRefreshSkip
+{
+    /// <summary>
+    /// Name of the skipped query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Why the query was skipped
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// A query whose refresh failed during refresh-all.
+/// </summary>
+public class PowerQueryRefreshFailure
+{
+    /// <summary>
+    /// Name of the failed query
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Classified failure category (for example Expression, Privacy, PrivacyFirewall, Connectivity), when known
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCategory { get; set; }
+
+    /// <summary>
+    /// Error message reported for this query
+    /// </summary>
+    public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// .NET exception type that reported the failure
+    /// </summary>
+    public string ExceptionType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// HRESULT from the underlying Excel/COM failure, when available
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("hresult")]
+    public string? HResult { get; set; }
+}
+
+/// <summary>
+/// Result for Power Query error checking
+/// </summary>
+public class PowerQueryErrorCheckResult : ResultBase
+{
+    /// <summary>
+    /// Name of the query checked
+    /// </summary>
+    public string QueryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether errors were detected
+    /// </summary>
+    public bool HasErrors { get; set; }
+
+    /// <summary>
+    /// List of error messages
+    /// </summary>
+    public List<string> ErrorMessages { get; set; } = [];
+
+    /// <summary>
+    /// Category of error (Authentication, Connectivity, Privacy, PrivacyFirewall, Syntax, Permissions, Unknown)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCategory { get; set; }
+
+    /// <summary>
+    /// Whether this is a connection-only query
+    /// </summary>
+    public bool IsConnectionOnly { get; set; }
+
+    /// <summary>
+    /// Additional message
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; set; }
+}
+
+/// <summary>
+/// Result for evaluating Power Query M code and returning results
+/// </summary>
+public class PowerQueryEvaluateResult : ResultBase
+{
+    /// <summary>
+    /// The M code that was evaluated
+    /// </summary>
+    public string MCode { get; set; } = "";
+
+    /// <summary>
+    /// Column names from the query result
+    /// </summary>
+    public List<string> Columns { get; set; } = [];
+
+    /// <summary>
+    /// Data rows from the query result (2D array matching Columns order)
+    /// </summary>
+    public List<List<object?>> Rows { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows returned
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns returned
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+#region Connection Result Types
+
+/// <summary>
+/// Result for listing connections in a workbook
+/// </summary>
+public class ConnectionListResult : ResultBase
+{
+    /// <summary>
+    /// List of connections in the workbook
+    /// </summary>
+    public List<ConnectionInfo> Connections { get; set; } = [];
+}
+
+/// <summary>
+/// Information about a connection
+/// </summary>
+public class ConnectionInfo
+{
+    /// <summary>
+    /// Connection name
+    /// </summary>
+    public string Name { get; init; } = "";
+
+    /// <summary>
+    /// Connection description
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; init; }
+
+    /// <summary>
+    /// Connection type (OLEDB, ODBC, XML, Text, Web, DataFeed, Model, Worksheet, NoSource)
+    /// </summary>
+    public string Type { get; init; } = "";
+
+    /// <summary>
+    /// Last refresh date/time (if available)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? LastRefresh { get; init; }
+
+    /// <summary>
+    /// Whether the connection refreshes in background
+    /// </summary>
+    public bool BackgroundQuery { get; init; }
+
+    /// <summary>
+    /// Whether the connection refreshes when file opens
+    /// </summary>
+    public bool RefreshOnFileOpen { get; init; }
+
+    /// <summary>
+    /// Whether this is a Power Query connection
+    /// </summary>
+    public bool IsPowerQuery { get; init; }
+}
+
+/// <summary>
+/// Result for viewing connection details
+/// </summary>
+public class ConnectionViewResult : ResultBase
+{
+    /// <summary>
+    /// Connection name
+    /// </summary>
+    public string ConnectionName { get; set; } = "";
+
+    /// <summary>
+    /// Connection type (OLEDB, ODBC, XML, Text, Web, DataFeed, Model, Worksheet, NoSource)
+    /// </summary>
+    public string Type { get; set; } = "";
+
+    /// <summary>
+    /// Connection string (SANITIZED - passwords masked)
+    /// </summary>
+    public string ConnectionString { get; set; } = "";
+
+    /// <summary>
+    /// Command text (SQL query, M code reference, etc.)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CommandText { get; set; }
+
+    /// <summary>
+    /// Command type (SQL, Table, Default, etc.)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CommandType { get; set; }
+
+    /// <summary>
+    /// Whether this is a Power Query connection
+    /// </summary>
+    public bool IsPowerQuery { get; set; }
+
+    /// <summary>
+    /// Full connection definition as JSON
+    /// </summary>
+    public string DefinitionJson { get; set; } = "";
+}
+
+/// <summary>
+/// Result for getting connection properties
+/// </summary>
+public class ConnectionPropertiesResult : ResultBase
+{
+    /// <summary>
+    /// Connection name
+    /// </summary>
+    public string ConnectionName { get; set; } = "";
+
+    /// <summary>
+    /// Whether the connection refreshes in background
+    /// </summary>
+    public bool BackgroundQuery { get; set; }
+
+    /// <summary>
+    /// Whether the connection refreshes when file opens
+    /// </summary>
+    public bool RefreshOnFileOpen { get; set; }
+
+    /// <summary>
+    /// Whether password is saved with connection
+    /// </summary>
+    public bool SavePassword { get; set; }
+
+    /// <summary>
+    /// Refresh period in minutes (0 = no automatic refresh)
+    /// </summary>
+    public int RefreshPeriod { get; set; }
+}
+
+/// <summary>
+/// Safe account-setting inspection for an MSOLAP connection; never contains account or secret values.
+/// </summary>
+public class ConnectionAccountSettingsResult : ResultBase
+{
+    /// <summary>Exact workbook connection name.</summary>
+    public string ConnectionName { get; set; } = "";
+    /// <summary>Whether a User ID or UID setting exists, including an empty setting.</summary>
+    public bool AccountHintPresent { get; set; }
+    /// <summary>Whether a Password or PWD setting exists; not evidence of a valid saved password.</summary>
+    public bool PasswordPresent { get; set; }
+    /// <summary>Whether EffectiveUserName server impersonation is configured.</summary>
+    public bool ImpersonationPresent { get; set; }
+    /// <summary>Excel's password-saving setting, distinct from shared credential caches.</summary>
+    public bool SavePassword { get; set; }
+    /// <summary>Recognized Interactive Login value, null if absent, or Unrecognized.</summary>
+    public string? InteractiveLogin { get; set; }
+    /// <summary>Recognized Identity Mode value, null if absent, or Unrecognized.</summary>
+    public string? IdentityMode { get; set; }
+}
+
+/// <summary>Safe result of updating explicitly supplied workbook account-hint or sign-in settings.</summary>
+public class ConnectionAccountSettingsUpdateResult : ConnectionAccountSettingsResult
+{
+    /// <summary>Whether any explicitly requested account-hint or sign-in setting changed.</summary>
+    public bool Changed { get; set; }
+}
+
+/// <summary>Result of removing workbook-scoped account hints, not cached sign-in credentials.</summary>
+public class ConnectionAccountHintClearResult : ResultBase
+{
+    /// <summary>Exact workbook connection name.</summary>
+    public string ConnectionName { get; set; } = "";
+    /// <summary>Whether any User ID/UID setting was removed.</summary>
+    public bool Changed { get; set; }
+    /// <summary>Whether an account hint remains after successful readback.</summary>
+    public bool AccountHintPresent { get; set; }
+}
+
+#endregion
+
+#region Data Model Result Types
+
+/// <summary>
+/// Result for listing Data Model tables
+/// </summary>
+public class DataModelTableListResult : ResultBase
+{
+    /// <summary>
+    /// List of tables in the Data Model
+    /// </summary>
+    public List<DataModelTableInfo> Tables { get; set; } = [];
+}
+
+/// <summary>
+/// Information about a Data Model table
+/// </summary>
+public class DataModelTableInfo
+{
+    /// <summary>
+    /// Table name
+    /// </summary>
+    public string Name { get; init; } = "";
+
+    /// <summary>
+    /// Source query or connection name
+    /// </summary>
+    public string SourceName { get; init; } = "";
+
+    /// <summary>
+    /// Number of rows in the table
+    /// </summary>
+    public int RecordCount { get; init; }
+}
+
+/// <summary>
+/// Result for listing DAX measures
+/// </summary>
+public class DataModelMeasureListResult : ResultBase
+{
+    /// <summary>
+    /// List of DAX measures in the model
+    /// </summary>
+    public List<DataModelMeasureInfo> Measures { get; set; } = [];
+
+    /// <summary>
+    /// Informational hint when a table filter returns no measures.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; set; }
+}
+
+/// <summary>
+/// Information about a DAX measure
+/// </summary>
+public class DataModelMeasureInfo
+{
+    /// <summary>
+    /// Measure name
+    /// </summary>
+    public string Name { get; init; } = "";
+
+    /// <summary>
+    /// Table name where measure is defined
+    /// </summary>
+    public string Table { get; init; } = "";
+
+    /// <summary>
+    /// DAX formula preview (truncated for display)
+    /// </summary>
+    public string FormulaPreview { get; init; } = "";
+
+    /// <summary>
+    /// Measure description (if available)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; init; }
+}
+
+/// <summary>
+/// Format information for a Data Model measure.
+/// Represents the polymorphic ModelFormat* COM objects as structured JSON.
+/// </summary>
+public class MeasureFormatInfo
+{
+    /// <summary>
+    /// Format type: General, Currency, Decimal, Percentage, WholeNumber,
+    /// Scientific, Boolean, Date. The last three are read-only format results.
+    /// </summary>
+    public string Type { get; set; } = "General";
+
+    /// <summary>
+    /// Currency symbol (e.g., "$", "€", "£"). Only present for Currency format.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Symbol { get; set; }
+
+    /// <summary>
+    /// Number of decimal places. Present for Currency, Decimal, Percentage formats.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DecimalPlaces { get; set; }
+
+    /// <summary>
+    /// Whether to use thousand separator (e.g., 1,000 vs 1000). Present for numeric formats.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UseThousandSeparator { get; set; }
+}
+
+/// <summary>
+/// Result for viewing measure details
+/// </summary>
+public class DataModelMeasureViewResult : ResultBase
+{
+    /// <summary>
+    /// Measure name
+    /// </summary>
+    public string MeasureName { get; set; } = "";
+
+    /// <summary>
+    /// Table name where measure is defined
+    /// </summary>
+    public string TableName { get; set; } = "";
+
+    /// <summary>
+    /// Complete DAX formula
+    /// </summary>
+    public string DaxFormula { get; set; } = "";
+
+    /// <summary>
+    /// Measure description
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Format information extracted from ModelFormat* COM objects.
+    /// Contains Type, Symbol, DecimalPlaces, UseThousandSeparator as applicable.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MeasureFormatInfo? FormatInfo { get; set; }
+
+    /// <summary>
+    /// Number of characters in DAX formula
+    /// </summary>
+    public int CharacterCount { get; set; }
+}
+
+/// <summary>
+/// Result for listing model relationships
+/// </summary>
+public class DataModelRelationshipListResult : ResultBase
+{
+    /// <summary>
+    /// List of relationships in the model
+    /// </summary>
+    public List<DataModelRelationshipInfo> Relationships { get; set; } = [];
+}
+
+/// <summary>
+/// Result for reading a single relationship
+/// </summary>
+public class DataModelRelationshipViewResult : ResultBase
+{
+    /// <summary>
+    /// The relationship details
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DataModelRelationshipInfo? Relationship { get; set; }
+}
+
+/// <summary>
+/// Information about a table relationship
+/// </summary>
+public class DataModelRelationshipInfo
+{
+    /// <summary>
+    /// Source table name (foreign key side)
+    /// </summary>
+    public string FromTable { get; init; } = "";
+
+    /// <summary>
+    /// Source column name (foreign key)
+    /// </summary>
+    public string FromColumn { get; init; } = "";
+
+    /// <summary>
+    /// Target table name (primary key side)
+    /// </summary>
+    public string ToTable { get; init; } = "";
+
+    /// <summary>
+    /// Target column name (primary key)
+    /// </summary>
+    public string ToColumn { get; init; } = "";
+
+    /// <summary>
+    /// Whether this relationship is active
+    /// </summary>
+    public bool IsActive { get; init; }
+}
+
+/// <summary>
+/// Result for DAX formula validation
+/// </summary>
+public class DataModelValidationResult : ResultBase
+{
+    /// <summary>
+    /// Whether the DAX formula is valid
+    /// </summary>
+    public bool IsValid { get; set; }
+
+    /// <summary>
+    /// Validation error message (if not valid)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ValidationError { get; set; }
+
+    /// <summary>
+    /// DAX formula that was validated
+    /// </summary>
+    public string DaxFormula { get; set; } = "";
+}
+
+/// <summary>
+/// Result for listing calculated columns
+/// </summary>
+public class DataModelCalculatedColumnListResult : ResultBase
+{
+    /// <summary>
+    /// List of calculated columns in the model
+    /// </summary>
+    public List<DataModelCalculatedColumnInfo> CalculatedColumns { get; set; } = [];
+}
+
+/// <summary>
+/// Information about a calculated column
+/// </summary>
+public class DataModelCalculatedColumnInfo
+{
+    /// <summary>
+    /// Column name
+    /// </summary>
+    public string Name { get; init; } = "";
+
+    /// <summary>
+    /// Table name where column is defined
+    /// </summary>
+    public string Table { get; init; } = "";
+
+    /// <summary>
+    /// DAX formula preview (truncated for display)
+    /// </summary>
+    public string FormulaPreview { get; init; } = "";
+
+    /// <summary>
+    /// Data type of the column
+    /// </summary>
+    public string DataType { get; init; } = "";
+
+    /// <summary>
+    /// Column description (if available)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; init; }
+}
+
+/// <summary>
+/// Result for viewing calculated column details
+/// </summary>
+public class DataModelCalculatedColumnViewResult : ResultBase
+{
+    /// <summary>
+    /// Column name
+    /// </summary>
+    public string ColumnName { get; set; } = "";
+
+    /// <summary>
+    /// Table name where column is defined
+    /// </summary>
+    public string TableName { get; set; } = "";
+
+    /// <summary>
+    /// Complete DAX formula
+    /// </summary>
+    public string DaxFormula { get; set; } = "";
+
+    /// <summary>
+    /// Column description
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Data type of the column
+    /// </summary>
+    public string DataType { get; set; } = "";
+
+    /// <summary>
+    /// Number of characters in DAX formula
+    /// </summary>
+    public int CharacterCount { get; set; }
+}
+
+/// <summary>
+/// Result for DAX EVALUATE query execution
+/// </summary>
+public class DaxEvaluateResult : ResultBase
+{
+    /// <summary>
+    /// The DAX EVALUATE query that was executed
+    /// </summary>
+    public string DaxQuery { get; set; } = "";
+
+    /// <summary>
+    /// Column names from the query result (fully qualified: Table[Column])
+    /// </summary>
+    public List<string> Columns { get; set; } = [];
+
+    /// <summary>
+    /// Data rows from the query result (2D array matching Columns order)
+    /// </summary>
+    public List<List<object?>> Rows { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows returned
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns returned
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+/// <summary>
+/// Result for DMV (Dynamic Management View) query execution
+/// </summary>
+public class DmvQueryResult : ResultBase
+{
+    /// <summary>
+    /// The DMV query that was executed
+    /// </summary>
+    public string DmvQuery { get; set; } = "";
+
+    /// <summary>
+    /// Column names from the query result
+    /// </summary>
+    public List<string> Columns { get; set; } = [];
+
+    /// <summary>
+    /// Data rows from the query result (2D array matching Columns order)
+    /// </summary>
+    public List<List<object?>> Rows { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows returned
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns returned
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+/// <summary>
+/// Result for getting DAX query information from a table
+/// </summary>
+public class TableDaxInfoResult : ResultBase
+{
+    /// <summary>
+    /// Name of the Excel Table
+    /// </summary>
+    public string TableName { get; set; } = "";
+
+    /// <summary>
+    /// DAX EVALUATE query backing this table (if any)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DaxQuery { get; set; }
+
+    /// <summary>
+    /// Whether this table is backed by a DAX query
+    /// </summary>
+    public bool HasDaxConnection { get; set; }
+
+    /// <summary>
+    /// Name of the model connection (if DAX-backed)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ModelConnectionName { get; set; }
+}
+
+#endregion
+
+#region Table (ListObject) Results
+
+/// <summary>
+/// Result for listing Excel Tables
+/// </summary>
+public class TableListResult : ResultBase
+{
+    /// <summary>
+    /// List of Excel Tables in the workbook
+    /// </summary>
+    public List<TableInfo> Tables { get; set; } = [];
+}
+
+/// <summary>
+/// Result for getting detailed information about an Excel Table
+/// </summary>
+public class TableInfoResult : ResultBase
+{
+    /// <summary>
+    /// Detailed information about the Excel Table
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TableInfo? Table { get; set; }
+}
+
+/// <summary>
+/// Information about an Excel Table (ListObject)
+/// </summary>
+public class TableInfo
+{
+    /// <summary>
+    /// Name of the table
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Worksheet containing the table
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address of the table (e.g., "A1:D10")
+    /// </summary>
+    public string Range { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the table has headers
+    /// </summary>
+    public bool HasHeaders { get; set; } = true;
+
+    /// <summary>
+    /// Table style name (e.g., "TableStyleMedium2")
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TableStyle { get; set; }
+
+    /// <summary>
+    /// Number of rows (excluding header)
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns
+    /// </summary>
+    public int ColumnCount { get; set; }
+
+    /// <summary>
+    /// Column names (if table has headers)
+    /// </summary>
+    public List<string> Columns { get; set; } = [];
+
+    /// <summary>
+    /// Whether the table has a total row
+    /// </summary>
+    public bool ShowTotals { get; set; }
+}
+
+/// <summary>
+/// Result for reading Excel Table data
+/// </summary>
+public class TableDataResult : ResultBase
+{
+    /// <summary>
+    /// Name of the table
+    /// </summary>
+    public string TableName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Column headers
+    /// </summary>
+    public List<string> Headers { get; set; } = [];
+
+    /// <summary>
+    /// Data rows (each row is a list of cell values)
+    /// </summary>
+    public List<List<object?>> Data { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows (excluding header)
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+/// <summary>
+/// Result for getting filter state of an Excel Table
+/// </summary>
+public class TableFilterResult : ResultBase
+{
+    /// <summary>
+    /// Name of the table
+    /// </summary>
+    public string TableName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Filter information for each column
+    /// </summary>
+    public List<ColumnFilter> ColumnFilters { get; set; } = [];
+
+    /// <summary>
+    /// Whether any filters are active
+    /// </summary>
+    public bool HasActiveFilters { get; set; }
+}
+
+/// <summary>
+/// Filter information for a table column
+/// </summary>
+public class ColumnFilter
+{
+    /// <summary>
+    /// Column name
+    /// </summary>
+    public string ColumnName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Column index (1-based)
+    /// </summary>
+    public int ColumnIndex { get; set; }
+
+    /// <summary>
+    /// Whether this column has an active filter
+    /// </summary>
+    public bool IsFiltered { get; set; }
+
+    /// <summary>
+    /// Native operator when the column is filtered
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Commands.Filtering.FilterOperator? FilterOperator { get; set; }
+
+    /// <summary>
+    /// First native criterion, preserving arrays and read failures
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Commands.Filtering.FilterCriterion? Criteria1 { get; set; }
+    /// <summary>Second native criterion, preserving arrays and read failures.</summary>
+    public Commands.Filtering.FilterCriterion? Criteria2 { get; set; }
+}
+
+/// <summary>
+/// Excel Table regions for structured references
+/// </summary>
+public enum TableRegion
+{
+    /// <summary>
+    /// Entire table including headers, data, and totals (TableName[#All])
+    /// </summary>
+    All,
+
+    /// <summary>
+    /// Data rows only, excluding headers and totals (TableName[#Data])
+    /// </summary>
+    Data,
+
+    /// <summary>
+    /// Header row only (TableName[#Headers])
+    /// </summary>
+    Headers,
+
+    /// <summary>
+    /// Totals row only (TableName[#Totals])
+    /// </summary>
+    Totals,
+
+    /// <summary>
+    /// This row in formula context (TableName[@])
+    /// </summary>
+    ThisRow
+}
+
+/// <summary>
+/// Result for getting structured reference information for a table region
+/// </summary>
+public class TableStructuredReferenceResult : ResultBase
+{
+    /// <summary>
+    /// Name of the table
+    /// </summary>
+    public string TableName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Table region requested
+    /// </summary>
+    public TableRegion Region { get; set; }
+
+    /// <summary>
+    /// Excel range address for the region (e.g., "$A$1:$D$100")
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Structured reference formula (e.g., "SalesTable[#Data]")
+    /// </summary>
+    public string StructuredReference { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Sheet name where the table is located
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Column name (if requesting specific column reference)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ColumnName { get; set; }
+
+    /// <summary>
+    /// Number of rows in the region
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns in the region
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+/// <summary>
+/// Sort column specification for table sorting
+/// </summary>
+public class TableSortColumn
+{
+    /// <summary>
+    /// Column name to sort by
+    /// </summary>
+    public string ColumnName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether to sort in ascending order (true) or descending (false)
+    /// </summary>
+    public bool Ascending { get; set; } = true;
+}
+
+#endregion
+
+#region Hyperlink Results
+
+/// <summary>
+/// Information about a hyperlink in an Excel cell
+/// </summary>
+public class HyperlinkInfo
+{
+    /// <summary>
+    /// Cell address containing the hyperlink
+    /// </summary>
+    public string CellAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Hyperlink URL or file path
+    /// </summary>
+    public string Address { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Sub-address within the target (e.g., sheet reference)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SubAddress { get; set; }
+
+    /// <summary>
+    /// Display text (visible text in cell)
+    /// </summary>
+    public string DisplayText { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tooltip/ScreenTip text
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScreenTip { get; set; }
+
+    /// <summary>
+    /// Whether the hyperlink points to another location in the workbook
+    /// </summary>
+    public bool IsInternal { get; set; }
+}
+
+/// <summary>
+/// Result for listing hyperlinks in a worksheet
+/// </summary>
+public class HyperlinkListResult : ResultBase
+{
+    /// <summary>
+    /// List of hyperlinks in the worksheet
+    /// </summary>
+    public List<HyperlinkInfo> Hyperlinks { get; set; } = [];
+
+    /// <summary>
+    /// Total count of hyperlinks
+    /// </summary>
+    public int Count { get; set; }
+
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result for getting hyperlink information from a specific cell
+/// </summary>
+public class HyperlinkInfoResult : ResultBase
+{
+    /// <summary>
+    /// Hyperlink information (null if no hyperlink exists)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public HyperlinkInfo? Hyperlink { get; set; }
+
+    /// <summary>
+    /// Whether a hyperlink exists at the specified cell
+    /// </summary>
+    public bool HasHyperlink { get; set; }
+
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Cell address
+    /// </summary>
+    public string CellAddress { get; set; } = string.Empty;
+}
+
+#endregion
+
+#region Number Formatting Results
+
+/// <summary>
+/// Result for range number format operations
+/// </summary>
+public class RangeNumberFormatResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address (e.g., A1:D10)
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 2D array of number format codes (matches range dimensions)
+    /// </summary>
+    public List<List<string>> Formats { get; set; } = [];
+
+    /// <summary>
+    /// Number of rows in the range
+    /// </summary>
+    public int RowCount { get; set; }
+
+    /// <summary>
+    /// Number of columns in the range
+    /// </summary>
+    public int ColumnCount { get; set; }
+}
+
+#endregion
+
+#region Validation Results
+
+/// <summary>
+/// Result for range validation operations
+/// </summary>
+public class RangeValidationResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the range has validation
+    /// </summary>
+    public bool HasValidation { get; set; }
+
+    /// <summary>
+    /// Validation type (list, whole, decimal, date, time, textlength, custom)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ValidationType { get; set; }
+
+    /// <summary>
+    /// Validation operator (between, equal, greaterthan, etc.)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ValidationOperator { get; set; }
+
+    /// <summary>
+    /// First formula/value
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Formula1 { get; set; }
+
+    /// <summary>
+    /// Second formula/value (for Between operator)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Formula2 { get; set; }
+
+    /// <summary>
+    /// Whether to ignore blank cells
+    /// </summary>
+    public bool IgnoreBlank { get; set; }
+
+    /// <summary>
+    /// Whether to show input message
+    /// </summary>
+    public bool ShowInputMessage { get; set; }
+
+    /// <summary>
+    /// Input message title
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputTitle { get; set; }
+
+    /// <summary>
+    /// Input message text
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InputMessage { get; set; }
+
+    /// <summary>
+    /// Whether to show error alert
+    /// </summary>
+    public bool ShowErrorAlert { get; set; }
+
+    /// <summary>
+    /// Error alert style (stop, warning, information)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorStyle { get; set; }
+
+    /// <summary>
+    /// Error alert title
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorTitle { get; set; }
+
+    /// <summary>
+    /// Error alert message text
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ValidationErrorMessage { get; set; }
+}
+
+#endregion
+
+#region Cell Merge and Protection Results
+
+/// <summary>
+/// Result for range merge information
+/// </summary>
+public class RangeMergeInfoResult : ResultBase
+{
+    /// <summary>
+    /// Sheet name
+    /// </summary>
+    public string SheetName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Range address
+    /// </summary>
+    public string RangeAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the range contains merged cells
+    /// </summary>
+    public bool IsMerged { get; set; }
+
+    /// <summary>
+    /// Distinct merged ranges contained in the queried range
+    /// </summary>
+    public IReadOnlyList<string> MergedRanges { get; set; } = [];
+}
+
+#endregion
+
+#region Diag Results
+
+/// <summary>
+/// Result for diagnostic commands. Returns echoed parameters and metadata.
+/// </summary>
+public class DiagResult : ResultBase
+{
+    /// <summary>
+    /// The diagnostic action that was performed
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Action { get; set; }
+
+    /// <summary>
+    /// Echoed message (for echo action)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Message { get; set; }
+
+    /// <summary>
+    /// Echoed tag (for echo action)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Tag { get; set; }
+
+    /// <summary>
+    /// ISO 8601 timestamp of the response
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Timestamp { get; set; }
+
+    /// <summary>
+    /// Echoed parameters as key-value pairs (for validate-params action)
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, object?>? Parameters { get; set; }
+}
+
+#endregion

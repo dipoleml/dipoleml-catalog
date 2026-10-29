@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.agentdeskai.browser-tools-mcp",
+  "type": "mcp",
+  "name": "Browser Tools MCP",
+  "slug": "browser-tools-mcp",
+  "vendor": "agentdeskai",
+  "description": "Monitor browser logs directly from Cursor and other MCP compatible IDEs.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/AgentDeskAI/browser-tools-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "cursor"
+  ],
+  "tags": [
+    "ai",
+    "anthropic",
+    "cursor",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "agentdeskai",
+    "brandName": "agentdeskai",
+    "source": "https://github.com/AgentDeskAI.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "AgentDeskAI/browser-tools-mcp",
+    "url": "https://github.com/AgentDeskAI/browser-tools-mcp",
+    "commit": "2b30d11677e73e09bfab72c479be83f2836da425",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7338,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:25Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.19"
+    ],
+    "packages": [
+      "browser-tools-mcp-workspace"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

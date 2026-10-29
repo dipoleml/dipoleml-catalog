@@ -1,0 +1,608 @@
+import type { ToolSpec } from "../types.js";
+import {
+  asRecord,
+  compactObject,
+  normalizeResponse,
+  readBoolean,
+  readNumber,
+  readString,
+  requireBoolean,
+  requireString,
+} from "../helpers.js";
+import { privateRateLimit } from "../common.js";
+import { OkxApiError } from "../../utils/errors.js";
+
+/** For write operations: surface any inner sCode/sMsg errors from data items. */
+function normalizeWrite(response: {
+  endpoint: string;
+  requestTime: string;
+  data: unknown;
+}): Record<string, unknown> {
+  const data = response.data;
+  if (Array.isArray(data) && data.length > 0) {
+    const failed = data.filter(
+      (item) =>
+        item !== null &&
+        typeof item === "object" &&
+        "sCode" in (item as object) &&
+        (item as Record<string, unknown>)["sCode"] !== "0",
+    ) as Record<string, unknown>[];
+    if (failed.length > 0) {
+      const messages = failed.map(
+        (item) => `[${item["sCode"]}] ${item["sMsg"] ?? "Operation failed"}`,
+      );
+      throw new OkxApiError(messages.join("; "), {
+        code: String(failed[0]!["sCode"] ?? ""),
+        endpoint: response.endpoint,
+      });
+    }
+  }
+  return {
+    endpoint: response.endpoint,
+    requestTime: response.requestTime,
+    data,
+  };
+}
+
+export function registerGridTools(): ToolSpec[] {
+  return [
+    {
+      name: "grid_get_orders",
+      title: "Grid Bot List Orders",
+      module: "bot.grid",
+      description:
+        "List grid bots. status='active' for running; 'history' for stopped.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoOrdType: {
+            type: "string",
+            enum: ["grid", "contract_grid"],
+            description: "grid=Spot, contract_grid=Contract",
+          },
+          status: {
+            type: "string",
+            enum: ["active", "history"],
+            description: "active=running (default); history=stopped",
+          },
+          instId: { type: "string", description: "e.g. BTC-USDT, BTC-USD-SWAP" },
+          algoId: { type: "string", description: "Grid bot algo order ID (not a trade ordId)" },
+          after: { type: "string", description: "Cursor for older records" },
+          before: { type: "string", description: "Cursor for newer records" },
+          limit: { type: "number", description: "Default 100" },
+        },
+        required: ["algoOrdType"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoOrdType = requireString(args, "algoOrdType");
+        const status = readString(args, "status") ?? "active";
+        const path =
+          status === "history"
+            ? "/api/v5/tradingBot/grid/orders-algo-history"
+            : "/api/v5/tradingBot/grid/orders-algo-pending";
+        const response = await context.client.privateGet(
+          path,
+          compactObject({
+            algoOrdType,
+            instId: readString(args, "instId"),
+            algoId: readString(args, "algoId"),
+            after: readString(args, "after"),
+            before: readString(args, "before"),
+            limit: readNumber(args, "limit"),
+          }),
+          privateRateLimit("grid_get_orders", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    {
+      name: "grid_get_order_details",
+      title: "Grid Bot Get Detail",
+      module: "bot.grid",
+      description: "Get grid bot detail by algo ID. Returns config, status, PnL, and position.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoOrdType: {
+            type: "string",
+            enum: ["grid", "contract_grid"],
+            description: "grid=Spot, contract_grid=Contract",
+          },
+          algoId: { type: "string", description: "Grid bot algo order ID (not a trade ordId)" },
+        },
+        required: ["algoOrdType", "algoId"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const response = await context.client.privateGet(
+          "/api/v5/tradingBot/grid/orders-algo-details",
+          {
+            algoOrdType: requireString(args, "algoOrdType"),
+            algoId: requireString(args, "algoId"),
+          },
+          privateRateLimit("grid_get_order_details", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    {
+      name: "grid_get_sub_orders",
+      title: "Grid Bot Get Sub-Orders",
+      module: "bot.grid",
+      description:
+        "Query sub-orders (grid trades) of a bot. type='filled' for executed; 'live' for pending.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoOrdType: {
+            type: "string",
+            enum: ["grid", "contract_grid"],
+            description: "grid=Spot, contract_grid=Contract",
+          },
+          algoId: { type: "string", description: "Grid bot algo order ID (not a trade ordId)" },
+          type: {
+            type: "string",
+            enum: ["filled", "live"],
+            description: "filled=executed trades (default); live=pending",
+          },
+          groupId: { type: "string", description: "A buy-sell pair shares the same groupId" },
+          after: { type: "string", description: "Cursor for older records" },
+          before: { type: "string", description: "Cursor for newer records" },
+          limit: { type: "number", description: "Default 100" },
+        },
+        required: ["algoOrdType", "algoId"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const response = await context.client.privateGet(
+          "/api/v5/tradingBot/grid/sub-orders",
+          compactObject({
+            algoOrdType: requireString(args, "algoOrdType"),
+            algoId: requireString(args, "algoId"),
+            type: readString(args, "type") ?? "filled",
+            groupId: readString(args, "groupId"),
+            after: readString(args, "after"),
+            before: readString(args, "before"),
+            limit: readNumber(args, "limit"),
+          }),
+          privateRateLimit("grid_get_sub_orders", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    {
+      name: "grid_create_order",
+      title: "Grid Bot Create",
+      module: "bot.grid",
+      description:
+        "Create grid bot (spot, USDT-margined, or coin-margined contract). [CAUTION] Locks funds. " +
+        "Spot: quoteSz|baseSz. Contract: direction+lever+sz.",
+      isWrite: true,
+      destructiveHint: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          instId: { type: "string", description: "e.g. BTC-USDT, BTC-USDT-SWAP, BTC-USD-SWAP (coin-margined)" },
+          algoOrdType: {
+            type: "string",
+            enum: ["grid", "contract_grid"],
+            description: "grid=Spot, contract_grid=Contract",
+          },
+          maxPx: { type: "string", description: "Upper price" },
+          minPx: { type: "string", description: "Lower price" },
+          gridNum: { type: "string", description: "Number of grids" },
+          runType: {
+            type: "string",
+            enum: ["1", "2"],
+            description: "1=arithmetic (default); 2=geometric",
+          },
+          quoteSz: { type: "string", description: "Spot: quote amount (e.g. USDT)" },
+          baseSz: { type: "string", description: "Spot: base amount (e.g. BTC)" },
+          direction: {
+            type: "string",
+            enum: ["long", "short", "neutral"],
+            description: "Contract only",
+          },
+          lever: { type: "string", description: "Leverage. Contract only" },
+          sz: { type: "string", description: "Margin in USDT or base coin (CoinM). Contract only" },
+          basePos: { type: "boolean", description: "Open base position for contract. Default: true" },
+          tpTriggerPx: { type: "string", description: "TP trigger price" },
+          slTriggerPx: { type: "string", description: "SL trigger price" },
+          tpRatio: { type: "string", description: "TP ratio e.g. 0.1=10%. Contract only" },
+          slRatio: { type: "string", description: "SL ratio e.g. 0.1=10%. Contract only" },
+          algoClOrdId: { type: "string", description: "User-defined ID. Alphanumeric, max 32, unique per user" },
+        },
+        required: ["instId", "algoOrdType", "maxPx", "minPx", "gridNum"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoOrdType = requireString(args, "algoOrdType");
+        const body: Record<string, unknown> = compactObject({
+          instId: requireString(args, "instId"),
+          algoOrdType,
+          maxPx: requireString(args, "maxPx"),
+          minPx: requireString(args, "minPx"),
+          gridNum: requireString(args, "gridNum"),
+          runType: readString(args, "runType"),
+          quoteSz: readString(args, "quoteSz"),
+          baseSz: readString(args, "baseSz"),
+          direction: readString(args, "direction"),
+          lever: readString(args, "lever"),
+          sz: readString(args, "sz"),
+          tpTriggerPx: readString(args, "tpTriggerPx"),
+          slTriggerPx: readString(args, "slTriggerPx"),
+          tpRatio: readString(args, "tpRatio"),
+          slRatio: readString(args, "slRatio"),
+          algoClOrdId: readString(args, "algoClOrdId"),
+          tag: context.config.sourceTag,
+        });
+        if (algoOrdType === "contract_grid") {
+          requireString(args, "direction");
+          body.triggerParams = [{ triggerAction: "start", triggerStrategy: "instant" }];
+          body.basePos = readBoolean(args, "basePos") ?? true;
+        }
+        const response = await context.client.privatePost(
+          "/api/v5/tradingBot/grid/order-algo",
+          body,
+          privateRateLimit("grid_create_order", 20),
+        );
+        return normalizeWrite(response);
+      },
+    },
+    {
+      name: "grid_amend_order",
+      title: "Grid Bot Amend",
+      module: "bot.grid",
+      idempotentHint: true,
+      description:
+        "Amend a running grid bot. [CAUTION] Modifies a running bot. " +
+        "Use grid_list_orders to confirm the bot is running and obtain the algoId before calling.\n" +
+        "Supports two modes, which can be combined in a single call:\n" +
+        "• Price-range mode (maxPx+minPx+gridNum): change upper/lower price boundary and grid count. " +
+        "Contract grid: if new range requires more margin, pass topUpAmt; " +
+        "omit to auto-use the minimum required. Spot grid: topUpAmt is not supported.\n" +
+        "• TP/SL mode (instId + any of tpTriggerPx/slTriggerPx/tpRatio/slRatio): " +
+        "update take-profit and/or stop-loss. Pass '-1' to explicitly clear an existing TP or SL. " +
+        "tpTriggerPx/slTriggerPx are absolute prices; tpRatio/slRatio are profit ratios (e.g. '0.1' = 10%).\n" +
+        "When both sets of params are provided, both APIs are called sequentially.\n" +
+        "Do NOT use to create a new grid bot - use grid_create_order instead. " +
+        "Do NOT use to stop a grid bot - use grid_stop_order instead.",
+      isWrite: true,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: {
+            type: "string",
+            description: "Grid bot algo order ID (required)",
+          },
+          // ── Price-range mode ──────────────────────────────────────────────
+          maxPx: {
+            type: "string",
+            description: "[Price-range mode] New upper price boundary. Triggers amend-algo-basic-param when provided.",
+          },
+          minPx: {
+            type: "string",
+            description: "[Price-range mode] New lower price boundary. Required when maxPx is set.",
+          },
+          gridNum: {
+            type: "string",
+            description: "[Price-range mode] New number of grid intervals (integer). Required when maxPx is set.",
+          },
+          // ── TP/SL mode ────────────────────────────────────────────────────
+          instId: {
+            type: "string",
+            description: "[TP/SL mode] Instrument ID, e.g. BTC-USDT. Required when setting TP/SL.",
+          },
+          tpTriggerPx: {
+            type: "string",
+            description: "[TP/SL mode] Take-profit trigger price (absolute). Pass '-1' to clear.",
+          },
+          slTriggerPx: {
+            type: "string",
+            description: "[TP/SL mode] Stop-loss trigger price (absolute). Pass '-1' to clear.",
+          },
+          tpRatio: {
+            type: "string",
+            description: "[TP/SL mode] Take-profit ratio, e.g. '0.1' = 10% profit. Pass '-1' to clear.",
+          },
+          slRatio: {
+            type: "string",
+            description: "[TP/SL mode] Stop-loss ratio, e.g. '0.1' = 10% drawdown. Pass '-1' to clear.",
+          },
+          // ── Shared optional ───────────────────────────────────────────────
+          topUpAmt: {
+            type: "string",
+            description:
+              "Top-up amount. In price-range mode maps to topupAmount (contract grid only; " +
+              "omit to use minimum required). In TP/SL mode maps to topUpAmt.",
+          },
+        },
+        required: ["algoId"],
+      },
+      handler: async (rawArgs, context) => {
+        const args    = asRecord(rawArgs);
+        const algoId  = requireString(args, "algoId");
+        const maxPx   = readString(args, "maxPx");
+        const instId  = readString(args, "instId");
+
+        // Detect which mode(s) to run.
+        // TP/SL mode requires at least one TP/SL field; instId alone is not enough.
+        const hasTpsl = readString(args, "tpTriggerPx")
+          || readString(args, "slTriggerPx")
+          || readString(args, "tpRatio")
+          || readString(args, "slRatio");
+
+        if (!maxPx && !hasTpsl) {
+          throw new OkxApiError(
+            "Nothing to amend. Provide maxPx+minPx+gridNum for price-range mode, " +
+            "or any of tpTriggerPx/slTriggerPx/tpRatio/slRatio (instId also required) for TP/SL mode (both can be combined).",
+            { code: "", endpoint: "grid_amend_order" },
+          );
+        }
+
+        // Validate before any API call to avoid partial-success scenarios
+        if (hasTpsl && !instId) {
+          throw new OkxApiError(
+            "TP/SL mode requires instId. Provide instId alongside the TP/SL parameters.",
+            { code: "", endpoint: "grid_amend_order" },
+          );
+        }
+
+        const results: ReturnType<typeof normalizeWrite>[] = [];
+
+        // ── Price-range mode: POST amend-algo-basic-param ─────────────────
+        if (maxPx) {
+          results.push(normalizeWrite(await context.client.privatePost(
+            "/api/v5/tradingBot/grid/amend-algo-basic-param",
+            compactObject({
+              algoId,
+              maxPx,
+              minPx:       requireString(args, "minPx"),
+              gridNum:     requireString(args, "gridNum"),
+              // API field is "topupAmount" (lowercase u) - different from TP/SL mode's "topUpAmt"
+              // Contract grid only; omitting lets the API use the minimum required
+              topupAmount: readString(args, "topUpAmt"),
+            }),
+            privateRateLimit("grid_amend_order", 20),
+            true, // retryOnNetworkError: amend sets fixed values, safe to retry
+          )));
+        }
+
+        // ── TP/SL mode: POST amend-order-algo ────────────────────────────
+        if (hasTpsl) {
+          try {
+            results.push(normalizeWrite(await context.client.privatePost(
+              "/api/v5/tradingBot/grid/amend-order-algo",
+              compactObject({
+                algoId,
+                instId,
+                tpTriggerPx: readString(args, "tpTriggerPx"),
+                slTriggerPx: readString(args, "slTriggerPx"),
+                tpRatio: readString(args, "tpRatio"),
+                slRatio: readString(args, "slRatio"),
+                topUpAmt: readString(args, "topUpAmt"), // API field is "topUpAmt" (uppercase U) - different from price-range mode's "topupAmount"
+              }),
+              privateRateLimit("grid_amend_order", 20),
+              true, // retryOnNetworkError: amend sets fixed values, safe to retry
+            )));
+          } catch (err) {
+            if (results.length > 0) {
+              const msg = err instanceof Error ? err.message : String(err);
+              throw new OkxApiError(
+                `TP/SL amend failed (price-range amend already succeeded): ${msg}`,
+                { code: "", endpoint: "grid_amend_order" },
+              );
+            }
+            throw err;
+          }
+        }
+
+        // Flatten data arrays from all responses into a single list
+        const merged = results.flatMap((r) => (Array.isArray(r.data) ? r.data : [r.data]));
+        return { endpoint: results[0]!.endpoint, requestTime: results[0]!.requestTime, data: merged };
+      },
+    },
+    {
+      name: "grid_stop_order",
+      title: "Grid Bot Stop",
+      module: "bot.grid",
+      idempotentHint: true,
+      description:
+        "[CAUTION] Stop a grid bot or close its remaining open position — real trades, irreversible. " +
+        "Workflow: " +
+        "(1) If the user has not specified which bot to stop, call grid_get_orders first and ask the user to confirm which bot before proceeding. " +
+        "(2) Call grid_get_order_details to check the current 'state' field. " +
+        "(3) If state='running' → call this tool: " +
+        "stopType='1' (default, clean exit) — spot grid sells all base assets back to quote; contract grid market-closes all positions. " +
+        "stopType='2' (keep assets) — spot grid keeps base assets as-is; contract grid cancels grid orders but leaves the position open. " +
+        "(4) If state='no_close_position' → call this tool with stopType='1' to close the remaining open position.",
+      isWrite: true,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Grid bot algo order ID (not a trade ordId)" },
+          algoOrdType: {
+            type: "string",
+            enum: ["grid", "contract_grid"],
+            description: "grid=Spot grid, contract_grid=Contract grid",
+          },
+          instId: { type: "string", description: "Instrument ID, e.g. BTC-USDT, BTC-USDT-SWAP" },
+          stopType: {
+            type: "string",
+            enum: ["1", "2"],
+            description:
+              "'1' (default): stop strategy and sell - spot grid sells all base assets back to quote; " +
+              "contract grid market-closes all positions. " +
+              "'2': stop strategy without selling - spot grid keeps base assets as-is; " +
+              "contract grid cancels all grid orders but leaves the position open. " +
+              "After stopType='2', the remaining position can be closed manually from the Positions page.",
+          },
+        },
+        required: ["algoId", "algoOrdType", "instId"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const response = await context.client.privatePost(
+          "/api/v5/tradingBot/grid/stop-order-algo",
+          [compactObject({
+            algoId: requireString(args, "algoId"),
+            algoOrdType: requireString(args, "algoOrdType"),
+            instId: requireString(args, "instId"),
+            stopType: readString(args, "stopType") ?? "1",
+          })],
+          privateRateLimit("grid_stop_order", 20),
+          true, // retryOnNetworkError: safe to retry - already-stopped returns an error but does not harm state
+        );
+        return normalizeWrite(response);
+      },
+    },
+    {
+      name: "grid_get_positions",
+      title: "Grid Bot Get Positions",
+      module: "bot.grid",
+      description:
+        "Get open contract-grid positions for an active or recently-stopped contract-grid bot. Returns liquidation price, margin ratio, and unrealized PnL.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Grid bot algo order ID" },
+          algoOrdType: {
+            type: "string",
+            enum: ["contract_grid"],
+            description: "Must be contract_grid",
+          },
+        },
+        required: ["algoId", "algoOrdType"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const response = await context.client.privateGet(
+          "/api/v5/tradingBot/grid/positions",
+          {
+            algoId: requireString(args, "algoId"),
+            algoOrdType: requireString(args, "algoOrdType"),
+          },
+          privateRateLimit("grid_get_positions", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    {
+      name: "grid_get_liquidate_price",
+      title: "Grid Bot Get Liquidation Price",
+      module: "bot.grid",
+      description:
+        "Estimate the liquidation price for a contract-grid bot before creating it. Contract grid only. " +
+        "Requires the full intended config: instId, sz (margin), lever, the grid range (maxPx, minPx, gridNum) " +
+        "and direction. runType defaults to arithmetic ('1'); triggerStrategy is optional.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          instId: { type: "string", description: "Instrument ID, e.g. BTC-USDT-SWAP" },
+          sz: { type: "string", description: "Margin size in USDT (or base coin for CoinM)" },
+          lever: { type: "string", description: "Leverage, e.g. '5'" },
+          direction: {
+            type: "string",
+            enum: ["long", "short", "neutral"],
+            description: "Bot direction (pass 'neutral' for a neutral bot)",
+          },
+          basePos: { type: "boolean", description: "Whether the base position is opened" },
+          maxPx: { type: "string", description: "Upper price of the grid range" },
+          minPx: { type: "string", description: "Lower price of the grid range" },
+          gridNum: { type: "string", description: "Number of grids" },
+          runType: {
+            type: "string",
+            enum: ["1", "2"],
+            description: "1=arithmetic (default); 2=geometric",
+          },
+          triggerStrategy: {
+            type: "string",
+            enum: ["instant", "price", "rsi", "webhook"],
+            description: "Entry trigger strategy for the intended bot",
+          },
+        },
+        required: ["instId", "sz", "lever", "maxPx", "minPx", "gridNum", "direction"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        // The endpoint requires the full intended config and rejects a partial one
+        // with a vague HTTP 400 (one missing param at a time) — fail fast with the
+        // complete list instead.
+        const missing = ["maxPx", "minPx", "gridNum", "direction"].filter(
+          (key) => readString(args, key) === undefined,
+        );
+        if (missing.length > 0) {
+          throw new OkxApiError(
+            `Missing required parameter(s): ${missing.join(", ")}. A liquidation-price estimate needs the ` +
+              "full intended config — instId, sz, lever, maxPx, minPx, gridNum and direction.",
+            { code: "", endpoint: "grid_get_liquidate_price" },
+          );
+        }
+        const response = await context.client.privateGet(
+          "/api/v5/tradingBot/grid/liquidate-price",
+          compactObject({
+            instId: requireString(args, "instId"),
+            sz: requireString(args, "sz"),
+            lever: requireString(args, "lever"),
+            direction: readString(args, "direction"),
+            basePos: readBoolean(args, "basePos"),
+            maxPx: readString(args, "maxPx"),
+            minPx: readString(args, "minPx"),
+            gridNum: readString(args, "gridNum"),
+            runType: readString(args, "runType") ?? "1",
+            triggerStrategy: readString(args, "triggerStrategy"),
+          }),
+          privateRateLimit("grid_get_liquidate_price", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    {
+      name: "grid_close_position",
+      title: "Grid Bot Close Position",
+      module: "bot.grid",
+      description:
+        "[CAUTION] Close the remaining open position of a contract-grid bot that was stopped with stopType='2'. " +
+        "Use grid_get_positions first to confirm the position exists and check its size before closing. " +
+        "Use mktClose=true for an immediate market close, or mktClose=false to place a limit close order (provide sz and px).",
+      isWrite: true,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Grid bot algo order ID" },
+          mktClose: {
+            type: "boolean",
+            description:
+              "Required, no default (fund-moving): true=market close immediately; false=limit close (requires sz and px).",
+          },
+          sz: { type: "string", description: "Close size (required when mktClose=false)" },
+          px: { type: "string", description: "Limit price (required when mktClose=false)" },
+        },
+        required: ["algoId", "mktClose"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        // Fund-moving write: no implicit default — the caller must state the
+        // close mode explicitly (mirrors the CLI, which requires --mktClose/--no-mktClose).
+        const mktClose = requireBoolean(args, "mktClose");
+        const response = await context.client.privatePost(
+          "/api/v5/tradingBot/grid/close-position",
+          compactObject({
+            algoId: requireString(args, "algoId"),
+            mktClose,
+            sz: readString(args, "sz"),
+            px: readString(args, "px"),
+          }),
+          privateRateLimit("grid_close_position", 20),
+        );
+        return normalizeWrite(response);
+      },
+    },
+  ];
+}

@@ -1,0 +1,185 @@
+"""Ingest vulnerability reports and match them to codebase symbols.
+
+Output formats: text (default), ``--json``. SARIF is deliberately NOT
+emitted because ``roam vuln-map`` is a state-mutating ingest +
+mapping command — its output is invocation-scoped mapping status
+(advisories ingested, packages matched, symbols linked), not per-
+location code violations. The downstream ``vuln-reach`` command
+projects vulnerable paths through the call graph; SARIF exposure
+belongs on the reachability projection, not the ingest step. See
+``cmd_ingest_trace`` for the parallel state-mutating disclosure
+pattern (W1180) + action.yml _SUPPORTED_SARIF allowlist +
+W1175-RESEARCH propagation plan + W1224-audit memo.
+"""
+
+from __future__ import annotations
+
+import click
+
+from roam.capability import roam_capability
+from roam.commands.resolve import ensure_index
+from roam.db.connection import find_project_root, open_db
+from roam.output import formatter as output_formatter
+
+
+@roam_capability(
+    name="vuln-map",
+    category="reports",
+    summary="Ingest vulnerability scanner reports and match to codebase symbols",
+    maturity="stable",
+    mcp_expose=True,
+    mcp_preset=("core", "compliance"),
+    side_effect=True,
+    task_required=False,
+    destructive=False,
+    stale_sensitive=True,
+    ai_safe=True,
+    requires_index=True,
+)
+@click.command("vuln-map")
+@click.option(
+    "--npm-audit",
+    "npm_audit_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to npm audit JSON report",
+)
+@click.option(
+    "--pip-audit",
+    "pip_audit_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to pip-audit JSON report",
+)
+@click.option(
+    "--trivy",
+    "trivy_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to Trivy JSON report",
+)
+@click.option(
+    "--osv",
+    "osv_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to OSV scanner JSON report",
+)
+@click.option(
+    "--generic",
+    "generic_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to generic JSON vulnerability list",
+)
+@click.pass_context
+def vuln_map_cmd(ctx, npm_audit_path, pip_audit_path, trivy_path, osv_path, generic_path):
+    """Ingest vulnerability scanner reports and match to codebase symbols.
+
+    Reads vulnerability reports from npm-audit, pip-audit, Trivy, OSV, or
+    a generic JSON format. For each vulnerability, attempts to match the
+    affected package to symbols in the codebase index.
+
+    Prefer ``vulns --import-file <file>`` which auto-detects the report
+    format and adds reachability filtering and SARIF output.  This command
+    is retained for multi-source ingestion in a single call.
+
+    \b
+    Examples:
+        roam vuln-map --npm-audit audit.json
+        roam vuln-map --pip-audit pip-audit.json
+        roam vuln-map --trivy trivy.json
+        roam vuln-map --osv osv.json
+        roam vuln-map --generic vulns.json
+    """
+    json_mode = ctx.obj.get("json") if ctx.obj else False
+    ensure_index()
+
+    from roam.security.vuln_store import (
+        ingest_generic,
+        ingest_npm_audit,
+        ingest_osv,
+        ingest_pip_audit,
+        ingest_trivy,
+    )
+
+    all_vulns: list[dict] = []
+    # M1 (DOGFOOD-DEFECTS-2026-07-15): project_root MUST be threaded
+    # through to the ingesters, or match_vuln_to_symbols never scans
+    # concrete import specifiers and every genuinely-imported package
+    # reports "not imported" (0 matched, always).
+    project_root = find_project_root()
+
+    with open_db(readonly=False) as conn:
+        if npm_audit_path:
+            all_vulns.extend(ingest_npm_audit(conn, npm_audit_path, project_root=project_root))
+        if pip_audit_path:
+            all_vulns.extend(ingest_pip_audit(conn, pip_audit_path, project_root=project_root))
+        if trivy_path:
+            all_vulns.extend(ingest_trivy(conn, trivy_path, project_root=project_root))
+        if osv_path:
+            all_vulns.extend(ingest_osv(conn, osv_path, project_root=project_root))
+        if generic_path:
+            all_vulns.extend(ingest_generic(conn, generic_path, project_root=project_root))
+
+    if not all_vulns:
+        if json_mode:
+            click.echo(
+                output_formatter.to_json(
+                    output_formatter.json_envelope(
+                        "vuln-map",
+                        summary={
+                            "verdict": "No vulnerability reports provided",
+                            "total": 0,
+                            "matched": 0,
+                        },
+                        vulnerabilities=[],
+                    )
+                )
+            )
+            return
+        click.echo("VERDICT: No vulnerability reports provided")
+        click.echo("  Use --npm-audit, --pip-audit, --trivy, --osv, or --generic to supply a report.")
+        return
+
+    # M1 (DOGFOOD-DEFECTS-2026-07-15): count import-site reachability as
+    # a match too, not just a resolved symbol id. Third-party packages
+    # (the common case) have no indexed SYMBOL for match_vuln_to_symbols
+    # to find -- their only evidence is the import site itself, carried
+    # in matched_file with matched_symbol_id left None by design (see
+    # vuln_store._insert_vuln: seeding matched_symbol_id from a bare
+    # name coincidence would let unreachable CVEs read as reachable).
+    # Counting only matched_symbol_id therefore silently reported every
+    # genuinely-imported third-party package as unmatched. Mirrors how
+    # vulns/sbom/vuln-reach already treat matched_file as real evidence.
+    matched = sum(1 for v in all_vulns if v.get("matched_symbol_id") is not None or v.get("matched_file") is not None)
+    total = len(all_vulns)
+
+    if json_mode:
+        click.echo(
+            output_formatter.to_json(
+                output_formatter.json_envelope(
+                    "vuln-map",
+                    summary={
+                        "verdict": f"{total} vulnerabilities ingested, {matched} matched to symbols",
+                        "total": total,
+                        "matched": matched,
+                    },
+                    vulnerabilities=all_vulns,
+                )
+            )
+        )
+        return
+
+    click.echo(f"VERDICT: {total} vulnerabilities ingested, {matched} matched to symbols")
+    click.echo("")
+
+    for v in all_vulns:
+        cve = v.get("cve_id") or "(no CVE)"
+        pkg = v.get("package_name", "?")
+        sev = (v.get("severity") or "unknown").upper()
+        matched_file = v.get("matched_file")
+        if matched_file:
+            click.echo(f"  {cve:20s} {pkg:30s} {sev:10s} -> matched: {matched_file}")
+        else:
+            click.echo(f"  {cve:20s} {pkg:30s} {sev:10s} -> no match (not imported)")

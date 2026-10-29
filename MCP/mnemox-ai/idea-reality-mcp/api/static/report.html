@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mnemox Idea Reality — Pre-build Reality Check</title>
+<meta name="description" content="Pre-build reality check for your next idea. Scan GitHub, Hacker News, npm, PyPI & Product Hunt before you build.">
+<meta property="og:title" content="Mnemox Idea Reality — Pre-build Reality Check">
+<meta property="og:description" content="Check if your product idea already exists. Powered by real data from GitHub, HN, npm, PyPI & Product Hunt.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://idea-reality-mcp.onrender.com/static/report.html">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Mnemox Idea Reality — Pre-build Reality Check">
+<meta name="twitter:description" content="Check if your product idea already exists. Scan 5 sources before you build.">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#0a0a0a;color:#e0e0e0;line-height:1.6;
+    min-height:100vh;display:flex;flex-direction:column;
+  }
+
+  /* --- Header --- */
+  .header{
+    text-align:center;padding:48px 24px 32px;
+    border-bottom:1px solid #1a1a1a;
+  }
+  .header h1{font-size:28px;font-weight:700;color:#fff;margin-bottom:8px}
+  .header h1 span{color:#00cc66}
+  .header .social-proof{
+    display:flex;gap:24px;justify-content:center;flex-wrap:wrap;
+    margin-top:16px;font-size:14px;color:#888;
+  }
+  .social-proof .badge{
+    display:flex;align-items:center;gap:6px;
+    background:#141414;border:1px solid #222;border-radius:20px;
+    padding:6px 14px;
+  }
+  .social-proof .badge strong{color:#ccc}
+
+  /* --- Search --- */
+  .search-section{
+    max-width:640px;margin:40px auto;padding:0 24px;width:100%;
+  }
+  .search-section textarea{
+    width:100%;height:100px;background:#111;border:1px solid #333;
+    border-radius:8px;padding:14px;color:#e0e0e0;font-size:15px;
+    resize:vertical;font-family:inherit;
+  }
+  .search-section textarea::placeholder{color:#555}
+  .search-section textarea:focus{outline:none;border-color:#00cc66}
+  .search-controls{
+    display:flex;gap:12px;margin-top:12px;align-items:center;
+  }
+  .depth-select{
+    background:#111;border:1px solid #333;color:#e0e0e0;
+    padding:10px 14px;border-radius:8px;font-size:14px;cursor:pointer;
+  }
+  .check-btn{
+    flex:1;background:#00cc66;color:#000;border:none;
+    padding:12px 24px;border-radius:8px;font-size:15px;font-weight:600;
+    cursor:pointer;transition:background .2s;
+  }
+  .check-btn:hover{background:#00e673}
+  .check-btn:disabled{opacity:.5;cursor:not-allowed}
+
+  /* --- Signal circle --- */
+  .signal-circle{
+    width:120px;height:120px;border-radius:50%;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border:4px solid #333;margin:0 auto 16px;
+    font-size:36px;font-weight:800;color:#fff;
+  }
+  .signal-circle.green{border-color:#00cc66;color:#00cc66}
+  .signal-circle.yellow{border-color:#ffaa00;color:#ffaa00}
+  .signal-circle.red{border-color:#ff4444;color:#ff4444}
+  .signal-circle .label{font-size:11px;font-weight:400;color:#888;margin-top:2px}
+
+  /* --- Free result --- */
+  #free-result{
+    display:none;max-width:640px;margin:0 auto;padding:24px;width:100%;
+  }
+  .result-header{text-align:center;margin-bottom:24px}
+  .result-header .dup-badge{
+    display:inline-block;padding:4px 12px;border-radius:12px;
+    font-size:13px;font-weight:600;margin-top:8px;
+  }
+  .dup-badge.high{background:#ff444433;color:#ff6666}
+  .dup-badge.medium{background:#ffaa0033;color:#ffcc44}
+  .dup-badge.low{background:#00cc6633;color:#00cc66}
+
+  .free-sections{display:flex;flex-direction:column;gap:16px}
+  .free-card{
+    background:#111;border:1px solid #222;border-radius:8px;padding:16px;
+  }
+  .free-card h3{font-size:14px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+  .free-card p,.free-card ul{font-size:14px;color:#ccc}
+  .free-card ul{list-style:none;padding:0}
+  .free-card li{padding:4px 0;border-bottom:1px solid #1a1a1a}
+  .free-card li:last-child{border:none}
+
+  /* --- Report preview (blurred) --- */
+  #report-preview{
+    display:none;max-width:720px;margin:32px auto 0;padding:0 24px;width:100%;
+    position:relative;
+  }
+  .preview-grid{display:flex;flex-direction:column;gap:16px}
+  .preview-card{
+    background:#111;border:1px solid #222;border-radius:8px;
+    padding:20px;overflow:hidden;
+  }
+  .preview-card h3{
+    font-size:15px;color:#00cc66;margin-bottom:10px;font-weight:600;
+  }
+  .preview-card .visible-text{font-size:14px;color:#ccc;margin-bottom:8px}
+  .preview-card .blurred-text{
+    font-size:14px;color:#999;
+    filter:blur(5px);user-select:none;pointer-events:none;
+  }
+
+  /* --- Paywall CTA --- */
+  #paywall{
+    display:none;max-width:640px;margin:32px auto;padding:0 24px;width:100%;
+    text-align:center;
+  }
+  .paywall-box{
+    background:linear-gradient(135deg,#111 0%,#0a1a0f 100%);
+    border:1px solid #00cc6644;border-radius:12px;
+    padding:32px 24px;
+  }
+  .paywall-box h2{font-size:22px;color:#fff;margin-bottom:8px}
+  .paywall-box .price{font-size:32px;font-weight:800;color:#00cc66;margin:12px 0}
+  .paywall-box .subtitle{color:#888;font-size:14px;margin-bottom:20px}
+  .unlock-btn{
+    background:#00cc66;color:#000;border:none;
+    padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;
+    cursor:pointer;transition:all .2s;
+  }
+  .unlock-btn:hover{background:#00e673;transform:translateY(-1px)}
+  .unlock-btn:disabled{opacity:.5;cursor:not-allowed}
+  .paywall-trust{
+    margin-top:16px;font-size:12px;color:#666;
+  }
+
+  /* --- Full report --- */
+  #full-report{
+    display:none;max-width:720px;margin:0 auto;padding:24px;width:100%;
+  }
+  .report-section{
+    background:#111;border:1px solid #222;border-radius:8px;
+    padding:20px;margin-bottom:16px;
+  }
+  .report-section h3{
+    font-size:15px;color:#00cc66;margin-bottom:12px;
+    font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+  }
+  .report-section p{font-size:14px;color:#ccc;margin-bottom:8px}
+
+  /* Source bars */
+  .source-bar-container{margin-bottom:8px}
+  .source-bar-label{
+    display:flex;justify-content:space-between;
+    font-size:13px;color:#999;margin-bottom:4px;
+  }
+  .source-bar{
+    height:8px;background:#1a1a1a;border-radius:4px;overflow:hidden;
+  }
+  .source-bar-fill{
+    height:100%;border-radius:4px;transition:width .5s;
+  }
+  .source-bar-fill.github{background:#00cc66}
+  .source-bar-fill.hackernews{background:#ff6600}
+  .source-bar-fill.npm{background:#cb3837}
+  .source-bar-fill.pypi{background:#3775a9}
+  .source-bar-fill.producthunt{background:#da552f}
+  .source-bar-fill.default{background:#666}
+
+  /* Competitor list */
+  .competitor-item{
+    display:flex;align-items:flex-start;gap:12px;
+    padding:10px 0;border-bottom:1px solid #1a1a1a;
+  }
+  .competitor-item:last-child{border:none}
+  .competitor-badge{font-size:18px;flex-shrink:0;width:28px;text-align:center}
+  .competitor-info{flex:1;min-width:0}
+  .competitor-name{
+    font-size:14px;font-weight:600;color:#fff;
+    text-decoration:none;
+  }
+  .competitor-name:hover{color:#00cc66}
+  .competitor-stars{font-size:12px;color:#888;margin-left:8px}
+  .competitor-desc{font-size:13px;color:#777;margin-top:2px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .competitor-meta{font-size:11px;color:#555;margin-top:2px}
+
+  /* Crowd intelligence */
+  .crowd-stat{
+    display:inline-flex;align-items:center;gap:8px;
+    background:#0a1a0f;border:1px solid #00cc6633;border-radius:8px;
+    padding:8px 16px;margin:4px 8px 4px 0;
+  }
+  .crowd-stat .num{font-size:20px;font-weight:700;color:#00cc66}
+  .crowd-stat .desc{font-size:13px;color:#999}
+
+  /* Strategic analysis */
+  .analysis-text{
+    font-size:14px;color:#ccc;line-height:1.8;
+    white-space:pre-wrap;
+  }
+
+  /* Sub-dimension bars */
+  .sub-dim-row{display:flex;align-items:center;gap:10px;margin:10px 0}
+  .sub-dim-label{width:160px;font-size:13px;color:#aaa}
+  .sub-dim-track{flex:1;height:12px;background:#1a1a1a;border-radius:4px;overflow:hidden}
+  .sub-dim-fill{height:100%;background:#00cc66;border-radius:4px}
+  .sub-dim-val{width:50px;font-size:13px;color:#888;text-align:right}
+
+  /* Found via angles */
+  .found-via{font-size:11px;color:#555;margin-top:2px}
+
+  /* AI prompt section */
+  .ai-section{
+    background:#111;border:1px solid #222;border-radius:8px;
+    padding:20px;margin-bottom:16px;
+  }
+  .ai-section h3{
+    font-size:15px;color:#00cc66;margin-bottom:12px;
+    font-weight:600;text-transform:uppercase;letter-spacing:.5px;
+  }
+  .ai-section pre{
+    background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;
+    padding:16px;font-size:12px;color:#ccc;white-space:pre-wrap;
+    word-wrap:break-word;max-height:400px;overflow-y:auto;
+    font-family:'Courier New',monospace;
+  }
+  .ai-section .copy-btn{
+    margin-top:10px;background:#00cc66;color:#000;border:none;
+    padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;
+    cursor:pointer;transition:all .2s;
+  }
+  .ai-section .copy-btn:hover{background:#00e673}
+
+  /* New search button */
+  .new-search-btn{
+    display:inline-block;margin-top:20px;
+    background:transparent;color:#00cc66;border:1px solid #00cc66;
+    padding:10px 24px;border-radius:8px;font-size:14px;font-weight:600;
+    cursor:pointer;transition:all .2s;text-decoration:none;
+  }
+  .new-search-btn:hover{background:#00cc6611}
+
+  /* --- Loading --- */
+  .loading{text-align:center;padding:20px;color:#888;font-size:14px}
+  .spinner{
+    display:inline-block;width:20px;height:20px;
+    border:2px solid #333;border-top-color:#00cc66;border-radius:50%;
+    animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* --- Error --- */
+  .error-msg{
+    text-align:center;padding:16px;color:#ff6666;
+    background:#1a0000;border:1px solid #ff444433;border-radius:8px;
+    margin:16px 24px;max-width:640px;margin-left:auto;margin-right:auto;
+  }
+
+  /* --- Footer --- */
+  footer{
+    text-align:center;padding:32px 24px;margin-top:auto;
+    border-top:1px solid #1a1a1a;font-size:13px;color:#555;
+  }
+  footer a{color:#888;text-decoration:none}
+  footer a:hover{color:#00cc66}
+
+  /* --- Value props --- */
+  .value-props{
+    max-width:640px;margin:12px auto 0;padding:0 24px;font-size:13px;color:#777;
+  }
+  .value-props .prop{padding:3px 0}
+  .value-props .prop-icon{margin-right:6px}
+
+  /* --- Report includes (paywall) --- */
+  .report-includes{text-align:left;margin:16px 0}
+  .include-item{font-size:13px;color:#aaa;padding:3px 0}
+  .comparison-note{margin-top:16px;font-size:12px;color:#666}
+
+  @media(max-width:640px){
+    .header h1{font-size:22px}
+    .social-proof{gap:8px}
+    .social-proof .badge{font-size:12px;padding:4px 10px}
+    .signal-circle{width:100px;height:100px;font-size:28px}
+    .paywall-box .price{font-size:24px}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Mnemox</span> Idea Reality</h1>
+  <p style="color:#888;font-size:14px">Pre-build reality check for your next idea</p>
+  <div class="social-proof">
+    <div class="badge"><strong id="ideas-count">0</strong> ideas scanned</div>
+    <div class="badge"><strong id="stars-count">0</strong> GitHub stars</div>
+    <div class="badge">30+ countries</div>
+    <div class="badge" id="last-check-badge" style="display:none">Last check: <strong id="last-check-ago">—</strong></div>
+  </div>
+</div>
+
+<div class="search-section" id="search-section">
+  <textarea id="idea-input" placeholder="Describe your idea... (e.g. 'An AI-powered code review tool that learns from your team's coding patterns')" maxlength="500"></textarea>
+  <div class="search-controls">
+    <select class="depth-select" id="depth-select">
+      <option value="quick">Quick scan</option>
+      <option value="deep">Deep scan</option>
+    </select>
+    <button class="check-btn" id="check-btn">Check Reality</button>
+  </div>
+</div>
+
+<div class="value-props">
+  <div class="prop"><span class="prop-icon">&#9889;</span>Scans <strong>5 platforms</strong> simultaneously &mdash; GitHub, Hacker News, npm, PyPI, Product Hunt</div>
+  <div class="prop"><span class="prop-icon">&#128336;</span>15 seconds vs <strong>2+ hours</strong> of manual research</div>
+  <div class="prop"><span class="prop-icon">&#128274;</span>Every data point <strong>verified &amp; timestamped</strong> &mdash; feed directly to your AI agent</div>
+</div>
+
+<div id="error-msg" class="error-msg" style="display:none"></div>
+
+<!-- FREE RESULT -->
+<div id="free-result">
+  <div class="result-header">
+    <div class="signal-circle" id="signal-circle">
+      <span id="signal-score">0</span>
+      <span class="label">/ 100</span>
+    </div>
+    <div id="dup-badge" class="dup-badge"></div>
+  </div>
+  <div class="free-sections">
+    <div class="free-card" id="free-competitor">
+      <h3>Top Competitor</h3>
+      <p id="competitor-text">—</p>
+    </div>
+    <div class="free-card" id="free-evidence">
+      <h3>Evidence</h3>
+      <ul id="evidence-list"></ul>
+    </div>
+    <div class="free-card" id="free-pivots">
+      <h3>Pivot Hints</h3>
+      <ul id="pivot-list"></ul>
+    </div>
+  </div>
+</div>
+
+<!-- REPORT PREVIEW (blurred) -->
+<div id="report-preview">
+  <div class="preview-grid" id="preview-grid"></div>
+</div>
+
+<!-- PAYWALL -->
+<div id="paywall">
+  <div class="paywall-box">
+    <h2>Full Intelligence Report</h2>
+    <div class="price">$9.99</div>
+    <div class="subtitle">One-time &middot; Instant download &middot; Feed directly to AI</div>
+    <div class="report-includes">
+      <div class="include-item">&#10003; Multi-angle scan (3-5 search perspectives)</div>
+      <div class="include-item">&#10003; 4 sub-dimension scores with evidence chains</div>
+      <div class="include-item">&#10003; 15 verified competitors with activity status</div>
+      <div class="include-item">&#10003; AI strategic analysis by Claude Sonnet</div>
+      <div class="include-item">&#10003; Crowd intelligence &mdash; see what others searched</div>
+      <div class="include-item">&#10003; Machine-readable format &mdash; paste to your AI agent</div>
+    </div>
+    <button class="unlock-btn" id="unlock-btn">Unlock Full Report</button>
+    <div class="comparison-note">
+      ChatGPT can search one platform at a time. We scan 5 in parallel, cross-reference results, and verify every data point with timestamps.
+    </div>
+  </div>
+</div>
+
+<!-- FULL REPORT (after payment) -->
+<div id="full-report">
+  <div class="result-header" style="text-align:center;margin-bottom:24px">
+    <div class="signal-circle" id="report-signal-circle">
+      <span id="report-signal-score">0</span>
+      <span class="label">/ 100</span>
+    </div>
+    <p style="color:#888;font-size:14px" id="report-idea-text"></p>
+  </div>
+
+  <div id="report-score-breakdown" class="report-section">
+    <h3>Score Breakdown</h3>
+    <div id="score-breakdown-content"></div>
+  </div>
+
+  <div id="report-sub-scores" class="report-section" style="display:none">
+    <h3>Sub-Dimension Scores</h3>
+    <div id="sub-scores-content"></div>
+  </div>
+
+  <div id="report-angles" class="report-section" style="display:none">
+    <h3>Search Angles Used</h3>
+    <ol id="angles-content" style="padding-left:20px;font-size:14px;color:#ccc"></ol>
+  </div>
+
+  <div id="report-crowd" class="report-section">
+    <h3>Crowd Intelligence</h3>
+    <div id="crowd-content"></div>
+  </div>
+
+  <div id="report-competitors" class="report-section">
+    <h3>Real Competitors</h3>
+    <div id="competitors-content"></div>
+  </div>
+
+  <div id="report-analysis" class="report-section">
+    <h3>Strategic Analysis</h3>
+    <div id="analysis-content" class="analysis-text"></div>
+  </div>
+
+  <div id="report-ai-prompt" class="ai-section" style="display:none">
+    <h3>Feed to AI Agent</h3>
+    <p style="font-size:13px;color:#888;margin-bottom:10px">Copy the text below and paste it to your AI coding agent (Claude, ChatGPT, Cursor, etc.) to generate an action plan:</p>
+    <pre id="ai-prompt-text"></pre>
+    <button class="copy-btn" id="copy-ai-btn">Copy to Clipboard</button>
+  </div>
+
+  <div style="text-align:center;margin-top:24px">
+    <a href="/static/report.html" class="new-search-btn">New Search</a>
+    <a id="download-html-btn" class="new-search-btn" style="display:none;background:#00cc66;color:#000;border-color:#00cc66;margin-left:8px" href="#">Download Report</a>
+    <a id="download-json-btn" class="new-search-btn" style="display:none;margin-left:8px" href="#">Download JSON</a>
+  </div>
+</div>
+
+<footer>
+  <p>
+    <a href="https://mnemox.ai">Mnemox AI</a> &middot;
+    <a href="https://github.com/mnemox-ai/idea-reality-mcp">GitHub</a> &middot;
+    <a href="https://pypi.org/project/idea-reality-mcp/">PyPI</a>
+  </p>
+</footer>
+
+<script>
+(function(){
+  const API = '';  // same origin
+  const $ = s => document.querySelector(s);
+  const show = el => { el.style.display = 'block'; };
+  const hide = el => { el.style.display = 'none'; };
+  const esc = s => {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  };
+
+  // State
+  let currentIdeaHash = '';
+  let currentIdeaText = '';
+  let currentReportId = '';
+
+  // --- Social proof ---
+  async function loadSocialProof() {
+    try {
+      fetch(API + '/api/view', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ page: 'report' }),
+      }).catch(() => {});
+
+      const res = await fetch(API + '/api/social-proof');
+      if (res.ok) {
+        const data = await res.json();
+        $('#ideas-count').textContent = (data.total_checks || 0).toLocaleString();
+        $('#stars-count').textContent = (data.github_stars || 0).toLocaleString();
+        if (data.last_check_ago) {
+          $('#last-check-ago').textContent = data.last_check_ago;
+          $('#last-check-badge').style.display = 'flex';
+        }
+      }
+    } catch (e) { /* silent */ }
+  }
+  loadSocialProof();
+
+  // --- Signal color ---
+  function signalClass(score) {
+    if (score < 40) return 'green';
+    if (score < 80) return 'yellow';
+    return 'red';
+  }
+
+  // --- Build preview cards (blurred) ---
+  function buildPreviewCards(checkResult) {
+    const grid = $('#preview-grid');
+    grid.innerHTML = '';
+
+    const score = checkResult.reality_signal || 0;
+    const dup = checkResult.duplicate_likelihood || 'unknown';
+    const evidence = checkResult.evidence || [];
+    const similars = checkResult.top_similars || [];
+
+    const cards = [
+      {
+        title: 'Score Breakdown',
+        visible: `Reality Signal: ${score}/100. Duplicate likelihood: ${dup}.`,
+        blurred: 'Per-source analysis showing signal distribution across GitHub repositories, star magnitude, Hacker News discussions, npm packages, PyPI packages, and Product Hunt launches. Each source weighted by relevance and data freshness.',
+      },
+      {
+        title: 'Crowd Intelligence',
+        visible: 'See how many builders explored similar ideas in our database.',
+        blurred: `${$('#ideas-count').textContent || '900+'} builders searched for similar ideas in the past 30 days. Average competition score across similar queries. Depth breakdown: quick scans vs deep scans reveal builder intent levels.`,
+      },
+      {
+        title: 'Real Competitors (Top 10)',
+        visible: similars.length > 0
+          ? 'Top: ' + esc(similars[0].name) + ' (' + (similars[0].stars || 0).toLocaleString() + ' stars)'
+          : 'No direct competitors identified.',
+        blurred: 'Extended competitor list with activity badges: active (updated recently), recent (updated within 6 months), inactive (dormant projects). Each entry includes star count, programming language, and last activity date.',
+      },
+      {
+        title: 'Strategic Analysis',
+        visible: 'AI-powered competitive landscape analysis by Claude Sonnet.',
+        blurred: 'Cohesive strategic analysis covering competitive positioning, market gaps identified from actual competitor data, positioning opportunities based on crowd intelligence signals, and key risks derived from real market data points.',
+      },
+    ];
+
+    cards.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'preview-card';
+      div.innerHTML = `
+        <h3>${esc(c.title)}</h3>
+        <div class="visible-text">${c.visible}</div>
+        <div class="blurred-text">${c.blurred}</div>
+      `;
+      grid.appendChild(div);
+    });
+  }
+
+  // --- Check idea ---
+  $('#check-btn').addEventListener('click', async () => {
+    const input = $('#idea-input');
+    const text = input.value.trim();
+    if (!text) {
+      input.style.border = '1px solid #ff4444';
+      input.setAttribute('placeholder', 'Please describe your idea first...');
+      setTimeout(() => { input.style.border = ''; }, 2000);
+      return;
+    }
+
+    const depth = $('#depth-select').value;
+    const btn = $('#check-btn');
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+    hide($('#error-msg'));
+    hide($('#free-result'));
+    hide($('#report-preview'));
+    hide($('#paywall'));
+    hide($('#full-report'));
+
+    try {
+      const res = await fetch(API + '/api/check', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ idea_text: text, depth }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      currentIdeaHash = data.idea_hash || '';
+      currentIdeaText = text;
+
+      // Show free result
+      const score = data.reality_signal || 0;
+      const dup = data.duplicate_likelihood || 'unknown';
+
+      $('#signal-score').textContent = score;
+      const circle = $('#signal-circle');
+      circle.className = 'signal-circle ' + signalClass(score);
+
+      const badge = $('#dup-badge');
+      badge.textContent = 'Duplicate likelihood: ' + dup;
+      badge.className = 'dup-badge ' + dup;
+
+      // Top competitor (free: name only, no stars/description)
+      const similars = data.top_similars || [];
+      if (similars.length > 0) {
+        const s = similars[0];
+        $('#competitor-text').innerHTML =
+          `<a href="${esc(s.url || '#')}" target="_blank" style="color:#00cc66">${esc(s.name)}</a>`;
+      } else {
+        $('#competitor-text').textContent = 'No direct competitors found.';
+      }
+
+      // Evidence (free: source summary counts only, not individual items)
+      const evidenceList = $('#evidence-list');
+      evidenceList.innerHTML = '';
+      const evidenceItems = data.evidence || [];
+      const sourceCounts = {};
+      evidenceItems.forEach(ev => {
+        const src = ev.source || 'Unknown';
+        sourceCounts[src] = (sourceCounts[src] || 0) + 1;
+      });
+      Object.entries(sourceCounts).forEach(([src, count]) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span style="color:#888">[${esc(src)}]</span> ${count} signal${count > 1 ? 's' : ''} found`;
+        evidenceList.appendChild(li);
+      });
+
+      // Pivots (free: hidden, show upgrade message)
+      const pivotList = $('#pivot-list');
+      pivotList.innerHTML = '';
+      const pivotLi = document.createElement('li');
+      pivotLi.style.color = '#555';
+      pivotLi.style.fontStyle = 'italic';
+      pivotLi.textContent = 'Available in full report';
+      pivotList.appendChild(pivotLi);
+
+      show($('#free-result'));
+
+      // Build preview + paywall (deep mode only)
+      buildPreviewCards(data);
+      show($('#report-preview'));
+      if (depth === 'deep') {
+        show($('#paywall'));
+      }
+
+    } catch (e) {
+      const errDiv = $('#error-msg');
+      errDiv.textContent = 'Error: ' + e.message;
+      show(errDiv);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check Reality';
+    }
+  });
+
+  // Enter key submits
+  $('#idea-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $('#check-btn').click();
+    }
+  });
+
+  // --- Unlock (PayPal checkout) ---
+  $('#unlock-btn').addEventListener('click', async () => {
+    if (!currentIdeaHash) return;
+
+    const btn = $('#unlock-btn');
+    btn.disabled = true;
+    btn.textContent = 'Redirecting...';
+
+    // Save to localStorage for post-payment recovery
+    const depth = $('#depth-select').value;
+    try { localStorage.setItem('ir_pending_idea', currentIdeaText); } catch(e) {}
+    try { localStorage.setItem('ir_pending_hash', currentIdeaHash); } catch(e) {}
+    try { localStorage.setItem('ir_pending_depth', depth); } catch(e) {}
+
+    try {
+      const res = await fetch(API + '/api/create-paypal-order', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          idea_text: currentIdeaText,
+          idea_hash: currentIdeaHash,
+          depth: depth,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Failed to create PayPal order');
+      const data = await res.json();
+      if (data.approve_url) {
+        window.location.href = data.approve_url;
+      } else {
+        throw new Error('No PayPal approval URL returned');
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Unlock Full Report';
+      const errDiv = $('#error-msg');
+      errDiv.textContent = 'Payment error: ' + e.message;
+      show(errDiv);
+    }
+  });
+
+  // --- Post-payment: fetch and render full report ---
+  async function handlePaymentSuccess() {
+    hide($('#search-section'));
+    hide($('#free-result'));
+    hide($('#report-preview'));
+    hide($('#paywall'));
+    hide($('#error-msg'));
+
+    // Show loading with progress steps
+    const loadDiv = document.createElement('div');
+    loadDiv.className = 'loading';
+    loadDiv.id = 'payment-loading';
+    loadDiv.innerHTML = '<span class="spinner"></span> <span id="load-step">Scanning sources...</span>'
+      + '<div style="width:200px;height:4px;background:#1a1a1a;border-radius:2px;margin:12px auto 0">'
+      + '<div id="load-bar" style="height:100%;width:0%;background:#00cc66;border-radius:2px;transition:width 0.5s"></div></div>';
+    document.body.insertBefore(loadDiv, $('footer'));
+
+    const _steps = ['Scanning sources...','Analyzing competitors...','Generating strategic analysis...','Finalizing report...'];
+    let _stepIdx = 0;
+    const _stepTimer = setInterval(() => {
+      _stepIdx = Math.min(_stepIdx + 1, _steps.length - 1);
+      const el = document.getElementById('load-step');
+      if (el) el.textContent = _steps[_stepIdx];
+    }, 4000);
+
+    const params = new URLSearchParams(window.location.search);
+
+    // --- PayPal capture flow ---
+    if (params.get('paypal_complete') === '1') {
+      const paypalOrderId = params.get('token') || '';
+      const ideaHash = params.get('idea_hash') || '';
+      const storedHash = (() => { try { return localStorage.getItem('ir_pending_hash') || ''; } catch(e) { return ''; } })();
+      const storedText = (() => { try { return localStorage.getItem('ir_pending_idea') || ''; } catch(e) { return ''; } })();
+      const storedDepth = (() => { try { return localStorage.getItem('ir_pending_depth') || ''; } catch(e) { return ''; } })();
+      const depthParam = params.get('depth') || storedDepth || 'quick';
+      const lookupHash = ideaHash || storedHash;
+      const lookupText = params.get('idea_text') || storedText;
+
+      try {
+        const res = await fetch(API + '/api/capture-paypal-order', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            order_id: paypalOrderId,
+            idea_hash: lookupHash,
+            idea_text: lookupText,
+            depth: depthParam,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'complete' && data.report_data) {
+            const bar = document.getElementById('load-bar');
+            if (bar) bar.style.width = '100%';
+            clearInterval(_stepTimer);
+            const ld = $('#payment-loading');
+            if (ld) ld.remove();
+            renderFullReport(data.report_data);
+            return;
+          }
+        }
+      } catch (e) { /* fall through to legacy polling */ }
+    }
+
+    // --- Legacy: poll checkout-status (1s interval, 30s timeout) ---
+    const orderId = params.get('order_id') || '';
+    const ideaHash = params.get('idea_hash') || '';
+    const storedHash = (() => { try { return localStorage.getItem('ir_pending_hash') || localStorage.getItem('ir_idea_hash') || ''; } catch(e) { return ''; } })();
+    const storedText = (() => { try { return localStorage.getItem('ir_pending_idea') || localStorage.getItem('ir_idea_text') || ''; } catch(e) { return ''; } })();
+    const storedDepth = (() => { try { return localStorage.getItem('ir_pending_depth') || localStorage.getItem('ir_depth') || ''; } catch(e) { return ''; } })();
+    const depthParam = params.get('depth') || storedDepth || 'quick';
+
+    const lookupHash = ideaHash || storedHash;
+
+    let reportData = null;
+    for (let i = 0; i < 30; i++) {
+      const bar = document.getElementById('load-bar');
+      if (bar) bar.style.width = Math.min((i / 25) * 100, 95) + '%';
+      try {
+        const res = await fetch(API + '/api/checkout-status', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            order_id: orderId,
+            idea_hash: lookupHash,
+            idea_text: storedText,
+            depth: depthParam,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'complete' && data.report_id) {
+            if (bar) bar.style.width = '100%';
+            const rr = await fetch(API + '/report/' + data.report_id);
+            if (rr.ok) {
+              reportData = await rr.json();
+              break;
+            }
+          }
+        }
+      } catch (e) { /* retry */ }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    clearInterval(_stepTimer);
+
+    // Remove loading
+    const ld = $('#payment-loading');
+    if (ld) ld.remove();
+
+    if (!reportData) {
+      const errDiv = $('#error-msg');
+      errDiv.textContent = 'Failed to load your report. Please contact support@mnemox.ai with your order details.';
+      show(errDiv);
+      show($('#search-section'));
+      return;
+    }
+
+    renderFullReport(reportData);
+  }
+
+  // --- Render full report ---
+  function renderFullReport(data) {
+    let rd = data.report_data;
+    if (typeof rd === 'string') {
+      try { rd = JSON.parse(rd); } catch(e) { rd = {}; }
+    }
+    const report = rd.report || rd;
+    const ideaText = data.idea_text || '';
+
+    // Score
+    const breakdown = report.score_breakdown || {};
+    const score = breakdown.score || 0;
+
+    $('#report-signal-score').textContent = score;
+    $('#report-signal-circle').className = 'signal-circle ' + signalClass(score);
+    $('#report-idea-text').textContent = ideaText;
+
+    // --- Score Breakdown ---
+    const sbContent = $('#score-breakdown-content');
+    sbContent.innerHTML = '';
+    if (breakdown.summary) {
+      const p = document.createElement('p');
+      p.textContent = breakdown.summary;
+      sbContent.appendChild(p);
+    }
+    if (breakdown.explanation) {
+      const p = document.createElement('p');
+      p.textContent = breakdown.explanation;
+      p.style.color = '#999';
+      sbContent.appendChild(p);
+    }
+    if (breakdown.duplicate_likelihood) {
+      const p = document.createElement('p');
+      p.innerHTML = `Duplicate likelihood: <strong style="color:${
+        breakdown.duplicate_likelihood === 'high' ? '#ff6666' :
+        breakdown.duplicate_likelihood === 'medium' ? '#ffcc44' : '#00cc66'
+      }">${esc(breakdown.duplicate_likelihood)}</strong>`;
+      sbContent.appendChild(p);
+    }
+    // Source bars
+    (breakdown.source_bars || []).forEach(bar => {
+      const container = document.createElement('div');
+      container.className = 'source-bar-container';
+      const srcClass = (bar.source || 'default').toLowerCase().replace(/[^a-z]/g, '');
+      container.innerHTML = `
+        <div class="source-bar-label">
+          <span>${esc(bar.source)}</span>
+          <span>${bar.signals.toLocaleString()} signals (${bar.percentage}%)</span>
+        </div>
+        <div class="source-bar">
+          <div class="source-bar-fill ${srcClass || 'default'}" style="width:${bar.percentage}%"></div>
+        </div>
+      `;
+      sbContent.appendChild(container);
+    });
+
+    // --- Sub-Dimension Scores ---
+    const subScores = report.sub_scores || {};
+    const subDims = [
+      { key: 'competition_density', label: 'Competition Density' },
+      { key: 'market_maturity', label: 'Market Maturity' },
+      { key: 'community_buzz', label: 'Community Buzz' },
+    ];
+    // ecosystem_depth = max(npm, pypi), hide if both null
+    const ecoNpm = subScores.ecosystem_depth_npm;
+    const ecoPypi = subScores.ecosystem_depth_pypi;
+    if (ecoNpm != null || ecoPypi != null) {
+      subDims.push({
+        key: '_ecosystem_depth',
+        label: 'Ecosystem Depth',
+        value: Math.max(ecoNpm || 0, ecoPypi || 0),
+      });
+    }
+    const subContent = $('#sub-scores-content');
+    subContent.innerHTML = '';
+    let hasSubScores = false;
+    subDims.forEach(dim => {
+      const val = dim.value != null ? dim.value : (subScores[dim.key] != null ? subScores[dim.key] : null);
+      if (val == null) return;
+      hasSubScores = true;
+      const row = document.createElement('div');
+      row.className = 'sub-dim-row';
+      const pct = Math.min(Math.max(val, 0), 100);
+      row.innerHTML = `
+        <div class="sub-dim-label">${esc(dim.label)}</div>
+        <div class="sub-dim-track"><div class="sub-dim-fill" style="width:${pct}%"></div></div>
+        <div class="sub-dim-val">${Math.round(val)}</div>
+      `;
+      subContent.appendChild(row);
+    });
+    if (hasSubScores) show($('#report-sub-scores'));
+
+    // --- Search Angles ---
+    const angles = report.search_angles || [];
+    if (angles.length > 0) {
+      const ol = $('#angles-content');
+      ol.innerHTML = '';
+      angles.forEach(a => {
+        const li = document.createElement('li');
+        li.style.padding = '4px 0';
+        li.textContent = a;
+        ol.appendChild(li);
+      });
+      show($('#report-angles'));
+    }
+
+    // --- Crowd Intelligence ---
+    const crowdContent = $('#crowd-content');
+    crowdContent.innerHTML = '';
+    const crowd = report.crowd_intelligence || {};
+    if (crowd.similar_count > 0) {
+      crowdContent.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div class="crowd-stat">
+            <span class="num">${crowd.similar_count}</span>
+            <span class="desc">similar queries</span>
+          </div>
+          <div class="crowd-stat">
+            <span class="num">${crowd.avg_score}</span>
+            <span class="desc">avg score</span>
+          </div>
+          <div class="crowd-stat">
+            <span class="num">${(crowd.total_database_queries || 0).toLocaleString()}</span>
+            <span class="desc">total in database</span>
+          </div>
+        </div>
+        <p>${esc(crowd.message || '')}</p>
+        ${crowd.score_comparison ? `<p style="color:#999;font-size:13px">Your score is <strong>${esc(crowd.score_comparison)}</strong> the average of similar queries.</p>` : ''}
+      `;
+      // Depth breakdown
+      if (crowd.depth_breakdown) {
+        const depths = Object.entries(crowd.depth_breakdown);
+        if (depths.length > 0) {
+          const p = document.createElement('p');
+          p.style.color = '#777';
+          p.style.fontSize = '13px';
+          p.textContent = 'Scan depth: ' + depths.map(([d, c]) => `${d} (${c})`).join(', ');
+          crowdContent.appendChild(p);
+        }
+      }
+    } else {
+      crowdContent.innerHTML = `<p style="color:#777">${esc(crowd.message || 'No similar queries found yet.')}</p>`;
+    }
+
+    // --- Competitors ---
+    const compContent = $('#competitors-content');
+    compContent.innerHTML = '';
+    const competitors = report.competitors || [];
+    if (competitors.length === 0) {
+      compContent.innerHTML = '<p style="color:#777">No competitors found.</p>';
+    } else {
+      competitors.forEach((c, i) => {
+        const activity = c.activity || {};
+        const div = document.createElement('div');
+        div.className = 'competitor-item';
+        div.innerHTML = `
+          <div class="competitor-badge">${activity.badge || '?'}</div>
+          <div class="competitor-info">
+            <div>
+              <a class="competitor-name" href="${esc(c.url || '#')}" target="_blank">${esc(c.name)}</a>
+              <span class="competitor-stars">${(c.stars || 0).toLocaleString()} stars</span>
+            </div>
+            ${c.description ? `<div class="competitor-desc">${esc(c.description)}</div>` : ''}
+            <div class="competitor-meta">
+              ${activity.label ? esc(activity.label) : ''}
+              ${activity.days_since_update != null ? ' &middot; updated ' + (activity.days_since_update === 0 ? 'today' : activity.days_since_update + 'd ago') : ''}
+              ${c.language ? ' &middot; ' + esc(c.language) : ''}
+            </div>
+            ${c.found_via_angles && c.found_via_angles.length ? '<div class="found-via">Found via: ' + c.found_via_angles.map(a => esc(a)).join(', ') + '</div>' : ''}
+          </div>
+        `;
+        compContent.appendChild(div);
+      });
+    }
+
+    // --- Strategic Analysis ---
+    const analysisContent = $('#analysis-content');
+    const analysis = report.strategic_analysis || '';
+    const paragraphs = analysis.split(/\n\n+/).filter(p => p.trim());
+    if (paragraphs.length > 1) {
+      analysisContent.innerHTML = paragraphs.map(p => `<p>${esc(p.trim())}</p>`).join('');
+    } else {
+      analysisContent.textContent = analysis;
+    }
+
+    // --- AI Prompt ---
+    const aiLines = [];
+    aiLines.push('## Verified Market Intelligence Report');
+    aiLines.push('> Generated by Mnemox Idea Reality · ' + (report.verified_at || new Date().toISOString()) + ' · All data verified from live APIs');
+    aiLines.push('');
+    aiLines.push('### Idea: ' + ideaText);
+    aiLines.push('');
+    aiLines.push('### Overall Score: ' + score + '/100 — ' + (breakdown.duplicate_likelihood || 'unknown') + ' duplicate likelihood');
+    aiLines.push('');
+    if (hasSubScores) {
+      aiLines.push('### Sub-Dimension Scores');
+      subDims.forEach(dim => {
+        const val = dim.value != null ? dim.value : subScores[dim.key];
+        if (val != null) aiLines.push('- ' + dim.label + ': ' + Math.round(val) + '/100');
+      });
+      aiLines.push('');
+    }
+    if (angles.length > 0) {
+      aiLines.push('### Search Angles Used');
+      angles.forEach((a, i) => aiLines.push((i + 1) + '. "' + a + '"'));
+      aiLines.push('');
+    }
+    if (competitors.length > 0) {
+      aiLines.push('### Top Competitors');
+      aiLines.push('| # | Project | Stars | Language | Activity |');
+      aiLines.push('|---|---------|-------|----------|----------|');
+      competitors.slice(0, 10).forEach((c, i) => {
+        const act = c.activity || {};
+        aiLines.push('| ' + (i + 1) + ' | ' + (c.name || '') + ' | ' + (c.stars || 0).toLocaleString() + ' | ' + (c.language || '-') + ' | ' + (act.label || '-') + ' |');
+      });
+      aiLines.push('');
+    }
+    const crowd2 = report.crowd_intelligence || {};
+    if (crowd2.similar_count > 0) {
+      aiLines.push('### Crowd Intelligence');
+      aiLines.push(crowd2.similar_count + ' builders searched similar ideas. Average score: ' + (crowd2.avg_score || 0) + '/100.');
+      aiLines.push('');
+    }
+    const analysis2 = report.strategic_analysis || '';
+    if (analysis2) {
+      aiLines.push('### Strategic Analysis');
+      aiLines.push(analysis2);
+      aiLines.push('');
+    }
+    aiLines.push('---');
+    aiLines.push('Based on this verified market data, help me create a product positioning plan that addresses the gaps in the competitive landscape.');
+    const aiText = aiLines.join('\n');
+    $('#ai-prompt-text').textContent = aiText;
+    show($('#report-ai-prompt'));
+
+    // Copy button
+    $('#copy-ai-btn').addEventListener('click', function() {
+      navigator.clipboard.writeText(aiText).then(() => {
+        this.textContent = 'Copied!';
+        setTimeout(() => { this.textContent = 'Copy to Clipboard'; }, 2000);
+      });
+    });
+
+    // Download buttons
+    const reportId = data.report_id || '';
+    if (reportId) {
+      const dlHtml = $('#download-html-btn');
+      dlHtml.href = '/report/' + reportId + '/pdf';
+      dlHtml.style.display = 'inline-block';
+      const dlJson = $('#download-json-btn');
+      dlJson.href = '/report/' + reportId + '/json';
+      dlJson.style.display = 'inline-block';
+      currentReportId = reportId;
+    }
+
+    show($('#full-report'));
+  }
+
+  // --- URL detection: paid redirect, PayPal return, or direct report access ---
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('paypal_complete') === '1' || params.has('paid') || params.has('order_id')) {
+    handlePaymentSuccess();
+  } else if (params.has('idea_text')) {
+    const ideaInput = $('#idea-input');
+    if (ideaInput) ideaInput.value = decodeURIComponent(params.get('idea_text'));
+  }
+
+})();
+</script>
+</body>
+</html>

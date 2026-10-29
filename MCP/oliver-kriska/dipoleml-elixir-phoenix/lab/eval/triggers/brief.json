@@ -1,0 +1,19 @@
+{
+  "skill": "brief",
+  "should_trigger": [
+    "Walk me through this plan before I start working on it",
+    "Explain the Ecto schema decisions in this plan",
+    "Brief me on the LiveView component approach in this plan",
+    "Help me understand the reasoning behind this feature plan",
+    "I need to present this plan to my team, walk me through it"
+  ],
+  "should_not_trigger": [
+    "Create a plan for adding image uploads to user profiles",
+    "How do I write idiomatic Ecto changesets properly?",
+    "Implement the tasks from this plan step by step",
+    "Review the code I implemented for this feature",
+    "Is this the right approach or should I reconsider?",
+    "What are best practices for LiveView real-time updates?",
+    "I'm seeing strange query performance, help me debug it"
+  ]
+}

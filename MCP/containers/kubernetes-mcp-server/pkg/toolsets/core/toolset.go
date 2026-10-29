@@ -1,0 +1,55 @@
+package core
+
+import (
+	"context"
+	"slices"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/api"
+	"github.com/containers/kubernetes-mcp-server/pkg/toolsets"
+)
+
+// Details: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+const REGEX_LABELSELECTOR_VALID_CHARS = "^([/_.\\-A-Za-z0-9=, ()!])+$"
+
+// Details: https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/
+const REGEX_FIELDSELECTOR = "^[.\\-A-Za-z0-9]+([=!,]{1,2}[./\\-A-Za-z0-9]+)+$"
+
+type Toolset struct{}
+
+var _ api.Toolset = (*Toolset)(nil)
+
+func (t *Toolset) GetName() string {
+	return "core"
+}
+
+func (t *Toolset) GetDescription() string {
+	return "Most common tools for Kubernetes management (Pods, Generic Resources, Events, etc.)"
+}
+
+func (t *Toolset) GetTools(ctx context.Context, toolsetContext api.ToolsetContext) []api.ServerTool {
+	return slices.Concat(
+		initEvents(),
+		initNamespaces(toolsetContext.Inspector),
+		initNodes(toolsetContext.Inspector),
+		initPods(toolsetContext.Inspector),
+		initResources(ctx, toolsetContext.Inspector, toolsetContext.TargetCompatibilityFiltersEnabled),
+	)
+}
+
+func (t *Toolset) GetPrompts(_ context.Context, _ api.ToolsetContext) []api.ServerPrompt {
+	return slices.Concat(
+		initHealthChecks(),
+	)
+}
+
+func (t *Toolset) GetResources(_ context.Context, _ api.ToolsetContext) []api.ServerResource {
+	return nil
+}
+
+func (t *Toolset) GetResourceTemplates(_ context.Context, _ api.ToolsetContext) []api.ServerResourceTemplate {
+	return nil
+}
+
+func init() {
+	toolsets.Register(&Toolset{})
+}

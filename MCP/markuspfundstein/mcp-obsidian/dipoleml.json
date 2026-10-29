@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.markuspfundstein.mcp-obsidian",
+  "type": "mcp",
+  "name": "MCP Obsidian",
+  "slug": "mcp-obsidian",
+  "vendor": "markuspfundstein",
+  "description": "MCP server that interacts with Obsidian via the Obsidian rest API community plugin",
+  "version": "0.0.0",
+  "homepage": "https://github.com/MarkusPfundstein/mcp-obsidian",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "unity",
+    "brandName": "unity",
+    "source": "https://cdn.simpleicons.org/unity",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:15Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "MarkusPfundstein/mcp-obsidian",
+    "url": "https://github.com/MarkusPfundstein/mcp-obsidian",
+    "commit": "5ee0b84fa8319fd2fdf0db0ee1febb065e712a15",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4506,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-obsidian"
+    ],
+    "env": [
+      "OBSIDIAN_API_KEY",
+      "OBSIDIAN_HOST",
+      "OBSIDIAN_PORT",
+      "YOUR_OBSIDIAN_API_KEY"
+    ],
+    "credentials": [
+      "OBSIDIAN_API_KEY",
+      "YOUR_OBSIDIAN_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

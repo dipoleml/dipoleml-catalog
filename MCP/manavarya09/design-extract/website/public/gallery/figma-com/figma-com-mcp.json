@@ -1,0 +1,1084 @@
+{
+  "colors": {
+    "all": [
+      {
+        "hex": "#000000",
+        "rgb": {
+          "r": 0,
+          "g": 0,
+          "b": 0,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 0
+        },
+        "count": 2344,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#ffffff",
+        "rgb": {
+          "r": 255,
+          "g": 255,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 100
+        },
+        "count": 667,
+        "contexts": [
+          "background",
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#697485",
+        "rgb": {
+          "r": 105,
+          "g": 116,
+          "b": 133,
+          "a": 1
+        },
+        "hsl": {
+          "h": 216,
+          "s": 12,
+          "l": 47
+        },
+        "count": 44,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#33dfdf",
+        "rgb": {
+          "r": 51,
+          "g": 223,
+          "b": 223,
+          "a": 1
+        },
+        "hsl": {
+          "h": 180,
+          "s": 73,
+          "l": 54
+        },
+        "count": 6,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#b98e01",
+        "rgb": {
+          "r": 185,
+          "g": 142,
+          "b": 1,
+          "a": 1
+        },
+        "hsl": {
+          "h": 46,
+          "s": 99,
+          "l": 36
+        },
+        "count": 6,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#24cb71",
+        "rgb": {
+          "r": 36,
+          "g": 203,
+          "b": 113,
+          "a": 1
+        },
+        "hsl": {
+          "h": 148,
+          "s": 70,
+          "l": 47
+        },
+        "count": 2,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#e6e6e6",
+        "rgb": {
+          "r": 230,
+          "g": 230,
+          "b": 230,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 90
+        },
+        "count": 2,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#4d49fc",
+        "rgb": {
+          "r": 77,
+          "g": 73,
+          "b": 252,
+          "a": 1
+        },
+        "hsl": {
+          "h": 241,
+          "s": 97,
+          "l": 64
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#f3ffe3",
+        "rgb": {
+          "r": 243,
+          "g": 255,
+          "b": 227,
+          "a": 1
+        },
+        "hsl": {
+          "h": 86,
+          "s": 100,
+          "l": 95
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#e4ff97",
+        "rgb": {
+          "r": 228,
+          "g": 255,
+          "b": 151,
+          "a": 1
+        },
+        "hsl": {
+          "h": 76,
+          "s": 100,
+          "l": 80
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#00b6ff",
+        "rgb": {
+          "r": 0,
+          "g": 182,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 197,
+          "s": 100,
+          "l": 50
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#c4baff",
+        "rgb": {
+          "r": 196,
+          "g": 186,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 249,
+          "s": 100,
+          "l": 86
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#95b9ac",
+        "rgb": {
+          "r": 149,
+          "g": 185,
+          "b": 172,
+          "a": 1
+        },
+        "hsl": {
+          "h": 158,
+          "s": 20,
+          "l": 65
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#ff7237",
+        "rgb": {
+          "r": 255,
+          "g": 114,
+          "b": 55,
+          "a": 1
+        },
+        "hsl": {
+          "h": 18,
+          "s": 100,
+          "l": 61
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#cb9fd2",
+        "rgb": {
+          "r": 203,
+          "g": 159,
+          "b": 210,
+          "a": 1
+        },
+        "hsl": {
+          "h": 292,
+          "s": 36,
+          "l": 72
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#ffc9c1",
+        "rgb": {
+          "r": 255,
+          "g": 201,
+          "b": 193,
+          "a": 1
+        },
+        "hsl": {
+          "h": 8,
+          "s": 100,
+          "l": 88
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#721c1c",
+        "rgb": {
+          "r": 114,
+          "g": 28,
+          "b": 28,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 61,
+          "l": 28
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#c7f8fb",
+        "rgb": {
+          "r": 199,
+          "g": 248,
+          "b": 251,
+          "a": 1
+        },
+        "hsl": {
+          "h": 183,
+          "s": 87,
+          "l": 88
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      }
+    ]
+  },
+  "regions": [
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 81.1875
+      },
+      "heading": "Use cases",
+      "buttonCount": 4,
+      "cardCount": 65,
+      "className": "fig-12h3c4v"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 103.328125,
+        "y": 20,
+        "w": 541.828125,
+        "h": 41.1875
+      },
+      "heading": "Use cases",
+      "buttonCount": 4,
+      "cardCount": 62,
+      "className": null
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 13,
+      "className": "fig-1fwz4kq"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": "Use cases",
+      "buttonCount": 0,
+      "cardCount": 20,
+      "className": "fig-1fwz4kq"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 4,
+      "className": "fig-1fwz4kq"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": "Get started",
+      "buttonCount": 0,
+      "cardCount": 16,
+      "className": "fig-1fwz4kq"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": null,
+      "buttonCount": 1,
+      "cardCount": 3,
+      "className": "fig-1jciw8t"
+    },
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": null,
+      "buttonCount": 1,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "pricing",
+      "tag": "main",
+      "bounds": {
+        "x": 0,
+        "y": 121,
+        "w": 1280,
+        "h": 7052.4375
+      },
+      "heading": "Make anything possible, all in Figma",
+      "buttonCount": 16,
+      "cardCount": 82,
+      "className": null
+    },
+    {
+      "role": "hero",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 121,
+        "w": 1280,
+        "h": 527.4375
+      },
+      "heading": "Make anything possible, all in Figma",
+      "buttonCount": 3,
+      "cardCount": 8,
+      "className": "fig-dvbxa9"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 728.4375,
+        "w": 1280,
+        "h": 128
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 48,
+      "className": "fig-1db00we"
+    },
+    {
+      "role": "hero",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 976.4375,
+        "w": 1280,
+        "h": 882.09375
+      },
+      "heading": "Prompt, code, and design from first idea to final product",
+      "buttonCount": 8,
+      "cardCount": 0,
+      "className": "fig-1xgziwn"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 1858.53125,
+        "w": 1280,
+        "h": 393.171875
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "fig-11tqvy7"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 2251.703125,
+        "w": 1280,
+        "h": 1650.296875
+      },
+      "heading": "Bring everyone together with systems that scale",
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "fig-6y04jb"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 53.328125,
+        "y": 2532.484375,
+        "w": 1173.328125,
+        "h": 1249.515625
+      },
+      "heading": "Share libraries and design systems across teams.",
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "fig-gcn2ga"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 3902,
+        "w": 1280,
+        "h": 688.390625
+      },
+      "heading": "Ship products, any way you want",
+      "buttonCount": 3,
+      "cardCount": 0,
+      "className": "fig-1hysvv2"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 4590.390625,
+        "w": 1280,
+        "h": 344.78125
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "fig-11tqvy7"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 4935.171875,
+        "w": 1280,
+        "h": 965.6875
+      },
+      "heading": "Explore what people are making",
+      "buttonCount": 0,
+      "cardCount": 16,
+      "className": "fig-vorkog"
+    },
+    {
+      "role": "pricing",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 5900.859375,
+        "w": 1280,
+        "h": 533.328125
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "fig-xva5bn"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 6434.1875,
+        "w": 1280,
+        "h": 739.25
+      },
+      "heading": "Start with a template. Make just about anything.",
+      "buttonCount": 2,
+      "cardCount": 10,
+      "className": "fig-1tdv684"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 0,
+        "y": 7173.4375,
+        "w": 1280,
+        "h": 1237.484375
+      },
+      "heading": "Figma Socials",
+      "buttonCount": 1,
+      "cardCount": 79,
+      "className": "fig-97erl1"
+    }
+  ],
+  "componentClusters": [
+    {
+      "kind": "button",
+      "structuralHash": "button>svg",
+      "instanceCount": 5,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "4px 4px 4px 4px",
+            "borderRadius": "0px",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 3
+        },
+        {
+          "css": {
+            "background": "rgba(255, 255, 255, 0.16)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "50%",
+            "border": "0px none rgb(255, 255, 255)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>span>svg",
+      "instanceCount": 4,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "8px 8px 8px 8px",
+            "borderRadius": "0px",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "18px",
+            "fontWeight": "330"
+          },
+          "instanceCount": 4
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>svg>svg",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "50%",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button",
+      "instanceCount": 8,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0.08)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "8px 18px 10px 18px",
+            "borderRadius": "50px",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "18px",
+            "fontWeight": "480"
+          },
+          "instanceCount": 1
+        },
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "8px 18px 10px 18px",
+            "borderRadius": "50px",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "18px",
+            "fontWeight": "480"
+          },
+          "instanceCount": 7
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>svg>span",
+      "instanceCount": 3,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "0px",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "18px",
+            "fontWeight": "330"
+          },
+          "instanceCount": 3
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>div>svg",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "8px 8px 8px 8px",
+            "borderRadius": "0px",
+            "border": "0px none rgb(255, 255, 255)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    }
+  ],
+  "accessibility": {
+    "remediation": []
+  },
+  "cssHealth": {
+    "sheets": [
+      {
+        "url": "https://www.figma.com/_netlify/_next/static/css/f564ddd3fbf8f7e4.css",
+        "totalBytes": 407,
+        "usedBytes": 0,
+        "unusedBytes": 407,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.figma.com/",
+        "totalBytes": 199143,
+        "usedBytes": 0,
+        "unusedBytes": 199143,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.figma.com/",
+        "totalBytes": 39,
+        "usedBytes": 0,
+        "unusedBytes": 39,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.figma.com/_netlify/_next/static/css/f03300ce0c70ed64.css",
+        "totalBytes": 1024,
+        "usedBytes": 0,
+        "unusedBytes": 1024,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.figma.com/",
+        "totalBytes": 39,
+        "usedBytes": 39,
+        "unusedBytes": 0,
+        "unusedPercent": 0
+      },
+      {
+        "url": "https://www.figma.com/",
+        "totalBytes": 199143,
+        "usedBytes": 81112,
+        "unusedBytes": 118031,
+        "unusedPercent": 59
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822384?h=d87e2634b3&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822384?h=d87e2634b3&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822384?h=d87e2634b3&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1106141794?h=a7cdd1b89d&title=0&byline=0&portrait=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1106141794?h=a7cdd1b89d&title=0&byline=0&portrait=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1106141794?h=a7cdd1b89d&title=0&byline=0&portrait=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7614,
+        "unusedBytes": 229550,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7614,
+        "unusedBytes": 229550,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822125?h=e4b4944014&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 717,
+        "unusedBytes": 32,
+        "unusedPercent": 4
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822125?h=e4b4944014&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 648,
+        "unusedBytes": 48,
+        "unusedPercent": 7
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822125?h=e4b4944014&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 6917,
+        "unusedBytes": 230247,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822703?h=c8f0240387&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822703?h=c8f0240387&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822703?h=c8f0240387&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7093,
+        "unusedBytes": 230071,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://player.vimeo.com/video/1106141156?h=394f5f9721&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://player.vimeo.com/video/1106141156?h=394f5f9721&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1106141156?h=394f5f9721&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7132,
+        "unusedBytes": 230032,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822624?h=d2e608ba23&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822624?h=d2e608ba23&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822624?h=d2e608ba23&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7093,
+        "unusedBytes": 230071,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103862294?h=802500bb17&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103862294?h=802500bb17&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103862294?h=802500bb17&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7093,
+        "unusedBytes": 230071,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://accounts.google.com/gsi/style",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822749?h=ad2a6b8283&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 443,
+        "usedBytes": 189,
+        "unusedBytes": 254,
+        "unusedPercent": 57
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822749?h=ad2a6b8283&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 749,
+        "usedBytes": 0,
+        "unusedBytes": 749,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://player.vimeo.com/video/1103822749?h=ad2a6b8283&title=0&byline=0&portrait=0&keyboard=0&muted=1&controls=0&dnt=1&loop=1&app_id=122963&unmute_button=0",
+        "totalBytes": 696,
+        "usedBytes": 0,
+        "unusedBytes": 696,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://f.vimeocdn.com/p/4.46.50/css/player.css",
+        "totalBytes": 237164,
+        "usedBytes": 7093,
+        "unusedBytes": 230071,
+        "unusedPercent": 97
+      }
+    ],
+    "totalBytes": 2312907,
+    "usedBytes": 141677,
+    "unusedBytes": 2171230,
+    "unusedPercent": 94,
+    "importantCount": 216,
+    "duplicates": 41308,
+    "vendorPrefixes": {
+      "webkit": 1932,
+      "moz": 236,
+      "ms": 648,
+      "o": 0
+    },
+    "keyframes": [],
+    "specificity": {
+      "max": [
+        1,
+        6,
+        3
+      ],
+      "average": [
+        0,
+        2.37,
+        0.3
+      ],
+      "count": 19639
+    },
+    "issues": [
+      "216 !important rules",
+      "41308 duplicate declarations",
+      "94% unused CSS"
+    ]
+  }
+}

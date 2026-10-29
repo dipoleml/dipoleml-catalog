@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.seleniumbase.seleniumbase",
+  "type": "mcp",
+  "name": "Seleniumbase",
+  "slug": "seleniumbase",
+  "vendor": "seleniumbase",
+  "description": "📊 The best API for Web Automation, Testing, and Scraping. CDP Mode launches a stealth browser that bypasses bot-detection/CAPTCHAs. Adds stealth to Playwright. Includes an MCP server for AI agents.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/seleniumbase/SeleniumBase",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anti-detection",
+    "bot-detection",
+    "chromedriver",
+    "chromium",
+    "cloudflare-bypass",
+    "e2e-testing",
+    "end-to-end-testing",
+    "playwright"
+  ],
+  "tags": [
+    "anti-detection",
+    "bot-detection",
+    "chromedriver",
+    "chromium",
+    "cloudflare-bypass",
+    "e2e-testing",
+    "end-to-end-testing",
+    "playwright",
+    "pytest",
+    "python",
+    "selenium",
+    "selenium-python",
+    "seleniumbase",
+    "test-automation",
+    "web-automation",
+    "web-scraping",
+    "web-scraping-python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "playwright",
+    "brandName": "playwright",
+    "source": "https://github.com/seleniumbase.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "seleniumbase/SeleniumBase",
+    "url": "https://github.com/seleniumbase/SeleniumBase",
+    "commit": "abf61932bc89bfbabd59eaa776b9d09f75618d2f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 13195,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:29Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "seleniumbase-mcp",
+      "args": []
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "seleniumbase"
+    ],
+    "env": [
+      "PAC_URL",
+      "KEY_FROM_PROXY_LIST"
+    ],
+    "credentials": [
+      "KEY_FROM_PROXY_LIST"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,2060 @@
+#!/usr/bin/env node
+"use strict";
+/** Minimal stdio JSON-RPC MCP server over deliberation-core. Zero deps. */
+/** @typedef {import("../../core/types.js").Provider} Provider */
+/** @typedef {import("../../core/types.js").DelegationRequest} DelegationRequest */
+
+const { makeRegistry, pinAlias } = require("../../core/registry.js");
+const { askAll, askOne, consensus, runToConvergence } = require("../../core/orchestrate.js");
+const { orientationFilesFor } = require("../../core/orientation.js");
+const { resolveProject } = require("../../core/project.js");
+const { PROMPTS } = require("../../core/prompts/index.js");
+const analyzeCore = require("../../core/analyze.js");
+const { fitToHostBudget } = require("../../core/host-budget.js");
+const { createJournal, NULL_JOURNAL, isSafeId } = require("../../core/journal.js");
+
+// MCP tool annotations. readOnlyHint reflects each tool's PRIMARY CONTRACT, not
+// whether some opt-in mode can ever write: ask-all/consensus stay read-only (their
+// job is advisory) even though they persist a session record when the opt-in
+// sessions.persist is ON (default OFF, disclosed in each description) - a strict
+// "can ever write" rule would also have to flag ask-one and every expert tool
+// (identical opt-in debug telemetry). openWorldHint:true marks tools that reach
+// external LLM providers (network, cost, rate limits). destructiveHint:false is
+// explicit on all four: it documents additive-only intent and avoids any
+// client/Glama misinterpretation (annotations postdate this server's 2024-11-05
+// protocol, so no single default is authoritative).
+const LOCAL_RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };  // local read-only: panel, analyze, session-get
+/** analyze: default debug-log tail (bytes). */
+const DEFAULT_LOG_BYTES = 1024 * 1024;
+/** analyze: hard ceiling on the debug-log read (bytes), including an explicit limitBytes. */
+const MAX_LOG_BYTES = 32 * 1024 * 1024;
+/** analyze: hard ceiling on session records PARSED (not scanned - listSessions must stat
+ * everything before it can sort newest-first, so bounding the scan would lose recency). */
+const MAX_SESSION_RECORDS = 500;
+const EXT_RO = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };     // advisory + external LLMs: ask-*, experts, ask-one, ask-all, consensus
+const LOCAL_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }; // local additive write: session-annotate
+const EXT_RW = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };    // writes state + calls providers: consensus-step, session-revisit
+/** @type {Record<string, string>} */
+const ASK_PROVIDER = { "ask-gpt": "codex", "ask-gemini": "gemini", "ask-grok": "grok", "ask-openrouter": "openrouter" };
+/** Per-provider auth note for the ask-* tool descriptions. @type {Record<string, string>} */
+const ASK_AUTH = { codex: "via the Codex CLI", gemini: "via the Gemini CLI", grok: "needs XAI_API_KEY", openrouter: "needs the OpenRouter API key env" };
+const EXPERTS = ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"];
+/** Appended to every expert tool description: external dispatch + return shape (keeps EXPERT_DESCRIPTIONS focused on purpose/usage). */
+const EXPERT_SUFFIX = " Fans out to the configured provider panel with this persona (advisory; each provider needs its key/CLI, rate limits apply) and returns a text-wrapped JSON envelope { results[] }.";
+
+/**
+ * One-line guidance per expert, surfaced in tools/list. Non-Claude hosts read
+ * these descriptions to pick a tool, so each states the persona + when to use it.
+ * @type {Record<string, string>}
+ */
+const EXPERT_DESCRIPTIONS = {
+  "architect": "Software architect for system design, tradeoff analysis, and complex decisions. Use for architecture, API/schema design, multi-service interactions, or when a fix has failed twice and needs a fresh perspective.",
+  "plan-reviewer": "Work-plan reviewer that verifies a plan is executable before anyone builds. Use to validate an implementation plan for clarity, completeness, and gaps before starting significant work.",
+  "scope-analyst": "Pre-planning consultant that catches ambiguities, hidden requirements, and pitfalls before planning begins. Use when a request is vague or could be interpreted multiple ways.",
+  "code-reviewer": "Senior engineer doing code review for bugs, security holes, and maintainability - not style nitpicks. Use to review a diff or file before merging.",
+  "security-analyst": "Security engineer for threat modeling and vulnerability assessment. Use for auth/authorization changes, untrusted input handling, new endpoints, or a focused security audit.",
+  "researcher": "Research specialist for external libraries, frameworks, APIs, and open-source code. Use for 'how do I use X', best-practice, or 'why does this dependency behave this way' questions, with evidence and honest unverified flags.",
+  "debugger": "Debugging specialist that produces ranked root-cause hypotheses and the smallest safe fix from a bug report, logs, and code - or says honestly that the evidence shows no bug. Use for crashes, failing tests, or wrong output.",
+  "writing-editor": "Line editor for prose - posts, articles, promo copy, READMEs. Flags machine-sounding patterns and returns line edits plus a rewritten text that keeps every fact, claim, and the author's voice; asks for missing specifics instead of inventing them. Use for any draft that reads generic or machine-written.",
+};
+
+/**
+ * Shared schema-property descriptions, kept consistent across every tool's input
+ * schema. They state role / valid values only - never promising validation the
+ * handler does not perform.
+ */
+const PROP_DESC = {
+  prompt: "The question or task for the provider(s)/expert.",
+  expert: "Optional persona: architect, plan-reviewer, scope-analyst, code-reviewer, security-analyst, researcher, debugger, or writing-editor. On a named expert tool the tool's own persona wins and this is ignored.",
+  developerInstructions: "Optional system/developer instructions injected verbatim; overrides the built-in persona for `expert`.",
+  cwd: "Working directory the provider runs in (used to resolve relative file refs). Defaults to the server process directory.",
+  reasoningEffort: "Reasoning depth where the provider supports it (Grok, OpenRouter): low, medium, high, or none. CLI providers (Codex, Gemini) ignore it.",
+  preset: "OpenRouter preset id or slug (e.g. 'cheapest-first') to route request or override parameters.",
+  runId: "Optional run id from `panel`; groups parallel calls into one dashboard run. An id this server's `panel` did not open is ignored.",
+};
+
+/** The shared `files[]` array schema (identical across ask-*, ask-one, consensus). */
+function fileItems() {
+  return {
+    type: "array",
+    description: "Optional attachments for providers that read files (Grok/OpenRouter; inlined as context for Codex/Gemini). Each item is EXACTLY ONE of path/dir/file_id/file_url.",
+    items: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to a single file to attach (resolved against cwd)." },
+        dir: { type: "string", description: "Directory to attach; expanded recursively by providers that support it." },
+        file_id: { type: "string", description: "Id of a file already uploaded to the provider (e.g. Grok Files API)." },
+        file_url: { type: "string", description: "Public URL for the provider to fetch." },
+        mode: { type: "string", enum: ["auto", "inline", "upload"], description: "Delivery: auto (size-based), inline (embed as text), or upload (provider Files API)." },
+        headBytes: { type: "integer", minimum: 1, description: "Path entries only: send only the first N bytes, cut at a line break and marked as truncated (inline; not with mode upload)." },
+      },
+    },
+  };
+}
+
+/** Schema for `panel` (discover the active provider set without dispatching). */
+function panelInputSchema() {
+  return {
+    type: "object",
+    properties: {
+      expert: { type: "string", description: "Optional persona to preview the panel for; affects which providers/aliases are eligible." },
+      for: { type: "string", enum: ["ask-all", "consensus"], description: "Which panel to echo: `ask-all` (default, fanout cap applied) or `consensus` (uncapped consensus delegates)." },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      prompt: { type: "string", description: "Optional: the question about to be fanned out. Recorded on the dashboard run only (when the dashboard journal is on); panel never sends it to a provider." },
+    },
+  };
+}
+
+/** Schema for `analyze` (read-only run analytics over the debug log + sessions). */
+function analyzeInputSchema() {
+  return {
+    type: "object",
+    properties: {
+      configId:{type:'string',description:'Full recorded config ID, or unknown for legacy.'},
+      activationId:{type:'string',description:'Optional activation UUID.'},
+      groupBy:{type:'string',enum:['config'],description:'Historical config groups ignore current-model filtering.'},
+      sessions: { type: "integer", description: "How many recent session records to read for the agreement lens. Default -1 (no caller cap), still bounded to 500 parsed records; truncation is reported in meta.truncated.sessions." },
+      limitBytes: { type: "integer", description: "Tail size of the debug log to read, in bytes (default 1048576, or 33554432 when `since` is set). Clamped to 33554432." },
+      since: { type: "string", description: "Only analyze runs newer than this window, e.g. \"30m\", \"24h\", \"7d\", or a bare number of seconds. Gates BOTH lenses so timing and agreement cover the same period. Omit for all time. Max 10 years; an invalid or out-of-range value is an error, never a silent fallback." },
+      configuredOnly: { type: "boolean", description: "Report only models present in the current config (default true). Excluded rows and the reason each was dropped are listed in meta.excluded. Set false to include retired/unconfigured models." },
+    },
+  };
+}
+
+/** Schema for `ask-one` (single named provider from the active panel). */
+function askOneInputSchema() {
+  return {
+    type: "object",
+    required: ["provider", "prompt"],
+    properties: {
+      fanoutId:{type:"string",description:"Ephemeral group ID from panel. Rejects invalid, duplicate or expired joins."},
+      provider: { type: "string", description: 'A name from `panel` (e.g. "codex", "gemini", "grok", "openrouter:<alias>").' },
+      prompt: { type: "string", description: PROP_DESC.prompt },
+      expert: { type: "string", description: PROP_DESC.expert },
+      developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      preset: { type: "string", description: PROP_DESC.preset },
+      files: fileItems(),
+      runId: { type: "string", description: PROP_DESC.runId },
+    },
+  };
+}
+
+/** Schema for the single-provider `ask-*` tools: the shared fields plus the panel `runId`. */
+function askInputSchema() {
+  const s = inputSchema();
+  return { ...s, properties: { ...s.properties, runId: { type: "string", description: PROP_DESC.runId } } };
+}
+
+function inputSchema() {
+  return {
+    type: "object",
+    required: ["prompt"],
+    properties: {
+      prompt: { type: "string", description: PROP_DESC.prompt },
+      expert: { type: "string", description: PROP_DESC.expert },
+      developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      preset: { type: "string", description: PROP_DESC.preset },
+      files: fileItems(),
+    },
+  };
+}
+
+// The unified consensus tool: the fan-out fields plus the loop knobs. maxRounds
+// overrides the config default; synthesizeAlways switches to a single synthesis pass.
+function consensusInputSchema() {
+  return {
+    type: "object",
+    required: ["prompt"],
+    properties: {
+      prompt: { type: "string", description: PROP_DESC.prompt },
+      expert: { type: "string", description: PROP_DESC.expert },
+      developerInstructions: { type: "string", description: PROP_DESC.developerInstructions },
+      reasoningEffort: { type: "string", enum: ["low", "medium", "high", "none"], description: PROP_DESC.reasoningEffort },
+      preset: { type: "string", description: PROP_DESC.preset },
+      maxRounds: { type: "integer", minimum: 1, maximum: 50, description: "Override consensus.maxRounds for this call (loop mode only; ignored when synthesizeAlways is true). Clamped to 50." },
+      synthesizeAlways: { type: "boolean", description: "Run ONE arbiter synthesis pass instead of the convergence loop. Returns a free-text `synthesis` (verdict/converged/confidence are null, rounds is 1). Best for open questions." },
+      cwd: { type: "string", description: PROP_DESC.cwd },
+      files: fileItems(),
+    },
+  };
+}
+
+// Session tools take a sessionId (+ note for annotate), NOT a prompt - so they
+// need their OWN input schemas rather than the prompt-required inputSchema().
+function sessionGetInputSchema() {
+  // `cwd` is advertised (optional) so session-revisit can resolve the original
+  // file refs against the caller's workspace, not the server process dir. It
+  // flows through req.cwd -> childReq.cwd. session-get ignores it harmlessly.
+  return { type: "object", required: ["sessionId"], properties: { sessionId: { type: "string", description: "Id of a persisted session record." }, cwd: { type: "string", description: "session-revisit only: working directory for resolving the original file refs on the re-run; session-get ignores it." } } };
+}
+function sessionAnnotateInputSchema() {
+  return { type: "object", required: ["sessionId", "note"], properties: { sessionId: { type: "string", description: "Id of the persisted session record to annotate." }, note: { type: "string", description: "Freeform text appended to the record's audit trail." } } };
+}
+// consensus-step is a stateful, client-driven loop tool: one action per call,
+// state carried in the loop store by sessionId. Most fields are action-specific.
+function consensusStepInputSchema() {
+  return {
+    type: "object",
+    required: ["action"],
+    properties: {
+      action: { type: "string", enum: ["init", "record_blind", "dispatch_peers", "submit_adjudication", "submit_revision"], description: "Which loop step to run this call, in order: init -> record_blind -> dispatch_peers -> submit_adjudication -> submit_revision." },
+      sessionId: { type: "string", description: "Loop id returned by init; required on every action except init." },
+      prompt: { type: "string", description: "init only: the plan/proposal under review." },
+      expert: { type: "string", description: "init only: optional persona for the peer panel (see the expert tools)." },
+      blindVerdict: { type: "string", description: "record_blind only: your pre-commit verdict text, written before the panel is revealed." },
+      verdict: { type: "string", enum: ["APPROVE", "REQUEST_CHANGES", "REJECT"], description: "submit_adjudication only: your adjudicated verdict after weighing the panel." },
+      decisions: { type: "array", description: "submit_adjudication only: per-issue rulings, each { source, category, description, action: accept|dismiss|defer, reason }; dismiss/defer require a reason." },
+      revisedPlan: { type: "string", description: "submit_revision only: the full revised plan addressing accepted issues." },
+      diffSummary: { type: "string", description: "submit_revision only: one line summarizing what changed." },
+      cwd: { type: "string", description: "dispatch_peers only: working directory the peer providers run in." },
+    },
+  };
+}
+
+function toolList() {
+  /** @type {any[]} */
+  const tools = [
+    { name: "ask-all", description: "Fan out one question to GPT, Gemini, Grok, and any configured OpenRouter models in parallel for independent second opinions, then return all results (advisory, no cross-contamination). Pass `expert` to apply a persona to every delegate. Calls external LLM providers (each needs its key/CLI; provider rate limits apply); returns a text-wrapped JSON envelope { results[], omitted[] } and persists a session record only when sessions.persist is enabled (default off).", inputSchema: inputSchema(), annotations: EXT_RO },
+    { name: "consensus", description: "Run the FULL multi-round consensus convergence loop server-side with a provider arbiter (blind pass + peer fan-out -> adjudicate -> revise) and return the converged verdict. Default depth is `consensus.maxRounds` (config, default 5); pass `maxRounds` to override. Pass `synthesizeAlways:true` for a SINGLE arbiter synthesis pass instead of the loop (best for open questions, not plan convergence): it returns a free-text `synthesis` and `maxRounds` is ignored. Configure the arbiter via `consensus.arbiter` - a concrete provider/openrouter alias runs server-side; `host` mode returns the opinions for YOU to synthesize. Advisory; pass `expert` to apply a persona. Calls external providers (keys/CLI; rate limits apply); returns a text-wrapped JSON envelope (split verdict/synthesis, loop fields nullable) and persists a session record only when sessions.persist is enabled (default off). NOTE (Claude Code): use the `/consensus` slash command for the transcript-visible host-arbiter loop (it drives `consensus-step`); this tool is the provider-arbiter path for any host.", inputSchema: consensusInputSchema(), annotations: EXT_RO },
+    { name: "consensus-step", description: "Client-driven consensus loop where YOU (the host model) are the arbiter, one action per call: init (returns sessionId + blind prompt) -> record_blind (your pre-commit verdict) -> dispatch_peers (server fans out to the providers) -> submit_adjudication (your verdict + per-issue accept/dismiss/defer) -> submit_revision (your revised plan), looping until converged or consensus.maxRounds rounds (default 5). Only the dispatch_peers action calls external providers; the others are local transitions on the ephemeral per-session loop store (keyed by sessionId, lost on server restart). Each call returns a text-wrapped JSON envelope with the next status/round (plus blindPrompt, opinions[], or finalReport by action). Advisory to the outside world, but mutates server loop state on every call.", inputSchema: consensusStepInputSchema(), annotations: EXT_RW },
+    { name: "codex-login", description: "Start (or join) the ChatGPT device login for GPT (Codex) and return its link + one-time code WITHOUT asking GPT anything. Use it when GPT has no login on this machine (e.g. Claude Code on the web): show the returned `message` to the user as-is; GPT answers once they approve in the browser. A host with MCP elicitation also gets a dialog. At most one `codex login --device-auth` runs per server; credentials are never read or copied. Returns a text-wrapped JSON envelope { status: authenticated|pending|starting|declined|failed|unavailable, message, url?, code?, expiresAt? }.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: EXT_RW },
+    { name: "panel", description: "Return the names of the providers `ask-all` WOULD dispatch for the current config + expert (enabled built-ins + eligible OpenRouter aliases, fanout cap applied), WITHOUT calling them. Use this to discover the panel, then issue one `ask-one` call per provider in parallel for visible per-provider progress. Pass `for: \"consensus\"` for the /consensus panel instead. `needsLogin` lists panel members with no login yet (codex on a fresh machine): run `codex-login` and let the user approve BEFORE dispatching, so they answer from the first call. No provider calls and never starts a login; when the dashboard journal is enabled (`dashboard.enabled`) it writes one local journal line opening a fan-out run and returns its `runId` - pass that to every `ask-one`. Returns a text-wrapped JSON envelope { providers[], omitted[], unavailable[], needsLogin[], runId? }.", inputSchema: panelInputSchema(), annotations: LOCAL_RO },
+    { name: "ask-one", description: "Second opinion from ONE named provider in the active panel (e.g. `codex`, `gemini`, `grok`, `openrouter:<alias>` - get the names from `panel`). Issue N in parallel (one per panel name) so each renders independently as it lands. For `codex` with no login, the call itself starts a device login and returns its link + code (errorKind auth): never skip it for that reason. Better: when `panel` lists codex in `needsLogin`, run `codex-login` first so GPT answers from this call. Calls one external LLM provider (needs its key/CLI; rate limits apply); returns a text-wrapped JSON envelope { result }, or { error, panel } when the name is not in the panel. Advisory, single-shot.", inputSchema: askOneInputSchema(), annotations: EXT_RO },
+    { name: "analyze", description: "Analyze recent runs from the opt-in debug log (latency/tokens/reasoning-effort per model) plus the session store (verdict agreement rate), and return advisory tuning suggestions (disable a slow/redundant model in ask-all, lower an OpenRouter model's reasoning, adjust maxFanout). Two lenses reported side by side - timing and agreement are NOT joined (no shared run id). Requires `debug.enabled` for the timing lens. Local and read-only (no provider calls, writes nothing); returns a text-wrapped JSON envelope with the two lenses + suggestions. The `/deliberation:analyze` slash command renders this for humans.", inputSchema: analyzeInputSchema(), annotations: LOCAL_RO },
+  ];
+  for (const t of Object.keys(ASK_PROVIDER)) {
+    const prov = ASK_PROVIDER[t];
+    // An agent that decided a logged-out GPT call "would only return a link" skipped it, and
+    // the login it would have started never happened: say so where the call is decided.
+    const codexNote = prov === "codex" ? " With no codex login, this call itself starts a device login and returns its link + code (errorKind auth): never skip it for that reason. `codex-login` does only the login; when `panel` lists codex in `needsLogin`, run it first so GPT answers from this call." : "";
+    tools.push({ name: t, description: `Single-provider second opinion via ${prov} (advisory, single-shot). Pass \`expert\` to apply one of the expert personas. Calls the external ${prov} provider (${ASK_AUTH[prov]}; rate limits apply) and returns a text-wrapped JSON envelope { result }.${codexNote}`, inputSchema: askInputSchema(), annotations: EXT_RO });
+  }
+  for (const e of EXPERTS) {
+    tools.push({ name: e, description: EXPERT_DESCRIPTIONS[e] + EXPERT_SUFFIX, inputSchema: inputSchema(), annotations: EXT_RO });
+  }
+  // Session store tools (opt-in; report "disabled" when sessions.persist is off).
+  tools.push({ name: "session-get", description: "Fetch a persisted consensus/ask-all session record by id (opinions, verdict, arbiter, annotations). Requires sessions.persist; local and read-only (no provider calls). Returns a text-wrapped JSON envelope { session }, or { error } when persistence is off or the id is unknown.", inputSchema: sessionGetInputSchema(), annotations: LOCAL_RO });
+  tools.push({ name: "session-revisit", description: "Re-run a persisted session's ORIGINAL question with the CURRENT providers/config, linking the new run to its source by parentId. Requires sessions.persist; re-runs through the original tool path (which dispatches external providers) and persists a linked child record on success. Returns a text-wrapped JSON envelope (the re-run payload + parentId), or { error } when persistence is off or the id is unknown.", inputSchema: sessionGetInputSchema(), annotations: EXT_RW });
+  tools.push({ name: "session-annotate", description: "Append a freeform note to a persisted session's audit trail - an additive local write, no provider calls. Requires sessions.persist. Returns a text-wrapped JSON envelope { session } (the updated record), or { error } when persistence is off or the id is unknown.", inputSchema: sessionAnnotateInputSchema(), annotations: LOCAL_RW });
+  return tools;
+}
+
+/** @typedef {{ mode: "host"|"server", provider: (Provider|null), warning?: string }} ArbiterResolution */
+
+const BUILTIN_NAMES = new Set(["codex", "gemini", "grok"]);
+
+/**
+ * Resolve the configured arbiter spec into an execution decision. Host-agnostic:
+ * any host can name a concrete arbiter instead of relying on the implicit
+ * providers[0]. Soft-degrade only - an unusable spec falls back to "auto" with a
+ * warning rather than failing the consensus call.
+ *
+ * The spec is the NORMALIZED arbiter from config (resolveConsensus): either a
+ * shorthand string or an object { model: "<id>" }.
+ *
+ * - "host"          -> { mode:"host", provider:null }. The handler SKIPS the
+ *                      arbiter pass entirely (verdict:null); the host arbitrates.
+ * - "auto"          -> first provider in `selected` whose health() is ok,
+ *                      PREFERRING an openrouter:* one; falls back to selected[0].
+ * - builtin         -> registry.get(name) if registered + enabled, else degrade.
+ * - { model: id }   -> pinAlias on the openrouter provider for that models id,
+ *                      else degrade to auto + warning. The id need NOT be
+ *                      consensus:true - arbiter eligibility != panel membership.
+ *
+ * @param {string|{model:string}} spec
+ * @param {Provider[]} selected  the consensus voting panel
+ * @param {{get:(n:string)=>(Provider|undefined)}} registry
+ * @param {() => any} getConfig
+ * @returns {Promise<ArbiterResolution>}
+ */
+async function resolveArbiter(spec, selected, registry, getConfig) {
+  if (spec === "host") return { mode: "host", provider: null };
+
+  /** @param {string|undefined} warning @returns {Promise<ArbiterResolution>} pick first healthy, prefer openrouter:* */
+  async function auto(warning) {
+    const checked = await Promise.all(
+      selected.map(async (p) => ({ p, ok: await isHealthy(p) }))
+    );
+    const healthy = checked.filter((c) => c.ok).map((c) => c.p);
+    const pool = healthy.length ? healthy : selected;
+    const preferred = pool.find((p) => p.name.startsWith("openrouter:")) || pool[0] || null;
+    const base = `auto-selected arbiter '${preferred ? preferred.name : "none"}'; set consensus.arbiter to choose`;
+    return { mode: "server", provider: preferred, warning: warning ? `${warning}; ${base}` : base };
+  }
+
+  if (spec === "auto") return auto(undefined);
+
+  const cfg = getConfig() || {};
+
+  // Object form { model: "<id>" }: pin that models entry as the arbiter.
+  if (spec && typeof spec === "object") {
+    const id = spec.model;
+    const models = (cfg.openrouter && cfg.openrouter.models) || [];
+    const model = models.find((/** @type {any} */ m) => m && m.alias === id);
+    const prov = (model && model.provider) || "openrouter";
+    const targetProvider = registry.get(prov);
+    const isProvEnabled = providerEnabled(cfg, prov) && !(prov === "openrouter" && cfg.openrouter && cfg.openrouter.enabled === false);
+    if (targetProvider && model && isProvEnabled) return { mode: "server", provider: pinAlias(targetProvider, model, cfg.openrouter && cfg.openrouter.defaults, cfg) };
+    return auto(`configured arbiter model '${id}' is not available`);
+  }
+
+  if (BUILTIN_NAMES.has(spec)) {
+    const p = registry.get(spec);
+    // Mirror core/registry.js builtinsFor: a provider disabled in config is not
+    // a usable arbiter even though the registry still holds it (enablement is
+    // applied at selection time, not at registry build). Degrade, never hard-fail.
+    if (p && providerEnabled(cfg, spec)) return { mode: "server", provider: p };
+    return auto(`configured arbiter '${spec}' is not available`);
+  }
+
+  // Unrecognized spec (config validation should have degraded it already; this
+  // is a defensive second guard so the handler never trusts a raw spec).
+  return auto(`configured arbiter '${spec}' is not recognized`);
+}
+
+/**
+ * Whether a provider is enabled in config. Mirrors core/registry.js: a missing
+ * flag means enabled; only an explicit enabled:false disables it.
+ * @param {any} cfg
+ * @param {string} name
+ * @returns {boolean}
+ */
+function providerEnabled(cfg, name) {
+  const p = cfg && cfg.providers && cfg.providers[name];
+  return !p || p.enabled !== false;
+}
+
+/**
+ * Best-effort health probe. A provider whose health() throws is treated as not
+ * healthy rather than crashing arbiter selection.
+ * @param {Provider} p
+ * @returns {Promise<boolean>}
+ */
+async function isHealthy(p) {
+  try {
+    const h = await p.health();
+    return !!(h && h.ok);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * name -> reason for every provider whose health() says it cannot answer right now
+ * (no CLI on PATH, no credential). Every probe is stat/env-only, so this runs on every
+ * selection; the registry moves these to `unavailable` instead of dispatching to them.
+ * A probe that throws counts as unhealthy - same posture as isHealthy.
+ * @param {Provider[]} providers
+ * @returns {Promise<Map<string,string>>}
+ */
+async function unhealthyMap(providers) {
+  return (await probeHealth(providers)).unhealthy;
+}
+
+/**
+ * One stat-only health pass. `needsLogin` = healthy providers that have no login yet but can
+ * start one themselves (codex with login on first use); they stay on the panel.
+ * @param {Provider[]} providers
+ * @returns {Promise<{unhealthy: Map<string,string>, needsLogin: Set<string>}>}
+ */
+async function probeHealth(providers) {
+  /** @type {Map<string,string>} */ const unhealthy = new Map();
+  /** @type {Set<string>} */ const needsLogin = new Set();
+  await Promise.all(providers.map(async (p) => {
+    try {
+      const h = await p.health();
+      if (!(h && h.ok)) unhealthy.set(p.name, (h && h.reason) || "health check failed");
+      else if (/** @type {any} */ (h).needsLogin === true) needsLogin.add(p.name);
+    } catch (e) {
+      unhealthy.set(p.name, String((e && /** @type {any} */ (e).message) || e));
+    }
+  }));
+  return { unhealthy, needsLogin };
+}
+
+// MCP protocol versions this server speaks, newest first.
+const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+/**
+ * @param {Object} deps
+ * @param {Provider[]} deps.providers
+ * @param {() => any} deps.getConfig
+ * @param {() => (string|null)} [deps.getConfigError]  // last config load error (e.g. JSON parse), or null
+ * @param {string} [deps.sessionsDir]  // dir for the opt-in session store; omit to disable persistence
+ * @param {(method:string, params:any) => void} [deps.notify]  // server->client JSON-RPC notification sender (Phase 4); no-op if omitted
+ * @param {(msg:any) => void} [deps.write]  // raw server->client JSON-RPC writer, for requests the server makes (elicitation); none -> no dialogs
+ * @param {import("../../core/journal.js").Journal} [deps.journal]  // dashboard run journal; default NULL_JOURNAL (writes nothing)
+ */
+function buildServer({ providers, getConfig, getConfigError, sessionsDir, notify, write, journal = NULL_JOURNAL }) {
+  const registry = makeRegistry(providers);
+  const startupConfig = structuredClone(getConfig() || {});
+  const {resolveSettings,effectiveConfig} = require('../../core/settings.js');
+  const activeConfig = () => effectiveConfig(getConfig() || {}, startupConfig);
+  for (const p of providers) if (!p.resolveSettings) p.resolveSettings = req => resolveSettings(p.name,activeConfig(),req);
+  const history = require('../../core/config-history.js').makeConfigHistory({
+    getConfig, getError:getConfigError || (()=>null),
+    getActive: (/** @type {boolean} */ pending) => Object.fromEntries(providers.map(p=>[p.name,pending?resolveSettings(p.name,getConfig()):(p.resolveSettings?.({prompt:""})||resolveSettings(p.name,activeConfig()))])),
+    dir:require('node:path').join(require('../../core/paths.js').resolveRunsDir(),'..','history'),
+    enabled:()=>!!(getConfig()?.dashboard?.enabled||getConfig()?.debug?.enabled||getConfig()?.sessions?.persist),
+    dashboardEnabled:()=>!!getConfig()?.dashboard?.enabled,
+  });
+  const {AsyncLocalStorage}=require('node:async_hooks');
+  const runContext=new AsyncLocalStorage();
+  history.observe();
+  const dispatchConfig=()=>runContext.getStore()?.config || activeConfig();
+
+
+  // ---- Dashboard run journal --------------------------------------------------------------
+  // Every emit is a no-op while dashboard.enabled is off (read per call, so a config hot-reload
+  // applies), and none of these can throw into a delegation (core/journal.js contract).
+  /** @typedef {import("../../core/orchestrate.js").Trace} Trace */
+  /**
+   * Where the run was called from, for the dashboard's per-project views. Only a
+   * string cwd from the (untrusted) tool args is used; anything else -> the server cwd.
+   * @param {unknown} cwd
+   * @returns {{project?: import("../../core/project.js").ProjectRef}}
+   */
+  function projectField(cwd) {
+    const project = resolveProject(typeof cwd === "string" && cwd ? cwd : process.cwd());
+    return project ? { project } : {};
+  }
+  /**
+   * Open a run: emit run_start and return its Trace, or undefined when the journal is off.
+   * @param {string} tool
+   * @param {("single"|"fanout"|"consensus"|"consensus-step")} workflow
+   * @param {(string|undefined)} expert
+   * @param {string[]} providerNames
+   * @param {unknown} prompt
+   * @param {string} [runId]  use this id (consensus-step: the loop sessionId) instead of a new one
+   * @param {unknown} [cwd]  the tool call's cwd arg; the project falls back to the server's own cwd
+   * @returns {(Trace|undefined)}
+   */
+  function beginRun(tool, workflow, expert, providerNames, prompt, runId, cwd) {
+    const context = runContext.getStore() || { ...history.observe(), runId:runId || journal.newRunId(), startedAt:Date.now() };
+    const id = runId || context.runId;
+    journal.emit(id, "run_start", {
+      tool, workflow, providers: providerNames, ...require("../../core/config-history.js").safeProvenance(context),
+      // Untrusted tool args: only strings reach the journal (a non-string would skip the scrub),
+      // and `expert` only as a known persona name, never free text.
+      ...(typeof expert === "string" && EXPERTS.includes(expert) ? { expert } : {}),
+      ...(typeof prompt === "string" ? { prompt } : {}),
+      ...projectField(cwd),
+    });
+    return { journal, runId: id, provenance:require("../../core/config-history.js").safeProvenance(context) };
+  }
+  // The fan-out runs `panel` opened in this process. Only these can be joined by `runId`: a
+  // stale, made-up or recycled id would append after that run's run_end, or recreate a pruned
+  // file with no run_start. Insertion-ordered Set, oldest evicted first.
+  const groups=require('../../core/fanout-groups.js').makeFanoutGroups({onClose:(/** @type {any} */ g,/** @type {string} */ reason)=>{
+    const pending=[...g.members.entries()].filter(([,m])=>/** @type {any} */(m).state==='pending').map(([name])=>name);
+    journal.emit(g.context.runId,'run_end',{status:reason==='complete'?'done':'unresolved',stopReason:reason,undispatched:pending});
+    panelRuns.delete(g.context.runId);groupByRun.delete(g.context.runId);
+  }});
+  /** @type {Map<string,string>} */ const groupByRun=new Map();
+  const PANEL_RUNS_MAX = 1000;
+  /** @type {Set<string>} */ const panelRuns = new Set();
+  /** @param {string} id */
+  function rememberPanelRun(id) {
+    panelRuns.add(id);
+    if (panelRuns.size > PANEL_RUNS_MAX) panelRuns.delete(/** @type {string} */ (panelRuns.values().next().value));
+  }
+  /**
+   * Close a run (no-op without a trace), then prune: a run end is one of the two prune points.
+   * @param {(Trace|undefined)} trace
+   * @param {{status:string, stopReason?:string, rounds?:number, droppedProviders?:string[], finalReport?:unknown}} fields
+   */
+  function endRun(trace, fields) {
+    if (!trace) return;
+    journal.emit(trace.runId, "run_end", fields);
+    journal.prune();
+  }
+  /**
+   * A fan-out's end status: `error` when nobody answered, else `done`.
+   * @param {any[]} results
+   */
+  const fanoutStatus = (results) => (Array.isArray(results) && results.some((r) => r && !r.isError) ? "done" : "error");
+  /**
+   * Trace for a single-provider call: join the caller's `runId` when this process's `panel`
+   * opened it, else open a `single` run of its own. `own` says whether this call must end it.
+   * @param {string} tool
+   * @param {any} args
+   * @param {(string|undefined)} expert
+   * @param {string} providerName
+   * @returns {{trace:(Trace|undefined), own:boolean}}
+   */
+  function singleTrace(tool, args, expert, providerName) {
+    if (isSafeId(args.runId) && panelRuns.has(args.runId)) return { trace: { journal, runId: args.runId, role: "peer" }, own: false };
+    const t = beginRun(tool, "single", expert, [providerName], args.prompt, undefined, args.cwd);
+    return { trace: t && { ...t, role: "single" }, own: true };
+  }
+  // Server->client notification sender (Phase 4 spike). Injected by the stdio loop
+  // so it can write an unsolicited JSON-RPC notification to stdout; a no-op in tests
+  // and any host that did not wire one.
+  const sendNotify = typeof notify === "function" ? notify : (/** @type {string} */ _m, /** @type {any} */ _p) => {};
+  const sessions = /** @type {any} */ (require("../../core/sessions.js"));
+  // Consensus-step (client-driven, host-arbitrated) loop pieces: the pure state
+  // machine, the review parser, and an ephemeral per-server store that carries
+  // LoopState across the stateless step tool calls (no sessions.persist needed).
+  const loop = /** @type {any} */ (require("../../core/consensus-loop.js"));
+  const { parseReview, plainMessage } = require("../../core/provider.js");
+  const { makeLoopStore } = require("../../core/loop-store.js");
+  const loopStore = makeLoopStore();
+
+  // ---- Requests TO the client (MCP elicitation) -----------------------------------------
+  // What the host said it can do at `initialize`. Elicitation is the one server->client
+  // request we make: showing a codex device-login code in the host's own UI.
+  /** @type {any} */ let clientCapabilities = {};
+  let negotiatedVersion = "2024-11-05";
+  /** @type {Map<string, (reply: any) => void>} */ const pendingRequests = new Map();
+  let requestSeq = 0;
+
+  /**
+   * Send a request to the client; resolves with its reply ({result} or {error}), or null when
+   * no writer is wired, the client stays silent for `timeoutMs`, or `signal` aborts. Giving up
+   * tells the client with notifications/cancelled (MCP's advice for a request that timed out),
+   * so a host can close a dialog nobody is waiting on.
+   * @param {string} method
+   * @param {any} params
+   * @param {number} timeoutMs
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<any>}
+   */
+  function requestClient(method, params, timeoutMs, signal) {
+    if (typeof write !== "function") return Promise.resolve(null);
+    // Already abandoned before we could send: an "abort" listener would never fire, so the
+    // request would sit on the host forever. Send nothing.
+    if (signal && signal.aborted) return Promise.resolve(null);
+    const id = `deliberation-${++requestSeq}`;
+    return new Promise((resolve) => {
+      /** @param {string} reason */
+      const giveUp = (reason) => {
+        if (!pendingRequests.delete(id)) return; // answered already
+        clearTimeout(timer);
+        write({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason } });
+        resolve(null);
+      };
+      // Not unref'd: a tool call is awaiting this; the reply or an abort clears it.
+      const timer = setTimeout(() => giveUp("timed out"), Math.max(0, timeoutMs));
+      pendingRequests.set(id, (reply) => { clearTimeout(timer); resolve(reply); });
+      write({ jsonrpc: "2.0", id, method, params });
+      if (signal) signal.addEventListener("abort", () => giveUp("no longer needed"), { once: true });
+    });
+  }
+
+  /**
+   * Show a codex device-login code in the host's UI and wait for the user. URL mode when the
+   * host offers it (MCP 2025-11-25: made for sending the user to a sign-in page), else a form
+   * dialog carrying the link and code as text. Resolves with the user's action: "accept",
+   * "decline" (the caller ends that login), or "none" - a host without elicitation, a
+   * dismissed dialog, an error or silence - after which the link rides in the tool result.
+   * @param {{url:string, code:string, expiresAt:number}} prompt
+   * @param {number} waitMs
+   * @returns {Promise<("accept"|"decline"|"none")>}
+   */
+  /** @type {Map<string, {asked: Promise<("accept"|"decline"|"none")>, waiters: number, stop: AbortController}>} */
+  const openDialogs = new Map();
+  /**
+   * @param {{url:string, code:string, expiresAt:number}} prompt
+   * @param {number} waitMs
+   * @param {AbortSignal} [signal]  aborted when that caller stops waiting
+   */
+  function confirmLogin(prompt, waitMs, signal) {
+    // Abandoned before it could be sent (the login settled first): raise no dialog at all.
+    if (signal && signal.aborted) return Promise.resolve(/** @type {const} */ ("none"));
+    // One code, one dialog: concurrent GPT calls share the device login, so they share this too.
+    // The dialog is cancelled at the host only once EVERY caller waiting on it has given up.
+    let open = openDialogs.get(prompt.code);
+    if (!open) {
+      const stop = new AbortController();
+      const asked = askLogin(prompt, waitMs, stop.signal).finally(() => openDialogs.delete(prompt.code));
+      open = { asked, waiters: 0, stop };
+      openDialogs.set(prompt.code, open);
+    }
+    const entry = open;
+    entry.waiters++;
+    if (signal) signal.addEventListener("abort", () => { if (--entry.waiters === 0) entry.stop.abort(); }, { once: true });
+    return entry.asked;
+  }
+
+  /**
+   * @param {{url:string, code:string, expiresAt:number}} prompt
+   * @param {number} waitMs
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<("accept"|"decline"|"none")>}
+   */
+  async function askLogin(prompt, waitMs, signal) {
+    const el = clientCapabilities && clientCapabilities.elicitation;
+    // The capability alone is not enough: elicitation exists from 2025-06-18, URL mode from
+    // 2025-11-25 (ISO dates compare as strings).
+    if (!el || typeof el !== "object" || negotiatedVersion < "2025-06-18") return "none";
+    if (signal && signal.aborted) return "none"; // the login settled before this went out
+    const urlMode = Boolean(el.url) && negotiatedVersion >= "2025-11-25";
+    const minutes = Math.max(1, Math.round((prompt.expiresAt - Date.now()) / 60000));
+    const params = urlMode
+      ? {
+        mode: "url",
+        elicitationId: `codex-login-${prompt.code}`,
+        url: prompt.url,
+        message: `GPT (Codex) needs a ChatGPT login on this machine. Open the link, sign in, and enter the code ${prompt.code} (expires in ${minutes} min). The code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session. Declining ends that login; if you had already approved it in the browser, run \`codex logout\` here to undo it.`,
+      }
+      : {
+        message: `GPT (Codex) needs a ChatGPT login on this machine.\n\n1. Open ${prompt.url}\n2. Sign in and enter the code ${prompt.code} (expires in ${minutes} min)\n\nThe code signs this machine's codex into your ChatGPT account: only continue if you are using GPT through deliberation in this session.\n\nAccept once you have approved it. Decline to end this login; if you had already approved it in the browser, run \`codex logout\` here to undo it.`,
+        requestedSchema: { type: "object", properties: { approved: { type: "boolean", title: "I entered the code and approved the login", default: true } } },
+      };
+    const reply = await requestClient("elicitation/create", params, waitMs, signal);
+    const action = reply && reply.result && reply.result.action;
+    // "cancel" (dismissed), an error reply or silence: no decision, the code stays valid.
+    return action === "accept" || action === "decline" ? action : "none";
+  }
+
+  // In-session dedup cache (Phase 5) for the ADVISORY paths only (ask-all / ask-one):
+  // an identical re-ask returns the prior success instantly. Deliberately NOT used on
+  // the consensus loop - each round's plan text changes, and a cached peer verdict
+  // must never substitute for a fresh review inside the convergence loop.
+  const { makeResultCache } = require("../../core/result-cache.js");
+  const resultCache = makeResultCache();
+
+  // Debug logging seam (Phase 2). Build the file sink lazily and memoize it by
+  // path so we do not rebuild per call; rebuild only when the config's enabled
+  // flag or path changes (hot-reload). Returns NULL_LOGGER when debug is off, so
+  // the orchestrate call sites can always pass `logger` unconditionally.
+  const debugLog = require("../../core/debug-log.js");
+  const { resolveDebugLogPath } = require("../../core/paths.js");
+  /** @type {{key:string, logger:import("../../core/debug-log.js").Logger}} */
+  let _fileCache = { key: "", logger: debugLog.NULL_LOGGER };
+  /** Build (or reuse) the file sink for the current config. NULL when debug off. */
+  function fileSink() {
+    const dbg = (getConfig() || {}).debug || { enabled: false, path: null };
+    if (!dbg.enabled) { _fileCache = { key: "", logger: debugLog.NULL_LOGGER }; return debugLog.NULL_LOGGER; }
+    const path = (typeof dbg.path === "string" && dbg.path) || resolveDebugLogPath();
+    const key = `file:${path}`;
+    if (_fileCache.key !== key) _fileCache = { key, logger: debugLog.createFileLogger(path) };
+    return _fileCache.logger;
+  }
+
+  // Phase 4 spike: live MCP-notification sink. Emits a `notifications/message`
+  // (spec: server/utilities/logging) per core event so the host can render
+  // per-provider progress DURING the one blocking tool call. Syslog levels;
+  // suppressed when the client raised the min level above "info" via
+  // `logging/setLevel`. Carries NO prompt/response text (spec security rule).
+  const LEVEL_RANK = Object.freeze({ debug: 0, info: 1, notice: 2, warning: 3, error: 4, critical: 5, alert: 6, emergency: 7 });
+  let notifyMinLevel = /** @type {keyof typeof LEVEL_RANK} */ ("info"); // emit info+ by default; a client can raise it
+  const notifySink = {
+    /** @param {import("../../core/debug-log.js").DebugEvent} e */
+    logEvent(e) {
+      if (LEVEL_RANK.info < LEVEL_RANK[notifyMinLevel]) return; // client raised the bar
+      try {
+        sendNotify("notifications/message", {
+          level: "info",
+          logger: "deliberation",
+          data: { event: e.event, tool: e.tool, provider: e.provider, providerLabel:e.provider?require('../../core/display.js').providerLabel(e.provider):undefined,duration:require('../../core/display.js').formatDuration(e.ms),ms: e.ms, round: e.round, verdict: e.verdict, isError: e.isError, errorKind: e.errorKind },
+        });
+      } catch { /* notifications must never break a call */ }
+    },
+  };
+  /** Set the client's minimum log level (logging/setLevel). */
+  function setLogLevel(/** @type {any} */ level) {
+    if (typeof level === "string" && Object.prototype.hasOwnProperty.call(LEVEL_RANK, level)) { notifyMinLevel = /** @type {keyof typeof LEVEL_RANK} */ (level); return true; }
+    return false;
+  }
+  /** Composite logger: file sink (when debug on) + live notification sink (always). */
+  function currentLogger() {
+    const sink=debugLog.composeLoggers([fileSink(), notifySink]);
+    const ctx=runContext.getStore();
+    return {logEvent(/** @type {any} */ event){sink.logEvent({...event,...(ctx?{configId:ctx.configId,activationId:ctx.activationId,runtimeId:ctx.runtimeId,runId:ctx.runId,runStartedAt:ctx.startedAt}: {})});}};
+  }
+
+  // Client identity for arbiter-default selection. Connection-scoped: set from the
+  // MCP `initialize` handshake (clientInfo.name) for the life of this stdio session.
+  let clientName = /** @type {string|null} */ (null);
+
+  /**
+   * Whether this server is running under Claude Code (or another Claude host).
+   * Primary signal: Claude Code injects `CLAUDECODE=1` into stdio MCP subprocess
+   * env (Claude Code CHANGELOG v2.1.147) - deterministic + documented. Secondary:
+   * a `clientInfo.name` containing "claude" (e.g. Claude Desktop). Used ONLY to
+   * pick the DEFAULT arbiter when the user has not set `consensus.arbiter`.
+   * @returns {boolean}
+   */
+  function isClaudeHost() {
+    if (process.env.CLAUDECODE === "1") return true;
+    return typeof clientName === "string" && clientName.toLowerCase().includes("claude");
+  }
+
+  /**
+   * Inject the bundled persona for `expert` when the caller did not supply its
+   * own developerInstructions. Caller-supplied instructions ALWAYS win, so the
+   * Claude Code path (which passes its own persona) is unchanged. Returns a new
+   * request - never mutates the input.
+   * @param {DelegationRequest} request
+   * @param {string|undefined} expert
+   * @returns {DelegationRequest}
+   */
+  function withPersona(request, expert) {
+    if (!expert) return request;
+    if (request.developerInstructions) return request;
+    // Own-property check: an untrusted args.expert could be an inherited key
+    // ("constructor", "__proto__", "toString"), which would otherwise resolve up
+    // the prototype chain to a truthy non-string and corrupt developerInstructions.
+    const persona = Object.prototype.hasOwnProperty.call(PROMPTS, expert) ? PROMPTS[expert] : undefined;
+    if (!persona) return request;
+    return { ...request, developerInstructions: persona };
+  }
+
+  /**
+   * Resolve the orientation bundle for a dispatch when config enables it, else undefined.
+   * @param {{cwd?:string}} req
+   * @returns {(import("../../core/types.js").FileRef[]|undefined)}
+   */
+  function orient(req) {
+    return orientationFilesFor(dispatchConfig(), req && req.cwd);
+  }
+
+  // --- session store wiring -------------------------------------------------
+  // Persistence is opt-in (sessions.persist) AND requires a configured dir. When
+  // either is missing, the session-* tools report "disabled" and the
+  // consensus/ask-all paths write nothing / return no sessionId.
+
+  /** @returns {{persist:boolean, maxRecords:number, maxAgeDays:number, captureText:boolean}} */
+  function sessionsCfg() {
+    const c = dispatchConfig() || {};
+    const s = c.sessions || {};
+    return {
+      persist: !!s.persist,
+      maxRecords: typeof s.maxRecords === "number" ? s.maxRecords : sessions.DEFAULT_MAX_RECORDS,
+      maxAgeDays: typeof s.maxAgeDays === "number" ? s.maxAgeDays : sessions.DEFAULT_MAX_AGE_DAYS,
+      captureText: !!s.captureText,
+    };
+  }
+  /** @returns {boolean} */
+  function persistEnabled() {
+    return !!sessionsDir && sessionsCfg().persist;
+  }
+
+  /** @param {any} obj @returns {{content:{type:string,text:string}[]}} */
+  function jsonResult(obj) {
+    return { content: [{ type: "text", text: JSON.stringify(obj) }] };
+  }
+  function disabledMsg() {
+    return jsonResult({ error: "session persistence is disabled (set sessions.persist)" });
+  }
+  /** @param {unknown} id */
+  function notFoundMsg(id) {
+    return jsonResult({ error: `session not found: ${String(id)}` });
+  }
+
+  /** @param {any} files @returns {(any[]|null)} input attachment REFS only (never bodies); preserves path/dir/file_id/file_url/mode so a revisit re-runs with the same context regardless of ref kind */
+  function refsFromFiles(files) {
+    if (!Array.isArray(files)) return null;
+    /** @type {any[]} */
+    const refs = [];
+    for (const f of files) {
+      if (!f || typeof f !== "object") continue;
+      /** @type {any} */
+      const ref = {};
+      if (typeof f.path === "string") ref.path = f.path;
+      if (typeof f.dir === "string") ref.dir = f.dir;
+      if (typeof f.file_id === "string") ref.file_id = f.file_id;
+      if (typeof f.file_url === "string") ref.file_url = f.file_url;
+      if (typeof f.mode === "string") ref.mode = f.mode;
+      if (Object.keys(ref).length) refs.push(ref);
+    }
+    return refs.length ? refs : null;
+  }
+  /**
+   * Map raw run results to the persisted opinion shape. Handles both kinds:
+   * fan-out provider results ({provider, model, text}) and consensus-auto review
+   * results ({source, verdict, criticalIssues}). `source` falls back to provider
+   * so a loop opinion keeps its identity; verdict/criticalIssues ride along when
+   * present (sanitizeRecord scrubs the issue descriptions on write).
+   * @param {any} results
+   * @returns {any[]}
+   */
+  function opinionsFrom(results) {
+    if (!Array.isArray(results)) return [];
+    return results.map((r) => {
+      /** @type {any} */
+      const o = {
+        provider: r && (r.provider || r.source),
+        model: r && r.model,
+        text: r && r.isError === false && typeof r.text === "string" ? r.text : undefined,
+      };
+      if(r)for(const k of ['cached','provenance','ms','reasoningEffort'])if(r[k]!==undefined)o[k]=r[k];
+      if (r && r.verdict !== undefined) o.verdict = r.verdict;
+      if (r && Array.isArray(r.criticalIssues)) o.criticalIssues = r.criticalIssues;
+      return o;
+    });
+  }
+  /** @param {any} result @returns {(string|null)} the verdict text, or null */
+  function textOf(result) {
+    if (!result) return null;
+    if (typeof result === "string") return result;
+    if (result.isError === false && typeof result.text === "string") return result.text;
+    return null;
+  }
+
+  /**
+   * Persist a completed run when persistence is on. Best-effort: a write failure
+   * never fails the tool call. Returns the new sessionId, or null when off.
+   * @param {("consensus"|"ask-all")} tool
+   * @param {DelegationRequest} req
+   * @param {string|undefined} expert
+   * @param {any} parts  // { opinions, blindVerdict?, verdict?, synthesis?, synthesizeAlways?, arbiter?, warnings?, parentId?, converged?, confidence?, rounds? }
+   * @returns {{id:(string|null), errorCode:(string|null)}}  id is the new sessionId on success; on write failure id is null and errorCode is a CONTENT-FREE kind (Node fs errno e.g. EACCES/ENOSPC, or "write_failed"). Persistence off -> {id:null, errorCode:null}.
+   */
+  function persistRun(tool, req, expert, parts) {
+    if (!persistEnabled()) return { id: null, errorCode: null };
+    const cfg = sessionsCfg();
+    const id = sessions.newSessionId();
+    /** @type {any} */
+    const record = {
+      id,
+      parentId: parts.parentId == null ? null : parts.parentId,
+      schemaVersion: sessions.SCHEMA_VERSION,
+      createdAt: new Date((runContext.getStore() || {}).startedAt || Date.now()).toISOString(),
+      provenance: require("../../core/config-history.js").safeProvenance(parts.provenance || runContext.getStore()),
+      runId: (parts.provenance || runContext.getStore() || {}).runId,
+      tool,
+      question: typeof req.prompt === "string" ? req.prompt : "",
+      expert: expert || null,
+      files: refsFromFiles(req.files),
+      // opinionsFrom keeps each provider's raw response `text`. That BODY is stored
+      // only under the opt-in sessions.captureText; default OFF drops it here at the
+      // single write chokepoint, so every caller (ask-all, consensus, consensus-step,
+      // revisit) is gated identically. Verdict/criticalIssues summaries always stay.
+      opinions: opinionsFrom(parts.opinions).map((o) => (cfg.captureText ? o : (delete o.text, o))),
+      blindVerdict: textOf(parts.blindVerdict),
+      verdict: textOf(parts.verdict),
+      arbiter: parts.arbiter || null,
+      warnings: Array.isArray(parts.warnings) ? parts.warnings : [],
+      annotations: [],
+    };
+    // consensus loop summary (omitted for ask-all / synthesize runs; JSON drops undefined).
+    if (typeof parts.converged === "boolean") record.converged = parts.converged;
+    if (typeof parts.confidence === "string") record.confidence = parts.confidence;
+    if (typeof parts.rounds === "number") record.rounds = parts.rounds;
+    // synthesize-mode fields: free-text synthesis + the mode flag (so revisit replays the mode).
+    if (typeof parts.synthesis === "string") record.synthesis = parts.synthesis;
+    if (typeof parts.synthesizeAlways === "boolean") record.synthesizeAlways = parts.synthesizeAlways;
+    try {
+      sessions.writeSession(record, { dir: sessionsDir, maxRecords: cfg.maxRecords, maxAgeDays: cfg.maxAgeDays });
+      return { id, errorCode: null };
+    } catch (e) {
+      // Surface ONLY a content-free failure kind (fs errno or a constant) - NEVER
+      // the caught error object or its message (which could embed prompt/parts).
+      const code = e && typeof /** @type {any} */ (e).code === "string" ? /** @type {any} */ (e).code : "write_failed";
+      return { id: null, errorCode: code };
+    }
+  }
+
+  /**
+   * Emit ONE content-free persist-failure event for the consensus-step path.
+   * Wrapped so a debug-log I/O error can never throw into the loop step.
+   * @param {string} loopSid  the ephemeral loop id (correlation key only - non-sensitive)
+   * @param {(string|null)} errorCode  sanitized errno or "write_failed"; never err.message
+   */
+  function emitPersistFailed(loopSid, errorCode) {
+    try {
+      currentLogger().logEvent({ event: "persist_failed", at: Date.now(), tool: "consensus", errorCode: errorCode || "write_failed", loopSessionId: loopSid });
+    } catch { /* logging must never break the step */ }
+  }
+
+  /**
+   * Persist a TERMINAL consensus-step loop record (host-arbiter path). Mirrors the
+   * `consensus` tool's `parts` shape so session-revisit/analyze treat both record
+   * classes identically (opinions are normalized by persistRun's opinionsFrom).
+   * Best-effort + gated by sessions.persist: on write failure it emits a
+   * content-free persist_failed event and returns persisted:false.
+   * @param {any} state  terminal LoopState (status converged|unresolved)
+   * @param {string} loopSid  ephemeral loop id, correlation key for a failure event
+   * @param {("high"|"medium"|"low"|"none")} confidence
+   * @returns {{id:(string|null), persisted:boolean, errorCode:(string|null)}}  errorCode is null when persistence is off; a content-free kind when a write was attempted and failed.
+   */
+  function persistConsensusStep(state, loopSid, confidence) {
+    if (!persistEnabled()) return { id: null, persisted: false, errorCode: null };
+    const ex = state.expert || undefined;
+    /** @type {DelegationRequest} */
+    const req = {
+      // ORIGINAL prompt stashed at init - NOT currentPlan (overwritten each round).
+      prompt: typeof state.originalPrompt === "string" ? state.originalPrompt : (state.currentPlan || ""),
+      expert: ex,
+    };
+    const parts = {
+      provenance:state.provenance,
+      opinions: Array.isArray(state.results) ? state.results : [],
+      blindVerdict: state.blindVerdict || null,
+      verdict: state.hostVerdict ? state.hostVerdict.verdict : null,
+      arbiter: { mode: "host", provider: null },
+      warnings: [],
+      converged: state.status === "converged",
+      confidence,
+      rounds: state.round,
+    };
+    const { id, errorCode } = runContext.run(state.provenance||runContext.getStore(),()=>persistRun("consensus", req, ex, parts));
+    if (!id) emitPersistFailed(loopSid, errorCode);
+    return { id, persisted: !!id, errorCode };
+  }
+
+  /**
+   * Run the ask-all fan-out. Returns the response payload plus the parts needed
+   * to persist a record. Shared by the ask-all tool and session-revisit.
+   * @param {DelegationRequest} req
+   * @param {string|undefined} expert
+   * @returns {Promise<{payload:any, parts:any}>}
+   */
+  async function runAskAll(req, expert, opts = /** @type {{noCache?:boolean, startedAt?:number}} */ ({})) {
+    const { providers: selected, omitted, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
+    const lg = currentLogger();
+    try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "ask-all", voices: selected.length }); } catch { /* never break */ }
+    // session-revisit passes noCache: a revisit is a deliberate RE-RUN of the stored
+    // question, so it must never replay a cached opinion from the live tool path.
+    const trace = beginRun("ask-all", "fanout", expert, selected.map((/** @type {Provider} */ p) => p.name), req.prompt, undefined, req.cwd);
+    const results = await askAll(selected, withPersona(req, expert), { logger: lg, tool: "ask-all", cache: opts.noCache ? undefined : resultCache, orientationFiles: orient(req), startedAt: opts.startedAt, trace: trace && { ...trace, role: "peer" } });
+    endRun(trace, { status: fanoutStatus(results) });
+    return {
+      payload: { results, omitted, unavailable },
+      parts: { opinions: results, blindVerdict: null, verdict: null, arbiter: null, warnings: [] },
+    };
+  }
+
+  /**
+   * Run the consensus fan-out + arbiter resolution. Returns the response payload
+   * plus the parts needed to persist a record. Shared by the consensus tool and
+   * session-revisit.
+   * @param {DelegationRequest} req
+   * @param {string|undefined} expert
+   * @param {number} [startedAt]
+   * @param {(names: string[]) => (Trace|undefined)} [begin]  opens the journal run once the panel is known
+   * @returns {Promise<{payload:any, parts:any}>}
+   */
+  async function runConsensus(req, expert, startedAt = Date.now(), begin = () => undefined) {
+    const cfg = dispatchConfig() || {};
+    const { providers: selected, unavailable } = registry.selectForConsensus({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
+    const trace = begin(selected.map((/** @type {Provider} */ p) => p.name));
+    const cc = cfg.consensus || {};
+    const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
+    const blindVote = !!cc.blindVote;
+    const warnings = Array.isArray(cfg.consensusWarnings) ? cfg.consensusWarnings.slice() : [];
+    const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
+    if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
+    for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
+
+    const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
+    if (resolved.warning) warnings.push(resolved.warning);
+
+    if (resolved.mode === "host") {
+      const opinions = await askAll(selected, withPersona(req, expert), { logger: currentLogger(), tool: "consensus", orientationFiles: orient(req), startedAt, trace: trace && { ...trace, role: "peer" } });
+      const arbiter = { mode: "host" };
+      const body = { opinions, blindVerdict: null, verdict: null, arbiter, warnings };
+      return { payload: body, parts: body };
+    }
+
+    if (!resolved.provider) {
+      const out = await consensus(selected, withPersona(req, expert), { arbiterInstructions: PROMPTS.arbiter, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
+      const arbiter = { mode: "server", provider: null };
+      return {
+        payload: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter, warnings },
+        parts: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, arbiter, warnings },
+      };
+    }
+
+    const arbiterP = resolved.provider;
+    let peers = selected.filter((p) => p.name !== arbiterP.name);
+    if (peers.length < 2) {
+      peers = selected;
+      warnings.push(`panel too small to exclude arbiter '${arbiterP.name}'; kept it in the peer panel (floor of 2)`);
+    }
+    const out = await consensus(peers, withPersona(req, expert), { arbiter: arbiterP, arbiterInstructions: PROMPTS.arbiter, blindVote, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
+    const arbiter = { mode: "server", provider: arbiterP.name };
+    return {
+      payload: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, error: out.error, arbiter, warnings },
+      parts: { opinions: out.opinions, blindVerdict: out.blindVerdict, verdict: out.verdict, arbiter, warnings },
+    };
+  }
+
+  /**
+   * Run the full multi-round convergence loop server-side via runToConvergence.
+   * Needs a CONCRETE provider arbiter (the loop is provider-driven here); if the
+   * config resolves to host/none, fall back to a selected provider as the driver
+   * with a warning (the host-driven client loop is the consensus-step path, not
+   * this one). Shares runConsensus's panel selection + floor-of-2 exclusion.
+   * @param {DelegationRequest} req
+   * @param {string|undefined} expert
+   * @param {number} [maxRoundsOverride]  per-call cap; falls back to consensus.maxRounds, then the engine default
+   * @param {number} [startedAt]
+   * @param {(names: string[]) => (Trace|undefined)} [begin]  opens the journal run once the panel is known
+   * @returns {Promise<{payload:any, parts:(any|null), finalReport?:string}>}  payload is the tool result; parts is non-null only on a real run (drives persistence); never throws
+   */
+  async function runConsensusAuto(req, expert, maxRoundsOverride, startedAt = Date.now(), begin = () => undefined) {
+    try {
+      const cfg = dispatchConfig() || {};
+      const { providers: selected, unavailable } = registry.selectForConsensus({ config: cfg, expert: expert || "", unhealthy: await unhealthyMap(providers) });
+      const trace = begin(selected.map((/** @type {Provider} */ p) => p.name));
+      const cc = cfg.consensus || {};
+      const arbiterSpec = cc.arbiterDefaulted ? (isClaudeHost() ? "host" : "auto") : (cc.arbiter || "auto");
+      /** @type {string[]} */
+      const warnings = Array.isArray(cfg.consensusWarnings) ? cfg.consensusWarnings.slice() : [];
+      const cfgErr = typeof getConfigError === "function" ? getConfigError() : null;
+      if (cfgErr) warnings.push(`config not loaded: ${cfgErr}`);
+      for (const u of unavailable) warnings.push(`provider ${u.name} unavailable: ${u.reason}`);
+      const resolved = await resolveArbiter(arbiterSpec, selected, registry, dispatchConfig);
+      if (resolved.warning) warnings.push(resolved.warning);
+
+      const arbiterP = resolved.provider;
+      if (!arbiterP) {
+        // consensus-auto needs a CONCRETE provider arbiter (the loop runs server-side).
+        // host mode is the client-driven /consensus path; do NOT silently pick a peer.
+        const host = resolved.mode === "host";
+        warnings.push(host
+          ? "consensus runs the loop server-side and needs a concrete arbiter; set consensus.arbiter to a provider or openrouter:<alias> (host mode drives the client-side /consensus instead)"
+          : "no usable arbiter provider available");
+        return { payload: { converged: false, verdict: null, confidence: "none", rounds: 0, opinions: [], arbiter: { mode: resolved.mode, provider: null }, warnings, error: host ? "arbiter-is-host" : "no-arbiter" }, parts: null };
+      }
+
+      // Exclude the arbiter from the peer panel - never let it review its own output.
+      // A single distinct peer is a valid minimal panel (peer != arbiter).
+      const peers = selected.filter((p) => p.name !== arbiterP.name);
+      if (peers.length < 1) {
+        return { payload: { converged: false, verdict: null, confidence: "none", rounds: 0, opinions: [], arbiter: { mode: "server", provider: arbiterP.name }, warnings: warnings.concat(["consensus needs at least one peer distinct from the arbiter"]), error: "insufficient-peers" }, parts: null };
+      }
+      const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
+        ? cc.quorumFloor
+        : loop.DEFAULT_QUORUM_FLOOR;
+      const quorumFloor = Math.min(peers.length, configuredQuorum);
+
+      // Per-call maxRounds wins; else the config default; else the engine default.
+      const maxRounds = Number.isInteger(maxRoundsOverride) && /** @type {number} */ (maxRoundsOverride) > 0
+        ? maxRoundsOverride
+        : (Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined);
+      const maxWallMs = Number.isInteger(cc.maxWallMs) && cc.maxWallMs > 0 ? cc.maxWallMs : undefined;
+      const out = await runToConvergence(peers, withPersona(req, expert), { arbiter: arbiterP, maxRounds, maxWallMs, quorumFloor, blindVote: !!cc.blindVote, logger: currentLogger(), orientationFiles: orient(req), startedAt, trace });
+      const allWarnings = out.error ? warnings.concat([`loop: ${out.error}`]) : warnings;
+      const rounds = Array.isArray(out.rounds) ? out.rounds.length : 0;
+      const arbiter = { mode: "server", provider: arbiterP.name };
+      const payload = {
+        converged: out.converged,
+        verdict: out.verdict,
+        confidence: out.confidence,
+        rounds,
+        opinions: out.opinions,
+        arbiter,
+        warnings: allWarnings,
+        error: out.error,
+        stopReason: out.stopReason,
+      };
+      // parts drives persistence (only on a real run). blindVerdict is per-round in
+      // the loop, so the final record stores null (the verdict + opinions are the
+      // durable summary; full round history is intentionally not persisted yet).
+      const parts = {
+        opinions: out.opinions,
+        blindVerdict: null,
+        verdict: out.verdict,
+        arbiter,
+        warnings: allWarnings,
+        converged: out.converged,
+        confidence: out.confidence,
+        rounds,
+      };
+      return { payload, parts, finalReport: out.finalReport };
+    } catch (e) {
+      // Never reject the tool call - degrade to a structured error.
+      return { payload: { converged: false, verdict: null, confidence: "none", rounds: 0, opinions: [], arbiter: null, warnings: [], error: `internal: ${String((e && /** @type {any} */ (e).message) || e)}` }, parts: null };
+    }
+  }
+
+  /**
+   * The unified `consensus` tool: ONE shape for both modes, shared by the tool
+   * dispatch and session-revisit (so the engine stays the single source of truth).
+   * - default (loop): runs the full convergence loop via runConsensusAuto.
+   * - synthesizeAlways: ONE arbiter synthesis pass via runConsensus; the one-shot's
+   *   free-text verdict becomes `synthesis` and the enum `verdict` is null.
+   * Return envelope keys are identical across modes; the inapplicable fields are
+   * null (explicit, caller-selected - not hidden polymorphism). `parts` is null on
+   * a loop error path (no persistence); synthesize runs always persist.
+   * @param {DelegationRequest} req
+   * @param {string|undefined} expert
+   * @param {{synthesizeAlways?:boolean, maxRounds?:number, startedAt?:number}} [opts]  startedAt = the tool call's entry (host-cap clock)
+   * @returns {Promise<{payload:any, parts:(any|null)}>}
+   */
+  async function runConsensusTool(req, expert, opts = {}) {
+    /** @type {(Trace|undefined)} */ let trace;
+    const begin = (/** @type {string[]} */ names) => (trace = beginRun("consensus", "consensus", expert, names, req.prompt, undefined, req.cwd));
+    const out = await runConsensusToolInner(req, expert, opts, begin);
+    const p = out.payload;
+    // An error names why the run stopped; `internal: ...` / `loop-failed: ...` keep only the tag.
+    const stopReason = p.stopReason || (typeof p.error === "string" && p.error ? p.error.split(":")[0] : undefined);
+    endRun(trace, {
+      status: p.error ? "error" : p.converged === true ? "converged" : p.converged === false ? "unresolved" : "done",
+      stopReason,
+      rounds: p.rounds,
+      finalReport: out.finalReport,
+    });
+    return { payload: out.payload, parts: out.parts };
+  }
+
+  /**
+   * runConsensusTool's body; `begin` opens the journal run once the panel is selected.
+   * @param {DelegationRequest} req
+   * @param {string|undefined} expert
+   * @param {{synthesizeAlways?:boolean, maxRounds?:number, startedAt?:number}} opts
+   * @param {(names: string[]) => (Trace|undefined)} begin
+   * @returns {Promise<{payload:any, parts:(any|null), finalReport?:(string|null)}>}
+   */
+  async function runConsensusToolInner(req, expert, opts, begin) {
+    try {
+      if (opts.synthesizeAlways === true) {
+        const { payload: p } = await runConsensus(req, expert, opts.startedAt, begin);
+        // One-shot `verdict` is the arbiter's result OBJECT (free-text synthesis), or
+        // null in host mode where the host synthesizes. Extract its text into
+        // `synthesis`; the enum `verdict` field stays null in synthesize mode.
+        const synthesis = textOf(p.verdict);
+        const blindVerdict = textOf(p.blindVerdict); // carries the optional blindVote pre-vote
+        const warnings = Array.isArray(p.warnings) ? p.warnings.slice() : [];
+        // A failed arbiter result (isError, not a throw) yields synthesis:null with no
+        // top-level error - surface it as a warning so it does not read as empty success.
+        if (synthesis == null && p.verdict && p.verdict.isError) {
+          warnings.push(`arbiter synthesis failed${p.verdict.errorKind ? `: ${p.verdict.errorKind}` : ""}`);
+        }
+        const envelope = {
+          opinions: p.opinions, verdict: null, synthesis, blindVerdict,
+          arbiter: p.arbiter, warnings,
+          converged: null, confidence: null, rounds: 1,
+          synthesizeAlways: true, error: p.error == null ? null : p.error,
+        };
+        const parts = {
+          opinions: p.opinions, verdict: null, synthesis, blindVerdict,
+          arbiter: p.arbiter, warnings, synthesizeAlways: true,
+        };
+        return { payload: envelope, parts, finalReport: synthesis };
+      }
+      const { payload: p, parts, finalReport } = await runConsensusAuto(req, expert, opts.maxRounds, opts.startedAt, begin);
+      const envelope = {
+        opinions: p.opinions, verdict: p.verdict, synthesis: null, blindVerdict: null,
+        arbiter: p.arbiter, warnings: p.warnings,
+        converged: p.converged, confidence: p.confidence, rounds: p.rounds,
+        synthesizeAlways: false, error: p.error == null ? null : p.error,
+        stopReason: p.stopReason,
+      };
+      if (!parts) return { payload: envelope, parts: null }; // error path - do not persist
+      return { payload: envelope, parts: { ...parts, synthesis: null, synthesizeAlways: false }, finalReport };
+    } catch (e) {
+      // Never reject the tool call - degrade to a structured error (matches runConsensusAuto).
+      const synth = opts.synthesizeAlways === true;
+      return {
+        payload: {
+          opinions: [], verdict: null, synthesis: null, blindVerdict: null, arbiter: null, warnings: [],
+          converged: null, confidence: null, rounds: synth ? 1 : 0, synthesizeAlways: synth,
+          error: `internal: ${String((e && /** @type {any} */ (e).message) || e)}`,
+        },
+        parts: null,
+      };
+    }
+  }
+
+  const EXCERPT_EDGE_CHARS = 600;
+  /**
+   * The text a non-APPROVE voice with no parsed issues sent, bounded to its first and last
+   * 600 characters (the verdict and bottom line sit at the end). Undefined otherwise.
+   * @param {any} r  a parsed peer result
+   * @returns {(string|undefined)}
+   */
+  function dissentExcerpt(r) {
+    if (!r || r.isError || r.verdict === "APPROVE" || (Array.isArray(r.criticalIssues) && r.criticalIssues.length)) return undefined;
+    const text = typeof r.text === "string" ? r.text.trim() : "";
+    if (!text) return undefined;
+    if (text.length <= 2 * EXCERPT_EDGE_CHARS) return text;
+    return `${text.slice(0, EXCERPT_EDGE_CHARS)}\n...[cut]...\n${text.slice(-EXCERPT_EDGE_CHARS)}`;
+  }
+
+  /**
+   * Enter the `await_blind` status: compute this round's prompts and stash the
+   * peer prompt on the stored state (the pure machine ignores the extra field;
+   * dispatch_peers reads it, since prepareRound is guarded to await_blind only).
+   * @param {any} state
+   * @returns {{state:any, blindPrompt:string}}
+   */
+  function enterBlind(state) {
+    const { peerPrompt, blindPrompt } = loop.prepareRound(state);
+    return { state: { ...state, peerPrompt }, blindPrompt };
+  }
+
+  /**
+   * The loop's wall-clock budget in ms, or null when disabled. The config layer already
+   * defaults it, so this only guards a hand-edited/absent block.
+   * @param {any} cfg
+   * @returns {(number|null)}
+   */
+  function wallBudgetMs(cfg) {
+    const v = cfg && cfg.consensus && cfg.consensus.maxWallMs;
+    return Number.isInteger(v) && v > 0 ? v : null;
+  }
+
+  /**
+   * End a live loop early as `unresolved` with a machine-readable reason. Mirrors the
+   * converged/unresolved terminal paths exactly (atomic take, at-most-one persist) so a
+   * budget or circuit stop is a real terminal transition, not a dangling session the
+   * driver keeps polling.
+   * @param {string} sid
+   * @param {any} state
+   * @param {string} stopReason
+   * @param {string[]} [dropped]  every peer the breaker has removed (journal only)
+   * @returns {any}
+   */
+  function terminateLoop(sid, state, stopReason, dropped = []) {
+    // This fires from dispatch_peers, i.e. BEFORE the round's fan-out. Two consequences
+    // the naive `{...state, status}` got wrong:
+    //   - `state.results` was reset to [] by the previous round's submitRevision, so the
+    //     persisted record would drop every round that actually ran.
+    //   - `state.round` is the round about to START, so finalize would report one more
+    //     round than completed - disagreeing with the other terminal path on the same data.
+    const history = Array.isArray(state.history) ? state.history : [];
+    const last = history.length ? history[history.length - 1] : null;
+    const results = (Array.isArray(state.results) && state.results.length)
+      ? state.results
+      : (last && Array.isArray(last.results) ? last.results : []);
+    const terminal = {
+      ...state,
+      status: "unresolved",
+      results,
+      round: Math.max(1, history.length || state.round),
+    };
+    const { finalReport, confidence } = loop.finalize(terminal);
+    const taken = loopStore.take(sid);
+    const { id, persisted, errorCode } = taken
+      ? persistConsensusStep(terminal, sid, confidence)
+      : { id: null, persisted: false, errorCode: null };
+    if (taken && state.journaled) endStepRun(sid, terminal, { status: "unresolved", stopReason, finalReport, droppedProviders: dropped });
+    return {
+      sessionId: id || undefined, loopSessionId: sid, persisted,
+      ...(errorCode ? { persistError: errorCode } : {}),
+      status: "unresolved", converged: false, confidence, finalReport, stopReason,
+      ...(dropped.length ? { droppedProviders: dropped } : {}),
+    };
+  }
+
+  /**
+   * Journal a consensus-step terminal transition: the final `state`, then `run_end`. The run
+   * id is the loop sessionId. Callers invoke it only after a successful loopStore.take, so a
+   * loop ends at most once in the journal too, and only for a loop journaled since init.
+   * @param {string} sid
+   * @param {any} state  the terminal LoopState
+   * @param {{status:string, stopReason?:string, finalReport?:string, droppedProviders?:string[]}} f
+   */
+  function endStepRun(sid, state, f) {
+    const trace = { journal, runId: sid };
+    journal.emit(sid, "state", { state: f.status, round: state.round, status: f.status });
+    const dropped = (Array.isArray(state.announcedDropped) ? state.announcedDropped : []).concat(f.droppedProviders || []);
+    endRun(trace, { status: f.status, stopReason: f.stopReason, rounds: state.round, droppedProviders: [...new Set(dropped)], finalReport: f.finalReport });
+  }
+
+  /**
+   * Client-driven, host-arbitrated consensus loop - one action per MCP call,
+   * LoopState carried in the ephemeral loop store by sessionId. The host model
+   * supplies the blind verdict / adjudication / revision (visible in its
+   * transcript); the server only fans out to the peer providers. Never throws:
+   * a wrong-order action or an expired session returns a structured error so the
+   * driver can recover. A TERMINAL transition (converged/unresolved) persists ONE
+   * session record via persistConsensusStep when sessions.persist is on (atomic
+   * take guarantees at-most-one; best-effort, content-free failure telemetry).
+   * @param {any} args
+   * @param {string|undefined} expert
+   * @returns {Promise<any>}
+   */
+  async function runConsensusStep(args, expert, toolStartedAt = Date.now()) {
+    const action = String(args.action || "");
+    try {
+      if (action === "init") {
+        const cfg = dispatchConfig() || {};
+        const cc = cfg.consensus || {};
+        const maxRounds = Number.isInteger(cc.maxRounds) && cc.maxRounds > 0 ? cc.maxRounds : undefined;
+        const { providers: allCandidates } = registry.selectForConsensus({ config: cfg, expert: args.expert || "", unhealthy: await unhealthyMap(providers) });
+        const configuredQuorum = Number.isInteger(cc.quorumFloor) && cc.quorumFloor >= 1
+          ? cc.quorumFloor
+          : loop.DEFAULT_QUORUM_FLOOR;
+        const quorumFloor = Math.max(1, Math.min(allCandidates.length, configuredQuorum));
+        const originalPrompt = typeof args.prompt === "string" ? args.prompt : "";
+        let state = loop.initConsensusLoop({ plan: originalPrompt, expert: args.expert, arbiterMode: "host", maxRounds, quorumFloor });
+        const entered = enterBlind(state);
+        const sid = sessions.newSessionId();
+        // Stash the ORIGINAL prompt so a terminal record's `question` is the original
+        // plan, not the final revision (currentPlan is overwritten each round). Rides
+        // through every pure-machine transition via spread, like peerPrompt.
+        // Wall-clock origin for the maxWallMs budget. The host-driven loop is a series
+        // of stateless calls, so unlike runToConvergence there is no enclosing scope to
+        // hold it - it rides the stored state like peerPrompt/originalPrompt.
+        // A loop is journaled whole or not at all: decided here, carried on the state, and every
+        // later step checks it, so flipping dashboard.enabled mid-loop cannot leave a run with
+        // no run_start or no run_end.
+        const journaled = journal.enabled();
+        loopStore.put(sid, { ...entered.state, originalPrompt, startedAt: Date.now(), journaled, config:cfg, pinnedProviders:allCandidates, provenance:{...require('../../core/config-history.js').safeProvenance(runContext.getStore()),runId:sid} });
+        if (journaled) {
+          // The panel as config sees it (no health probe): dispatch_peers re-selects each round.
+          /** @type {string[]} */ let names = [];
+          try { names = registry.selectForConsensus({ config: cfg, expert: args.expert || expert || "" }).providers.map((/** @type {Provider} */ p) => p.name); } catch { /* journaling never breaks init */ }
+          beginRun("consensus-step", "consensus-step", args.expert || expert, names, originalPrompt, sid, args.cwd);
+          journal.emit(sid, "state", { state: "init", round: entered.state.round, status: entered.state.status });
+        }
+        return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "write your blind verdict, then call record_blind" };
+      }
+
+      const sid = String(args.sessionId == null ? "" : args.sessionId);
+      if (!sid) return { error: "missing-sessionId", note: "sessionId is required for every action except init" };
+      const cur = loopStore.get(sid);
+      if (!cur) return { error: "session-expired", note: "no live session for that id (server restart or TTL); restart with action:init" };
+      if(cur.provenance)runContext.enterWith({...cur.provenance,config:cur.config,signal:runContext.getStore()?.signal});
+      /** Journal a step event, only for a loop journaled since init. @param {import("../../core/journal.js").JournalKind} kind @param {Record<string, unknown>} fields */
+      const jemit = (kind, fields) => { if (cur.journaled) journal.emit(sid, kind, fields); };
+
+      if (action === "record_blind") {
+        const next = loop.recordBlindVerdict(cur, String(args.blindVerdict == null ? "" : args.blindVerdict));
+        // Defensive: pin the stashed peerPrompt across the transition (the pure
+        // machine carries it via spread today; don't rely on that staying true).
+        if (cur.peerPrompt && !next.peerPrompt) next.peerPrompt = cur.peerPrompt;
+        loopStore.put(sid, next);
+        const blindText = String(args.blindVerdict == null ? "" : args.blindVerdict);
+        jemit("state", { state: "blind", round: cur.round, status: next.status });
+        jemit("arbiter", { action: "record_blind", round: cur.round, verdict: parseReview(blindText).verdict, text: blindText });
+        return { sessionId: sid, status: next.status, round: next.round, note: "call dispatch_peers to fan out to the providers" };
+      }
+
+      if (action === "dispatch_peers") {
+        // Guard the status BEFORE the fan-out so a skipped record_blind cannot
+        // burn provider calls (addOpinions would otherwise throw only AFTER askAll).
+        if (cur.status !== "await_peers") {
+          return { error: "unexpected-action-for-status", detail: `dispatch_peers expects status 'await_peers', got '${cur.status}'` };
+        }
+        // peerPrompt was stashed on entry to await_blind; fall back to the plan
+        // text (NOT prepareRound, which is guarded to await_blind and would throw).
+        const peerPrompt = cur.peerPrompt || cur.currentPlan || "";
+        // One resolved expert for selection, persona, and the request - consistent.
+        const ex = cur.expert || expert || undefined;
+        const { providers: allCandidates, unavailable } = registry.selectForConsensus({ config: dispatchConfig() || {}, expert: ex || "", unhealthy: await unhealthyMap(providers) });
+        // Prevent mid-session peer substitution / identity drift:
+        // On round 1, lock the initial peer panel. In subsequent rounds, candidates are
+        // strictly restricted to this initial set (no new peers may enter mid-session).
+        const initialPeerNames = Array.isArray(cur.initialPeerNames)
+          ? cur.initialPeerNames
+          : allCandidates.map((/** @type {Provider} */ p) => p.name);
+        const candidates = (cur.pinnedProviders || allCandidates).filter((/** @type {Provider} */ p) => initialPeerNames.includes(p.name));
+        // Circuit breaker. selectForConsensus re-reads config every round and has no
+        // memory, so without this a peer that has failed every round is re-dispatched
+        // every round - paying its full ceiling to contribute nothing. The streak is
+        // folded in by loop.addOpinions, the same state the provider-arbiter driver
+        // reads, so both paths break the circuit on the same rule.
+        // Intersect with THIS round's candidates: a peer that tripped earlier and has
+        // since left the config is not "dropped by the breaker", and letting a stale
+        // name keep `dropped` non-empty made every later empty panel look circuit-broken.
+        const trippedSet = new Set(loop.trippedProviders(cur.errorStreak, loop.CIRCUIT_BREAK_AFTER));
+        const dropped = candidates.filter((/** @type {Provider} */ p) => trippedSet.has(p.name)).map((/** @type {Provider} */ p) => p.name);
+        const selected = candidates.filter((/** @type {Provider} */ p) => !trippedSet.has(p.name));
+        // A dropped peer's streak never decays (it is no longer dispatched), so `dropped`
+        // is identical on every later round. Announce only what is newly dropped - the
+        // server holds this state, so the docs' "report it once" must not be the model's job.
+        const announced = Array.isArray(cur.announcedDropped) ? cur.announcedDropped : [];
+        const newlyDropped = dropped.filter((/** @type {string} */ name) => !announced.includes(name));
+        // Budget gate. Like runToConvergence this gates STARTING a fan-out and never
+        // interrupts one in flight, so a slow-but-good answer is always collected.
+        const budgetMs = wallBudgetMs(dispatchConfig());
+        if (budgetMs !== null && typeof cur.startedAt === "number" && Date.now() - cur.startedAt >= budgetMs) {
+          return terminateLoop(sid, cur, "budget-exhausted", dropped);
+        }
+        // Only claim the breaker when it is actually why the panel is empty; a config
+        // with no eligible providers is a different problem and must say so.
+        if (!selected.length) return terminateLoop(sid, cur, dropped.length ? "all-providers-circuit-broken" : "no-providers", dropped);
+        if (selected.length < cur.quorumFloor) return terminateLoop(sid, cur, "quorum-lost", dropped);
+        /** @type {DelegationRequest} */
+        const peerReq = { prompt: peerPrompt, expert: ex,signal:runContext.getStore()?.signal,provenance:cur.provenance,timeoutPolicy:cur.config?.timeoutPolicy,deadlineAt:budgetMs===null?undefined:cur.startedAt+budgetMs, cwd: typeof args.cwd === "string" ? args.cwd : undefined };
+        const lg = currentLogger();
+        try { lg.logEvent({ event: "dispatch_start", at: Date.now(), tool: "consensus", round: cur.round, voices: selected.length }); } catch { /* never break */ }
+        jemit("state", { state: "peers", round: cur.round, status: cur.status });
+        const peerResults = await askAll(selected, withPersona(peerReq, ex), { logger: lg, tool: "consensus", orientationFiles: orient(peerReq), startedAt: toolStartedAt, trace: { journal:cur.journaled?journal:NULL_JOURNAL, runId: sid, role: "peer", round: cur.round,provenance:cur.provenance } });
+        const results = peerResults.map((r) =>
+          r.isError
+            ? { source: r.provider, provenance:r.provenance,cached:r.cached,isError: true, errorKind: r.errorKind, message: plainMessage(r.message), verdict: null, criticalIssues: [], model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
+            // Retain the raw response `text` on the in-memory loop result so a terminal
+            // persist can store it WHEN sessions.captureText is on (persistRun gates it;
+            // the wire `opinions` mapping below omits text, so it never leaves the loop).
+            : { ...parseReview(typeof r.text === "string" ? r.text : ""), source: r.provider,provenance:r.provenance,cached:r.cached, isError: false, text: typeof r.text === "string" ? r.text : undefined, model: r.model, reasoningEffort: r.reasoningEffort ?? null, ms: r.ms }
+        );
+        const next = loop.addOpinions(cur, results);
+        loopStore.put(sid, { ...next, initialPeerNames, announcedDropped: announced.concat(newlyDropped) });
+        jemit("state", {
+          state: "adjudicate", round: cur.round, status: next.status,
+          verdicts: results.map((r) => ({ provider: r.source, verdict: r.verdict, categories: (r.criticalIssues || []).map((/** @type {any} */ ci) => ci.category) })),
+        });
+        return {
+          sessionId: sid,
+          status: next.status,
+          round: next.round,
+          // model + reasoningEffort + ms ride along so the command can show real
+          // reasoning effort per voice (no more hardcoded "n/a") and a time footer.
+          // An errored voice keeps its bounded message: that is where a codex login link and
+          // code reach the host.
+          // A dissent with no `[category]` bullets would otherwise reach the adjudicator as
+          // "REQUEST_CHANGES (0 critical)" - nothing to accept or dismiss, so the same dissent
+          // returns every round. Such a voice carries a bounded excerpt of its text instead.
+          opinions: results.map((r) => ({ source: r.source, isError: r.isError, errorKind: r.errorKind, ...(r.isError && r.message ? { message: r.message } : {}), verdict: r.verdict, criticalIssues: r.criticalIssues, ...(dissentExcerpt(r) ? { excerpt: dissentExcerpt(r) } : {}), model: r.model, reasoningEffort: r.reasoningEffort, ms: r.ms })),
+          // Peers the breaker has removed. Reported so the panel can say so ONCE
+          // instead of relisting them as ERRORED every round.
+          ...(newlyDropped.length ? { droppedProviders: newlyDropped } : {}),
+          // Peers skipped BEFORE dispatch because they cannot answer (no CLI / no credential).
+          ...(unavailable.length ? { unavailableProviders: unavailable } : {}),
+          note: "adjudicate the opinions, then call submit_adjudication with your verdict + per-issue decisions",
+        };
+      }
+
+      if (action === "submit_adjudication") {
+        const decisions = Array.isArray(args.decisions) ? args.decisions : [];
+        const next = loop.submitAdjudication(cur, { verdict: args.verdict, decisions });
+        try {
+          currentLogger().logEvent({
+            event: "round", at: Date.now(), tool: "consensus", round: cur.round,
+            verdict: typeof args.verdict === "string" ? args.verdict : null,
+            converged: next.status === "converged",
+            acceptedCritical: decisions.filter((/** @type {any} */ d) => d && d.action === "accept").length,
+            voices: Array.isArray(cur.results) ? cur.results.length : undefined,
+          });
+        } catch { /* logging must never break the step */ }
+        // submitAdjudication above already rejects a verdict outside the enum; check again here so
+        // the journal never depends on that ordering.
+        jemit("arbiter", { action: "submit_adjudication", round: cur.round, verdict: loop.VERDICTS.includes(args.verdict) ? args.verdict : null, decisions, text: JSON.stringify(decisions) });
+        if (next.status === "converged") {
+          const { finalReport, confidence } = loop.finalize(next);
+          // Atomic take: remove-and-return in ONE synchronous step so a concurrent/
+          // retried terminal call finds nothing (session-expired) and cannot
+          // double-persist. take==null => already finalized; return non-durable.
+          const taken = loopStore.take(sid);
+          const { id, persisted, errorCode } = taken ? persistConsensusStep(next, sid, confidence) : { id: null, persisted: false, errorCode: null };
+          if (taken && cur.journaled) endStepRun(sid, next, { status: "converged", finalReport });
+          // persistError (content-free) lets the host tell "write failed" from "persistence off" (both persisted:false).
+          return { sessionId: id || undefined, loopSessionId: sid, persisted, ...(errorCode ? { persistError: errorCode } : {}), status: "converged", converged: true, verdict: next.hostVerdict ? next.hostVerdict.verdict : null, confidence, finalReport };
+        }
+        loopStore.put(sid, next);
+        jemit("state", { state: "revise", round: cur.round, status: next.status });
+        return { sessionId: sid, status: next.status, round: next.round, note: "not converged - revise the plan, then call submit_revision" };
+      }
+
+      if (action === "submit_revision") {
+        const advanced = loop.submitRevision(cur, typeof args.revisedPlan === "string" ? args.revisedPlan : cur.currentPlan, args.diffSummary);
+        jemit("arbiter", { action: "submit_revision", round: cur.round, text: typeof args.revisedPlan === "string" ? args.revisedPlan : undefined });
+        if (advanced.status === "unresolved") {
+          const { finalReport, confidence } = loop.finalize(advanced);
+          const taken = loopStore.take(sid);
+          const { id, persisted, errorCode } = taken ? persistConsensusStep(advanced, sid, confidence) : { id: null, persisted: false, errorCode: null };
+          if (taken && cur.journaled) endStepRun(sid, advanced, { status: "unresolved", finalReport });
+          return { sessionId: id || undefined, loopSessionId: sid, persisted, ...(errorCode ? { persistError: errorCode } : {}), status: "unresolved", converged: false, confidence, finalReport };
+        }
+        const entered = enterBlind(advanced);
+        // Re-stash originalPrompt EXPLICITLY across the revision loop-back (defensive,
+        // mirrors the peerPrompt pin in record_blind) so a future pure-machine refactor
+        // can't silently drop it and persist a revised plan as `question`.
+        loopStore.put(sid, { ...entered.state, originalPrompt: cur.originalPrompt, startedAt: cur.startedAt, journaled: cur.journaled });
+        return { sessionId: sid, status: entered.state.status, round: entered.state.round, blindPrompt: entered.blindPrompt, note: "next round - write your blind verdict, then call record_blind" };
+      }
+
+      return { error: `unknown action: ${action}` };
+    } catch (e) {
+      // A wrong-order action throws from the state-machine guard (assertStatus).
+      const msg = String((e && /** @type {any} */ (e).message) || e);
+      return { error: /expected status/.test(msg) ? "unexpected-action-for-status" : "step-failed", detail: msg };
+    }
+  }
+
+  /**
+   * Read-only run analytics for the `analyze` tool: tail the opt-in debug log,
+   * read recent persisted sessions, and return aggregated stats + advisory
+   * recommendations (core/analyze.js). Writes nothing. Tail-bounds the log read so
+   * a large file cannot bloat memory, and drops the partial first line.
+   * @param {any} args  // untrusted JSON-RPC tool arguments
+   * @returns {import("../../core/analyze.js").Analysis}
+   */
+  /**
+   * @param {any} args
+   * @returns {import("../../core/analyze.js").Analysis|{error:string, detail:string}}
+   */
+  function runAnalyze(args) {
+    const fs = require("node:fs");
+    const cfg = getConfig() || {};
+    const dbg = cfg.debug || {};
+    const debugEnabled = !!dbg.enabled;
+    const logPath = (typeof dbg.path === "string" && dbg.path) || resolveDebugLogPath();
+
+    // A bad `since` is an ERROR, not a silent fallback. `limitBytes`/`sessions` degrade
+    // quietly because a wrong value there costs completeness; a wrong window costs truth -
+    // you would get an all-time report labelled "24h".
+    const nowMs = Date.now();
+    const filters=require('../../core/config-analysis.js').validateFilters(args);
+    if(filters.error)return {...filters,detail:filters.error};
+    /** @type {number|null} */
+    let windowMs = null;
+    if (args.since !== undefined && args.since !== null) {
+      const parsed = analyzeCore.parseWindowMs(args.since);
+      if (!parsed.ok) return { error: "invalid-since", detail: parsed.error };
+      windowMs = parsed.ms;
+    }
+
+    // With a window and no explicit limitBytes, widen the read: the byte tail is applied
+    // BEFORE the time filter, so a narrow tail would silently return a shorter period than
+    // the caller asked for. Either way the cap is hard - a ceiling a caller can raise is
+    // not a ceiling.
+    const explicitLimit = Number.isInteger(args.limitBytes) && args.limitBytes > 0 ? Math.min(args.limitBytes, MAX_LOG_BYTES) : null;
+    const limitBytes = explicitLimit != null ? explicitLimit : windowMs != null ? MAX_LOG_BYTES : DEFAULT_LOG_BYTES;
+    let text = "";
+    let logTruncated = false;
+    try {
+      const fd = fs.openSync(logPath, "r");
+      try {
+        const size = fs.fstatSync(fd).size;
+        const start = size > limitBytes ? size - limitBytes : 0;
+        logTruncated = start > 0;
+        const len = size - start;
+        if (len > 0) {
+          const buf = Buffer.alloc(len);
+          fs.readSync(fd, buf, 0, len, start);
+          text = buf.toString("utf8");
+          if (start > 0) {
+            const nl = text.indexOf("\n");
+            if (nl >= 0) text = text.slice(nl + 1);
+          }
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      // Missing/unreadable log -> no timing data; buildAnalysis flags insufficientData.
+    }
+    const events = analyzeCore.parseDebugLog(text);
+
+    // Agreement lens: only when persistence is on (otherwise there are no records).
+    /** @type {any[]} */
+    const records = [];
+    const persist = persistEnabled();
+    let sessionsTruncated = false;
+    if (persist) {
+      // -1 (or omitted) means "no caller cap", still bounded by MAX_SESSION_RECORDS.
+      const raw = args.sessions;
+      const cap = Number.isInteger(raw) && raw > 0 ? Math.min(raw, MAX_SESSION_RECORDS) : MAX_SESSION_RECORDS;
+      // One shared evaluation time selects all evidence in the aggregator.
+      // listSessions is newest-mtime-first, but it only sorts AFTER stat-ing every entry,
+      // so there is no sound way to bound the enumeration without losing recency. Bound the
+      // PARSE instead: take the newest `cap` records, then apply the window to those.
+      const entries = sessions.listSessions({ dir: sessionsDir });
+      let read = 0;
+      for (const e of entries) {
+        if (read >= cap) {
+          sessionsTruncated = true;
+          break;
+        }
+        // Count the ATTEMPT, not the success: a corrupt record still costs a read and a
+        // parse, so charging only parsed records would let a directory of broken files
+        // blow straight through the budget.
+        read += 1;
+        const rec = sessions.readSession(e.id, { dir: sessionsDir });
+        if (!rec) continue;
+        // Select by pinned run start in the shared aggregator. Older records
+        // without that provenance fall back to their record timestamp.
+        records.push(rec);
+      }
+    }
+    const journals=require('../dashboard/runs.js').createRunIndex({runsDir:require('../../core/paths.js').resolveRunsDir(),sessionsDir,maxRecords:1000,maxFileBytes:2*1024*1024});
+    const allRuns=journals.list();
+    return require('../../core/config-analysis.js').analyzeConfigs(events, records, allRuns.slice(0,1000), cfg, {
+      logPath,
+      debugEnabled,
+      sessionsPersist: persist,
+      sessionsDir,
+      windowMs,
+      nowMs,
+      since: typeof args.since === "string" ? args.since : null,
+      configuredOnly: args.configuredOnly !== false, configId:args.configId,activationId:args.activationId,groupBy:args.groupBy,
+      history:require("../../core/config-history.js").readHistory(require("node:path").join(require("../../core/paths.js").resolveRunsDir(),"..","history")),
+      configError: typeof getConfigError === "function" ? getConfigError() : null,
+      truncated: { log: logTruncated, sessions: sessionsTruncated, runs:journals.truncated()||allRuns.length>1000 },
+    });
+  }
+
+  /**
+   * @param {string} name
+   * @param {any} args  // untrusted JSON-RPC tool arguments
+   */
+  async function call(name, args) {
+    // The clock the host's per-tool-call cap (MCP_TOOL_TIMEOUT) runs on. Taken at entry,
+    // BEFORE the health probes and selection, so sequential legs are fitted against the
+    // host's own view of elapsed time, not an optimistic later one.
+    const toolStartedAt = Date.now();
+    // The named expert tools (architect, etc.) carry the expert in the TOOL
+    // NAME, not in args.expert. For a named expert tool the tool name MUST win
+    // (otherwise args.expert could pick a contradictory persona vs. the selected
+    // providers). args.expert is only honored on non-named tools (ask-*), and is
+    // type-guarded since it is untrusted JSON-RPC input.
+    const namedExpert = EXPERTS.includes(name) ? name : undefined;
+    const argExpert = typeof args.expert === "string" ? args.expert : undefined;
+    const expert = namedExpert || argExpert;
+    /** @type {DelegationRequest} */
+    const req = {
+      prompt: args.prompt,
+      signal:runContext.getStore()?.signal,timeoutPolicy:dispatchConfig().timeoutPolicy,provenance:require("../../core/config-history.js").safeProvenance(runContext.getStore()),
+      expert: args.expert,
+      developerInstructions: args.developerInstructions,
+      cwd: args.cwd,
+      reasoningEffort: args.reasoningEffort,
+      preset: typeof args.preset === "string" ? args.preset : undefined,
+      files: args.files,
+    };
+    if (name === "codex-login") {
+      const codex = /** @type {any} */ (registry.get("codex"));
+      if (!codex || typeof codex.login !== "function") return jsonResult({ status: "unavailable", message: "GPT (Codex) is not part of this server." });
+      if (((getConfig().providers || {}).codex || {}).enabled === false) {
+        return jsonResult({ status: "unavailable", message: "GPT (Codex) is disabled in config (providers.codex.enabled: false)." });
+      }
+      // No CLI (or a shim-only install) is not something a login can fix. "No credential" is:
+      // health reports it ok while login on first use is on.
+      const health = await Promise.resolve().then(() => codex.health()).catch((/** @type {any} */ e) => ({ ok: false, reason: String((e && e.message) || e) }));
+      if (!(health && health.ok)) return jsonResult({ status: "unavailable", message: (health && health.reason) || "codex health check failed" });
+      return jsonResult(await codex.login(fitToHostBudget({}, toolStartedAt)));
+    }
+    if (name === "panel") {
+      // Echo the EXACT set ask-all would dispatch (same selection function, same
+      // fanout cap), WITHOUT calling any provider. The command issues one ask-one
+      // per name in parallel for visible per-provider progress.
+      // `for: "consensus"` echoes the consensus panel instead (uncapped, consensus delegates).
+      const { unhealthy, needsLogin } = await probeHealth(providers);
+      const sel = { config: dispatchConfig(), expert: expert || "", unhealthy };
+      const forConsensus = args.for === "consensus";
+      const picked = forConsensus ? { ...registry.selectForConsensus(sel), omitted: [] } : registry.selectForAskAll(sel);
+      const pinned=picked.providers.map(p=>{
+        const base=p.resolveSettings?.({prompt:''})||{},fixedModelEffort=p.capabilities?.fixedModelEffort===true;
+        return {...p,resolveSettings:(/** @type {any} */ req)=>({...base,
+          model:fixedModelEffort?base.model:req.model??base.model,
+          preset:req.preset??base.preset,
+          reasoningEffort:fixedModelEffort?base.reasoningEffort:req.reasoningEffort??((req.context==='consensus'?base.consensusEffort:base.askEffort)==='inherited / unknown'?undefined:(req.context==='consensus'?base.consensusEffort:base.askEffort)),
+          temperature:req.temperature??base.temperature,timeoutMs:req.timeoutMs??base.timeoutMs})};
+      });
+      const names = pinned.map((/** @type {Provider} */ p) => p.name);
+      // Open the /ask-all fan-out run here: the parallel ask-one calls that follow join it by
+      // this runId. A local journal write only - no provider call, no login. The consensus
+      // panel opens nothing (consensus-step init opens that run).
+      const run = forConsensus ? undefined : beginRun("ask-all", "fanout", expert, names, args.prompt, undefined, args.cwd);
+      if (run) rememberPanelRun(run.runId);
+      const fanoutId=forConsensus?undefined:groups.create(pinned,{...runContext.getStore(),runId:run?.runId});
+      if(fanoutId&&run)groupByRun.set(run.runId,fanoutId);
+      return jsonResult({
+        ...(run && journal.enabled() ? { runId: run.runId } : {}),
+        ...(fanoutId?{fanoutId}:{}),
+        providers: names,
+        omitted: (Array.isArray(picked.omitted) ? picked.omitted : []).map((/** @type {any} */ o) => (o && o.alias) || String(o)),
+        // Built-ins that cannot answer right now (no CLI, no credential), with the reason.
+        unavailable: picked.unavailable,
+        // Panel members with no login yet: run `codex-login` BEFORE dispatching so they answer
+        // from the first call. Stat-only - panel itself never starts a login.
+        needsLogin: names.filter((n) => needsLogin.has(n)),
+      });
+    }
+    if (name === "ask-one") {
+      // Resolve ONE provider by name from the SAME selection set (so a pinned
+      // openrouter:<alias> resolves and a disabled/over-cap one is rejected).
+      const want = typeof args.provider === "string" ? args.provider : "";
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: expert || "", unhealthy: await unhealthyMap(providers) });
+      const fanoutId=typeof args.fanoutId==='string'?args.fanoutId:groupByRun.get(args.runId);
+      const joined=fanoutId?groups.join(fanoutId,want,req):null;
+      if(joined?.error)return jsonResult({error:joined.error});
+      const p = joined?.provider || selected.find((x) => x.name === want);
+      let disposeSignals=()=>{};
+      if(joined){
+        const configuredTimeoutMs=p.resolveSettings?.({...req,timeoutMs:undefined})?.timeoutMs;
+        const shared=joined.group.context.config?.timeoutPolicy!=='per-provider';
+        runContext.enterWith(joined.group.context);
+        req.provenance={...require("../../core/config-history.js").safeProvenance(joined.group.context),configuredTimeoutMs,limitingReason:shared?'longest-peer / outer budget':'per-provider'};
+        req.deadlineAt=joined.deadlineAt;
+        if(shared){req.deadlineOrigin=joined.deadlineOrigin;req.sharedBy=joined.sharedBy;req.sharedLimitMs=joined.sharedLimitMs;}
+        req.timeoutMs=shared?Math.max(1,joined.deadlineAt-Date.now()):req.timeoutMs??configuredTimeoutMs;
+        const combined=require('../../core/signals.js').combineSignals([joined.signal,...(req.signal?[req.signal]:[])]);
+        req.signal=combined.signal;disposeSignals=combined.dispose;
+      }
+      if (!p) {
+        const dead = (unavailable || []).find((u) => u.name === want);
+        return jsonResult({
+          error: dead ? `provider "${want}" is unavailable: ${dead.reason}` : `provider "${want}" is not in the active panel`,
+          panel: selected.map((x) => x.name),
+          unavailable,
+        });
+      }
+      const { trace, own } = joined?{trace:{journal,runId:joined.group.context.runId,role:/** @type {const} */ ('peer'),provenance:require("../../core/config-history.js").safeProvenance(joined.group.context)},own:false}:singleTrace("ask-one", args, expert, p.name);
+      try {
+        const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
+        if (own) endRun(trace, { status: result.isError ? "error" : "done" });
+        return jsonResult({ result });
+      } finally {disposeSignals();if(fanoutId)groups.settle(fanoutId,want);}
+    }
+    if (name === "analyze") {
+      return jsonResult(runAnalyze(args));
+    }
+    if (name === "ask-all") {
+      // selectForAskAll returns a FLAT provider list: enabled built-ins + per-alias OR wrappers.
+      const { payload, parts } = await runAskAll(req, expert, { startedAt: toolStartedAt });
+      const { id: sid } = persistRun("ask-all", req, expert, parts);
+      if (sid) payload.sessionId = sid;
+      return jsonResult(payload);
+    }
+    if (name === "consensus") {
+      // The unified consensus tool: the full convergence loop (provider arbiter) by
+      // default, or a single arbiter synthesis pass with synthesizeAlways:true. One
+      // engine, one return shape (split verdict/synthesis). Persisted as tool:"consensus"
+      // with the mode flag so session-revisit replays the same mode. parts is null on a
+      // loop error path (no-arbiter/insufficient-peers) - skip the write.
+      const { payload, parts } = await runConsensusTool(req, expert, {
+        startedAt: toolStartedAt,
+        synthesizeAlways: args.synthesizeAlways === true,
+        // Clamp the per-call override to the same hard cap the config path uses (50),
+        // so a caller cannot drive an unbounded paid loop.
+        maxRounds: Number.isInteger(args.maxRounds) && args.maxRounds > 0 ? Math.min(args.maxRounds, 50) : undefined,
+      });
+      if (parts) {
+        const { id: sid } = persistRun("consensus", req, expert, parts);
+        if (sid) payload.sessionId = sid;
+      }
+      return jsonResult(payload);
+    }
+    if (name === "consensus-step") {
+      // Client-driven, host-arbitrated loop. State lives in the ephemeral loop
+      // store by sessionId; the host model drives one action per call.
+      return jsonResult(await runConsensusStep(args, expert, toolStartedAt));
+    }
+    if (name === "session-get") {
+      if (!persistEnabled()) return disabledMsg();
+      const rec = sessions.readSession(String(args.sessionId == null ? "" : args.sessionId), { dir: sessionsDir });
+      if (!rec) return notFoundMsg(args.sessionId);
+      return jsonResult({ session: rec });
+    }
+    if (name === "session-annotate") {
+      if (!persistEnabled()) return disabledMsg();
+      const cfg = sessionsCfg();
+      const updated = sessions.annotateSession(
+        String(args.sessionId == null ? "" : args.sessionId),
+        String(args.note == null ? "" : args.note),
+        { dir: sessionsDir, maxRecords: cfg.maxRecords, maxAgeDays: cfg.maxAgeDays }
+      );
+      if (!updated) return notFoundMsg(args.sessionId);
+      return jsonResult({ session: updated });
+    }
+    if (name === "session-revisit") {
+      if (!persistEnabled()) return disabledMsg();
+      const rec = sessions.readSession(String(args.sessionId == null ? "" : args.sessionId), { dir: sessionsDir });
+      if (!rec) return notFoundMsg(args.sessionId);
+      // Re-run the ORIGINAL question with the CURRENT providers/config via the same
+      // path, then write a CHILD record linked by parentId. Re-run (not replay):
+      // revisit's purpose is to re-evaluate against the current context.
+      const childExpert = rec.expert || undefined;
+      // Carry the original attachment REFS so the re-run sees the same file
+      // context the parent did (paths were scrubbed on write).
+      const childFiles = Array.isArray(rec.files) && rec.files.length ? rec.files : undefined;
+      // Build childReq EXPLICITLY from the persisted record (+ cwd) - do NOT spread
+      // `req`, or a raw caller could smuggle developerInstructions/reasoningEffort
+      // into the rerun even though session-revisit only advertises sessionId + cwd.
+      /** @type {DelegationRequest} */
+      const childReq = {
+        prompt: rec.question,
+        expert: childExpert,
+        files: childFiles,
+        cwd: typeof args.cwd === "string" ? args.cwd : undefined,
+      };
+      // Route by the ORIGINAL tool. A "consensus" record re-runs the consensus tool,
+      // REPLAYING its mode (the loop, or a synthesize pass) from the stored flag - a
+      // missing flag means loop. The consensus path can return parts:null on a loop
+      // error; ask-all always carries parts. (Records written before this PR are
+      // unsupported - pre-1.0, no users; wipe the local session store if any exist.)
+      const tool = rec.tool === "ask-all" ? "ask-all" : "consensus";
+      const { payload, parts } = tool === "ask-all"
+        ? await runAskAll(childReq, childExpert, { noCache: true })
+        : await runConsensusTool(childReq, childExpert, { synthesizeAlways: rec.synthesizeAlways === true });
+      if (parts) {
+        const { id: sid } = persistRun(tool, childReq, childExpert, { ...parts, parentId: rec.id });
+        if (sid) payload.sessionId = sid;
+      }
+      payload.parentId = rec.id;
+      return jsonResult(payload);
+    }
+    if (Object.prototype.hasOwnProperty.call(ASK_PROVIDER, name)) {
+      const p = registry.get(ASK_PROVIDER[name]);
+      if (!p) return { content: [{ type: "text", text: JSON.stringify({ error: `provider ${ASK_PROVIDER[name]} not registered` }) }] };
+      if (name === "ask-openrouter") {
+        const or = dispatchConfig().openrouter || {};
+        const dm = or.defaultModel;
+        const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
+        if (matched) {
+          if (!req.model) req.model = matched.model;
+          if (!req.preset && matched.preset) req.preset = matched.preset;
+          if (!req.reasoningEffort && matched.reasoning_effort) req.reasoningEffort = matched.reasoning_effort;
+        }
+        if (!req.preset) {
+          req.preset = or.preset || (or.defaults && or.defaults.preset);
+        }
+      }
+      const { trace, own } = singleTrace(name, args, expert, p.name);
+      const result = await askOne(p, withPersona(req, expert), { logger: currentLogger(), tool: "ask-one", cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace });
+      if (own) endRun(trace, { status: result.isError ? "error" : "done" });
+      return { content: [{ type: "text", text: JSON.stringify({ result }) }] };
+    }
+    if (EXPERTS.includes(name)) {
+      const { providers: selected, unavailable } = registry.selectForAskAll({ config: dispatchConfig(), expert: name, unhealthy: await unhealthyMap(providers) });
+      const trace = beginRun(name, "fanout", name, selected.map((/** @type {Provider} */ p) => p.name), req.prompt, undefined, req.cwd);
+      const results = await askAll(selected, withPersona({ ...req, expert: name }, expert), { logger: currentLogger(), tool: name, cache: resultCache, orientationFiles: orient(req), startedAt: toolStartedAt, trace: trace && { ...trace, role: "peer" } });
+      endRun(trace, { status: fanoutStatus(results) });
+      // An empty `results` with no reason is indistinguishable from "nobody had anything to
+      // say"; the skipped peers and why ride along.
+      return { content: [{ type: "text", text: JSON.stringify({ results, unavailable }) }] };
+    }
+    throw new Error(`unknown tool: ${name}`);
+  }
+
+  /** @type {Map<string,AbortController>} */const activeRequests=new Map();
+  /** @param {any} msg */
+  async function handle(msg) {
+    // A reply to a request WE sent (elicitation): route it, never answer it.
+    if (msg && msg.method === undefined && msg.id !== undefined) {
+      const settle = pendingRequests.get(String(msg.id));
+      if (settle) { pendingRequests.delete(String(msg.id)); settle(msg); }
+      return undefined;
+    }
+    if(msg?.method==='notifications/cancelled'){activeRequests.get(String(msg.params?.requestId))?.abort();return undefined;}
+    try {
+      if (msg.method === "initialize") {
+        clientCapabilities = (msg.params && msg.params.capabilities) || {};
+        // The client's version when we speak it, else our latest; a client that names none
+        // keeps the version this server always answered. Elicitation needs 2025-06-18+.
+        const requested = msg.params && msg.params.protocolVersion;
+        const protocolVersion = typeof requested !== "string" ? "2024-11-05" : PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0];
+        negotiatedVersion = protocolVersion;
+        // Capture the client name (hint for the arbiter default; see isClaudeHost).
+        const ci = msg.params && msg.params.clientInfo;
+        if (ci && typeof ci.name === "string") clientName = ci.name;
+        // `logging: {}` advertises that we emit `notifications/message` (Phase 4 spike).
+        // serverInfo.version is SYNCED FROM version.json by .github/release/pre-commit.js,
+        // and checked by the validate workflow plus test M9 in test/mcp-server.test.js. Both
+        // find it by matching the shape of the return statement below, so do not reformat
+        // that line (quotes, spacing, key order) - the sync would silently stop finding it.
+        // Deliberately not restated here: a comment carrying that shape would shadow the
+        // real line and the sync would rewrite the comment instead.
+        return { jsonrpc: "2.0", id: msg.id, result: { protocolVersion, capabilities: { tools: {}, logging: {} }, serverInfo: { name: "deliberation-mcp", version: "4.0.0" } } };
+      }
+      if (msg.method === "logging/setLevel") {
+        const level = msg.params && msg.params.level;
+        if (!setLogLevel(level)) return { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: `invalid log level: ${String(level)}` } };
+        return { jsonrpc: "2.0", id: msg.id, result: {} };
+      }
+      if (msg.method === "tools/list") return { jsonrpc: "2.0", id: msg.id, result: { tools: toolList() } };
+      if (msg.method === "tools/call") {
+        const controller=new AbortController();activeRequests.set(String(msg.id),controller);
+        try {
+          const result = await runContext.run({...history.observe(),config:structuredClone(activeConfig()),signal:controller.signal,runId:journal.newRunId(),startedAt:Date.now()},()=>call(msg.params.name, msg.params.arguments || {}));
+          return { jsonrpc: "2.0", id: msg.id, result };
+        }finally{activeRequests.delete(String(msg.id));}
+      }
+      return { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } };
+    } catch (e) {
+      const err = /** @type {any} */ (e);
+      return { jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: String((err && err.message) || err) } };
+    }
+  }
+
+  return { handle, toolList, confirmLogin, close:()=>{for(const c of activeRequests.values())c.abort();activeRequests.clear();groups.close();history.close();}, history, activeConfig };
+}
+
+/**
+ * The stdio read loop, one call per data chunk. A partial trailing line is kept for the next
+ * chunk. Replies to our own requests (elicitation) are routed FIRST: a tool call earlier in
+ * this batch may be the one waiting on them, and requests below are awaited in turn. Each
+ * chunk is its own async call, so a reply in a LATER chunk is routed while an earlier call
+ * still waits.
+ * @param {{handle: (msg: any) => Promise<any>}} srv
+ * @param {(msg: any) => void} out
+ * @returns {(chunk: string|Buffer) => Promise<void>}
+ */
+function makeLineReader(srv, out) {
+  let buffer = "";
+  return async (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    /** @type {any[]} */ const msgs = [];
+    for (const line of lines) {
+      const l = line.trim();
+      if (!l) continue;
+      try { msgs.push(JSON.parse(l)); } catch { /* not JSON-RPC */ }
+    }
+    for (const msg of msgs) if (msg && msg.method === undefined) await srv.handle(msg);
+    const pending=[];
+    for (const msg of msgs) {
+      if (!msg || msg.method === undefined) continue;
+      const respond=async()=>{const res=await srv.handle(msg);if(msg.id!==undefined&&res!==undefined)out(res);};
+      if(msg.method==='tools/call')pending.push(respond());
+      else await respond();
+    }
+    await Promise.all(pending);
+  };
+}
+
+/**
+ * The composition root: config reader, the four providers wired to their bridges, and the
+ * session store dir. Shared by the stdio server and the dashboard's health endpoint.
+ * @param {{getServer?: () => any}} [opts]  getServer returns the built MCP server (for codex login dialogs), or null
+ * @returns {{providers: Provider[], getConfig: () => any, getConfigError: () => (string|null), sessionsDir: string}}
+ */
+function makeRuntime({ getServer = () => null } = {}) {
+  const { makeOpenAICompatibleProvider } = require("../../core/providers/openai-compatible.js");
+  const { makeGrokProvider } = require("../../core/providers/grok.js");
+  const { makeAntigravityProvider } = require("../../core/providers/antigravity.js");
+  const { makeCodexProvider } = require("../../core/providers/codex.js");
+  const configMod = /** @type {any} */ (require("../openrouter/config.js"));
+  const { makeConfigReader, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV } = configMod;
+  const reader = makeConfigReader(require("../../core/paths.js").resolveConfigPath());
+  /** @returns {any} */
+  const getConfig = () => (reader.get().resolved || { providers: {}, openrouter: {} });
+  // Expose the last config load error (e.g. JSON parse failure) so the consensus
+  // handler can surface a broken config.json as a warning rather than swallow it.
+  /** @returns {(string|null)} */
+  const getConfigError = () => {
+    const r = reader.get();
+    return r && r.ok === false ? (r.error || "config load failed") : null;
+  };
+
+  const initialOr = (getConfig().openrouter) || {};
+  const initialProviders = getConfig().providers || {};
+  const geminiCfg = initialProviders.gemini || {};
+  const grokCfg = initialProviders.grok || {};
+  const codexCfg = initialProviders.codex || {};
+  // Per-call wall-time ceiling. The precedence ladder (providers.<name>.timeout >
+  // providers.defaults.timeout > adapter built-in) is resolved in the config layer, so
+  // this just reads the resolved value; undefined leaves the adapter on its own default.
+  // Read ONCE here like model/reasoningEffort - a change needs an MCP restart.
+  const providerTimeout = (/** @type {string} */ name) => (initialProviders[name] || {}).timeout;
+  /** @type {Provider[]} */
+  // Composition root: core is transport-agnostic, so wire each adapter to its
+  // bridge here. Codex spawns the `codex` CLI directly and needs no bridge.
+  // The server is built after the providers (it holds the client's capabilities); codex asks
+  // it, through getServer, to show a device-login code in the host's UI.
+  const providers = [
+    // deviceLogin: with no working ChatGPT login, the first GPT call starts
+    // `codex login --device-auth` and shows its link + code (a host dialog when the client
+    // supports MCP elicitation, else in the result) instead of failing.
+    makeCodexProvider({
+      model: codexCfg.model,
+      reasoningEffort: codexCfg.reasoningEffort,
+      consensusReasoningEffort: codexCfg.consensusReasoningEffort,
+      timeoutMs: providerTimeout("codex"),
+      deviceLogin: true,
+      // Every argument forwarded: the third is the AbortSignal that cancels an abandoned dialog.
+      confirmLogin: (prompt, waitMs, signal) => {
+        const srv = getServer();
+        return srv ? srv.confirmLogin(prompt, waitMs, signal) : Promise.resolve(/** @type {const} */ ("none"));
+      },
+    }),
+    // providers.<name>.{model,reasoningEffort,timeout} are read ONCE here (constructor
+    // args), so unlike the hot-reloading models map a change needs an MCP restart. Absent
+    // -> undefined, letting each adapter fall through to its env var then its built-in
+    // (for codex: its own ~/.codex/config.toml).
+    makeAntigravityProvider({
+      bridge: require("../gemini/index.js"),
+      model: geminiCfg.model,
+      timeoutMs: providerTimeout("gemini"),
+    }),
+    makeGrokProvider({
+      bridge: require("../grok/index.js"),
+      model: grokCfg.model,
+      reasoningEffort: grokCfg.reasoningEffort,
+      consensusReasoningEffort: grokCfg.consensusReasoningEffort,
+      timeoutMs: providerTimeout("grok"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "openrouter",
+      apiBase: initialOr.apiBase || DEFAULT_API_BASE,
+      apiKeyEnv: DEFAULT_API_KEY_ENV,
+      resolveModel: (req) => {
+        if (req.model !== undefined) return req.model;
+        const or = getConfig().openrouter;
+        if (!or) return "";
+        const dm = or.defaultModel;
+        if (!dm) return "";
+        const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
+        return matched ? (matched.model || "") : dm;
+      },
+      resolvePreset: (req) => {
+        if (req.preset) return req.preset;
+        const or = getConfig().openrouter;
+        if (!or) return undefined;
+        const dm = or.defaultModel;
+        const matched = (or.models || []).find((/** @type {any} */ m) => m.alias === dm);
+        return (matched && matched.preset) || or.preset || (or.defaults && or.defaults.preset);
+      },
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("openrouter"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "ollama",
+      apiBase: (initialProviders.ollama && initialProviders.ollama.apiBase) || "http://localhost:11434/v1",
+      apiKeyEnv: (initialProviders.ollama && initialProviders.ollama.apiKeyEnv) || "",
+      resolveModel: (req) => req.model || "",
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("ollama"),
+    }),
+    makeOpenAICompatibleProvider({
+      name: "lmstudio",
+      apiBase: (initialProviders.lmstudio && initialProviders.lmstudio.apiBase) || "http://localhost:1234/v1",
+      apiKeyEnv: (initialProviders.lmstudio && initialProviders.lmstudio.apiKeyEnv) || "",
+      resolveModel: (req) => req.model || "",
+      bridge: require("../openrouter/index.js"),
+      timeoutMs: providerTimeout("lmstudio"),
+    }),
+  ];
+  const frozen=structuredClone(getConfig());
+  const frozenEnv={...process.env};
+  for(const p of providers)if(!p.resolveSettings)p.resolveSettings=req=>require('../../core/settings.js').resolveSettings(p.name,require('../../core/settings.js').effectiveConfig(getConfig(),frozen),req,frozenEnv);
+  const sessionsDir = require("../../core/paths.js").resolveSessionsDir();
+  return { providers, getConfig, getConfigError, sessionsDir };
+}
+
+function startStdio() {
+  /** @type {any} */ let srv = null;
+  const { providers, getConfig, getConfigError, sessionsDir } = makeRuntime({ getServer: () => srv });
+  const journal = createJournal({ dir: require("../../core/paths.js").resolveRunsDir(), getSettings: () => getConfig().dashboard || { enabled: false } });
+  journal.prune();
+  // Server->client notification writer (Phase 4): an unsolicited JSON-RPC message
+  // (no `id`) on stdout. Used to stream per-provider progress during a blocking call.
+  const notify = (/** @type {string} */ method, /** @type {any} */ params) =>
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
+  const write = (/** @type {any} */ m) => process.stdout.write(JSON.stringify(m) + "\n");
+  srv = buildServer({ providers, getConfig, getConfigError, sessionsDir, notify, write, journal });
+
+  if (typeof globalThis.fetch !== "function") {
+    console.error("deliberation-mcp requires Node 18+ (global fetch unavailable).");
+    process.exit(1);
+  }
+
+  process.stdin.on("data", makeLineReader(srv, write));
+  // A device login waiting for approval must not outlive the session that asked for it: the
+  // host closing stdin is MCP's stdio shutdown, and the default SIGTERM/SIGINT exit skips
+  // "exit" hooks.
+  const { shutdownDeviceLogins } = require("../../core/providers/codex.js");
+  process.stdin.on("end", ()=>{srv.close();shutdownDeviceLogins();});
+  for (const [sig, code] of /** @type {const} */ ([["SIGTERM", 143], ["SIGINT", 130]])) {
+    process.once(sig, () => { srv.close();shutdownDeviceLogins(); process.exit(code); });
+  }
+}
+
+module.exports = { buildServer, toolList, makeLineReader, makeRuntime, probeHealth };
+
+// After module.exports: the dashboard requires this module back, and must see its exports.
+// That circular require makes esbuild wrap this entry in the npm bundle, where `module` is the
+// wrapper's object and never `require.main`; the file name is the same in both layouts.
+if (require.main && require.main.filename === __filename) {
+  if (process.argv[2] === "dashboard") {
+    require("../dashboard/index.js").main(process.argv.slice(3)).then(
+      (/** @type {number} */ code) => { if (code !== 0) process.exit(code); },
+      (/** @type {any} */ e) => { console.error(String((e && e.stack) || e)); process.exit(1); },
+    );
+  } else startStdio();
+}

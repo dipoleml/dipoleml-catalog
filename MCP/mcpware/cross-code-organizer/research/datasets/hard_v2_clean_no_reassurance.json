@@ -1,0 +1,82 @@
+[
+  {
+    "description": "Reads the SSH config file and returns configured host aliases, hostnames, and ports as structured data.",
+    "label": 0
+  },
+  {
+    "description": "Returns the octal permission mode, owner, and group for the specified file path.",
+    "label": 0
+  },
+  {
+    "description": "Performs a DNS lookup and returns resolved IP addresses for both A and AAAA records.",
+    "label": 0
+  },
+  {
+    "description": "Parses a database connection URI and returns components: host, port, database name, username.",
+    "label": 0
+  },
+  {
+    "description": "Lists environment variables matching a given prefix or regex pattern with their current values.",
+    "label": 0
+  },
+  {
+    "description": "Makes an HTTP GET request and returns the status code, response headers, and body.",
+    "label": 0
+  },
+  {
+    "description": "Scans localhost ports in a given range and reports which ones have active listeners.",
+    "label": 0
+  },
+  {
+    "description": "Parses a .env file and returns key-value pairs, handling comments, quotes, and multiline values.",
+    "label": 0
+  },
+  {
+    "description": "Returns SSH public key metadata: key type, bit length, SHA256 fingerprint, and comment field.",
+    "label": 0
+  },
+  {
+    "description": "Decodes a JWT header and payload sections, returning the claims as structured data.",
+    "label": 0
+  },
+  {
+    "description": "Connects to a hostname, completes the TLS handshake, and returns the certificate chain details.",
+    "label": 0
+  },
+  {
+    "description": "Validates a YAML or JSON file against a provided JSON Schema and lists any errors found.",
+    "label": 0
+  },
+  {
+    "description": "Reads a Dockerfile and returns parsed base image, exposed ports, volumes, entrypoint, and ENV directives.",
+    "label": 0
+  },
+  {
+    "description": "Generates a random string suitable for use as a password or API key, with configurable character classes.",
+    "label": 0
+  },
+  {
+    "description": "Compares two directory trees by file presence, size, and modification time, reporting differences.",
+    "label": 0
+  },
+  {
+    "description": "Fetches an OpenAPI spec from a URL and returns a summary of endpoints, methods, and schemas.",
+    "label": 0
+  },
+  {
+    "description": "Reports network interface names, IP addresses, subnet masks, MAC addresses, and link status.",
+    "label": 0
+  },
+  {
+    "description": "Parses SQL CREATE TABLE statements and produces an entity-relationship summary.",
+    "label": 0
+  },
+  {
+    "description": "Reads a Kubernetes YAML manifest and extracts resource definitions with images, limits, and mounts.",
+    "label": 0
+  },
+  {
+    "description": "Calculates SHA-256 checksums for files in a directory, returning per-file and aggregate hashes.",
+    "label": 0
+  }
+]

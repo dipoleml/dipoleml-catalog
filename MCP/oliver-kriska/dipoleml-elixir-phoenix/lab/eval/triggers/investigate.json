@@ -1,0 +1,15 @@
+{
+  "skill": "investigate",
+  "should_trigger": [
+    "Form validation fails silently with no error in the UI",
+    "Getting undefined function compile error when I import the module",
+    "This test fails randomly, passes sometimes",
+    "The LiveView update doesn't trigger, component stays stuck",
+    "Getting a socket timeout error in production logs"
+  ],
+  "should_not_trigger": [
+    "Set up OAuth with GitHub",
+    "LiveView assigns growing too large, memory exploding",
+    "Show me how to test async operations"
+  ]
+}

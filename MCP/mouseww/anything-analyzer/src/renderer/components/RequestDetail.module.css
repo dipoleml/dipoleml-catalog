@@ -1,0 +1,191 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Header: METHOD STATUS · TIME */
+.detailHeader {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.detailTitle {
+  font-size: var(--font-size-2xs);
+  color: var(--text-primary);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.detailUrl {
+  font-size: var(--font-size-3xs);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* Simple text tabs */
+.detailTabs {
+  height: 32px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  padding: 0 16px;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+.detailTab {
+  font-size: var(--font-size-3xs);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  position: relative;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-bottom: 1px solid transparent;
+  font-family: var(--font-sans);
+  padding: 0;
+  transition: color var(--transition-fast);
+}
+
+.detailTab:hover {
+  color: var(--text-secondary);
+}
+
+.detailTabActive {
+  color: var(--text-secondary);
+  border-bottom-color: var(--text-secondary);
+}
+
+/* Tab body — scrollable */
+.detailBody {
+  flex: 1;
+  padding: 12px 16px;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* Section labels (REQUEST HEADERS, RESPONSE HEADERS) */
+.sectionLabel {
+  font-size: var(--font-size-3xs);
+  color: var(--text-label);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.kvSection {
+  padding: 0;
+}
+
+/* KV row */
+.kvRow {
+  display: flex;
+  padding: 4px 0;
+  font-size: var(--font-size-3xs);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.kvKey {
+  width: 140px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.kvVal {
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.emptyHint {
+  font-size: var(--font-size-3xs);
+  color: var(--text-disabled);
+  padding: 4px 0;
+}
+
+/* Code block for body/response */
+.codeBlock {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-button);
+  padding: 10px 14px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: auto;
+  max-height: 400px;
+}
+
+/* Key-value metadata grid */
+.metaGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin-bottom: var(--space-lg);
+  font-size: var(--font-size-sm);
+}
+
+.metaLabel {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.metaValue {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* Hook list */
+.hookList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.hookItem {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface);
+  border-radius: var(--radius-button);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.hookHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: 4px;
+}
+
+.hookFn {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  background: var(--color-content);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--color-warning);
+}
+
+.hookTime {
+  margin-left: auto;
+  font-size: var(--font-size-2xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.hookArgs {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

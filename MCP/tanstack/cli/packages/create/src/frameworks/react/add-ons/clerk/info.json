@@ -1,0 +1,49 @@
+{
+  "name": "Clerk",
+  "description": "Hosted user accounts with prebuilt sign-in UI and social providers (managed).",
+  "phase": "add-on",
+  "modes": ["file-router"],
+  "type": "add-on",
+  "category": "auth",
+  "exclusive": ["auth"],
+  "color": "#6C47FF",
+  "priority": 150,
+  "partner": { "id": "clerk", "tier": "silver" },
+  "link": "https://clerk.com",
+  "routes": [
+    {
+      "url": "/demo/clerk",
+      "name": "Clerk",
+      "path": "src/routes/demo.clerk.tsx",
+      "jsName": "ClerkDemo"
+    }
+  ],
+  "integrations": [
+    {
+      "type": "header-user",
+      "jsName": "ClerkHeader",
+      "path": "src/integrations/clerk/header-user.tsx"
+    },
+    {
+      "type": "provider",
+      "jsName": "ClerkProvider",
+      "path": "src/integrations/clerk/provider.tsx"
+    }
+  ],
+  "envVars": [
+    {
+      "name": "VITE_CLERK_PUBLISHABLE_KEY",
+      "description": "Clerk publishable key",
+      "required": true,
+      "secret": false,
+      "file": ".env.local"
+    },
+    {
+      "name": "CLERK_SECRET_KEY",
+      "description": "Clerk secret key",
+      "required": true,
+      "secret": true,
+      "file": ".env.local"
+    }
+  ]
+}

@@ -1,0 +1,425 @@
+/**
+ * 편의점 및 기타 서비스 CLI 명령 핸들러
+ * (CU, 이마트24, 롯데마트, GS25, 세븐일레븐, 롯데시네마)
+ */
+
+import { printCommandHelp } from '../../cliHelp.js';
+import type { CliDeps } from '../types.js';
+import { parseCliArgs, toUrl, applyOptionsToQuery, toQueryOptions } from '../args.js';
+import { validateCommandOptions } from '../commandOptions.js';
+import { requestAndPrintResponse } from '../http.js';
+import { runApiCommand } from './apiCommand.js';
+
+export async function handleCompareProducts(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('compare', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('compare', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const keyword = parsed.positionals[0] || parsed.options.keyword || parsed.options.q;
+  if (!keyword) {
+    deps.writeErr('compare 명령은 검색어가 필요합니다. 예: daiso compare 콜라');
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/compare/products');
+  targetUrl.searchParams.set('keyword', keyword);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'compare',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handlePlaces(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('places', deps.writeOut, deps.writeErr);
+  }
+
+  const location = parsed.positionals[0];
+  if (location) {
+    parsed.options = { location, ...parsed.options };
+  }
+  if (validateCommandOptions('places', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  if (!parsed.options.location && !parsed.options.keyword) {
+    deps.writeErr(
+      'places 명령은 위치나 검색어가 필요합니다. 예: daiso places 강남역 --category cafe',
+    );
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/places/search');
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'places',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleCuStores(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('cu-stores', deps.writeOut, deps.writeErr);
+  }
+
+  const keyword = parsed.positionals[0];
+  if (keyword) {
+    parsed.options.keyword = keyword;
+  }
+  if (validateCommandOptions('cu-stores', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/cu/stores');
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'cu-stores',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleCuInventory(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('cu-inventory', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('cu-inventory', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const keyword = parsed.positionals[0];
+  if (!keyword) {
+    deps.writeErr('cu-inventory 명령은 검색어가 필요합니다. 예: daiso cu-inventory 과자');
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/cu/inventory');
+  targetUrl.searchParams.set('keyword', keyword);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'cu-inventory',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleEmart24Stores(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('emart24-stores', deps.writeOut, deps.writeErr);
+  }
+
+  const keyword = parsed.positionals[0];
+  if (keyword) {
+    parsed.options.keyword = keyword;
+  }
+  if (validateCommandOptions('emart24-stores', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/emart24/stores');
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'emart24-stores',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleEmart24Products(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('emart24-products', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('emart24-products', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const keyword = parsed.positionals[0];
+  if (!keyword) {
+    deps.writeErr('emart24-products 명령은 검색어가 필요합니다. 예: daiso emart24-products 두바이');
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/emart24/products');
+  targetUrl.searchParams.set('keyword', keyword);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'emart24-products',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleEmart24Inventory(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('emart24-inventory', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('emart24-inventory', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const pluCd = parsed.positionals[0];
+  const bizNoArr = parsed.options.bizNoArr;
+  if (!pluCd || !bizNoArr) {
+    deps.writeErr(
+      'emart24-inventory 명령은 pluCd와 --bizNoArr가 필요합니다. 예: daiso emart24-inventory 8800244010504 --bizNoArr 28339,05015',
+    );
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/emart24/inventory');
+  targetUrl.searchParams.set('pluCd', pluCd);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'emart24-inventory',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleLotteMartStores(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('lottemart-stores', deps.writeOut, deps.writeErr);
+  }
+
+  const keyword = parsed.positionals[0];
+  if (keyword) {
+    parsed.options.keyword = keyword;
+  }
+  if (validateCommandOptions('lottemart-stores', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/lottemart/stores');
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'lottemart-stores',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleLotteMartProducts(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('lottemart-products', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('lottemart-products', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const keyword = parsed.positionals[0];
+  if (!keyword) {
+    deps.writeErr(
+      'lottemart-products 명령은 검색어가 필요합니다. 예: daiso lottemart-products 콜라 --storeName 강변점',
+    );
+    return 1;
+  }
+
+  if (!parsed.options.storeCode && !parsed.options.storeName) {
+    deps.writeErr(
+      'lottemart-products 명령은 --storeCode 또는 --storeName이 필요합니다. 매장을 모르면 먼저 daiso lottemart-stores 잠실 --area 서울 명령으로 storeName/storeCode를 확인하세요. 예: daiso lottemart-products 콜라 --storeName 강변점',
+    );
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/lottemart/products');
+  targetUrl.searchParams.set('keyword', keyword);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'lottemart-products',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleGs25Stores(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('gs25-stores', deps.writeOut, deps.writeErr);
+  }
+
+  const keyword = parsed.positionals[0];
+  if (keyword) {
+    parsed.options.keyword = keyword;
+  }
+  if (validateCommandOptions('gs25-stores', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/gs25/stores');
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'gs25-stores',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleGs25Products(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('gs25-products', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('gs25-products', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const keyword = parsed.positionals[0];
+  if (!keyword) {
+    deps.writeErr('gs25-products 명령은 검색어가 필요합니다. 예: daiso gs25-products 오감자');
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/gs25/products');
+  targetUrl.searchParams.set('keyword', keyword);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'gs25-products',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleGs25Inventory(options: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseCliArgs(options);
+  if (parsed.options.help === 'true') {
+    return printCommandHelp('gs25-inventory', deps.writeOut, deps.writeErr);
+  }
+  if (validateCommandOptions('gs25-inventory', parsed.options, deps.writeErr)) {
+    return 1;
+  }
+
+  const keyword = parsed.positionals[0];
+  if (!keyword) {
+    deps.writeErr('gs25-inventory 명령은 검색어가 필요합니다. 예: daiso gs25-inventory 오감자');
+    return 1;
+  }
+
+  const targetUrl = toUrl('/api/gs25/inventory');
+  targetUrl.searchParams.set('keyword', keyword);
+  applyOptionsToQuery(targetUrl, toQueryOptions(parsed.options));
+  return await requestAndPrintResponse(
+    deps.fetchImpl,
+    deps.writeOut,
+    deps.writeErr,
+    targetUrl,
+    'gs25-inventory',
+    parsed.options.json === 'true',
+  );
+}
+
+export async function handleSevenElevenProducts(options: string[], deps: CliDeps): Promise<number> {
+  return await runApiCommand({
+    command: 'seveneleven-products',
+    options,
+    deps,
+    path: '/api/seveneleven/products',
+    configure: (parsed) => {
+      const query = parsed.positionals[0] || parsed.options.query;
+      if (!query) {
+        return 'seveneleven-products 명령은 검색어가 필요합니다. 예: daiso seveneleven-products 삼각김밥';
+      }
+      parsed.options.query = query;
+      return null;
+    },
+  });
+}
+
+export async function handleSevenElevenStores(options: string[], deps: CliDeps): Promise<number> {
+  return await runApiCommand({
+    command: 'seveneleven-stores',
+    options,
+    deps,
+    path: '/api/seveneleven/stores',
+    configure: (parsed) => {
+      const keyword = parsed.positionals[0] || parsed.options.keyword;
+      if (!keyword) {
+        return 'seveneleven-stores 명령은 검색어가 필요합니다. 예: daiso seveneleven-stores 안산 중앙역';
+      }
+      parsed.options.keyword = keyword;
+      return null;
+    },
+  });
+}
+
+export async function handleSevenElevenInventory(options: string[], deps: CliDeps): Promise<number> {
+  return await runApiCommand({
+    command: 'seveneleven-inventory',
+    options,
+    deps,
+    path: '/api/seveneleven/inventory',
+    configure: (parsed) => {
+      const keyword = parsed.positionals[0] || parsed.options.keyword;
+      if (!keyword) {
+        return 'seveneleven-inventory 명령은 검색어가 필요합니다. 예: daiso seveneleven-inventory 핫식스 --storeKeyword "안산 중앙역"';
+      }
+      parsed.options.keyword = keyword;
+      return null;
+    },
+  });
+}
+
+export async function handleSevenElevenPopwords(options: string[], deps: CliDeps): Promise<number> {
+  return await runApiCommand({
+    command: 'seveneleven-popwords',
+    options,
+    deps,
+    path: '/api/seveneleven/popwords',
+  });
+}
+
+export async function handleSevenElevenCatalog(options: string[], deps: CliDeps): Promise<number> {
+  return await runApiCommand({
+    command: 'seveneleven-catalog',
+    options,
+    deps,
+    path: '/api/seveneleven/catalog',
+  });
+}

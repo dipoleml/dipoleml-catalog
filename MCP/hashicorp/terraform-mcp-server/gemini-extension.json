@@ -1,0 +1,27 @@
+{
+  "name": "terraform",
+  "version": "1.4.1",
+  "contextFileName": "${extensionPath}${/}instructions${/}example-AGENTS.md",
+  "mcpServers": {
+    "terraform": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "TFE_TOKEN",
+        "-e",
+        "TFE_ADDRESS",
+        "-e",
+        "ENABLE_TF_OPERATIONS",
+        "hashicorp/terraform-mcp-server:1.4.1"
+      ],
+      "env": {
+        "TFE_TOKEN": "$TFE_TOKEN",
+        "TFE_ADDRESS": "$TFE_ADDRESS",
+        "ENABLE_TF_OPERATIONS": "$ENABLE_TF_OPERATIONS"
+      }
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.codergamester.mcp-unity",
+  "type": "mcp",
+  "name": "MCP Unity",
+  "slug": "mcp-unity",
+  "vendor": "codergamester",
+  "description": "Model Context Protocol (MCP) plugin to connect with Unity Editor — designed for Cursor, DipoleML, Codex, Windsurf and other IDEs",
+  "version": "1.5.0",
+  "homepage": "https://github.com/CoderGamester/mcp-unity",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "claudecode",
+    "codex-cli",
+    "copilot",
+    "cursor",
+    "game-development",
+    "model-context-protocol",
+    "openai",
+    "openclaw"
+  ],
+  "tags": [
+    "claudecode",
+    "codex-cli",
+    "copilot",
+    "cursor",
+    "game-development",
+    "mcp",
+    "model-context-protocol",
+    "openai",
+    "openclaw",
+    "unity",
+    "unity-package",
+    "unity3d"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "unity",
+    "brandName": "unity",
+    "source": "https://cdn.simpleicons.org/unity",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "CoderGamester/mcp-unity",
+    "url": "https://github.com/CoderGamester/mcp-unity",
+    "commit": "d572dc88f1b982a0fdfc09cd14cfdfd760b658e8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2006,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:36Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "MCP Unity | Model Context Protocol (MCP) plugin to connect with Unity Editor — designed for Cursor, Claude Code, Codex, Windsurf and other IDEs",
+        "after": "MCP Unity | Model Context Protocol (MCP) plugin to connect with Unity Editor — designed for Cursor, DipoleML, Codex, Windsurf and other IDEs",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "com.gamelovers.mcp-unity"
+    ],
+    "env": [
+      "UNITY_PORT",
+      "UNITY_HOST",
+      "MCP_UNITY_AUTH_TOKEN_PATH",
+      "MCP_UNITY_AUTH_TOKEN"
+    ],
+    "credentials": [
+      "MCP_UNITY_AUTH_TOKEN_PATH",
+      "MCP_UNITY_AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

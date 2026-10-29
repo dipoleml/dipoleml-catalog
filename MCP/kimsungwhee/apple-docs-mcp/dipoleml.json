@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.kimsungwhee.apple-docs-mcp",
+  "type": "mcp",
+  "name": "Apple Docs MCP",
+  "slug": "apple-docs-mcp",
+  "vendor": "kimsungwhee",
+  "description": "MCP server for Apple Developer Documentation - Search iOS/macOS/SwiftUI/UIKit docs, WWDC videos, Swift/Objective-C APIs & code examples in DipoleML, Cursor & AI assistants",
+  "version": "1.0.26",
+  "homepage": "https://github.com/kimsungwhee/apple-docs-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-assistant",
+    "api-documentation",
+    "apple",
+    "apple-developer-docs-mcp",
+    "apple-developer-documentation",
+    "apple-docs-mcp",
+    "apple-documentation",
+    "cursor"
+  ],
+  "tags": [
+    "ai-assistant",
+    "api-documentation",
+    "apple",
+    "apple-developer-docs-mcp",
+    "apple-developer-documentation",
+    "apple-docs-mcp",
+    "apple-documentation",
+    "claude",
+    "claude-code",
+    "cursor",
+    "documentation",
+    "ios-development",
+    "macos-development",
+    "mcp",
+    "model-context-protocol",
+    "objective-c",
+    "swift",
+    "swift-mcp",
+    "swiftui"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kimsungwhee",
+    "brandName": "kimsungwhee",
+    "source": "https://github.com/kimsungwhee.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kimsungwhee/apple-docs-mcp",
+    "url": "https://github.com/kimsungwhee/apple-docs-mcp",
+    "commit": "28c06cbaa896cb4f89239d30cb20152a74c78cdb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1382,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Apple Docs MCP | MCP server for Apple Developer Documentation - Search iOS/macOS/SwiftUI/UIKit docs, WWDC videos, Swift/Objective-C APIs & code examples in Claude, Cursor & AI assistants",
+        "after": "Apple Docs MCP | MCP server for Apple Developer Documentation - Search iOS/macOS/SwiftUI/UIKit docs, WWDC videos, Swift/Objective-C APIs & code examples in DipoleML, Cursor & AI assistants",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@kimsungwhee/apple-docs-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@kimsungwhee/apple-docs-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

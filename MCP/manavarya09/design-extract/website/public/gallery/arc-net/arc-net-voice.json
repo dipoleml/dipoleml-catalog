@@ -1,0 +1,32 @@
+{
+  "tone": "friendly",
+  "pronoun": "you-only",
+  "headingStyle": "Title Case",
+  "headingLengthClass": "verbose",
+  "ctaVerbs": [
+    {
+      "value": "download",
+      "count": 3
+    }
+  ],
+  "buttonPatterns": [
+    {
+      "value": "download arc for mac",
+      "count": 2
+    },
+    {
+      "value": "download arc for windows",
+      "count": 1
+    }
+  ],
+  "sampleHeadings": [
+    "Arc is the Chrome  replacement I've been  waiting for.",
+    "Arc is the Chrome replacement I've been waiting for.",
+    "Arc is the Chrome  replacement I've been  waiting for.",
+    "Arc is the Chrome replacement I've been waiting for."
+  ],
+  "stats": {
+    "buttons": 3,
+    "headings": 4
+  }
+}

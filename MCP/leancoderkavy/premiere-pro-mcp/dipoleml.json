@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.leancoderkavy.premiere-pro-mcp",
+  "type": "mcp",
+  "name": "Premiere Pro MCP",
+  "slug": "premiere-pro-mcp",
+  "vendor": "leancoderkavy",
+  "description": "Adobe Premiere Pro MCP — independent, local-first server for supported workflows. Connect DipoleML, Codex, or Cursor through a local CEP bridge.",
+  "version": "1.26.0",
+  "homepage": "https://github.com/leancoderkavy/premiere-pro-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "adobe",
+    "adobe-premiere-pro",
+    "ai-video-editing",
+    "cep",
+    "claude-desktop",
+    "codex",
+    "creative-cloud",
+    "cursor"
+  ],
+  "tags": [
+    "adobe",
+    "adobe-premiere-pro",
+    "ai-video-editing",
+    "cep",
+    "claude",
+    "claude-desktop",
+    "codex",
+    "creative-cloud",
+    "cursor",
+    "extendscript",
+    "local-first",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "premiere-automation",
+    "premiere-pro",
+    "typescript",
+    "video-automation",
+    "video-editing",
+    "video-editing-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "leancoderkavy",
+    "brandName": "leancoderkavy",
+    "source": "https://github.com/leancoderkavy.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:13Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "leancoderkavy/premiere-pro-mcp",
+    "url": "https://github.com/leancoderkavy/premiere-pro-mcp",
+    "commit": "1b183a0333af23a1b561928a67936c7f453aef3c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 453,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Premiere Pro MCP | Adobe Premiere Pro MCP — independent, local-first server for supported workflows. Connect Claude, Codex, or Cursor through a local CEP bridge.",
+        "after": "Premiere Pro MCP | Adobe Premiere Pro MCP — independent, local-first server for supported workflows. Connect DipoleML, Codex, or Cursor through a local CEP bridge.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "premiere-pro-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.19.0"
+    ],
+    "packages": [
+      "premiere-pro-mcp"
+    ],
+    "env": [
+      "NPM_TOKEN",
+      "HKEY_CURRENT_USER",
+      "PREMIERE_UXP_TOKEN",
+      "PREMIERE_UXP_PORT",
+      "MCP_AUTH_TOKEN",
+      "MCP_PUBLIC_URL",
+      "MCP_HEADERS_TIMEOUT_MS",
+      "MCP_MAX_RATE_LIMIT_KEYS",
+      "POSTHOG_API_KEY",
+      "POSTHOG_HOST"
+    ],
+    "credentials": [
+      "NPM_TOKEN",
+      "HKEY_CURRENT_USER",
+      "PREMIERE_UXP_TOKEN",
+      "MCP_AUTH_TOKEN",
+      "MCP_MAX_RATE_LIMIT_KEYS",
+      "POSTHOG_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

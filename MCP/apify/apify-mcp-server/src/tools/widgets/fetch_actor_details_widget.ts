@@ -1,0 +1,118 @@
+import dedent from 'dedent';
+import { z } from 'zod';
+
+import { HELPER_TOOLS } from '../../const.js';
+import { getWidgetConfig, WIDGET_URIS } from '../../resources/widgets.js';
+import type { InternalToolArgs, ToolDescriptionContext, ToolEntry, ToolInputSchema } from '../../types.js';
+import { ALL_TOOLS_PRESENT, TOOL_TYPE } from '../../types.js';
+import { buildActorDetailsForWidget, buildCardOptions, fetchActorDetails } from '../../utils/actor_details.js';
+import { compileSchema } from '../../utils/ajv.js';
+import { respondOk } from '../../utils/mcp.js';
+import { getUserInfoCached } from '../../utils/userid_cache.js';
+import { canRunAnyActor } from '../actor_tool_naming.js';
+import { fixActorNameInputAndLog } from '../actors/actor_tools_factory.js';
+import {
+    actorDetailsOutputDefaults,
+    buildActorNotFoundResponse,
+    buildActorNotRunnableGuidance,
+} from '../actors/fetch_actor_details.js';
+import { actorDetailsWidgetOutputSchema } from '../structured_output_schemas.js';
+
+const widgetConfig = getWidgetConfig(WIDGET_URIS.SEARCH_ACTORS);
+
+/**
+ * Widget-only input: `actor` only. `additionalProperties: false` + AJV's
+ * `removeAdditional: true` means stray keys like `output` are silently stripped
+ * at the server boundary; the `.strict()` Zod parse below is belt-and-braces
+ * for any path that bypasses AJV.
+ */
+const fetchActorDetailsWidgetArgsSchema = z
+    .object({
+        actor: z
+            .string()
+            .min(1)
+            .describe('Actor ID or full name in the format "username/name", e.g., "apify/rag-web-browser".'),
+    })
+    .strict();
+
+function buildDescription({ hasTool }: ToolDescriptionContext): string {
+    const silentDetailsHint = canRunAnyActor(hasTool)
+        ? `For silent data lookups (e.g., fetching the input schema before calling an Actor, inspecting README for decision making), use ${HELPER_TOOLS.ACTOR_GET_DETAILS} instead — it returns the same data without rendering a widget.`
+        : `For silent Actor details, ${HELPER_TOOLS.ACTOR_GET_DETAILS} returns the same data without rendering a widget.`;
+    return dedent`
+        Render an interactive UI element (widget) displaying detailed Actor information for the user.
+
+        Use this tool ONLY when the user explicitly wants to see or browse Actor details
+        (e.g., "show me apify/rag-web-browser", "tell me about this Actor", "what does apify/web-scraper look like").
+        The response renders as an interactive widget the user can view directly.
+        ${hasTool(HELPER_TOOLS.ACTOR_GET_DETAILS) ? `\n${silentDetailsHint}\n` : ''}
+        Input: the Actor ID or full name only. Output fields are fixed by the widget contract.
+    `;
+}
+
+export const fetchActorDetailsWidget: ToolEntry = Object.freeze({
+    type: TOOL_TYPE.INTERNAL,
+    name: HELPER_TOOLS.ACTOR_GET_DETAILS_WIDGET,
+    title: 'Fetch Actor details (widget)',
+    description: buildDescription(ALL_TOOLS_PRESENT),
+    buildDescription,
+    inputSchema: z.toJSONSchema(fetchActorDetailsWidgetArgsSchema) as ToolInputSchema,
+    outputSchema: actorDetailsWidgetOutputSchema,
+    ajvValidate: compileSchema(z.toJSONSchema(fetchActorDetailsWidgetArgsSchema)),
+    _meta: {
+        ...widgetConfig?.meta,
+    },
+    annotations: {
+        title: 'Fetch Actor details (widget)',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+    },
+    call: async (toolArgs: InternalToolArgs) => {
+        const { apifyToken, apifyClient, actorStore, mcpSessionId, loadedToolNames, loadedActorIds } = toolArgs;
+        const parsed = fetchActorDetailsWidgetArgsSchema.parse(toolArgs.args);
+        const actorName = fixActorNameInputAndLog(parsed.actor, {
+            mcpSessionId,
+            route: HELPER_TOOLS.ACTOR_GET_DETAILS_WIDGET,
+        });
+
+        const { userPlanTier } = await getUserInfoCached(apifyToken, apifyClient);
+        const cardOptions = { ...buildCardOptions(actorDetailsOutputDefaults), userTier: userPlanTier };
+        const details = await fetchActorDetails(apifyClient, actorName, { cardOptions, actorStore });
+        if (!details) {
+            return buildActorNotFoundResponse(actorName, loadedToolNames);
+        }
+
+        const { actorUrl, actorDetails } = buildActorDetailsForWidget(details, userPlanTier);
+        const structuredContent = {
+            actorDetails: {
+                actorInfo: actorDetails.actorInfo,
+                actorCard: actorDetails.actorCard,
+                readme: actorDetails.readme,
+            },
+        };
+
+        const texts = [
+            dedent`
+            # Actor information:
+            - **Actor:** ${actorName}
+            - **URL:** ${actorUrl}
+
+            An interactive widget has been rendered with detailed Actor information.
+        `,
+        ];
+        // Resolved Actor ID, not the raw `actor` input.
+        const runnableGuidance = buildActorNotRunnableGuidance(details.actorInfo.id, loadedToolNames, loadedActorIds);
+        if (runnableGuidance) texts.push(runnableGuidance);
+
+        return respondOk(texts, {
+            structuredContent,
+            // Response-level meta; only returned in apps mode (this handler is apps-only).
+            meta: {
+                ...widgetConfig?.meta,
+                'openai/widgetDescription': `Actor details for ${actorName} from Apify Store`,
+            },
+        });
+    },
+} as const);

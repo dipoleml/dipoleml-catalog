@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.alexander-zuev.supabase-mcp-server",
+  "type": "mcp",
+  "name": "Supabase MCP Server",
+  "slug": "supabase-mcp-server",
+  "vendor": "alexander-zuev",
+  "description": "Query MCP enables end-to-end management of Supabase via chat interface: read & write query executions, management API support, automatic migration versioning, access to logs and much more.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/alexander-zuev/supabase-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cursor",
+    "model-context-protocol",
+    "supabase",
+    "windsurf"
+  ],
+  "tags": [
+    "cursor",
+    "model-context-protocol",
+    "supabase",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "supabase",
+    "brandName": "supabase",
+    "source": "https://cdn.simpleicons.org/supabase",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:36Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "alexander-zuev/supabase-mcp-server",
+    "url": "https://github.com/alexander-zuev/supabase-mcp-server",
+    "commit": "bca07008fe46cae791221c2ee30df034c963ec56",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 835,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "supabase-mcp-server"
+    ],
+    "env": [
+      "SUPABASE_ACCESS_TOKEN",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "QUERY_API_KEY"
+    ],
+    "credentials": [
+      "SUPABASE_ACCESS_TOKEN",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "QUERY_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

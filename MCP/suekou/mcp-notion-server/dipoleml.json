@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.suekou.mcp-notion-server",
+  "type": "mcp",
+  "name": "MCP Notion Server",
+  "slug": "mcp-notion-server",
+  "vendor": "suekou",
+  "description": "A Model Context Protocol server for connecting Notion to MCP-compatible clients",
+  "version": "2.0.2",
+  "homepage": "https://github.com/suekou/mcp-notion-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol",
+    "notion",
+    "notion-api",
+    "npm"
+  ],
+  "tags": [
+    "mcp",
+    "model-context-protocol",
+    "notion",
+    "notion-api",
+    "npm",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "notion",
+    "brandName": "notion",
+    "source": "https://cdn.simpleicons.org/notion",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:40Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "suekou/mcp-notion-server",
+    "url": "https://github.com/suekou/mcp-notion-server",
+    "commit": "efa09a200932ca62b6eda5aa194e654c80cef6d0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 925,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@suekou/mcp-notion-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "@suekou/mcp-notion-server"
+    ],
+    "env": [
+      "NOTION_API_TOKEN"
+    ],
+    "credentials": [
+      "NOTION_API_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

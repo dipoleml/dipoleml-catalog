@@ -1,0 +1,661 @@
+#!/bin/bash
+# SSH Manager CLI - Simple and powerful SSH server management
+
+set -e
+
+# Script directory - resolve symlinks if necessary
+if [ -L "$0" ]; then
+    # Script is a symlink, resolve it
+    SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || readlink "$0")"
+else
+    SCRIPT_PATH="$0"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+# Source libraries
+source "$SCRIPT_DIR/lib/colors.sh"
+source "$SCRIPT_DIR/lib/config.sh"
+source "$SCRIPT_DIR/lib/menu.sh"
+
+# Source command modules
+source "$SCRIPT_DIR/commands/server.sh"
+source "$SCRIPT_DIR/commands/tools.sh"
+
+# Version — derived from package.json so it always reflects the real build,
+# never a hardcoded literal that drifts across releases. Works both in-repo
+# (cli/../package.json) and from an installed copy (package.json bundled next
+# to this script by install.sh). Uses sed only, so no jq dependency.
+get_cli_version() {
+    local pkg ver
+    for pkg in "$SCRIPT_DIR/../package.json" "$SCRIPT_DIR/package.json"; do
+        if [ -f "$pkg" ]; then
+            ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pkg" | head -n1)"
+            if [ -n "$ver" ]; then
+                echo "$ver"
+                return
+            fi
+        fi
+    done
+    echo "unknown"
+}
+VERSION="$(get_cli_version)"
+
+# Show version
+show_version() {
+    echo "SSH Manager CLI v$VERSION"
+    echo "Simple and powerful SSH server management"
+}
+
+# Show help
+#
+# In sections, with the commands aligned. Every command this help has ever
+# listed is still here; `app` is new.
+show_help() {
+    local H="${ACCENT}${BOLD}" N="$NC"
+    cat <<EOF
+
+  ${H}▲ SSH Manager ${VERSION}${N}  ${GRAY}servers, files and agent approvals${N}
+
+  ${H}USAGE${N}
+    ssh-manager                   The menu (also: -i, --interactive)
+    ssh-manager <command> ...     One command, for scripts and pipes
+
+  ${H}SERVERS${N}
+    server add                    Add a server, step by step
+    server list                   List configured servers
+    server test <name>            Test a connection
+    server show <name>            Show a server's settings
+    server edit <name>            Edit a server
+    server remove <name>          Remove a server
+    ssh <name>                    Open an SSH session (also: connect)
+    exec <name> <command>         Run a command on a server
+    exec group <group> <command>  Run it on a server group
+    monitor <name> <what>         cpu · memory · disk · network
+    session start|list|close      SSH sessions
+
+  ${H}FILES${N}
+    sync push <name> <src> <dest> Send files with rsync
+    sync pull <name> <src> <dest> Fetch files with rsync
+    tunnel create <name> <type> <ports>
+                                  <type>: local, remote or dynamic (SOCKS)
+    tunnel list                   Active tunnels
+    tunnel close                  Close a tunnel
+
+  ${H}AGENTS AND THE INTERFACE${N}
+    control                       Watch what your agents run, and decide
+                                  before it runs, in your browser
+    app                           The desktop app: installs it if needed
+                                  (checked against the release), then opens it
+    app --status                  Whether it is installed, in one line
+
+  ${H}SETTINGS${N}
+    config edit|show|init         The CLI's own settings
+    tools list|configure          Which MCP tools your agents see
+    tools enable|disable <group>  Turn a tool group on or off
+    tools reset                   Every tool back on
+    tools export                  Claude Code auto-approval config
+    vault import                  Take the servers in .env / TOML, encrypted
+    vault list                    What it holds, never a secret
+    vault status                  Where it and its key live
+    vault add|remove <name>       One server in or out
+    vault backup|restore <file>   A recovery file, under a passphrase
+    import <file>                 A spreadsheet, CSV, ~/.ssh/config, FileZilla,
+                                  PuTTY, Termius or MobaXterm export (detected)
+    import --from <tool>          ssh-config · filezilla · transmit
+    import --template             A spreadsheet to fill in and import back
+    export <file>                 .xlsx, .csv, .env or .toml
+                                  (never with passwords)
+
+  ${H}OPTIONS${N}
+    -h, --help                    Show this help
+    -v, --version                 Show the version
+    -q, --quiet                   Quiet mode
+    -d, --debug                   Debug mode
+
+  ${H}EXAMPLES${N}
+    ssh-manager server add
+    ssh-manager server test prod1
+    ssh-manager sync push prod1 ./app /var/www/app
+    ssh-manager tunnel create prod1 local 3307:localhost:3306
+    ssh-manager control
+    ssh-manager app
+
+  ${H}CONFIGURATION${N}
+    Config directory              ${SSH_MANAGER_HOME:-~/.ssh-manager}
+    Server config                 ${SSH_MANAGER_ENV:-.env}
+
+  ${H}DOCUMENTATION${N}
+    https://github.com/bvisible/mcp-ssh-manager
+
+EOF
+}
+
+# Execute command on server
+cmd_exec() {
+    local server="$1"
+    shift
+    local command="$@"
+    
+    if [ -z "$server" ] || [ -z "$command" ]; then
+        print_error "Usage: ssh-manager exec <server> <command>"
+        return 1
+    fi
+    
+    local host=$(get_server_config "$server" "HOST")
+    local user=$(get_server_config "$server" "USER")
+    local port=$(get_server_config "$server" "PORT")
+    local keypath=$(get_server_config "$server" "KEYPATH")
+    
+    port=${port:-22}
+    
+    if [ -z "$host" ] || [ -z "$user" ]; then
+        print_error "Server '$server' not found"
+        return 1
+    fi
+    
+    local ssh_opts="-p $port"
+    if [ -n "$keypath" ]; then
+        ssh_opts="$ssh_opts -i $keypath"
+    fi
+    
+    print_info "Executing on $server: $command"
+    ssh $ssh_opts "$user@$host" "$command"
+}
+
+# Sync files using rsync
+cmd_sync() {
+    local direction="$1"
+    local server="$2"
+    local source="$3"
+    local dest="$4"
+
+    if [ -z "$direction" ] || [ -z "$server" ] || [ -z "$source" ] || [ -z "$dest" ]; then
+        print_error "Usage: ssh-manager sync <push|pull> <server> <source> <destination>"
+        return 1
+    fi
+
+    # rsync is only required at this point — fail with a clear message
+    # rather than blocking the whole CLI at startup.
+    require_command rsync "ssh-manager sync" || return 1
+    
+    local host=$(get_server_config "$server" "HOST")
+    local user=$(get_server_config "$server" "USER")
+    local port=$(get_server_config "$server" "PORT")
+    local keypath=$(get_server_config "$server" "KEYPATH")
+    
+    port=${port:-22}
+    
+    if [ -z "$host" ] || [ -z "$user" ]; then
+        print_error "Server '$server' not found"
+        return 1
+    fi
+    
+    local ssh_opts="ssh -p $port"
+    if [ -n "$keypath" ]; then
+        ssh_opts="$ssh_opts -i $keypath"
+    fi
+    
+    local rsync_opts="-avz --progress"
+    
+    case "$direction" in
+        push)
+            print_info "Pushing $source to $server:$dest"
+            rsync $rsync_opts -e "$ssh_opts" "$source" "$user@$host:$dest"
+            ;;
+        pull)
+            print_info "Pulling $server:$source to $dest"
+            rsync $rsync_opts -e "$ssh_opts" "$user@$host:$source" "$dest"
+            ;;
+        *)
+            print_error "Invalid direction: $direction (use push or pull)"
+            return 1
+            ;;
+    esac
+}
+
+# Quick SSH connection
+cmd_ssh() {
+    local server="$1"
+    
+    if [ -z "$server" ]; then
+        print_error "Usage: ssh-manager ssh <server>"
+        return 1
+    fi
+    
+    local host=$(get_server_config "$server" "HOST")
+    local user=$(get_server_config "$server" "USER")
+    local port=$(get_server_config "$server" "PORT")
+    local keypath=$(get_server_config "$server" "KEYPATH")
+    
+    port=${port:-22}
+    
+    if [ -z "$host" ] || [ -z "$user" ]; then
+        print_error "Server '$server' not found"
+        return 1
+    fi
+    
+    local ssh_opts="-p $port"
+    if [ -n "$keypath" ]; then
+        ssh_opts="$ssh_opts -i $keypath"
+    fi
+    
+    print_info "Connecting to $server..."
+    ssh $ssh_opts "$user@$host"
+}
+
+# Simple tunnel creation
+cmd_tunnel() {
+    local action="$1"
+    shift
+    
+    case "$action" in
+        create)
+            local server="$1"
+            local type="$2"
+            local ports="$3"
+            
+            if [ -z "$server" ] || [ -z "$type" ] || [ -z "$ports" ]; then
+                print_error "Usage: ssh-manager tunnel create <server> <local|remote|dynamic> <ports>"
+                print_info "Examples:"
+                print_info "  Local:   ssh-manager tunnel create prod1 local 3307:localhost:3306"
+                print_info "  Remote:  ssh-manager tunnel create prod1 remote 8080:localhost:8080"
+                print_info "  Dynamic: ssh-manager tunnel create prod1 dynamic 1080"
+                return 1
+            fi
+            
+            local host=$(get_server_config "$server" "HOST")
+            local user=$(get_server_config "$server" "USER")
+            local port=$(get_server_config "$server" "PORT")
+            local keypath=$(get_server_config "$server" "KEYPATH")
+            
+            port=${port:-22}
+            
+            if [ -z "$host" ] || [ -z "$user" ]; then
+                print_error "Server '$server' not found"
+                return 1
+            fi
+            
+            local ssh_opts="-p $port -N -f"
+            if [ -n "$keypath" ]; then
+                ssh_opts="$ssh_opts -i $keypath"
+            fi
+            
+            case "$type" in
+                local)
+                    print_info "Creating local tunnel: $ports"
+                    ssh $ssh_opts -L "$ports" "$user@$host"
+                    ;;
+                remote)
+                    print_info "Creating remote tunnel: $ports"
+                    ssh $ssh_opts -R "$ports" "$user@$host"
+                    ;;
+                dynamic)
+                    print_info "Creating SOCKS proxy on port $ports"
+                    ssh $ssh_opts -D "$ports" "$user@$host"
+                    ;;
+                *)
+                    print_error "Invalid tunnel type: $type"
+                    return 1
+                    ;;
+            esac
+            
+            if [ $? -eq 0 ]; then
+                print_success "Tunnel created successfully"
+            else
+                print_error "Failed to create tunnel"
+                return 1
+            fi
+            ;;
+            
+        list)
+            print_header "Active SSH Tunnels"
+            ps aux | grep -E "ssh.*(-L|-R|-D)" | grep -v grep || print_info "No active tunnels"
+            ;;
+            
+        *)
+            print_error "Unknown tunnel command: $action"
+            echo "Available commands: create, list"
+            return 1
+            ;;
+    esac
+}
+
+# Main command handler
+main() {
+    # Check for help/version flags
+    case "$1" in
+        -h|--help|help)
+            show_help
+            exit 0
+            ;;
+        -v|--version|version)
+            show_version
+            exit 0
+            ;;
+    esac
+    
+    # Initialize configuration
+    init_config
+    
+    # Check dependencies
+    if ! check_dependencies; then
+        exit 1
+    fi
+    
+    # Get command
+    local command="$1"
+    shift || true
+    
+    # Handle commands
+    case "$command" in
+        server)
+            cmd_server "$@"
+            ;;
+        exec)
+            cmd_exec "$@"
+            ;;
+        sync)
+            cmd_sync "$@"
+            ;;
+        ssh|connect)
+            cmd_ssh "$@"
+            ;;
+        tunnel)
+            cmd_tunnel "$@"
+            ;;
+        tools)
+            cmd_tools "$@"
+            ;;
+        control)
+            # v4 control plane: approval socket + local page.
+            node "$SCRIPT_DIR/control.js" "$@"
+            ;;
+        app)
+            # The desktop application: installed if needed, checked against
+            # the release, then opened. Node, like control, so it shares the
+            # engine's code and works the same without Bash.
+            node "$SCRIPT_DIR/app.js" "$@"
+            ;;
+        import|export)
+            # Bringing servers in from other tools, and taking them out again.
+            # Node, because it writes through the same SecretStore the engine
+            # reads — one code path, so the two cannot disagree.
+            node "$SCRIPT_DIR/portability.js" "$command" "$@"
+            ;;
+        vault)
+            # v4 encrypted credential store. Implemented in Node because it uses
+            # the same SecretStore the MCP server reads from — one code path for
+            # writing and reading, so the CLI and the server can never disagree.
+            node "$SCRIPT_DIR/vault.js" "$@"
+            ;;
+        config)
+            case "$1" in
+                edit)
+                    ${EDITOR:-nano} "$SSH_MANAGER_CONFIG"
+                    ;;
+                show)
+                    cat "$SSH_MANAGER_CONFIG"
+                    ;;
+                init)
+                    init_config
+                    ;;
+                *)
+                    print_error "Unknown config command: $1"
+                    ;;
+            esac
+            ;;
+        ""|-i|--interactive|menu)
+            # Interactive mode
+            interactive_mode
+            ;;
+        *)
+            print_error "Unknown command: $command"
+            echo "Run 'ssh-manager --help' for usage information"
+            exit 1
+            ;;
+    esac
+}
+
+# Interactive mode with menu
+interactive_mode() {
+    # Initialize configuration
+    init_config
+    
+    # Check dependencies
+    if ! check_dependencies; then
+        exit 1
+    fi
+    
+    refresh_desktop_status
+
+    while true; do
+        show_main_menu
+        read choice
+        
+        case "$choice" in
+            1)
+                # Server Management submenu
+                while true; do
+                    show_server_menu
+                    read server_choice
+                    
+                    case "$server_choice" in
+                        1)
+                            wizard_add_server
+                            ;;
+                        2)
+                            cmd_server_list
+                            echo
+                            read -p "Press Enter to continue..."
+                            ;;
+                        3)
+                            if select_server_menu "Test Connection"; then
+                                test_ssh_connection "$selected_server"
+                                echo
+                                read -p "Press Enter to continue..."
+                            fi
+                            ;;
+                        4)
+                            if select_server_menu "Show Server Details"; then
+                                cmd_server_show "$selected_server"
+                                echo
+                                read -p "Press Enter to continue..."
+                            fi
+                            ;;
+                        5)
+                            wizard_edit_server
+                            echo
+                            read -p "Press Enter to continue..."
+                            ;;
+                        6)
+                            if select_server_menu "Remove Server"; then
+                                echo
+                                if prompt_yes_no "Remove server '$selected_server'?" "n"; then
+                                    remove_server_from_env "$selected_server"
+                                fi
+                                echo
+                                read -p "Press Enter to continue..."
+                            fi
+                            ;;
+                        7)
+                            cmd_server_edit_file
+                            echo
+                            read -p "Press Enter to continue..."
+                            ;;
+                        0)
+                            break
+                            ;;
+                    esac
+                done
+                ;;
+            2)
+                # Quick Connect
+                if select_server_menu "Quick Connect"; then
+                    print_info "Connecting to $selected_server..."
+                    cmd_ssh "$selected_server"
+                fi
+                ;;
+            3)
+                # File Sync
+                show_sync_menu
+                ;;
+            4)
+                # SSH Tunnels
+                wizard_create_tunnel
+                ;;
+            5)
+                # System Monitoring
+                if select_server_menu "System Monitoring"; then
+                    clear
+                    print_menu_header "Health of $selected_server"
+                    menu_item 1 "Overview"
+                    menu_item 2 "CPU"
+                    menu_item 3 "Memory"
+                    menu_item 4 "Disk"
+                    menu_item 5 "Network"
+                    menu_prompt "Choose [1-5]:"
+                    read monitor_type
+                    
+                    case "$monitor_type" in
+                        1) cmd_exec "$selected_server" "uptime && free -h && df -h" ;;
+                        2) cmd_exec "$selected_server" "top -bn1 | head -20" ;;
+                        3) cmd_exec "$selected_server" "free -h && ps aux --sort=-%mem | head -10" ;;
+                        4) cmd_exec "$selected_server" "df -h && du -sh /* 2>/dev/null | sort -h | tail -10" ;;
+                        5) cmd_exec "$selected_server" "netstat -tulpn 2>/dev/null | grep LISTEN" ;;
+                    esac
+                    echo
+                    read -p "Press Enter to continue..."
+                fi
+                ;;
+            6)
+                # Execute Commands
+                if select_server_menu "Execute Command"; then
+                    echo
+                    local command
+                    prompt_input "Command to execute" "uptime" "command"
+                    echo
+                    cmd_exec "$selected_server" "$command"
+                    echo
+                    read -p "Press Enter to continue..."
+                fi
+                ;;
+            7)
+                # Configuration
+                clear
+                print_menu_header "Configuration"
+                menu_item 1 "Edit CLI config"
+                menu_item 2 "Show CLI config"
+                menu_item 3 "Edit server config (.env)"
+                menu_item 0 "Back"
+                menu_prompt "Choose [0-3]:"
+                read config_choice
+                
+                case "$config_choice" in
+                    1) ${EDITOR:-nano} "$SSH_MANAGER_CONFIG" ;;
+                    2) cat "$SSH_MANAGER_CONFIG"; read -p "Press Enter..." ;;
+                    3) cmd_server_edit ;;
+                esac
+                ;;
+            8|'?')
+                # Help. 8 since 3.1; the home screen shows ?. -R keeps the
+                # palette instead of printing its escape codes.
+                show_help | less -R
+                ;;
+            9)
+                # The control plane runs in the foreground and holds the approval
+                # socket, so it takes over this terminal until Ctrl-C. Say so
+                # first: a menu entry that appears to hang is a menu entry people
+                # kill and never try again.
+                echo
+                print_info "The control plane runs here until you stop it with Ctrl-C."
+                echo "It opens a local page showing what your agents are doing on"
+                echo "your servers, and lets you approve or refuse a command before"
+                echo "it runs. Closing it puts everything back the way it was."
+                echo
+                read -p "Start it? [Y/n] " start_control
+                case "$start_control" in
+                    n|N) ;;
+                    *) node "$SCRIPT_DIR/control.js" ;;
+                esac
+                ;;
+            a|A)
+                # The desktop application. Downloads only now, on this key,
+                # and only after the release has vouched for the file.
+                node "$SCRIPT_DIR/app.js" || true
+                refresh_desktop_status
+                read -p "Press Enter to continue..."
+                ;;
+            t|T)
+                # MCP tools: which of them agents see.
+                clear
+                print_menu_header "MCP tools"
+                menu_item 1 "Show what is enabled" "ssh-manager tools list"
+                menu_item 2 "Choose which tools agents see" "ssh-manager tools configure"
+                menu_item 0 "Back"
+                menu_prompt "Choose [0-2]:"
+                read tools_choice
+                case "$tools_choice" in
+                    1) cmd_tools list || true; echo; read -p "Press Enter to continue..." ;;
+                    2) cmd_tools configure || true ;;
+                esac
+                ;;
+            v|V)
+                # The encrypted vault, through the same Node command as
+                # `ssh-manager vault`.
+                clear
+                print_menu_header "Encrypted vault"
+                menu_item 1 "What it holds" "ssh-manager vault list (never prints a secret)"
+                menu_item 2 "Where it and its key live" "ssh-manager vault status"
+                menu_item 3 "Take the servers in .env / TOML" "ssh-manager vault import"
+                menu_item 0 "Back"
+                echo
+                echo "     ${GRAY}More, including recovery files: ssh-manager vault --help${NC}"
+                menu_prompt "Choose [0-3]:"
+                read vault_choice
+                case "$vault_choice" in
+                    1) node "$SCRIPT_DIR/vault.js" list || true ;;
+                    2) node "$SCRIPT_DIR/vault.js" status || true ;;
+                    3) node "$SCRIPT_DIR/vault.js" import || true ;;
+                esac
+                case "$vault_choice" in
+                    1|2|3) echo; read -p "Press Enter to continue..." ;;
+                esac
+                ;;
+            i|I)
+                # Servers from somewhere else, through `ssh-manager import`.
+                clear
+                print_menu_header "Import servers"
+                menu_item 1 "From ~/.ssh/config"
+                menu_item 2 "From FileZilla"
+                menu_item 3 "From Transmit"
+                menu_item 4 "From a file" "A spreadsheet, CSV, PuTTY, Termius or MobaXterm export"
+                menu_item 5 "Write a spreadsheet to fill in"
+                menu_item 0 "Back"
+                menu_prompt "Choose [0-5]:"
+                read import_choice
+                case "$import_choice" in
+                    1) node "$SCRIPT_DIR/portability.js" import --from ssh-config || true ;;
+                    2) node "$SCRIPT_DIR/portability.js" import --from filezilla || true ;;
+                    3) node "$SCRIPT_DIR/portability.js" import --from transmit || true ;;
+                    4)
+                        read -r -p "  File to import: " import_file
+                        if [ -n "$import_file" ]; then
+                            node "$SCRIPT_DIR/portability.js" import "${import_file/#\~/$HOME}" || true
+                        fi
+                        ;;
+                    5) node "$SCRIPT_DIR/portability.js" import --template || true ;;
+                esac
+                case "$import_choice" in
+                    1|2|3|4|5) echo; read -p "Press Enter to continue..." ;;
+                esac
+                ;;
+            0|q|Q)
+                print_info "Goodbye!"
+                exit 0
+                ;;
+        esac
+    done
+}
+
+# Run main function
+main "$@"

@@ -1,0 +1,206 @@
+import type { createIngestJobSchema } from "@/schemas/api/ingest-job";
+import type { z } from "zod/v4";
+import { AgentsetApiError } from "@/lib/api/errors";
+import { emitIngestJobWebhook } from "@/lib/webhook/emit";
+import { waitUntil } from "@vercel/functions";
+
+import type { IngestJobBatchItem } from "@agentset/validation";
+import { IngestJobStatus } from "@agentset/db";
+import { db } from "@agentset/db/client";
+import { triggerIngestionJob } from "@agentset/jobs";
+import { checkFileExists } from "@agentset/storage";
+import { REGION_FEATURES } from "@agentset/utils";
+
+import { validateNamespaceFileKey } from "../uploads";
+
+const regionUnavailableError = (source: string) =>
+  new AgentsetApiError({
+    code: "bad_request",
+    message: `${source} ingestion is not available in this region.`,
+  });
+
+export const createIngestJob = async ({
+  plan,
+  organizationId,
+  namespaceId,
+  tenantId,
+  data,
+}: {
+  plan: string;
+  organizationId: string;
+  namespaceId: string;
+  tenantId?: string;
+  data: z.infer<typeof createIngestJobSchema>;
+}) => {
+  if (data.payload.type === "YOUTUBE" && !REGION_FEATURES.youtubeIngestion) {
+    throw regionUnavailableError("YouTube");
+  }
+
+  let finalPayload: PrismaJson.IngestJobPayload | null = null;
+
+  if (data.payload.type === "BATCH") {
+    const finalItems: IngestJobBatchItem[] = [];
+    for (const item of data.payload.items) {
+      // deduplicate urls and files
+      if (
+        (item.type === "FILE" &&
+          finalItems.find(
+            (f) => f.type === "FILE" && f.fileUrl === item.fileUrl,
+          )) ||
+        (item.type === "MANAGED_FILE" &&
+          finalItems.find(
+            (f) => f.type === "MANAGED_FILE" && f.key === item.key,
+          ))
+      )
+        continue;
+
+      finalItems.push(item);
+    }
+
+    // validate managed files
+    const files = finalItems.filter((item) => item.type === "MANAGED_FILE");
+    if (files.length > 0) {
+      const results = await Promise.all(
+        files.map(
+          async (file) =>
+            validateNamespaceFileKey(namespaceId, file.key) &&
+            (await checkFileExists(file.key)),
+        ),
+      );
+
+      const invalidKey = results.some((result) => !result);
+      if (invalidKey) {
+        throw new Error("FILE_NOT_FOUND");
+      }
+    }
+
+    finalPayload = {
+      type: "BATCH",
+      items: finalItems,
+    };
+  } else if (data.payload.type === "CRAWL" || data.payload.type === "YOUTUBE") {
+    finalPayload = {
+      ...data.payload,
+    };
+  } else {
+    const commonPayload = {
+      ...(data.payload.fileName && { fileName: data.payload.fileName }),
+      // TODO: bring this back when we implement document external ID
+      // ...(data.payload.externalId && { externalId: data.payload.externalId }),
+    };
+    if (data.payload.type === "TEXT") {
+      finalPayload = {
+        type: "TEXT",
+        text: data.payload.text,
+        ...commonPayload,
+      };
+    } else if (data.payload.type === "FILE") {
+      finalPayload = {
+        type: "FILE",
+        fileUrl: data.payload.fileUrl,
+        ...commonPayload,
+      };
+    } else if (data.payload.type === "MANAGED_FILE") {
+      const exists =
+        validateNamespaceFileKey(namespaceId, data.payload.key) &&
+        (await checkFileExists(data.payload.key));
+      if (!exists) {
+        throw new Error("FILE_NOT_FOUND");
+      }
+
+      finalPayload = {
+        type: "MANAGED_FILE",
+        key: data.payload.key,
+        ...commonPayload,
+      };
+    }
+  }
+
+  if (!finalPayload) {
+    throw new Error("INVALID_PAYLOAD");
+  }
+
+  let config = structuredClone(data.config);
+  if (
+    config &&
+    (finalPayload.type === "TEXT" ||
+      finalPayload.type === "CRAWL" ||
+      finalPayload.type === "YOUTUBE")
+  ) {
+    const fieldsToDelete: (keyof typeof config)[] = [
+      "mode",
+      "disableImageExtraction",
+      "disableImageCaptions",
+      "keepPagefooterInOutput",
+      "keepPageheaderInOutput",
+      "chartUnderstanding",
+    ];
+
+    // filter fields that are not supported for the payload type
+    for (const field of fieldsToDelete) {
+      if (config[field] !== undefined) delete config[field];
+    }
+  }
+
+  // filter deprecated fields
+  if (config?.chunkOverlap !== undefined) delete config.chunkOverlap;
+  if (config?.maxChunkSize !== undefined) delete config.maxChunkSize;
+  if (config?.chunkingStrategy !== undefined) delete config.chunkingStrategy;
+  if (config?.strategy !== undefined) delete config.strategy;
+  if (config?.disableOcrMath !== undefined) delete config.disableOcrMath;
+  if (config?.forceOcr !== undefined) delete config.forceOcr;
+  if (config?.useLlm !== undefined) delete config.useLlm;
+
+  const [job] = await db.$transaction([
+    db.ingestJob.create({
+      data: {
+        namespace: { connect: { id: namespaceId } },
+        tenantId,
+        status: IngestJobStatus.QUEUED,
+        name: data.name,
+        config: config,
+        externalId: data.externalId,
+        payload: finalPayload,
+      },
+    }),
+    db.namespace.update({
+      where: { id: namespaceId },
+      data: {
+        totalIngestJobs: { increment: 1 },
+        organization: {
+          update: {
+            totalIngestJobs: { increment: 1 },
+          },
+        },
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  const handle = await triggerIngestionJob(
+    {
+      jobId: job.id,
+      organizationId,
+    },
+    plan,
+  );
+
+  await db.ingestJob.update({
+    where: { id: job.id },
+    data: { workflowRunsIds: { push: handle.id } },
+    select: { id: true },
+  });
+
+  // Emit ingest_job.queued webhook
+  waitUntil(
+    emitIngestJobWebhook({
+      trigger: "ingest_job.queued",
+      ingestJob: {
+        ...job,
+        organizationId,
+      },
+    }),
+  );
+
+  return job;
+};

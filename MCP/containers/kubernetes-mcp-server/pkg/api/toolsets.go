@@ -1,0 +1,387 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/config"
+	"github.com/google/jsonschema-go/jsonschema"
+)
+
+// ToolContent represents a single content block in a multi-content tool result.
+// Used by tools that return both text and images (e.g., vm_console_screenshot).
+type ToolContent struct {
+	Data     []byte
+	MIMEType string
+}
+
+func (c *ToolContent) IsText() bool {
+	return c != nil && (c.MIMEType == "" || strings.HasPrefix(c.MIMEType, "text/"))
+}
+
+func (c *ToolContent) Text() string {
+	if c == nil {
+		return ""
+	}
+	return string(c.Data)
+}
+
+// NewTextToolContent creates a text content block.
+func NewTextToolContent(text string) *ToolContent {
+	return &ToolContent{Data: []byte(text)}
+}
+
+// NewImageToolContent creates an image content block, copying the byte slice for safety.
+func NewImageToolContent(data []byte, mimeType string) *ToolContent {
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
+	return &ToolContent{Data: dataCopy, MIMEType: mimeType}
+}
+
+// TargetCompatibilityFilter reports whether a ServerTool should be exposed.
+// With more than one filter on a tool, the filters run together and this context
+// is canceled as soon as any of them returns false.
+type TargetCompatibilityFilter func(context.Context) bool
+
+type ServerTool struct {
+	Tool    Tool
+	RBAC    *RBACMetadata
+	Handler ToolHandlerFunc
+	// App optionally associates this tool with an MCP Apps UI resource.
+	// The MCP server registers the resource and adds its URI to tool metadata
+	// only when MCP Apps are enabled.
+	App                *ToolApp
+	ClusterAware       *bool
+	TargetListProvider *bool
+	// TargetCompatibilityFilters is a slice of closures, each of which answers whether the ServerTool
+	// should be exposed (true) or not (false). Every filter must accept the tool.
+	TargetCompatibilityFilters []TargetCompatibilityFilter
+}
+
+// ToolApp describes the UI resource rendered for a tool result.
+type ToolApp struct {
+	URI         string
+	Name        string
+	Description string
+	Meta        map[string]any
+	Handler     ResourceHandler
+}
+
+// Validate verifies that an app can be safely registered as an MCP resource.
+func (a *ToolApp) Validate() error {
+	if a == nil {
+		return errors.New("app must not be nil")
+	}
+	u, err := url.Parse(a.URI)
+	if err != nil || u.Scheme == "" {
+		if err != nil {
+			return fmt.Errorf("invalid app URI %q: %w", a.URI, err)
+		}
+		return fmt.Errorf("app URI %q must be absolute", a.URI)
+	}
+	if u.Scheme != "ui" || u.Host == "" {
+		return fmt.Errorf("app URI %q must use the ui:// scheme", a.URI)
+	}
+	if a.Handler == nil {
+		return errors.New("app handler must not be nil")
+	}
+	return nil
+}
+
+// IsClusterAware indicates whether the tool can accept a "cluster" or "context" parameter
+// to operate on a specific Kubernetes cluster context.
+// Defaults to true if not explicitly set
+func (s *ServerTool) IsClusterAware() bool {
+	if s.ClusterAware != nil {
+		return *s.ClusterAware
+	}
+	return true
+}
+
+// IsTargetListProvider indicates whether the tool is used to provide a list of targets (clusters/contexts)
+// Defaults to false if not explicitly set
+func (s *ServerTool) IsTargetListProvider() bool {
+	if s.TargetListProvider != nil {
+		return *s.TargetListProvider
+	}
+	return false
+}
+
+type ToolsetContext struct {
+	Inspector                         ClusterInspector
+	Config                            *config.Config
+	TargetCompatibilityFiltersEnabled bool
+}
+
+type Toolset interface {
+	// GetName returns the name of the toolset.
+	// Used to identify the toolset in configuration, logs, and command-line arguments.
+	// Examples: "core", "metrics", "helm"
+	GetName() string
+	// GetDescription returns a human-readable description of the toolset.
+	// Will be used to generate documentation and help text.
+	GetDescription() string
+	GetTools(ctx context.Context, toolsetContext ToolsetContext) []ServerTool
+	// GetPrompts returns the prompts provided by this toolset.
+	// Returns nil if the toolset doesn't provide any prompts.
+	GetPrompts(ctx context.Context, toolsetContext ToolsetContext) []ServerPrompt
+	// GetResources returns the resources provided by this toolset.
+	// Returns nil if the toolset doesn't provide any resources.
+	GetResources(ctx context.Context, toolsetContext ToolsetContext) []ServerResource
+	// GetResourceTemplates returns the resource templates provided by this toolset.
+	// Returns nil if the toolset doesn't provide any resource templates.
+	GetResourceTemplates(ctx context.Context, toolsetContext ToolsetContext) []ServerResourceTemplate
+}
+
+type ToolCallRequest interface {
+	GetArguments() map[string]any
+}
+
+type ToolCallResult struct {
+	// Raw content returned by the tool. Ignored whenever ContentBlocks is
+	// non-empty (see ContentBlocks) - not required to be left empty in that case,
+	// simply unused.
+	Content string
+	// StructuredContent is an optional JSON-serializable value for MCP Apps UI rendering.
+	// When set, it is passed as structuredContent in the MCP CallToolResult alongside Content.
+	// Must be completely omitted (nil) when not used.
+	StructuredContent any
+	// ContentBlocks are SDK-neutral content blocks (text and/or images) for multi-content
+	// tools. When non-empty, these take precedence over the legacy Content field above.
+	ContentBlocks []*ToolContent
+	// Error (non-protocol) to send back to the LLM.
+	Error error
+}
+
+// NewToolCallResult creates a ToolCallResult with text content only.
+// Use this for tools that return human-readable text output.
+func NewToolCallResult(content string, err error) *ToolCallResult {
+	return NewToolCallResultFull(content, nil, err)
+}
+
+// NewToolCallResultContentBlocks creates a ToolCallResult from content blocks (text and/or
+// images). Use this for multi-content tools like vm_console_screenshot.
+//
+// It takes no structured/error parameters, unlike its siblings below: set
+// ToolCallResult.StructuredContent or .Error directly on the result if a caller needs them
+// (the growing NewToolCallResult...() family would benefit from an options pattern instead of
+// each new combination growing its own constructor, but that's a larger change than this one).
+func NewToolCallResultContentBlocks(blocks ...*ToolContent) *ToolCallResult {
+	return &ToolCallResult{ContentBlocks: blocks}
+}
+
+// NewToolCallResultFull creates a ToolCallResult with both human-readable text
+// and structured content.
+// Use this when the text representation differs from a JSON serialization of the
+// structured content (e.g., YAML or Table text alongside extracted structured data).
+func NewToolCallResultFull(text string, structured any, err error) *ToolCallResult {
+	return &ToolCallResult{
+		Content:           text,
+		StructuredContent: structured,
+		Error:             err,
+	}
+}
+
+// NewToolCallResultStructured creates a ToolCallResult with structured content.
+// The structured value is automatically JSON-serialized into the Content field
+// for backward compatibility with MCP clients that don't support structuredContent.
+//
+// Per the MCP specification:
+// "For backwards compatibility, a tool that returns structured content SHOULD
+// also return the serialized JSON in a TextContent block."
+// https://modelcontextprotocol.io/specification/2025-11-25/server/tools#structured-content
+//
+// Use this for tools that return typed/structured data (maps, slices, structs)
+// that MCP clients can parse programmatically.
+func NewToolCallResultStructured(structured any, err error) *ToolCallResult {
+	content := ""
+	if structured != nil {
+		if b, jsonErr := json.Marshal(structured); jsonErr == nil {
+			content = string(b)
+		}
+	}
+	return NewToolCallResultFull(content, structured, err)
+}
+
+// Resource represents the metadata of an MCP resource.
+type Resource struct {
+	URI         string
+	Name        string
+	Description string
+	MIMEType    string
+	Meta        map[string]any
+}
+
+// ResourceContent is the value returned by a resource handler.
+// Exactly one of Text or Blob must be set; both cannot be nil or both non-nil.
+type ResourceContent struct {
+	// MIMEType overrides Resource.MIMEType when set; otherwise Resource.MIMEType is used.
+	MIMEType string
+	// Text is the UTF-8 text content of the resource.
+	Text string
+	// Blob is the binary content of the resource.
+	Blob []byte
+}
+
+// ResourceCallRequest provides the URI requested by an MCP resource read.
+type ResourceCallRequest interface {
+	GetURI() string
+}
+
+// ResourceHandlerParams contains the parameters passed to resource handlers.
+type ResourceHandlerParams HandlerParams[ResourceCallRequest]
+
+// ResourceHandler is called when a client reads a resource.
+// Handlers should return a ResourceContent with exactly one of Text or Blob set.
+type ResourceHandler func(params ResourceHandlerParams) (*ResourceContent, error)
+
+// ServerResource represents a resource that can be registered with the MCP server.
+type ServerResource struct {
+	Resource Resource
+	RBAC     *RBACMetadata
+	Handler  ResourceHandler
+}
+
+// ResourceTemplate represents the metadata of an MCP resource template.
+type ResourceTemplate struct {
+	URITemplate string
+	Name        string
+	Description string
+	MIMEType    string
+}
+
+// ResourceTemplateHandler is called when a client reads a resource matching a template.
+// The request URI is available from params.Request.GetURI().
+// Handlers should return a ResourceContent with exactly one of Text or Blob set.
+type ResourceTemplateHandler func(params ResourceHandlerParams) (*ResourceContent, error)
+
+// ServerResourceTemplate represents a resource template that can be registered with the MCP server.
+type ServerResourceTemplate struct {
+	ResourceTemplate ResourceTemplate
+	RBAC             *RBACMetadata
+	Handler          ResourceTemplateHandler
+}
+
+// ToolHandlerParams contains the shared handler environment and tool request.
+type ToolHandlerParams HandlerParams[ToolCallRequest]
+
+// GetArguments returns the arguments supplied with the tool call.
+func (p ToolHandlerParams) GetArguments() map[string]any {
+	return p.Request.GetArguments()
+}
+
+// ExtendedConfig is configuration owned by a provider or toolset.
+//
+// Deprecated: use config.ExtendedConfig directly in new code.
+type ExtendedConfig = config.ExtendedConfig
+
+// GetToolsetConfig returns the parsed configuration for a toolset.
+func (p ToolHandlerParams) GetToolsetConfig(name string) (config.ExtendedConfig, bool) {
+	return p.Config.GetToolsetConfig(name)
+}
+
+type ToolHandlerFunc func(params ToolHandlerParams) (*ToolCallResult, error)
+
+// ErrElicitationNotSupported is returned when the MCP client does not support elicitation.
+var ErrElicitationNotSupported = errors.New("client does not support elicitation")
+
+// Elicitor provides a mechanism for tools and prompts to request additional information
+// from the user during execution via the MCP elicitation protocol.
+// It supports two modes:
+//   - Form mode: presents a schema-based form to the user (set Message and RequestedSchema in ElicitParams).
+//   - URL mode: directs the user to a URL (set Message, URL, and optionally ElicitationID in ElicitParams).
+//
+// See MCP specification: https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation
+type Elicitor interface {
+	Elicit(ctx context.Context, params *ElicitParams) (*ElicitResult, error)
+}
+
+// ElicitParams contains the parameters for an elicitation request.
+// The elicitation mode is inferred from the fields: if URL is set, URL mode is used; otherwise form mode.
+type ElicitParams struct {
+	// Message is the message to present to the user.
+	Message string
+	// RequestedSchema is a JSON Schema defining the expected form fields. Used in form mode only.
+	RequestedSchema *jsonschema.Schema
+	// URL is the URL to present to the user. Used in URL mode only.
+	URL string
+	// ElicitationID is a tracking identifier for out-of-band URL elicitation completion. Used in URL mode only.
+	ElicitationID string
+}
+
+// ElicitAction constants define the possible user responses to an elicitation request.
+// See MCP specification: https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation
+const (
+	// ElicitActionAccept indicates the user submitted the form with content.
+	ElicitActionAccept = "accept"
+	// ElicitActionDecline indicates the user explicitly declined the request.
+	ElicitActionDecline = "decline"
+	// ElicitActionCancel indicates the user dismissed the form without making a choice.
+	ElicitActionCancel = "cancel"
+)
+
+// ElicitResult represents the user's response to an elicitation request.
+type ElicitResult struct {
+	// Action is one of the ElicitAction constants.
+	Action string
+	// Content contains the submitted form data. Only populated when Action is ElicitActionAccept.
+	Content map[string]any
+}
+
+type Tool struct {
+	// The name of the tool.
+	// Intended for programmatic or logical use, but used as a display name in past
+	// specs or fallback (if title isn't present).
+	Name string `json:"name"`
+	// A human-readable description of the tool.
+	//
+	// This can be used by clients to improve the LLM's understanding of available
+	// tools. It can be thought of like a "hint" to the model.
+	Description string `json:"description,omitempty"`
+	// Additional tool information.
+	Annotations ToolAnnotations `json:"annotations"`
+	// Meta contains additional metadata for the tool (e.g., MCP Apps UI resource URI).
+	// Example: map[string]any{"ui": map[string]any{"resourceUri": "ui://server/app.html"}}
+	Meta map[string]any `json:"_meta,omitempty"`
+	// A JSON Schema object defining the expected parameters for the tool.
+	InputSchema *jsonschema.Schema
+	// A JSON Schema object defining the structure of the tool's output
+	// returned in the StructuredContent field of a CallToolResult.
+	OutputSchema *jsonschema.Schema
+}
+
+type ToolAnnotations struct {
+	// Human-readable title for the tool
+	Title string `json:"title,omitempty"`
+	// If true, the tool does not modify its environment.
+	ReadOnlyHint *bool `json:"readOnlyHint,omitempty"`
+	// If true, the tool may perform destructive updates to its environment. If
+	// false, the tool performs only additive updates.
+	//
+	// (This property is meaningful only when ReadOnlyHint == false.)
+	DestructiveHint *bool `json:"destructiveHint,omitempty"`
+	// If true, calling the tool repeatedly with the same arguments will have no
+	// additional effect on its environment.
+	//
+	// (This property is meaningful only when ReadOnlyHint == false.)
+	IdempotentHint *bool `json:"idempotentHint,omitempty"`
+	// If true, this tool may interact with an "open world" of external entities. If
+	// false, the tool's domain of interaction is closed. For example, the world of
+	// a web search tool is open, whereas that of a memory tool is not.
+	OpenWorldHint *bool `json:"openWorldHint,omitempty"`
+}
+
+func ToRawMessage(v any) json.RawMessage {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
+}

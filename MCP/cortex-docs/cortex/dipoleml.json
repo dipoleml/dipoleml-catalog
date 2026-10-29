@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cortex-docs.cortex",
+  "type": "mcp",
+  "name": "Cortex",
+  "slug": "cortex",
+  "vendor": "cortex-docs",
+  "description": "Cortex - Generates interactive API documentation, typed SDKs, and MCP servers from OpenAPI, AsyncAPI, GraphQL, gRPC, OpenRPC, and Markdown.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/cortex-docs/cortex",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "api-client",
+    "api-documentation",
+    "api-reference",
+    "asyncapi",
+    "code-generation",
+    "docs",
+    "documentation-generator",
+    "graphql"
+  ],
+  "tags": [
+    "api-client",
+    "api-documentation",
+    "api-reference",
+    "asyncapi",
+    "code-generation",
+    "docs",
+    "documentation-generator",
+    "graphql",
+    "grpc",
+    "markdown",
+    "mcp",
+    "mcp-server",
+    "mode-context-protocol",
+    "openapi",
+    "openapi-generator",
+    "openrpc",
+    "protobuf",
+    "sdk-generator",
+    "swagger"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cortex-docs",
+    "brandName": "cortex-docs",
+    "source": "https://github.com/cortex-docs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cortex-docs/cortex",
+    "url": "https://github.com/cortex-docs/cortex",
+    "commit": "db50bf4e30efe3442cf248be5f46bc496a741ced",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3292,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "cortex-monorepo"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

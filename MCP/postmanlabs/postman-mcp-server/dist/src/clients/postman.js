@@ -1,0 +1,112 @@
+import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { USER_AGENT } from '../constants.js';
+import { env } from '../env.js';
+const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
+export var ContentType;
+(function (ContentType) {
+    ContentType["Json"] = "application/json";
+    ContentType["JsonPatch"] = "application/json-patch+json";
+    ContentType["JsonMergePatch"] = "application/merge-patch+json";
+})(ContentType || (ContentType = {}));
+export class PostmanAPIClient {
+    baseUrl;
+    apiKey;
+    serverContext;
+    srvTraceId;
+    static instance = null;
+    constructor(apiKey, baseUrl = env.POSTMAN_API_BASE_URL, serverContext, srvTraceId) {
+        this.apiKey = apiKey;
+        this.baseUrl = baseUrl;
+        this.serverContext = serverContext;
+        this.srvTraceId = srvTraceId;
+    }
+    static getInstance(apiKey, baseUrl) {
+        if (!PostmanAPIClient.instance) {
+            PostmanAPIClient.instance = new PostmanAPIClient(apiKey, baseUrl);
+        }
+        return PostmanAPIClient.instance;
+    }
+    static resetInstance() {
+        PostmanAPIClient.instance = null;
+    }
+    async get(endpoint, options = {}) {
+        return this.request(endpoint, { ...options, method: 'GET' });
+    }
+    async post(endpoint, options = {}) {
+        return this.request(endpoint, { ...options, method: 'POST' });
+    }
+    async put(endpoint, options = {}) {
+        return this.request(endpoint, { ...options, method: 'PUT' });
+    }
+    async patch(endpoint, options = {}) {
+        return this.request(endpoint, { ...options, method: 'PATCH' });
+    }
+    async delete(endpoint, options = {}) {
+        return this.request(endpoint, { ...options, method: 'DELETE' });
+    }
+    async request(endpoint, options) {
+        const currentApiKey = this.apiKey || env.POSTMAN_API_KEY;
+        if (!currentApiKey) {
+            throw new Error('API key is required for requests. Provide it via constructor parameter or set POSTMAN_API_KEY environment variable.');
+        }
+        const contentType = options.contentType || ContentType.Json;
+        const userAgentKey = Object.keys(options.headers ?? {}).find((key) => key.toLowerCase() === 'user-agent');
+        const userAgentValue = userAgentKey ? options.headers?.[userAgentKey] : undefined;
+        let userAgentHeader = userAgentValue ? `${userAgentValue}/${USER_AGENT}` : USER_AGENT;
+        if (this.serverContext?.serverType) {
+            userAgentHeader = `${userAgentHeader} (toolset: ${this.serverContext.serverType})`;
+        }
+        const disallowed = new Set([
+            'content-length',
+            'transfer-encoding',
+            'connection',
+            'host',
+            'accept-encoding',
+            'keep-alive',
+            'x-srv-trace',
+        ]);
+        const extra = Object.fromEntries(Object.entries(options.headers ?? {}).filter(([k]) => !disallowed.has(k.toLowerCase())));
+        const hasBody = options.body !== undefined && options.body !== null;
+        const headers = {
+            ...(hasBody ? { 'content-type': contentType } : {}),
+            ...extra,
+            'x-api-key': currentApiKey,
+            'user-agent': userAgentHeader,
+            ...(this.srvTraceId ? { 'x-srv-trace': this.srvTraceId } : {}),
+        };
+        const { headers: _ignored, ...optionsWithoutHeaders } = options;
+        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+            ...optionsWithoutHeaders,
+            headers,
+            signal: options.signal ?? AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+            await this.handleErrorResponse(response);
+        }
+        if (response.status === 204)
+            return null;
+        const responseContentType = response.headers.get('content-type') || '';
+        if (responseContentType.includes('application/json')) {
+            return response.json();
+        }
+        return response.text();
+    }
+    async handleErrorResponse(response) {
+        const errorText = await response.text();
+        switch (response.status) {
+            case 400:
+            case 422:
+            case 401:
+            case 403:
+                throw new McpError(ErrorCode.InvalidParams, `API request failed: ${response.status} ${errorText}`, {
+                    cause: errorText,
+                    httpStatus: response.status,
+                });
+            default:
+                throw new McpError(ErrorCode.InternalError, `API request failed: ${response.status}`, {
+                    cause: errorText,
+                    httpStatus: response.status,
+                });
+        }
+    }
+}

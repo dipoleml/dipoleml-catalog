@@ -1,0 +1,15 @@
+{
+  "name": "feder-cr",
+  "description": "The invisible_playwright_mcp repository as a plugin marketplace: one plugin, this one.",
+  "owner": {
+    "name": "feder-cr",
+    "url": "https://github.com/feder-cr"
+  },
+  "plugins": [
+    {
+      "name": "invisible-playwright-mcp",
+      "source": "./",
+      "description": "AI browser agent: browses, clicks, types, and reads real web pages from plain-English instructions."
+    }
+  ]
+}

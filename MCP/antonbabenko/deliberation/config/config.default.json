@@ -1,0 +1,84 @@
+{
+  "$schema": "https://raw.githubusercontent.com/antonbabenko/deliberation/master/config/config.schema.json",
+  "version": 1,
+  "providers": {
+    "defaults": {
+      "timeout": 600000
+    },
+    "codex": {
+      "enabled": true
+    },
+    "gemini": {
+      "enabled": true,
+      "model": "auto-gemini-3"
+    },
+    "grok": {
+      "enabled": true,
+      "apiKeyEnv": "XAI_API_KEY",
+      "model": "grok-4.6",
+      "reasoningEffort": "high"
+    },
+    "openrouter": {
+      "enabled": false,
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "apiBase": "https://openrouter.ai/api/v1",
+      "defaultModel": "openrouter/auto",
+      "defaults": {
+        "reasoningEffort": "medium"
+      }
+    },
+    "ollama": {
+      "enabled": true,
+      "apiBase": "http://localhost:11434/v1"
+    },
+    "lmstudio": {
+      "enabled": true,
+      "apiBase": "http://localhost:1234/v1"
+    }
+  },
+  "models": {
+    "deepseek-v4-pro": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro",
+      "reasoningEffort": "high",
+      "askAll": false,
+      "consensus": false
+    },
+    "qwen3-7-max": {
+      "provider": "openrouter",
+      "model": "qwen/qwen3.7-max",
+      "askAll": false,
+      "consensus": false
+    }
+  },
+  "routing": {
+    "maxFanout": 3,
+    "timeoutPolicy": "longest-peer"
+  },
+  "consensus": {
+    "arbiter": "auto",
+    "blindVote": false,
+    "maxRounds": 5,
+    "maxWallMs": 1800000,
+    "quorumFloor": 2
+  },
+  "sessions": {
+    "persist": false,
+    "maxRecords": 200,
+    "maxAgeDays": 30,
+    "captureText": false
+  },
+  "orientation": {
+    "enabled": true,
+    "maxFiles": 6,
+    "maxBytes": 16000
+  },
+  "dashboard": {
+    "enabled": false,
+    "capture": "metadata",
+    "showPII": false,
+    "port": 7717,
+    "maxRuns": 200,
+    "maxAgeDays": 30
+  }
+}

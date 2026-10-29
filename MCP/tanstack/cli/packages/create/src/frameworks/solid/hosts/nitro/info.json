@@ -1,0 +1,19 @@
+{
+  "name": "Nitro (agnostic)",
+  "description": "Generic Nitro adapter (deploy to any Node-compatible host).",
+  "link": "https://v3.nitro.build/",
+  "phase": "add-on",
+  "modes": ["file-router", "code-router"],
+  "type": "deployment",
+  "category": "deploy",
+  "exclusive": ["deploy"],
+  "color": "#ECDC5A",
+  "integrations": [
+    {
+      "type": "vite-plugin",
+      "import": "import { nitro } from 'nitro/vite'",
+      "code": "nitro()"
+    }
+  ],
+  "default": true
+}

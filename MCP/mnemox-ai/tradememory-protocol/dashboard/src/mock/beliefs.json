@@ -1,0 +1,101 @@
+[
+  {
+    "id": "BEL-001",
+    "proposition": "IntradayMomentum is profitable in the London session (avg +0.31R)",
+    "alpha": 12,
+    "beta": 6,
+    "confidence": 0.667,
+    "strategy": "IntradayMomentum",
+    "regime": null,
+    "sample_size": 160,
+    "trend": "strong"
+  },
+  {
+    "id": "BEL-002",
+    "proposition": "VolBreakout is profitable in the London session (avg +0.41R)",
+    "alpha": 7,
+    "beta": 4,
+    "confidence": 0.636,
+    "strategy": "VolBreakout",
+    "regime": null,
+    "sample_size": 96,
+    "trend": "strong"
+  },
+  {
+    "id": "BEL-003",
+    "proposition": "IntradayMomentum is profitable in the NY session (avg +0.10R)",
+    "alpha": 6,
+    "beta": 4,
+    "confidence": 0.6,
+    "strategy": "IntradayMomentum",
+    "regime": null,
+    "sample_size": 84,
+    "trend": "neutral"
+  },
+  {
+    "id": "BEL-004",
+    "proposition": "IntradayMomentum is profitable in the Asia session (avg -0.00R)",
+    "alpha": 3,
+    "beta": 6,
+    "confidence": 0.333,
+    "strategy": "IntradayMomentum",
+    "regime": null,
+    "sample_size": 76,
+    "trend": "neutral"
+  },
+  {
+    "id": "BEL-005",
+    "proposition": "VolBreakout is profitable in the Asia session (avg -0.45R)",
+    "alpha": 2,
+    "beta": 6,
+    "confidence": 0.25,
+    "strategy": "VolBreakout",
+    "regime": null,
+    "sample_size": 67,
+    "trend": "weak"
+  },
+  {
+    "id": "BEL-006",
+    "proposition": "Pullback is profitable in the London session (avg +0.06R)",
+    "alpha": 3,
+    "beta": 5,
+    "confidence": 0.375,
+    "strategy": "Pullback",
+    "regime": null,
+    "sample_size": 62,
+    "trend": "neutral"
+  },
+  {
+    "id": "BEL-007",
+    "proposition": "VolBreakout is profitable in the NY session (avg -0.31R)",
+    "alpha": 2,
+    "beta": 5,
+    "confidence": 0.286,
+    "strategy": "VolBreakout",
+    "regime": null,
+    "sample_size": 57,
+    "trend": "weak"
+  },
+  {
+    "id": "BEL-008",
+    "proposition": "Pullback is profitable in the Asia session (avg +0.12R)",
+    "alpha": 4,
+    "beta": 3,
+    "confidence": 0.571,
+    "strategy": "Pullback",
+    "regime": null,
+    "sample_size": 51,
+    "trend": "neutral"
+  },
+  {
+    "id": "BEL-009",
+    "proposition": "Pullback is profitable in the NY session (avg +0.34R)",
+    "alpha": 4,
+    "beta": 1,
+    "confidence": 0.8,
+    "strategy": "Pullback",
+    "regime": null,
+    "sample_size": 37,
+    "trend": "strong"
+  }
+]

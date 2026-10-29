@@ -1,0 +1,2057 @@
+using System.Collections.Immutable;
+using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
+using Sbroenne.ExcelMcp.Generators.Common;
+
+namespace Sbroenne.ExcelMcp.Generators;
+
+/// <summary>
+/// Generates ServiceRegistry constants and DTOs from Core command interfaces
+/// marked with [ServiceCategory] attribute.
+/// </summary>
+[Generator]
+public class ServiceRegistryGenerator : IIncrementalGenerator
+{
+    public void Initialize(IncrementalGeneratorInitializationContext context)
+    {
+        // Find all interfaces with [ServiceCategory] attribute
+        var interfaceDeclarations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => SyntaxHelper.IsInterfaceWithAttributes(s),
+                transform: static (ctx, _) => SyntaxHelper.GetServiceInterfaceOrNull(ctx))
+            .Where(static m => m is not null);
+
+        // Combine with compilation
+        var compilationAndInterfaces = context.CompilationProvider.Combine(interfaceDeclarations.Collect());
+
+        // Generate source
+        context.RegisterSourceOutput(compilationAndInterfaces,
+            static (spc, source) => Execute(source.Left, source.Right!, spc));
+    }
+
+    private static void Execute(Compilation compilation, ImmutableArray<InterfaceDeclarationSyntax?> interfaces, SourceProductionContext context)
+    {
+        if (interfaces.IsDefaultOrEmpty)
+            return;
+
+        var distinctInterfaces = interfaces
+            .Where(i => i is not null)
+            .Cast<InterfaceDeclarationSyntax>()
+            .Distinct()
+            .ToList();
+
+        if (distinctInterfaces.Count == 0)
+            return;
+
+        var allCategories = new List<ServiceInfo>();
+
+        foreach (var interfaceDecl in distinctInterfaces)
+        {
+            var model = compilation.GetSemanticModel(interfaceDecl.SyntaxTree);
+            var interfaceSymbol = model.GetDeclaredSymbol(interfaceDecl) as INamedTypeSymbol;
+
+            if (interfaceSymbol is null)
+                continue;
+
+            // Use shared extractor
+            var info = ServiceInfoExtractor.ExtractServiceInfo(interfaceSymbol);
+            if (info is null)
+                continue;
+
+            allCategories.Add(info);
+
+            // Get fully-qualified interface name for dispatch generation
+            var interfaceFullName = interfaceSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (interfaceFullName.StartsWith("global::"))
+                interfaceFullName = interfaceFullName.Substring(8);
+
+            // Generate ServiceRegistry partial for this category
+            var registryCode = GenerateServiceRegistry(info);
+            context.AddSource($"ServiceRegistry.{info.CategoryPascal}.g.cs", SourceText.From(registryCode, Encoding.UTF8));
+
+            // Generate service dispatch for this category
+            var dispatchCode = GenerateServiceDispatch(info, interfaceFullName);
+            context.AddSource($"ServiceRegistry.{info.CategoryPascal}.Dispatch.g.cs", SourceText.From(dispatchCode, Encoding.UTF8));
+
+            // Generate comparison file for validation (existing vs generated)
+            var comparisonCode = GenerateComparisonFile(info);
+            context.AddSource($"Comparison.{info.CategoryPascal}.g.cs", SourceText.From(comparisonCode, Encoding.UTF8));
+        }
+
+        // Emit a manifest file for the CLI generator to consume
+        if (allCategories.Count > 0)
+        {
+            var manifestCode = GenerateCliManifest(allCategories);
+            context.AddSource("_CliCategories.g.cs", SourceText.From(manifestCode, Encoding.UTF8));
+
+            // Emit a JSON manifest for skill documentation generation
+            var skillManifestCode = GenerateSkillManifest(allCategories);
+            context.AddSource("_SkillManifest.g.cs", SourceText.From(skillManifestCode, Encoding.UTF8));
+
+            var contractCode = GenerateContractRegistry(allCategories);
+            context.AddSource("ServiceRegistry.Contracts.g.cs", SourceText.From(contractCode, Encoding.UTF8));
+            context.AddSource("ServiceRegistry.Results.g.cs", SourceText.From(
+                GenerateResultContracts(allCategories, compilation), Encoding.UTF8));
+
+            // Emit shared dispatch helper methods (DeserializeArgs, ParseEnumValue, etc.)
+            var helpersCode = GenerateDispatchHelpers();
+            context.AddSource("ServiceRegistry.DispatchHelpers.g.cs", SourceText.From(helpersCode, Encoding.UTF8));
+        }
+    }
+
+    // =====================================================
+    // Code Generation Methods (local to this generator)
+    // =====================================================
+
+    private static string GenerateResultContracts(List<ServiceInfo> categories, Compilation compilation)
+    {
+        var sb = new StringBuilder("""
+            // <auto-generated />
+            #nullable enable
+            namespace Sbroenne.ExcelMcp.Generated;
+            public static partial class ServiceRegistry
+            {
+                private static readonly System.Collections.Generic.Dictionary<string, Sbroenne.ExcelMcp.Core.Models.ResultContract> ResultContracts = new(System.StringComparer.OrdinalIgnoreCase)
+                {
+
+            """);
+        foreach (var category in categories)
+            foreach (var method in category.Methods)
+                Emit($"{category.Category}.{method.ActionName}", method.ReturnTypeSymbol, method.McpToolReadOnly);
+        foreach (var (command, typeName) in new[]
+        {
+            ("session.list", "Sbroenne.ExcelMcp.Core.Models.SessionListResult"),
+            ("session.discover", "Sbroenne.ExcelMcp.ComInterop.Session.WorkbookDiscoveryResult"),
+            ("session.notices", "Sbroenne.ExcelMcp.Core.Models.SessionNoticesResult"),
+            ("session.test", "Sbroenne.ExcelMcp.Core.Models.FileValidationInfo")
+        })
+            if (compilation.GetTypeByMetadataName(typeName) is { } type)
+                Emit(command, type, true);
+        sb.AppendLine("""
+                   ["service.status"] = new(true, []),
+            """);
+        sb.AppendLine("""
+                };
+                /// <summary>Source-derived outcome information for an operation.</summary>
+                public static Sbroenne.ExcelMcp.Core.Models.ResultContract? GetResultContract(string command) =>
+                    ResultContracts.TryGetValue(command, out var contract) ? contract : null;
+            """);
+        sb.AppendLine("    /// <summary>Shared command identity for an advertised MCP action.</summary>");
+        sb.AppendLine("    public static string GetMcpCommand(string tool, string action) => (tool, action) switch");
+        sb.AppendLine("    {");
+        foreach (var category in categories)
+            foreach (var method in category.Methods)
+                sb.AppendLine($"        (\"{method.McpTool}\", \"{method.ActionName}\") => \"{category.Category}.{method.ActionName}\",");
+        sb.AppendLine("        (\"file\" or \"file_read\", _) => \"session.\" + action,");
+        sb.AppendLine("        _ => tool + \".\" + action");
+        sb.AppendLine("    };");
+        sb.AppendLine("}");
+        return sb.ToString();
+
+        void Emit(string command, ITypeSymbol type, bool readOnly)
+        {
+            var outcomes = new List<string>();
+            Visit(type, "", new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
+            sb.AppendLine($"        [\"{command}\"] = new({readOnly.ToString().ToLowerInvariant()}, {BuildStringArrayExpression(outcomes)}),");
+
+            void Visit(ITypeSymbol current, string prefix, HashSet<ITypeSymbol> ancestors)
+            {
+                if (current is IArrayTypeSymbol array)
+                {
+                    Visit(array.ElementType, prefix, ancestors);
+                    return;
+                }
+                if (current is not INamedTypeSymbol named || current.SpecialType != SpecialType.None ||
+                    current.ContainingNamespace.ToDisplayString().StartsWith("System.Text.Json", StringComparison.Ordinal))
+                    return;
+                if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+                {
+                    Visit(named.TypeArguments[0], prefix, ancestors);
+                    return;
+                }
+                var interfaces = named.AllInterfaces.Concat(new[] { named });
+                if (interfaces.Any(candidate =>
+                    candidate.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IDictionary<TKey, TValue>" ||
+                    candidate.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>"))
+                    return;
+                var sequence = interfaces.FirstOrDefault(candidate =>
+                    candidate.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.IEnumerable<T>");
+                if (sequence is not null)
+                {
+                    Visit(sequence.TypeArguments[0], prefix, ancestors);
+                    return;
+                }
+                if (!ancestors.Add(current))
+                    return;
+                for (var baseType = named; baseType is not null; baseType = baseType.BaseType)
+                {
+                    foreach (var property in baseType.GetMembers().OfType<IPropertySymbol>().Where(property =>
+                        !property.IsStatic && !property.IsIndexer && property.GetMethod is not null &&
+                        property.DeclaredAccessibility == Accessibility.Public))
+                    {
+                        var ignore = property.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.Name == "JsonIgnoreAttribute");
+                        if (ignore is not null && ignore.NamedArguments.Length == 0)
+                            continue;
+                        var alias = property.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.Name == "JsonPropertyNameAttribute");
+                        var name = alias?.ConstructorArguments[0].Value as string ??
+                            char.ToLowerInvariant(property.Name[0]) + property.Name.Substring(1);
+                        var path = prefix.Length == 0 ? name : prefix + "." + name;
+                        if (property.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == "ResultOutcomeAttribute"))
+                            outcomes.Add(path);
+                        Visit(property.Type, path, ancestors);
+                    }
+                }
+                ancestors.Remove(current);
+            }
+        }
+    }
+
+    private static string GenerateServiceRegistry(ServiceInfo info)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated />");;
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member");
+        sb.AppendLine();
+        sb.AppendLine("namespace Sbroenne.ExcelMcp.Generated;");
+        sb.AppendLine();
+
+        // Generate the Action enum with kebab-case JSON names
+        sb.AppendLine("/// <summary>");
+        sb.AppendLine($"/// Generated action enum for {info.Category} operations.");
+        sb.AppendLine("/// </summary>");
+        sb.AppendLine("[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<" + info.CategoryPascal + "Action>))]");
+        sb.AppendLine($"public enum {info.CategoryPascal}Action");
+        sb.AppendLine("{");
+        for (int i = 0; i < info.Methods.Count; i++)
+        {
+            var method = info.Methods[i];
+            var comma = i < info.Methods.Count - 1 ? "," : "";
+            sb.AppendLine($"    [System.Text.Json.Serialization.JsonStringEnumMemberName(\"{method.ActionName}\")]");
+            sb.AppendLine($"    {method.MethodName}{comma}");
+        }
+        sb.AppendLine("}");
+        sb.AppendLine();
+
+        sb.AppendLine("/// <summary>");
+        sb.AppendLine($"/// Generated service registry for {info.Category} operations.");
+        sb.AppendLine("/// </summary>");
+        sb.AppendLine($"public static partial class ServiceRegistry");
+        sb.AppendLine("{");
+        sb.AppendLine($"    public static partial class {info.CategoryPascal}");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        public const string Category = \"{info.Category}\";");
+        sb.AppendLine($"        public const string McpToolName = \"{info.McpToolName}\";");
+        sb.AppendLine($"        public const bool RequiresSession = {(info.NoSession ? "false" : "true")};");
+
+        var cliCommandName = info.Category;
+        sb.AppendLine($"        public const string CliCommandName = \"{cliCommandName}\";");
+        sb.AppendLine();
+
+        // Generate action constants
+        sb.AppendLine("        // Action constants");
+        foreach (var method in info.Methods)
+        {
+            sb.AppendLine($"        public const string {method.MethodName}Action = \"{method.ActionName}\";");
+        }
+        sb.AppendLine();
+
+        // Generate full command strings
+        sb.AppendLine("        // Full command strings (category.action)");
+        foreach (var method in info.Methods)
+        {
+            sb.AppendLine($"        public const string {method.MethodName}Command = \"{info.Category}.{method.ActionName}\";");
+        }
+        sb.AppendLine();
+
+        // Generate ValidActions array for CLI help/validation
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// All valid action strings for this category.");
+        sb.AppendLine("        /// </summary>");
+        var actionList = string.Join(", ", info.Methods.Select(m => $"\"{m.ActionName}\""));
+        sb.AppendLine($"        public static readonly string[] ValidActions = [{actionList}];");
+        sb.AppendLine();
+
+        // Top-level CLI help is a command index. Keep the detailed interface
+        // guidance in action/option help instead of repeating it for every command.
+        var fullDescription = info.XmlDocSummary ?? $"{info.CategoryPascal} operations";
+        var sentenceEnd = fullDescription.IndexOf(". ", StringComparison.Ordinal);
+        var shortDescription = sentenceEnd >= 0
+            ? fullDescription.Substring(0, sentenceEnd + 1)
+            : fullDescription;
+        var escapedDescription = shortDescription
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Trim();
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Concise description from the first sentence of interface XML documentation.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine($"        public const string Description = \"{escapedDescription}\";");
+        sb.AppendLine();
+
+        // Generate TryParseAction method for this category
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Parses a kebab-case action string to the strongly-typed enum.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine($"        public static bool TryParseAction(string actionString, out {info.CategoryPascal}Action action)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            action = default;");
+        sb.AppendLine("            return actionString switch");
+        sb.AppendLine("            {");
+        foreach (var method in info.Methods)
+        {
+            sb.AppendLine($"                \"{method.ActionName}\" => SetAndReturn(out action, {info.CategoryPascal}Action.{method.MethodName}),");
+        }
+        sb.AppendLine("                _ => false");
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        private static bool SetAndReturn<T>(out T action, T value)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            action = value;");
+        sb.AppendLine("            return true;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // Generate ToActionString method for this category
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Converts the action enum to its kebab-case string representation.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine($"        public static string ToActionString({info.CategoryPascal}Action action)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return action switch");
+        sb.AppendLine("            {");
+        foreach (var method in info.Methods)
+        {
+            sb.AppendLine($"                {info.CategoryPascal}Action.{method.MethodName} => \"{method.ActionName}\",");
+        }
+        sb.AppendLine($"                _ => throw new System.ArgumentException($\"Unknown {info.CategoryPascal}Action: {{action}}\")");
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // Generate request DTOs for methods with parameters
+        foreach (var method in info.Methods.Where(m => m.Parameters.Count > 0))
+        {
+            sb.AppendLine($"        /// <summary>Request DTO for {method.ActionName} action</summary>");
+            sb.AppendLine($"        public sealed record {method.MethodName}Request(");
+
+            var paramLines = method.Parameters.Select((p, i) =>
+            {
+                var suffix = i < method.Parameters.Count - 1 ? "," : "";
+                if (p.HasDefault)
+                {
+                    return $"            {p.TypeName} {StringHelper.ToPascalCase(p.Name)} = {p.DefaultValue}{suffix}";
+                }
+                return $"            {p.TypeName} {StringHelper.ToPascalCase(p.Name)}{suffix}";
+            });
+
+            sb.AppendLine(string.Join("\r\n", paramLines));
+            sb.AppendLine("        );");
+            sb.AppendLine();
+        }
+
+        // Generate service args classes for JSON deserialization
+        sb.AppendLine("        // ============================================");
+        sb.AppendLine("        // Service Args Classes (generated)");
+        sb.AppendLine("        // ============================================");
+        sb.AppendLine();
+
+        foreach (var method in info.Methods)
+        {
+            GenerateArgsClass(sb, method);
+        }
+
+        // Generate MCP forward methods
+        sb.AppendLine("        // ============================================");
+        sb.AppendLine("        // MCP Forward Methods (generated)");
+        sb.AppendLine("        // ============================================");
+        sb.AppendLine();
+
+        foreach (var method in info.Methods)
+        {
+            GenerateForwardMethod(sb, info, method);
+        }
+
+        // Generate the RouteAction switch
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Routes an action to the appropriate forward method.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine($"        public static TResult RouteAction<TResult>(");
+        sb.AppendLine($"            {info.CategoryPascal}Action action,");
+        sb.AppendLine($"            string sessionId,");
+        sb.AppendLine($"            System.Func<string, string, object?, TResult> forwardToService,");
+
+        // Collect all unique exposed parameters across all methods
+        var allExposedParams = GetAllExposedParameters(info);
+        for (int i = 0; i < allExposedParams.Count; i++)
+        {
+            var p = allExposedParams[i];
+            var comma = i < allExposedParams.Count - 1 ? "," : ")";
+            sb.AppendLine($"            {p.TypeName} {p.Name} = null{comma}");
+        }
+
+        sb.AppendLine("        {");
+        GenerateSuppliedParameterValidationCall(sb, info, allExposedParams, "            ");
+        GenerateFileOrValuePairValidation(sb, info, "            ");
+        sb.AppendLine("            return action switch");
+        sb.AppendLine("            {");
+        foreach (var method in info.Methods)
+        {
+            var forwardArgs = BuildForwardArgs(method, allExposedParams);
+            sb.AppendLine($"                {info.CategoryPascal}Action.{method.MethodName} => Forward{method.MethodName}(sessionId, forwardToService{forwardArgs}),");
+        }
+        sb.AppendLine($"                _ => throw new System.ArgumentException($\"Unknown action: {{action}}\")");
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // Generate CLI RouteCliArgs method
+        GenerateCliRouteMethod(sb, info);
+        GenerateActionContractMethods(sb, info, allExposedParams);
+
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    private static void GenerateCliRouteMethod(StringBuilder sb, ServiceInfo info)
+    {
+        sb.AppendLine("        // ============================================");
+        sb.AppendLine("        // CLI Routing (generated)");
+        sb.AppendLine("        // ============================================");
+        sb.AppendLine();
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Builds the args object for a CLI action.");
+        sb.AppendLine("        /// Returns (command, args) tuple for sending to service.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine($"        public static (string Command, object? Args) RouteCliArgs(");
+        sb.AppendLine($"            string action,");
+
+        // Collect all unique exposed parameters
+        var allExposedParams = GetAllExposedParameters(info);
+        for (int i = 0; i < allExposedParams.Count; i++)
+        {
+            var p = allExposedParams[i];
+            var comma = i < allExposedParams.Count - 1 ? "," : ")";
+            sb.AppendLine($"            {p.TypeName} {p.Name} = null{comma}");
+        }
+
+        sb.AppendLine("        {");
+        sb.AppendLine($"            var command = $\"{info.Category}.{{action}}\";");
+        sb.AppendLine();
+        GenerateSuppliedParameterValidationCall(sb, info, allExposedParams, "            ", actionExpression: "action");
+        GenerateFileOrValuePairValidation(sb, info, "            ");
+        sb.AppendLine();
+
+        // Generate switch statement with per-action validation
+        sb.AppendLine("            switch (action)");
+        sb.AppendLine("            {");
+
+        foreach (var method in info.Methods)
+        {
+            sb.AppendLine($"                case \"{method.ActionName}\":");
+            if (method.Parameters.Any(p => p.IsFileOrValue))
+                sb.AppendLine("                {");
+
+            foreach (var parameter in method.Parameters.Where(p => p.IsEnum))
+            {
+                if (parameter.IsFromString)
+                {
+                    var exposedName = parameter.ExposedName ?? parameter.Name;
+                    GenerateEnumValidationStatement(sb, parameter, exposedName, exposedName, "                    ");
+                }
+                else
+                {
+                    GenerateTypedEnumValidationStatement(sb, parameter, parameter.Name, parameter.Name, "                    ");
+                }
+            }
+
+            GenerateTimeoutValidation(sb, info, method, "                    ");
+            GenerateRequiredParameterValidation(sb, method, "                    ", includeFileOrValue: false);
+
+            var argsExpr = BuildCliArgsExpression(method);
+            sb.AppendLine($"                    return (command, {argsExpr});");
+
+            if (method.Parameters.Any(p => p.IsFileOrValue))
+                sb.AppendLine("                }");
+        }
+
+        sb.AppendLine($"                default:");
+        sb.AppendLine($"                    throw new System.ArgumentException($\"Unknown action: {{action}}\");");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // Generate RouteFromSettings (bridges CliSettings → RouteCliArgs)
+        GenerateRouteFromSettings(sb, info, allExposedParams);
+
+        // Generate CLI Settings class
+        GenerateCliSettings(sb, info, allExposedParams);
+    }
+
+    private static void GenerateSuppliedParameterValidationCall(
+        StringBuilder sb,
+        ServiceInfo info,
+        List<ExposedParameter> allExposedParams,
+        string indent,
+        string? actionExpression = null)
+    {
+        if (allExposedParams.Count == 0)
+            return;
+
+        actionExpression ??= $"ToActionString(action)";
+        sb.AppendLine($"{indent}ValidateActionParameters(");
+        sb.AppendLine($"{indent}    {actionExpression},");
+        sb.AppendLine($"{indent}    ServiceRegistry.GetSuppliedParameterNames(");
+        for (int i = 0; i < allExposedParams.Count; i++)
+        {
+            var parameter = allExposedParams[i];
+            var comma = i < allExposedParams.Count - 1 ? "," : "),";
+            sb.AppendLine($"{indent}        (\"{parameter.Name}\", {parameter.Name}){comma}");
+        }
+        sb.AppendLine($"{indent}    allowFileParameters: true);");
+    }
+
+    private static void GenerateFileOrValuePairValidation(
+        StringBuilder sb,
+        ServiceInfo info,
+        string indent)
+    {
+        foreach (var parameter in info.Methods
+                     .SelectMany(method => method.Parameters)
+                     .Where(parameter => parameter.IsFileOrValue)
+                     .GroupBy(parameter => parameter.Name, StringComparer.OrdinalIgnoreCase)
+                     .Select(group => group.First()))
+        {
+            sb.AppendLine(
+                $"{indent}Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.ValidateFileOrValuePair({parameter.Name}, {parameter.Name}{parameter.FileSuffix}, \"{parameter.Name}\");");
+        }
+    }
+
+    private static void GenerateTimeoutValidation(
+        StringBuilder sb,
+        ServiceInfo info,
+        MethodInfo method,
+        string indent,
+        string? argsPrefix = null)
+    {
+        var minimumSeconds = info.Category is "powerquery" or "workbook" ? 0 : 1;
+        foreach (var parameter in method.Parameters.Where(parameter => IsTimeSpanType(parameter.TypeName)))
+        {
+            var propertyName = parameter.ExposedName ?? parameter.Name;
+            var valueExpression = argsPrefix == null
+                ? propertyName
+                : $"{argsPrefix}.{StringHelper.ToPascalCase(propertyName)}";
+            sb.AppendLine(
+                $"{indent}Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.ValidateTimeoutSeconds({valueExpression}, \"{propertyName}\", minimumSeconds: {minimumSeconds});");
+        }
+    }
+
+    private static void GenerateActionContractMethods(
+        StringBuilder sb,
+        ServiceInfo info,
+        List<ExposedParameter> allExposedParams)
+    {
+        sb.AppendLine("        private static string[] GetValidActionParameters(string action, bool allowFileParameters)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return action switch");
+        sb.AppendLine("            {");
+        foreach (var method in info.Methods)
+        {
+            var serviceParameters = GetActionParameterNames(method, includeFileParameters: false);
+            var routeParameters = GetActionParameterNames(method, includeFileParameters: true);
+            if (serviceParameters.SequenceEqual(routeParameters, StringComparer.Ordinal))
+            {
+                sb.AppendLine($"                \"{method.ActionName}\" => {BuildStringArrayExpression(serviceParameters)},");
+            }
+            else
+            {
+                sb.AppendLine($"                \"{method.ActionName}\" => allowFileParameters");
+                sb.AppendLine($"                    ? {BuildStringArrayExpression(routeParameters)}");
+                sb.AppendLine($"                    : {BuildStringArrayExpression(serviceParameters)},");
+            }
+        }
+        sb.AppendLine("                _ => throw new System.ArgumentException($\"Unknown action: {action}\")");
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        private static readonly System.Collections.Generic.Dictionary<string, string> ParameterDescriptions = new(System.StringComparer.Ordinal)");
+        sb.AppendLine("        {");
+        foreach (var (name, description) in GetShortParameterDescriptions(info))
+        {
+            sb.AppendLine($"            [\"{EscapeStringLiteral(name)}\"] = \"{EscapeStringLiteral(description)}\",");
+        }
+        sb.AppendLine("        };");
+        sb.AppendLine();
+
+        sb.AppendLine("        private static string DescribeValidParameters(string action, bool allowFileParameters)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var validParameters = GetValidActionParameters(action, allowFileParameters);");
+        sb.AppendLine("            if (validParameters.Length == 0)");
+        sb.AppendLine("                return $\"Action '{action}' takes no parameters.\";");
+        sb.AppendLine("            return $\"Valid parameters for '{action}': \" + string.Join(\"; \", validParameters.Select(parameter =>");
+        sb.AppendLine("                ParameterDescriptions.TryGetValue(action + \":\" + parameter, out var description) ? $\"{parameter} ({description})\" : parameter)) + \".\";");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        /// <summary>Validates explicitly supplied parameters for an action.</summary>");
+        sb.AppendLine("        public static void ValidateActionParameters(");
+        sb.AppendLine("            string action,");
+        sb.AppendLine("            System.Collections.Generic.IEnumerable<string> suppliedParameters,");
+        sb.AppendLine("            bool allowFileParameters)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var validParameters = GetValidActionParameters(action, allowFileParameters);");
+        sb.AppendLine("            var validSet = new System.Collections.Generic.HashSet<string>(validParameters, System.StringComparer.Ordinal);");
+        sb.AppendLine("            var invalid = suppliedParameters");
+        sb.AppendLine("                .Where(parameter => !validSet.Contains(parameter))");
+        sb.AppendLine("                .Distinct(System.StringComparer.Ordinal)");
+        sb.AppendLine("                .OrderBy(parameter => parameter, System.StringComparer.Ordinal)");
+        sb.AppendLine("                .ToArray();");
+        sb.AppendLine("            if (invalid.Length > 0)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new System.ArgumentException(");
+        sb.AppendLine("                    $\"Parameter(s) {string.Join(\", \", invalid)} are not valid for action '{action}'. {DescribeValidParameters(action, allowFileParameters)}\");");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        /// <summary>Validates raw service arguments before Core dispatch.</summary>");
+        sb.AppendLine("        public static void ValidateActionArguments(string action, string? argsJson)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var rawPropertyNames = ServiceRegistry.GetJsonPropertyNames(argsJson, includeNullValues: true);");
+        sb.AppendLine(
+            $"            var canonicalPropertyNames = new System.Collections.Generic.HashSet<string>({BuildStringArrayExpression(allExposedParams.Select(parameter => parameter.Name).ToList())}, System.StringComparer.Ordinal);");
+        sb.AppendLine("            var invalidPropertyNames = rawPropertyNames");
+        sb.AppendLine("                .Where(parameter => !canonicalPropertyNames.Contains(parameter))");
+        sb.AppendLine("                .Distinct(System.StringComparer.Ordinal)");
+        sb.AppendLine("                .OrderBy(parameter => parameter, System.StringComparer.Ordinal)");
+        sb.AppendLine("                .ToArray();");
+        sb.AppendLine("            if (invalidPropertyNames.Length > 0)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new System.ArgumentException(");
+        sb.AppendLine("                    $\"Unknown or non-canonical parameter(s): {string.Join(\", \", invalidPropertyNames)}. Parameter names are case-sensitive. {DescribeValidParameters(action, allowFileParameters: true)}\");");
+        sb.AppendLine("            }");
+        sb.AppendLine("            ValidateActionParameters(action, rawPropertyNames, allowFileParameters: true);");
+        var validatedMethods = info.Methods
+            .Where(method => method.Parameters.Count > 0)
+            .ToList();
+        if (validatedMethods.Count > 0)
+        {
+            sb.AppendLine("            try");
+            sb.AppendLine("            {");
+            sb.AppendLine("            switch (action)");
+            sb.AppendLine("            {");
+            foreach (var method in validatedMethods)
+            {
+                sb.AppendLine($"                case \"{method.ActionName}\":");
+                sb.AppendLine("                {");
+                foreach (var parameter in method.Parameters.Where(parameter =>
+                             IsRequiredParameter(parameter) &&
+                             parameter.AllowsEmptyString))
+                {
+                    var propertyName = parameter.ExposedName ?? parameter.Name;
+                    sb.AppendLine(
+                        $"                    ServiceRegistry.RequireJsonStringArgument(argsJson, \"{propertyName}\", \"{method.ActionName}\");");
+                }
+                sb.AppendLine($"                    var args = DeserializeArgs<{method.MethodName}Args>(argsJson);");
+                foreach (var parameter in method.Parameters.Where(parameter => parameter.IsFileOrValue))
+                {
+                    var pascalName = StringHelper.ToPascalCase(parameter.Name);
+                    sb.AppendLine(
+                        $"                    Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.ValidateFileOrValueInput(args.{pascalName}, args.{pascalName}{parameter.FileSuffix}, \"{parameter.Name}\", required: {(IsRequiredParameter(parameter) ? "true" : "false")});");
+                }
+                var requiredStringParameters = method.Parameters
+                    .Where(parameter =>
+                        !parameter.IsFileOrValue &&
+                        !parameter.IsEnum &&
+                        StringHelper.IsStringType(parameter.TypeName) &&
+                        IsRequiredParameter(parameter) &&
+                        !parameter.AllowsEmptyString)
+                    .ToList();
+                if (requiredStringParameters.Count > 0)
+                {
+                    sb.AppendLine(
+                        $"                    Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.RequireAllNotEmpty(\"{method.ActionName}\",");
+                    for (int i = 0; i < requiredStringParameters.Count; i++)
+                    {
+                        var parameter = requiredStringParameters[i];
+                        var propertyName = parameter.ExposedName ?? parameter.Name;
+                        var propertyExpression = $"args.{StringHelper.ToPascalCase(propertyName)}";
+                        var comma = i < requiredStringParameters.Count - 1 ? "," : ");";
+                        sb.AppendLine(
+                            $"                        ({propertyExpression}, \"{propertyName}\"){comma}");
+                    }
+                }
+                foreach (var parameter in method.Parameters.Where(parameter =>
+                             !parameter.IsFileOrValue &&
+                             !parameter.IsEnum &&
+                             !StringHelper.IsStringType(parameter.TypeName) &&
+                             IsRequiredParameter(parameter)))
+                {
+                    var propertyName = parameter.ExposedName ?? parameter.Name;
+                    var propertyExpression = $"args.{StringHelper.ToPascalCase(propertyName)}";
+                    sb.AppendLine($"                    if ({propertyExpression} is null)");
+                    sb.AppendLine(
+                        $"                        throw new System.ArgumentException(\"{propertyName} is required for {method.ActionName} action.\", \"{propertyName}\");");
+                }
+                foreach (var parameter in method.Parameters.Where(p => p.IsEnum))
+                {
+                    var propertyName = parameter.ExposedName ?? parameter.Name;
+                    var propertyExpression = $"args.{StringHelper.ToPascalCase(propertyName)}";
+                    if (IsRequiredParameter(parameter))
+                    {
+                        sb.AppendLine($"                    if (string.IsNullOrWhiteSpace({propertyExpression}))");
+                        sb.AppendLine($"                        throw new System.ArgumentException(\"{propertyName} is required for {method.ActionName} action.\", \"{propertyName}\");");
+                    }
+                    GenerateEnumValidationStatement(sb, parameter, propertyExpression, propertyName, "                    ");
+                }
+                GenerateTimeoutValidation(sb, info, method, "                    ", argsPrefix: "args");
+                sb.AppendLine("                    break;");
+                sb.AppendLine("                }");
+            }
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            catch (System.Text.Json.JsonException exception)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                throw new System.ArgumentException($\"Invalid argument value for '{Category}.{action}': {exception.Message} {DescribeValidParameters(action, allowFileParameters: true)}\", nameof(argsJson), exception);");
+            sb.AppendLine("            }");
+        }
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    private static List<(string Key, string Description)> GetShortParameterDescriptions(ServiceInfo info)
+    {
+        var result = new List<(string Key, string Description)>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var method in info.Methods)
+        {
+            foreach (var parameter in method.Parameters)
+            {
+                var key = $"{method.ActionName}:{parameter.ExposedName ?? parameter.Name}";
+                if (seen.Add(key))
+                {
+                    var description = IsTimeSpanType(parameter.TypeName)
+                        ? "timeout in whole seconds"
+                        : ShortenDescription(parameter.XmlDocDescription);
+                    if (description != null)
+                        result.Add((key, description));
+                }
+                var fileKey = $"{method.ActionName}:{parameter.Name}{parameter.FileSuffix}";
+                if (parameter.IsFileOrValue && parameter.FileSuffix != null && seen.Add(fileKey))
+                {
+                    result.Add((fileKey, $"path to a file containing {parameter.Name}"));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static string? ShortenDescription(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            return null;
+        var text = System.Text.RegularExpressions.Regex.Replace(description!, @"\s+", " ").Trim();
+        const string acceptedMarker = "Accepted values (case-insensitive): ";
+        string? acceptedValues = null;
+        var acceptedIndex = text.IndexOf(acceptedMarker, StringComparison.Ordinal);
+        if (acceptedIndex >= 0)
+        {
+            acceptedValues = text.Substring(acceptedIndex + acceptedMarker.Length).TrimEnd('.', ' ');
+            text = text.Substring(0, acceptedIndex).Trim();
+        }
+
+        text = FirstTopLevelSentence(text);
+        const int maxLength = 100;
+        if (text.Length > maxLength)
+            text = text.Substring(0, maxLength).TrimEnd() + "...";
+
+        if (acceptedValues != null && acceptedValues.Length <= 120)
+            text = text.Length == 0 ? $"one of: {acceptedValues}" : $"{text} (one of: {acceptedValues})";
+
+        return text.Length == 0 ? null : text;
+    }
+
+    private static string FirstTopLevelSentence(string text)
+    {
+        var depth = 0;
+        for (var i = 0; i < text.Length - 1; i++)
+        {
+            var c = text[i];
+            if (c == '(')
+                depth++;
+            else if (c == ')' && depth > 0)
+                depth--;
+            else if (depth == 0 && (c == '.' || c == ';') && text[i + 1] == ' '
+                && !(c == '.' && i >= 3 && (text.Substring(i - 3, 3) == "e.g" || text.Substring(i - 3, 3) == "i.e")))
+                return text.Substring(0, i).Trim();
+        }
+        return text.TrimEnd('.', ';', ' ');
+    }
+
+    private static List<string> GetActionParameterNames(MethodInfo method, bool includeFileParameters)
+    {
+        var result = new List<string>();
+        foreach (var parameter in method.Parameters)
+        {
+            result.Add(parameter.ExposedName ?? parameter.Name);
+            if (includeFileParameters && parameter.IsFileOrValue && parameter.FileSuffix != null)
+            {
+                result.Add(parameter.Name + parameter.FileSuffix);
+            }
+        }
+        return result;
+    }
+
+    private static string BuildStringArrayExpression(List<string> values)
+    {
+        if (values.Count == 0)
+            return "System.Array.Empty<string>()";
+
+        return $"new[] {{ {string.Join(", ", values.Select(value => $"\"{value}\""))} }}";
+    }
+
+    private static void GenerateRouteFromSettings(StringBuilder sb, ServiceInfo info, List<ExposedParameter> allExposedParams)
+    {
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Routes a CLI action using CliSettings (bridges Settings → RouteCliArgs).");
+        sb.AppendLine("        /// Used by generated CLI command classes.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static (string Command, object? Args) RouteFromSettings(string action, CliSettings settings)");
+        sb.AppendLine("        {");
+        if (allExposedParams.Count > 0)
+        {
+            sb.AppendLine("            ValidateActionParameters(");
+            sb.AppendLine("                action,");
+            sb.AppendLine("                ServiceRegistry.GetSuppliedParameterNames(");
+            for (int i = 0; i < allExposedParams.Count; i++)
+            {
+                var parameter = allExposedParams[i];
+                var comma = i < allExposedParams.Count - 1 ? "," : "),";
+                sb.AppendLine(
+                    $"                    (\"{parameter.Name}\", settings.{StringHelper.ToPascalCase(parameter.Name)}){comma}");
+            }
+            sb.AppendLine("                allowFileParameters: true);");
+        }
+        sb.AppendLine("            return RouteCliArgs(");
+        sb.AppendLine("                action,");
+
+        for (int i = 0; i < allExposedParams.Count; i++)
+        {
+            var p = allExposedParams[i];
+            var comma = i < allExposedParams.Count - 1 ? "," : ");";
+            var parameterInfo = FindParameterInfo(info, p.Name);
+
+            if (parameterInfo is { IsEnum: true, IsFromString: false })
+            {
+                var enumType = parameterInfo.EnumTypeName ?? parameterInfo.TypeName.TrimEnd('?');
+                sb.AppendLine(
+                    $"                {p.Name}: !string.IsNullOrEmpty(settings.{StringHelper.ToPascalCase(p.Name)}) ? ({enumType}?)ServiceRegistry.ParseEnumValue<{enumType}>(settings.{StringHelper.ToPascalCase(p.Name)}, default, \"{p.Name}\"{BuildEnumAliasArguments(parameterInfo)}) : null{comma}");
+            }
+            else if (IsNestedCollectionType(p.TypeName))
+            {
+                // CLI Settings stores nested collections as string (JSON).
+                // Deserialize back to the original type for RouteCliArgs.
+                // Uses DeserializeNestedCollection which auto-wraps 1D arrays to 2D
+                // (e.g., ["a","b"] → [["a","b"]]) for better LLM compatibility.
+                var nonNullableType = p.TypeName.TrimEnd('?');
+                sb.AppendLine($"                {p.Name}: !string.IsNullOrWhiteSpace(settings.{StringHelper.ToPascalCase(p.Name)}) ? ServiceRegistry.DeserializeNestedCollection<{nonNullableType}>(settings.{StringHelper.ToPascalCase(p.Name)}) : null{comma}");
+            }
+            else if (IsSimpleListType(p.TypeName))
+            {
+                // CLI Settings stores simple lists as string (JSON) for LLM compatibility.
+                // LLMs pass JSON arrays (e.g., '["a","b"]') instead of repeated CLI flags.
+                // Deserialize back to the original type for RouteCliArgs.
+                var nonNullableType = p.TypeName.TrimEnd('?');
+                sb.AppendLine($"                {p.Name}: !string.IsNullOrWhiteSpace(settings.{StringHelper.ToPascalCase(p.Name)}) ? ServiceRegistry.DeserializeList<{nonNullableType}>(settings.{StringHelper.ToPascalCase(p.Name)}) : null{comma}");
+            }
+            else if (parameterInfo is { IsJsonObject: true })
+            {
+                var nonNullableType = p.TypeName.TrimEnd('?');
+                sb.AppendLine($"                {p.Name}: !string.IsNullOrWhiteSpace(settings.{StringHelper.ToPascalCase(p.Name)}) ? ServiceRegistry.DeserializeObject<{nonNullableType}>(settings.{StringHelper.ToPascalCase(p.Name)}, \"{p.Name}\") : null{comma}");
+            }
+            else
+            {
+                sb.AppendLine($"                {p.Name}: settings.{StringHelper.ToPascalCase(p.Name)}{comma}");
+            }
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Detects nested collection types (e.g., List&lt;List&lt;object&gt;&gt;) that cannot be
+    /// parsed by Spectre.Console from CLI arguments. These are emitted as string? in CLI Settings
+    /// and deserialized from JSON in RouteFromSettings.
+    /// </summary>
+    private static bool IsNestedCollectionType(string typeName)
+    {
+        // Check for List<List<...>> pattern (possibly with global:: prefix and namespace qualifiers)
+        var idx = typeName.IndexOf("List<", StringComparison.Ordinal);
+        if (idx < 0) return false;
+        var afterFirst = typeName.IndexOf("List<", idx + 5, StringComparison.Ordinal);
+        return afterFirst >= 0;
+    }
+
+    /// <summary>
+    /// Detects simple list types (e.g., List&lt;string&gt;) that are NOT nested collections.
+    /// LLMs often pass JSON arrays (e.g., '["a","b"]') instead of repeated CLI flags
+    /// (--flag a --flag b), so these are emitted as string? in CLI Settings and deserialized
+    /// from JSON in RouteFromSettings.
+    /// </summary>
+    private static bool IsSimpleListType(string typeName)
+    {
+        return !IsNestedCollectionType(typeName) &&
+               typeName.IndexOf("List<", StringComparison.Ordinal) >= 0;
+    }
+
+    private static bool IsTimeSpanType(string typeName)
+    {
+        return typeName.IndexOf("TimeSpan", StringComparison.Ordinal) >= 0;
+    }
+
+    private static void GenerateCliSettings(StringBuilder sb, ServiceInfo info, List<ExposedParameter> allParams)
+    {
+        // Note: These types require Spectre.Console reference in consuming project
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine($"        /// Generated CLI settings for {info.CategoryPascal} commands.");
+        sb.AppendLine("        /// Requires Spectre.Console package reference.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public sealed class CliSettings : Spectre.Console.Cli.CommandSettings");
+        sb.AppendLine("        {");
+
+        // Action argument (always first)
+        sb.AppendLine("            [Spectre.Console.Cli.CommandArgument(0, \"<ACTION>\")]");
+        var availableActions = string.Join(", ", info.Methods.Select(method => method.ActionName));
+        sb.AppendLine($"            [System.ComponentModel.Description(\"The action to perform. Available actions: {availableActions}\")]");
+        sb.AppendLine("            public string Action { get; init; } = string.Empty;");
+        sb.AppendLine();
+
+        // Session ID (always required for session-based tools)
+        if (!info.NoSession)
+        {
+            sb.AppendLine("            [Spectre.Console.Cli.CommandOption(\"-s|--session <SESSION>\")]");
+            sb.AppendLine("            [System.ComponentModel.Description(\"Session ID from 'session open' command\")]");
+            sb.AppendLine("            public string SessionId { get; init; } = string.Empty;");
+            sb.AppendLine();
+        }
+
+        // Generate all exposed parameters
+        foreach (var p in allParams)
+        {
+            var optionName = StringHelper.ToKebabCase(p.Name);
+            var description = p.DescriptionWithRequired ?? StringHelper.GetParameterDescription(p.Name);
+            var escapedDescription = description
+                .Replace("[", "[[").Replace("]", "]]") // Escape Spectre.Console markup characters
+                .Replace("\"", "\\\"").Replace("\n", " ");
+            var valuePlaceholder = p.Name.ToUpperInvariant();
+
+            // Collection types (List<T>, List<List<T>>) are emitted as string? so CLI accepts
+            // raw JSON. LLMs pass JSON arrays instead of repeated CLI flags.
+            // Deserialized back to the original type in RouteFromSettings.
+            var isCollectionForJson = IsNestedCollectionType(p.TypeName) || IsSimpleListType(p.TypeName);
+            var parameterInfo = FindParameterInfo(info, p.Name);
+            var isJsonParameter = isCollectionForJson || parameterInfo is { IsJsonObject: true };
+            var isTimeoutSeconds = parameterInfo != null && IsTimeSpanType(parameterInfo.TypeName);
+            var cliTypeName = isJsonParameter ||
+                              parameterInfo is { IsEnum: true, IsFromString: false }
+                ? "string?"
+                : p.TypeName;
+            if (isJsonParameter && !escapedDescription.Contains("JSON"))
+                escapedDescription += " (JSON format)";
+            if (isTimeoutSeconds && escapedDescription.IndexOf("seconds", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                var minimumSeconds = info.Category is "powerquery" or "workbook" ? 0 : 1;
+                escapedDescription += $" Whole seconds only; range {minimumSeconds}-2147483.";
+            }
+
+            sb.AppendLine($"            [Spectre.Console.Cli.CommandOption(\"--{optionName} <{valuePlaceholder}>\")]");
+            sb.AppendLine($"            [System.ComponentModel.Description(\"{escapedDescription}\")]");
+            sb.AppendLine($"            public {cliTypeName} {StringHelper.ToPascalCase(p.Name)} {{ get; init; }}");
+            sb.AppendLine();
+        }
+
+        // Output path option (available on all commands)
+        sb.AppendLine("            [Spectre.Console.Cli.CommandOption(\"-o|--output <PATH>\")]");
+        sb.AppendLine("            [System.ComponentModel.Description(\"Write output to file instead of stdout. For image results, decodes and saves as binary file.\")]");
+        sb.AppendLine("            public string? OutputPath { get; init; }");
+        sb.AppendLine();
+
+        sb.AppendLine("        }");
+    }
+
+    private static ParameterInfo? FindParameterInfo(ServiceInfo info, string exposedName)
+    {
+        return info.Methods
+            .SelectMany(method => method.Parameters)
+            .FirstOrDefault(parameter =>
+                string.Equals(
+                    parameter.ExposedName ?? parameter.Name,
+                    exposedName,
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildCliArgsExpression(MethodInfo method)
+    {
+        if (method.Parameters.Count == 0)
+            return "null";
+
+        var props = new List<string>();
+        foreach (var p in method.Parameters)
+        {
+            if (p.IsFileOrValue)
+            {
+                var fileValueJsonName = char.ToLowerInvariant(p.Name[0]) + p.Name.Substring(1);
+                props.Add($"{fileValueJsonName} = {p.Name}");
+                props.Add($"{fileValueJsonName}{p.FileSuffix} = {p.Name}{p.FileSuffix}");
+                continue;
+            }
+
+            string valueName;
+            if (p.ExposedName != null)
+            {
+                // CLI passes string directly to service using exposed name
+                valueName = p.ExposedName;
+            }
+            else
+            {
+                valueName = p.Name;
+            }
+
+            // Use ExposedName for JSON property names when FromString specifies alternate name
+            var propName = p.ExposedName ?? p.Name;
+            var jsonName = char.ToLowerInvariant(propName[0]) + propName.Substring(1);
+            props.Add($"{jsonName} = {valueName}");
+        }
+
+        return $"new {{ {string.Join(", ", props)} }}";
+    }
+
+    private static void GenerateForwardMethod(StringBuilder sb, ServiceInfo info, MethodInfo method)
+    {
+        sb.AppendLine($"        /// <summary>Forward method for {method.ActionName} action</summary>");
+
+        // Build parameter list - Core params might need transforms
+        var methodParams = new List<string> { "string sessionId", "System.Func<string, string, object?, TResult> forwardToService" };
+
+        foreach (var p in method.Parameters)
+        {
+            if (p.IsFileOrValue)
+            {
+                // Expose both value and file params
+                methodParams.Add($"string? {p.Name} = null");
+                methodParams.Add($"string? {p.Name}{p.FileSuffix} = null");
+            }
+            else if (IsTimeSpanType(p.TypeName))
+            {
+                var defaultStr = p.HasDefault ? " = null" : "";
+                methodParams.Add($"int? {p.ExposedName ?? p.Name}{defaultStr}");
+            }
+            else if (p.IsFromString && p.IsEnum)
+            {
+                // Expose as string
+                var exposedName = p.ExposedName ?? p.Name;
+                var defaultStr = p.HasDefault ? " = null" : "";
+                methodParams.Add($"string? {exposedName}{defaultStr}");
+            }
+            else
+            {
+                // Keep as-is
+                var defaultStr = p.HasDefault ? $" = {p.DefaultValue}" : "";
+                // Make nullable if not already
+                var typeName = p.TypeName.EndsWith("?") ? p.TypeName : $"{p.TypeName}?";
+                methodParams.Add($"{typeName} {p.ExposedName ?? p.Name}{defaultStr}");
+            }
+        }
+
+        sb.AppendLine($"        public static TResult Forward{method.MethodName}<TResult>({string.Join(", ", methodParams)})");
+        sb.AppendLine("        {");
+
+        // FromString enum parameters are passed as-is to the service (service does parsing).
+        foreach (var p in method.Parameters)
+        {
+            if (p.IsFromString && p.IsEnum)
+            {
+                var exposedName = p.ExposedName ?? p.Name;
+                GenerateEnumValidationStatement(sb, p, exposedName, exposedName, "            ");
+            }
+            else if (p.IsEnum)
+            {
+                GenerateTypedEnumValidationStatement(sb, p, p.Name, p.Name, "            ");
+            }
+        }
+
+        GenerateTimeoutValidation(sb, info, method, "            ");
+        GenerateRequiredParameterValidation(sb, method, "            ", includeFileOrValue: false);
+
+        // Build the request object - always use method-specific command constant
+        if (method.Parameters.Count == 0)
+        {
+            sb.AppendLine($"            return forwardToService({method.MethodName}Command, sessionId, null);");
+        }
+        else
+        {
+            sb.AppendLine($"            return forwardToService({method.MethodName}Command, sessionId, new");
+            sb.AppendLine("            {");
+            foreach (var p in method.Parameters)
+            {
+                if (p.IsFileOrValue)
+                {
+                    sb.AppendLine($"                {StringHelper.ToPascalCase(p.Name)} = {p.Name},");
+                    sb.AppendLine($"                {StringHelper.ToPascalCase(p.Name)}{p.FileSuffix} = {p.Name}{p.FileSuffix},");
+                    continue;
+                }
+
+                string valueExpr;
+                if (p.ExposedName != null)
+                {
+                    // FromString parameters: pass the exposed name (raw string) to service
+                    valueExpr = p.ExposedName;
+                }
+                else
+                {
+                    valueExpr = p.Name;
+                }
+                // Use ExposedName for property name when FromString attribute specifies an alternate name
+                var propertyName = p.ExposedName ?? p.Name;
+                sb.AppendLine($"                {StringHelper.ToPascalCase(propertyName)} = {valueExpr},");
+            }
+            sb.AppendLine("            });");
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    private static void GenerateEnumValidationStatement(
+        StringBuilder sb,
+        ParameterInfo parameter,
+        string valueExpression,
+        string exposedName,
+        string indent)
+    {
+        var enumType = parameter.EnumTypeName ?? parameter.TypeName.TrimEnd('?');
+        var defaultExpression = parameter.HasDefault &&
+                                parameter.DefaultValue != null &&
+                                parameter.DefaultValue != "null"
+            ? parameter.DefaultValue
+            : $"default({enumType})";
+        var parseCall =
+            $"ServiceRegistry.ParseEnumValue<{enumType}>({valueExpression}, {defaultExpression}, \"{exposedName}\"{BuildEnumAliasArguments(parameter)})";
+
+        if (parameter.TypeName.EndsWith("?"))
+        {
+            sb.AppendLine($"{indent}if (!string.IsNullOrEmpty({valueExpression}))");
+            sb.AppendLine($"{indent}    _ = {parseCall};");
+        }
+        else
+        {
+            sb.AppendLine($"{indent}_ = {parseCall};");
+        }
+    }
+
+    private static string BuildEnumAliasArguments(ParameterInfo parameter)
+    {
+        if (parameter.EnumAliases.Count == 0 || parameter.EnumTypeName == null)
+            return string.Empty;
+
+        return ", " + string.Join(
+            ", ",
+            parameter.EnumAliases.Select(alias =>
+                $"(\"{EscapeStringLiteral(alias.Alias)}\", {parameter.EnumTypeName}.{alias.MemberName})"));
+    }
+
+    private static void GenerateTypedEnumValidationStatement(
+        StringBuilder sb,
+        ParameterInfo parameter,
+        string valueExpression,
+        string parameterName,
+        string indent)
+    {
+        var enumType = parameter.EnumTypeName ?? parameter.TypeName.TrimEnd('?');
+        sb.AppendLine($"{indent}ServiceRegistry.ValidateEnumValue<{enumType}>({valueExpression}, \"{parameterName}\");");
+    }
+
+    private static string EscapeStringLiteral(string value)
+    {
+        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
+    private static void GenerateRequiredParameterValidation(
+        StringBuilder sb,
+        MethodInfo method,
+        string indent,
+        bool includeFileOrValue = true)
+    {
+        var requiredParameters = method.Parameters
+            .Where(p =>
+                IsRequiredParameter(p) &&
+                !p.AllowsEmptyString &&
+                ((includeFileOrValue && p.IsFileOrValue) ||
+                 (!p.IsFileOrValue && StringHelper.IsStringType(p.TypeName)) ||
+                 (p.IsFromString && p.IsEnum)))
+            .ToList();
+
+        if (requiredParameters.Count > 0)
+        {
+            sb.AppendLine($"{indent}Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.RequireAllNotEmpty(\"{method.ActionName}\",");
+            for (int i = 0; i < requiredParameters.Count; i++)
+            {
+                var parameter = requiredParameters[i];
+                var parameterName = parameter.IsFromString && parameter.IsEnum
+                    ? parameter.ExposedName ?? parameter.Name
+                    : parameter.Name;
+                var valueExpression = parameter.IsFileOrValue
+                    ? $"resolved{StringHelper.ToPascalCase(parameter.Name)}"
+                    : parameterName;
+                var comma = i < requiredParameters.Count - 1 ? "," : ");";
+                sb.AppendLine($"{indent}    ({valueExpression}, \"{parameterName}\"){comma}");
+            }
+        }
+
+        foreach (var parameter in method.Parameters.Where(p =>
+                     IsRequiredParameter(p) &&
+                     p.AllowsEmptyString))
+        {
+            var parameterName = parameter.ExposedName ?? parameter.Name;
+            sb.AppendLine($"{indent}if ({parameterName} is null)");
+            sb.AppendLine(
+                $"{indent}    throw new System.ArgumentException(\"{parameterName} is required for {method.ActionName} action.\", \"{parameterName}\");");
+        }
+
+        foreach (var parameter in method.Parameters.Where(p =>
+                     IsRequiredParameter(p) &&
+                     !p.IsFileOrValue &&
+                     !StringHelper.IsStringType(p.TypeName) &&
+                     !(p.IsFromString && p.IsEnum)))
+        {
+            var parameterName = parameter.ExposedName ?? parameter.Name;
+            sb.AppendLine($"{indent}if ({parameterName} is null)");
+            sb.AppendLine(
+                $"{indent}    throw new System.ArgumentException(\"{parameterName} is required for {method.ActionName} action.\", \"{parameterName}\");");
+        }
+
+        foreach (var parameter in method.Parameters.Where(p =>
+                     p.IsEnum &&
+                     !p.IsFromString &&
+                     IsRequiredParameter(p)))
+        {
+            sb.AppendLine($"{indent}if (!{parameter.Name}.HasValue)");
+            sb.AppendLine($"{indent}    throw new System.ArgumentException(\"{parameter.Name} is required for {method.ActionName} action.\", \"{parameter.Name}\");");
+        }
+    }
+
+    private static bool IsRequiredParameter(ParameterInfo parameter)
+        => parameter.RequiresValue;
+
+    private static void GenerateArgsClass(StringBuilder sb, MethodInfo method)
+    {
+        if (method.Parameters.Count == 0)
+            return;
+
+        sb.AppendLine($"        /// <summary>Generated args class for {method.ActionName} deserialization</summary>");
+        sb.AppendLine($"        public sealed class {method.MethodName}Args");
+        sb.AppendLine("        {");
+        foreach (var p in method.Parameters)
+        {
+            // Property name must match what Forward methods and BuildCliArgsExpression produce
+            var propertyName = p.ExposedName ?? p.Name;
+            var pascalName = StringHelper.ToPascalCase(propertyName);
+            var argsType = MakeArgsPropertyType(p);
+            sb.AppendLine($"            public {argsType} {pascalName} {{ get; set; }}");
+            if (p.IsFileOrValue)
+            {
+                sb.AppendLine(
+                    $"            public string? {StringHelper.ToPascalCase(p.Name)}{p.FileSuffix} {{ get; set; }}");
+            }
+        }
+        sb.AppendLine("        }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Determines the property type for an args class.
+    /// IsFromString/IsFileOrValue/IsEnum params are always string? (service does parsing).
+    /// All other types are made nullable.
+    /// </summary>
+    private static string MakeArgsPropertyType(ParameterInfo p)
+        => p.ServiceTypeName;
+
+    private static List<ExposedParameter> GetAllExposedParameters(ServiceInfo info)
+        => ServiceInfoExtractor.GetAllExposedParameters(info);
+
+    private static string BuildForwardArgs(MethodInfo method, List<ExposedParameter> allParams)
+    {
+        if (method.Parameters.Count == 0)
+            return "";
+
+        var args = new List<string>();
+        foreach (var p in method.Parameters)
+        {
+            if (p.IsFileOrValue)
+            {
+                args.Add(p.Name);
+                args.Add($"{p.Name}{p.FileSuffix}");
+            }
+            else if (p.IsFromString && p.IsEnum)
+            {
+                args.Add(p.ExposedName ?? p.Name);
+            }
+            else
+            {
+                args.Add(p.ExposedName ?? p.Name);
+            }
+        }
+
+        return ", " + string.Join(", ", args);
+    }
+
+    private static string GenerateComparisonFile(ServiceInfo info)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("// This file is for COMPARISON ONLY - shows what the generator produces");
+        sb.AppendLine("// Compare against existing manual code to validate generation is correct");
+        sb.AppendLine();
+        sb.AppendLine($"/*");
+        sb.AppendLine($"GENERATED FROM: I{info.CategoryPascal}Commands");
+        sb.AppendLine($"CATEGORY: {info.Category}");
+        sb.AppendLine($"MCP TOOL: {info.McpToolName}");
+        sb.AppendLine($"REQUIRES SESSION: {!info.NoSession}");
+        sb.AppendLine();
+        sb.AppendLine("METHODS:");
+
+        foreach (var method in info.Methods)
+        {
+            sb.AppendLine($"  {method.MethodName}()");
+            sb.AppendLine($"    -> action: \"{method.ActionName}\"");
+            sb.AppendLine($"    -> command: \"{info.Category}.{method.ActionName}\"");
+            sb.AppendLine($"    -> returns: {method.ReturnType}");
+            if (method.Parameters.Count > 0)
+            {
+                sb.AppendLine($"    -> params:");
+                foreach (var p in method.Parameters)
+                {
+                    var defaultStr = p.HasDefault ? $" = {p.DefaultValue}" : "";
+                    sb.AppendLine($"         {p.TypeName} {p.Name}{defaultStr}");
+                }
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("EXPECTED MCP SWITCH CASES:");
+        foreach (var method in info.Methods)
+        {
+            var enumValue = method.MethodName;
+            if (method.Parameters.Count > 0)
+            {
+                sb.AppendLine($"  PowerQueryAction.{enumValue} => Forward{method.MethodName}(sessionId, ...),");
+            }
+            else
+            {
+                sb.AppendLine($"  PowerQueryAction.{enumValue} => ExcelToolsBase.ForwardToService(\"{info.Category}.{method.ActionName}\", sessionId),");
+            }
+        }
+        sb.AppendLine();
+
+        sb.AppendLine("EXPECTED CLI ARGS MAPPING:");
+        foreach (var method in info.Methods)
+        {
+            if (method.Parameters.Count > 0)
+            {
+                var args = string.Join(", ", method.Parameters.Select(p => $"{p.Name} = settings.{StringHelper.ToPascalCase(p.Name)}"));
+                sb.AppendLine($"  \"{method.ActionName}\" => new {{ {args} }},");
+            }
+            else
+            {
+                sb.AppendLine($"  \"{method.ActionName}\" => null,");
+            }
+        }
+
+        sb.AppendLine("*/");
+
+        return sb.ToString();
+    }
+
+    private static string GenerateContractRegistry(List<ServiceInfo> categories)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#pragma warning disable CS1591 // Generated action members inherit their source contract documentation.");
+        sb.AppendLine();
+        sb.AppendLine("namespace Sbroenne.ExcelMcp.Generated;");
+        sb.AppendLine();
+        sb.AppendLine("public static partial class ServiceRegistry");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>Action input contracts shared by generated MCP tools.</summary>");
+        sb.AppendLine("    public static (string Name, bool Required, bool AllowsEmpty, string? Alternative)[] GetMcpActionParameters(string tool, string action)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return (tool, action) switch");
+        sb.AppendLine("        {");
+        foreach (var category in categories)
+        {
+            foreach (var method in category.Methods)
+            {
+                var parameters = ServiceInfoExtractor.GetAllExposedParameters(category)
+                    .Where(parameter => parameter.ApplicableByActions.Contains(method.ActionName))
+                    .Select(parameter =>
+                    {
+                        var original = method.Parameters.FirstOrDefault(p =>
+                            (p.ExposedName ?? p.Name) == parameter.Name);
+                        var required = parameter.RequiredByActions.Contains(method.ActionName);
+                        var alternative = original?.IsFileOrValue == true && required
+                            ? $"\"{StringHelper.ToSnakeCase(original.Name + original.FileSuffix)}\""
+                            : "null";
+                        return $"(\"{StringHelper.ToSnakeCase(parameter.Name)}\", {required.ToString().ToLowerInvariant()}, {(original?.AllowsEmptyString == true).ToString().ToLowerInvariant()}, {alternative})";
+                    }).ToList();
+                parameters.Insert(0, "(\"action\", true, false, null)");
+                if (!category.NoSession && method.HasBatchParameter)
+                    parameters.Insert(1, "(\"workbook_session_id\", true, false, null)");
+                var toolName = method.McpTool;
+                sb.AppendLine($"            (\"{toolName}\", \"{method.ActionName}\") => new (string, bool, bool, string?)[] {{ {string.Join(", ", parameters)} }},");
+            }
+        }
+        sb.AppendLine("            _ => throw new System.ArgumentException($\"Unknown contract: {tool}.{action}.\")");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Validates a service command before transport dispatch.</summary>");
+        sb.AppendLine("    public static void ValidateCommandArguments(string command, string? argsJson)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var parts = command.Split('.', 2);");
+        sb.AppendLine("        if (parts[0] == \"session\") return;");
+        sb.AppendLine("        if (parts[0] == \"service\")");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var parameters = GetJsonPropertyNames(argsJson, includeNullValues: true);");
+        sb.AppendLine("            if (parameters.Count > 0)");
+        sb.AppendLine("                throw new System.ArgumentException($\"Unknown parameter(s) for {command}: {string.Join(\", \", parameters)}. Valid parameters: none.\");");
+        sb.AppendLine("            return;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        if (!ValidActionsByCategory.TryGetValue(parts[0], out var validActions))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var validGroups = string.Join(\", \", System.Linq.Enumerable.Order(System.Linq.Enumerable.Concat(ValidActionsByCategory.Keys, new[] { \"session\", \"service\" }), System.StringComparer.Ordinal));");
+        sb.AppendLine("            throw new System.ArgumentException($\"Unknown command group '{parts[0]}'. Valid groups: {validGroups}.\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("        if (parts.Length != 2 || !validActions.Contains(parts[1], System.StringComparer.OrdinalIgnoreCase))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var suppliedAction = parts.Length == 2 ? parts[1] : string.Empty;");
+        sb.AppendLine("            throw new System.ArgumentException($\"Unknown action '{suppliedAction}' for command group '{parts[0]}'. Valid actions: {string.Join(\", \", validActions)}.\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("        switch (parts[0].ToLowerInvariant())");
+        sb.AppendLine("        {");
+        foreach (var category in categories.OrderBy(category => category.Category, StringComparer.Ordinal))
+        {
+            sb.AppendLine($"            case \"{category.Category}\":");
+            sb.AppendLine($"                {category.CategoryPascal}.ValidateActionArguments(parts[1], argsJson);");
+            sb.AppendLine("                return;");
+        }
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Valid actions of every generated service command category.</summary>");
+        sb.AppendLine("    public static readonly System.Collections.Generic.IReadOnlyDictionary<string, System.Collections.Generic.IReadOnlyList<string>> ValidActionsByCategory =");
+        sb.AppendLine("        new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IReadOnlyList<string>>(System.StringComparer.OrdinalIgnoreCase)");
+        sb.AppendLine("        {");
+        foreach (var category in categories.OrderBy(category => category.Category, StringComparer.Ordinal))
+        {
+            sb.AppendLine($"            [\"{category.Category}\"] = {category.CategoryPascal}.ValidActions,");
+        }
+        sb.AppendLine("        };");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Checks Excel edit access for workbook-changing Service requests.</summary>");
+        sb.AppendLine("    public static void ValidateWorkbookWriteAccess(string command, Sbroenne.ExcelMcp.ComInterop.Session.IExcelBatch batch, string? argsJson)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (command.ToLowerInvariant())");
+        sb.AppendLine("        {");
+        var writeActions = categories
+            .SelectMany(category => category.Methods
+                .Where(method => RequiresWritableWorkbook(category, method))
+                .Select(method => (Category: category, Method: method)))
+            .OrderBy(action => $"{action.Category.Category}.{action.Method.ActionName}", StringComparer.Ordinal)
+            .ToList();
+        foreach (var action in writeActions.Where(action =>
+                     action.Method.Parameters.Any(parameter => parameter.Name == "filePath")))
+        {
+            sb.AppendLine($"            case \"{action.Category.Category}.{action.Method.ActionName}\":");
+            sb.AppendLine($"                Sbroenne.ExcelMcp.Core.Utilities.WorkbookAccessGuard.EnsureWritable(batch, DeserializeArgs<{action.Category.CategoryPascal}.{action.Method.MethodName}Args>(argsJson).FilePath);");
+            sb.AppendLine("                return;");
+        }
+        var primaryWorkbookActions = writeActions.Where(action =>
+            action.Method.Parameters.All(parameter => parameter.Name != "filePath")).ToList();
+        foreach (var action in primaryWorkbookActions)
+        {
+            sb.AppendLine($"            case \"{action.Category.Category}.{action.Method.ActionName}\":");
+        }
+        if (primaryWorkbookActions.Count > 0)
+        {
+            sb.AppendLine("                Sbroenne.ExcelMcp.Core.Utilities.WorkbookAccessGuard.EnsureWritable(batch);");
+            sb.AppendLine("                return;");
+        }
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        return sb.ToString();
+    }
+
+    // Save As/copy/export defer output permissions to Excel; application and
+    // window controls do not require editing the workbook. Native inspection can
+    // change the saved flag, but does not require workbook edit access.
+    private static bool RequiresWritableWorkbook(ServiceInfo info, MethodInfo method) =>
+        !info.NoSession && method.HasBatchParameter && !method.McpToolReadOnly &&
+        info.Category is not ("window" or "screenshot") &&
+        (info.Category != "calculationmode" || method.ActionName == "set-precision") &&
+        (info.Category != "chart" || method.ActionName != "export-image") &&
+        (info.Category != "workbook" || method.ActionName is not ("save-as" or "save-copy-as" or "export-fixed-format" or "inspect-document"));
+
+    private static string GenerateCliManifest(List<ServiceInfo> categories)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#pragma warning disable CS1591 // Missing XML comment");
+        sb.AppendLine();
+        sb.AppendLine("namespace Sbroenne.ExcelMcp.Generated;");
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>");
+        sb.AppendLine("/// CLI category metadata generated from [ServiceCategory] interfaces.");
+        sb.AppendLine("/// Used by CLI commands (ListActionsCommand) and the CliSettingsGenerator.");
+        sb.AppendLine("/// </summary>");
+        sb.AppendLine("public static class _CliCategoryMetadata");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>List of all CLI command categories and their ServiceRegistry type names.</summary>");
+        sb.AppendLine("    public static readonly (string CliCommandName, string RegistryTypeName, bool RequiresSession)[] Categories = new[]");
+        sb.AppendLine("    {");
+
+        foreach (var cat in categories.OrderBy(c => c.CategoryPascal))
+        {
+            var cliCommandName = cat.Category;
+            sb.AppendLine($"        (\"{cliCommandName}\", \"ServiceRegistry.{cat.CategoryPascal}\", {(cat.NoSession ? "false" : "true")}),");
+        }
+
+        sb.AppendLine("    };");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Maps CLI command names to their valid actions. Generated from [ServiceCategory] interfaces.</summary>");
+        sb.AppendLine("    public static readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.IReadOnlyList<string>> ValidActionsByCommand = new()");
+        sb.AppendLine("    {");
+
+        foreach (var cat in categories.OrderBy(c => c.CategoryPascal))
+        {
+            var cliCommandName = cat.Category;
+            sb.AppendLine($"        [\"{cliCommandName}\"] = ServiceRegistry.{cat.CategoryPascal}.ValidActions,");
+        }
+
+        sb.AppendLine("    };");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Maps CLI commands and actions to their applicable parameters.</summary>");
+        sb.AppendLine("    public static readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string[]>> ActionParametersByCommand = new(System.StringComparer.OrdinalIgnoreCase)");
+        sb.AppendLine("    {");
+        foreach (var cat in categories.OrderBy(c => c.CategoryPascal))
+        {
+            var cliCommandName = cat.Category;
+            sb.AppendLine($"        [\"{cliCommandName}\"] = new(System.StringComparer.OrdinalIgnoreCase)");
+            sb.AppendLine("        {");
+            foreach (var method in cat.Methods)
+            {
+                var parameters = GetActionParameterNames(method, includeFileParameters: true);
+                sb.AppendLine($"            [\"{method.ActionName}\"] = {BuildStringArrayExpression(parameters)},");
+            }
+            sb.AppendLine("        },");
+        }
+        sb.AppendLine("    };");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Maps CLI commands and actions to their Core method documentation.</summary>");
+        sb.AppendLine("    public static readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>> ActionDescriptionsByCommand = new(System.StringComparer.OrdinalIgnoreCase)");
+        sb.AppendLine("    {");
+        foreach (var cat in categories.OrderBy(c => c.CategoryPascal))
+        {
+            sb.AppendLine($"        [\"{cat.Category}\"] = new(System.StringComparer.OrdinalIgnoreCase)");
+            sb.AppendLine("        {");
+            foreach (var method in cat.Methods)
+            {
+                var description = Microsoft.CodeAnalysis.CSharp.SymbolDisplay.FormatLiteral(
+                    method.XmlDocSummary ?? string.Empty, quote: true);
+                sb.AppendLine($"            [\"{method.ActionName}\"] = {description},");
+            }
+            sb.AppendLine("        },");
+        }
+        sb.AppendLine("    };");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Generates the command manifest used by documentation count validation.
+    /// </summary>
+    private static string GenerateSkillManifest(List<ServiceInfo> categories)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#pragma warning disable CS1591 // Missing XML comment");
+        sb.AppendLine();
+        sb.AppendLine("namespace Sbroenne.ExcelMcp.Generated;");
+        sb.AppendLine();
+        sb.AppendLine("/// <summary>");
+        sb.AppendLine("/// JSON command manifest for documentation count validation.");
+        sb.AppendLine("/// </summary>");
+        sb.AppendLine("internal static class _SkillManifest");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>JSON manifest of all commands and their actions.</summary>");
+        sb.AppendLine("    public const string Json = @\"");
+
+        // Build JSON manually (no System.Text.Json in source generators)
+        sb.AppendLine("{");
+        sb.AppendLine("  \"\"commands\"\": [");
+
+        var orderedCategories = categories.OrderBy(c => c.CategoryPascal).ToList();
+        for (int i = 0; i < orderedCategories.Count; i++)
+        {
+            var cat = orderedCategories[i];
+            var actions = string.Join(", ", cat.Methods.Select(m => $"\"\"{m.ActionName}\"\""));
+            sb.Append($"    {{ \"\"name\"\": \"\"{cat.Category}\"\", \"\"actions\"\": [{actions}] }}");
+            sb.AppendLine(i < orderedCategories.Count - 1 ? "," : "");
+        }
+
+        sb.AppendLine("  ],");
+        sb.AppendLine($"  \"\"totalCommands\"\": {orderedCategories.Count},");
+        sb.AppendLine($"  \"\"totalOperations\"\": {orderedCategories.Sum(c => c.Methods.Count)}");
+        sb.AppendLine("}\";");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    // NOTE: Data models (ServiceInfo, MethodInfo, ParameterInfo) are now in
+    // ExcelMcp.Generators.Shared and included as source files
+
+    // =====================================================
+    // Service Dispatch Generation
+    // =====================================================
+
+    /// <summary>
+    /// Generates the shared dispatch helper methods (DeserializeArgs, ParseEnumValue, DispatchJsonOptions).
+    /// Emitted once as ServiceRegistry.DispatchHelpers.g.cs.
+    /// </summary>
+    private static string GenerateDispatchHelpers()
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#pragma warning disable CS1591 // Generated action members inherit their source contract documentation.");
+        sb.AppendLine();
+        sb.AppendLine("namespace Sbroenne.ExcelMcp.Generated;");
+        sb.AppendLine();
+        sb.AppendLine("public static partial class ServiceRegistry");
+        sb.AppendLine("{");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// JSON options for service dispatch serialization.");
+        sb.AppendLine("    /// Matches ServiceProtocol.JsonOptions (CamelCase, ignore nulls, string enums).");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    internal static readonly System.Text.Json.JsonSerializerOptions DispatchJsonOptions = new()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,");
+        sb.AppendLine("        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,");
+        sb.AppendLine("        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }");
+        sb.AppendLine("    };");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Deserializes args JSON into a typed class. Returns new instance if JSON is null/empty.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public static T DeserializeArgs<T>(string? argsJson) where T : class, new()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (string.IsNullOrEmpty(argsJson)) return new T();");
+        sb.AppendLine("        return System.Text.Json.JsonSerializer.Deserialize<T>(argsJson, DispatchJsonOptions) ?? new T();");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Requires a named raw JSON argument to be present as a string; the empty string is valid.</summary>");
+        sb.AppendLine("    public static void RequireJsonStringArgument(string? argsJson, string parameterName, string action)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        using var document = System.Text.Json.JsonDocument.Parse(argsJson ?? \"{}\");");
+        sb.AppendLine("        if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object");
+        sb.AppendLine("            || !document.RootElement.TryGetProperty(parameterName, out var value)");
+        sb.AppendLine("            || value.ValueKind != System.Text.Json.JsonValueKind.String)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            throw new System.ArgumentException(");
+        sb.AppendLine("                $\"{parameterName} is required as a JSON string for {action} action.\",");
+        sb.AppendLine("                parameterName);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Parses an enum value from a string with kebab-case, snake_case, and explicit alias support.");
+        sb.AppendLine("    /// Returns defaultValue only when the value is omitted; unknown supplied values are rejected.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public static T ParseEnumValue<T>(");
+        sb.AppendLine("        string? value,");
+        sb.AppendLine("        T defaultValue,");
+        sb.AppendLine("        string parameterName,");
+        sb.AppendLine("        params (string Alias, T Value)[] aliases) where T : struct, System.Enum");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (string.IsNullOrEmpty(value)) return defaultValue;");
+        sb.AppendLine("        var cleaned = value.Replace(\"-\", \"\").Replace(\"_\", \"\");");
+        sb.AppendLine("        foreach (var enumName in System.Enum.GetNames<T>())");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var cleanedName = enumName.Replace(\"_\", \"\");");
+        sb.AppendLine("            if (string.Equals(cleaned, cleanedName, System.StringComparison.OrdinalIgnoreCase))");
+        sb.AppendLine("                return System.Enum.Parse<T>(enumName);");
+        sb.AppendLine("        }");
+        sb.AppendLine("        foreach (var alias in aliases)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (string.Equals(value, alias.Alias, System.StringComparison.OrdinalIgnoreCase))");
+        sb.AppendLine("                return alias.Value;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        var validValues = System.Enum.GetNames<T>().Concat(aliases.Select(alias => alias.Alias));");
+        sb.AppendLine("        throw new System.ArgumentException(");
+        sb.AppendLine("            $\"Invalid value '{value}' for parameter '{parameterName}'. Valid values: {string.Join(\", \", validValues)}.\",");
+        sb.AppendLine("            parameterName);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Rejects undefined values supplied through a typed enum transport.</summary>");
+        sb.AppendLine("    public static void ValidateEnumValue<T>(T? value, string parameterName) where T : struct, System.Enum");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (!value.HasValue || System.Enum.IsDefined(value.Value)) return;");
+        sb.AppendLine("        throw new System.ArgumentException(");
+        sb.AppendLine("            $\"Invalid value '{value.Value}' for parameter '{parameterName}'. Valid values: {string.Join(\", \", System.Enum.GetNames<T>())}.\",");
+        sb.AppendLine("            parameterName);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Returns parameter names whose category-wide values were explicitly supplied.</summary>");
+        sb.AppendLine("    public static System.Collections.Generic.IReadOnlyList<string> GetSuppliedParameterNames(");
+        sb.AppendLine("        params (string Name, object? Value)[] parameters)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return parameters.Where(parameter => parameter.Value != null).Select(parameter => parameter.Name).ToArray();");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Returns property names explicitly present in a raw JSON arguments object.</summary>");
+        sb.AppendLine("    public static System.Collections.Generic.IReadOnlyList<string> GetJsonPropertyNames(");
+        sb.AppendLine("        string? argsJson,");
+        sb.AppendLine("        bool includeNullValues = false)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (string.IsNullOrWhiteSpace(argsJson)) return System.Array.Empty<string>();");
+        sb.AppendLine("        using var document = System.Text.Json.JsonDocument.Parse(argsJson);");
+        sb.AppendLine("        if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)");
+        sb.AppendLine("            throw new System.ArgumentException(\"Command arguments must be a JSON object.\", nameof(argsJson));");
+        sb.AppendLine("        return document.RootElement.EnumerateObject()");
+        sb.AppendLine("            .Where(property => includeNullValues || property.Value.ValueKind != System.Text.Json.JsonValueKind.Null)");
+        sb.AppendLine("            .Select(property => property.Name)");
+        sb.AppendLine("            .ToArray();");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Deserializes a nested collection (e.g., List&lt;List&lt;object?&gt;&gt;) from JSON.");
+        sb.AppendLine("    /// Auto-wraps a flat 1D array into a 2D array when needed.");
+        sb.AppendLine("    /// For example, [\"a\",\"b\"] is treated as [[\"a\",\"b\"]] (single row).");
+        sb.AppendLine("    /// Supports stdin sentinel: if json is \"-\", reads JSON from Console.In.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    internal static T DeserializeNestedCollection<T>(string json) where T : class");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // Stdin sentinel: if json == \"-\", read from Console.In.");
+        sb.AppendLine("        // This allows piping JSON to avoid PowerShell argument quoting issues:");
+        sb.AppendLine("        //   echo '[[\"value\",1]]' | excelcli range set-values --values -");
+        sb.AppendLine("        if (json.Trim() == \"-\")");
+        sb.AppendLine("        {");
+        sb.AppendLine("            json = Console.In.ReadToEnd().Trim();");
+        sb.AppendLine("        }");
+        sb.AppendLine("        try");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return System.Text.Json.JsonSerializer.Deserialize<T>(json)");
+        sb.AppendLine("                ?? throw new System.Text.Json.JsonException(\"Deserialization returned null\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("        catch (System.Text.Json.JsonException)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // Auto-wrap 1D array to 2D: [\"a\",\"b\"] → [[\"a\",\"b\"]]");
+        sb.AppendLine("            var trimmed = json.Trim();");
+        sb.AppendLine("            if (trimmed.StartsWith(\"[\") && !trimmed.StartsWith(\"[[\"))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var wrapped = \"[\" + trimmed + \"]\";");
+        sb.AppendLine("                try");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    return System.Text.Json.JsonSerializer.Deserialize<T>(wrapped)");
+        sb.AppendLine("                        ?? throw new System.Text.Json.JsonException(\"Deserialization returned null\");");
+        sb.AppendLine("                }");
+        sb.AppendLine("                catch { /* fall through to error */ }");
+        sb.AppendLine("            }");
+        sb.AppendLine("            throw new System.ArgumentException(");
+        sb.AppendLine("                $\"Invalid JSON for nested collection. Expected 2D array (e.g., [[\\\"a\\\",\\\"b\\\"],[\\\"c\\\",\\\"d\\\"]]) or 1D array (auto-wrapped to single row). Got: {json}\" +");
+        sb.AppendLine("                \" Tip: PowerShell strips double-quotes from native executable arguments. Use --values-file <path> to pass JSON from a file, or pipe JSON and use --values - (e.g., echo '[[...]]' | excelcli ... --values -).\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Deserializes a simple list (e.g., List&lt;string&gt;) from a JSON array string.");
+        sb.AppendLine("    /// Used for CLI parameters where LLMs pass JSON arrays instead of repeated flags.");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    internal static T? DeserializeList<T>(string? json) where T : class");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (string.IsNullOrWhiteSpace(json)) return null;");
+        sb.AppendLine("        return System.Text.Json.JsonSerializer.Deserialize<T>(json)");
+        sb.AppendLine("            ?? throw new System.Text.Json.JsonException($\"Failed to deserialize list from JSON: {json}\");");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+        sb.AppendLine("    /// <summary>Deserializes CLI object options using the shared Service JSON naming policy.</summary>");
+        sb.AppendLine("    internal static T DeserializeObject<T>(string json, string parameterName) where T : class");
+        sb.AppendLine("    {");
+        sb.AppendLine("        try");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return System.Text.Json.JsonSerializer.Deserialize<T>(json, DispatchJsonOptions)");
+        sb.AppendLine("                ?? throw new System.Text.Json.JsonException(\"Expected a non-null JSON object.\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("        catch (System.Text.Json.JsonException exception)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            throw new System.ArgumentException($\"Invalid JSON object for {parameterName}.\", parameterName, exception);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Generates the DispatchToCore method for a service category.
+    /// This method routes parsed actions to Core command methods,
+    /// replacing hand-written Handle*CommandAsync methods in ExcelMcpService.
+    /// </summary>
+    private static string GenerateServiceDispatch(ServiceInfo info, string interfaceFullName)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine("#pragma warning disable CS1591 // Generated action members inherit their source contract documentation.");
+        sb.AppendLine();
+        sb.AppendLine("namespace Sbroenne.ExcelMcp.Generated;");
+        sb.AppendLine();
+        sb.AppendLine("public static partial class ServiceRegistry");
+        sb.AppendLine("{");
+        sb.AppendLine($"    public static partial class {info.CategoryPascal}");
+        sb.AppendLine("    {");
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine($"        /// Dispatches a {info.CategoryPascal} action to the Core command method.");
+        sb.AppendLine("        /// Returns serialized JSON result, or null for void operations.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static string? DispatchToCore(");
+        sb.AppendLine($"            {interfaceFullName} commands,");
+        sb.AppendLine($"            {info.CategoryPascal}Action action,");
+        if (!info.NoSession)
+            sb.AppendLine("            Sbroenne.ExcelMcp.ComInterop.Session.IExcelBatch batch,");
+        sb.AppendLine("            string? argsJson)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            ValidateActionArguments(ToActionString(action), argsJson);");
+        sb.AppendLine("            switch (action)");
+        sb.AppendLine("            {");
+
+        foreach (var method in info.Methods)
+        {
+            GenerateDispatchCase(sb, info, method);
+        }
+
+        sb.AppendLine("                default:");
+        sb.AppendLine($"                    throw new System.ArgumentException($\"Unknown {info.CategoryPascal} action: {{action}}\");");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Generates a single case block within the DispatchToCore switch statement.
+    /// Handles args deserialization, enum parsing, and Core method invocation.
+    /// </summary>
+    private static void GenerateDispatchCase(StringBuilder sb, ServiceInfo info, MethodInfo method)
+    {
+        sb.AppendLine($"                case {info.CategoryPascal}Action.{method.MethodName}:");
+        sb.AppendLine("                {");
+
+        // Deserialize args if method has parameters
+        if (method.Parameters.Count > 0)
+        {
+            sb.AppendLine($"                    var args = DeserializeArgs<{method.MethodName}Args>(argsJson);");
+        }
+
+        foreach (var p in method.Parameters.Where(p => p.IsFileOrValue))
+        {
+            var pascalName = StringHelper.ToPascalCase(p.Name);
+            sb.AppendLine(
+                $"                    var resolved{pascalName} = Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.ResolveFileOrValue(args.{pascalName}, args.{pascalName}{p.FileSuffix}, \"{p.Name}\");");
+            if (IsRequiredParameter(p))
+            {
+                sb.AppendLine(
+                    $"                    Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.RequireNotEmpty(resolved{pascalName}, \"{p.Name}\", \"{method.ActionName}\");");
+            }
+        }
+
+        foreach (var p in method.Parameters.Where(p => IsTimeSpanType(p.TypeName)))
+        {
+            var propName = p.ExposedName ?? p.Name;
+            var pascalProp = StringHelper.ToPascalCase(propName);
+            var minimumSeconds = info.Category is "powerquery" or "workbook" ? 0 : 1;
+            sb.AppendLine(
+                $"                    var {p.Name} = Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.ParseTimeoutSeconds(args.{pascalProp}, \"{propName}\", minimumSeconds: {minimumSeconds});");
+        }
+
+        foreach (var p in method.Parameters.Where(p =>
+                     p.IsFromString &&
+                     p.IsEnum &&
+                     IsRequiredParameter(p)))
+        {
+            var propName = p.ExposedName ?? p.Name;
+            var pascalProp = StringHelper.ToPascalCase(propName);
+            sb.AppendLine($"                    Sbroenne.ExcelMcp.Core.Utilities.ParameterTransforms.RequireNotEmpty(args.{pascalProp}, \"{propName}\", \"{method.ActionName}\");");
+        }
+
+        // Parse enum parameters into local variables
+        foreach (var p in method.Parameters.Where(p => p.IsEnum))
+        {
+            var enumType = p.TypeName.TrimEnd('?');
+            var propName = p.ExposedName ?? p.Name;
+            var pascalProp = StringHelper.ToPascalCase(propName);
+            var isNullableEnum = p.TypeName.EndsWith("?");
+
+            if (isNullableEnum)
+            {
+                sb.AppendLine($"                    var {p.Name} = !string.IsNullOrEmpty(args.{pascalProp}) ? ({enumType}?)ParseEnumValue<{enumType}>(args.{pascalProp}, default, \"{propName}\"{BuildEnumAliasArguments(p)}) : null;");
+            }
+            else
+            {
+                var defaultExpr = (p.HasDefault && p.DefaultValue != null) ? p.DefaultValue : $"default({enumType})";
+                sb.AppendLine($"                    var {p.Name} = ParseEnumValue<{enumType}>(args.{pascalProp}, {defaultExpr}, \"{propName}\"{BuildEnumAliasArguments(p)});");
+            }
+        }
+
+        // Parse [FromString] non-enum, non-string parameters into local variables
+        // These are stored as string? in args but need type conversion (e.g., bool?, TimeSpan?)
+        foreach (var p in method.Parameters.Where(p =>
+                     p.IsFromString &&
+                     !p.IsEnum &&
+                     !StringHelper.IsStringType(p.TypeName) &&
+                     !IsTimeSpanType(p.TypeName)))
+        {
+            var propName = p.ExposedName ?? p.Name;
+            var pascalProp = StringHelper.ToPascalCase(propName);
+            var isNullable = p.TypeName.EndsWith("?");
+            var baseType = p.TypeName.TrimEnd('?');
+
+            if (isNullable)
+            {
+                sb.AppendLine($"                    var {p.Name} = !string.IsNullOrEmpty(args.{pascalProp}) ? ({p.TypeName}){baseType}.Parse(args.{pascalProp}) : null;");
+            }
+            else if (p.HasDefault && p.DefaultValue != null)
+            {
+                sb.AppendLine($"                    var {p.Name} = !string.IsNullOrEmpty(args.{pascalProp}) ? {baseType}.Parse(args.{pascalProp}) : {p.DefaultValue};");
+            }
+            else
+            {
+                sb.AppendLine($"                    var {p.Name} = {baseType}.Parse(args.{pascalProp}!);");
+            }
+        }
+
+        // Build method call argument list
+        var callArgs = new List<string>();
+        // Only pass batch if the method actually has an IExcelBatch parameter
+        if (!info.NoSession && method.HasBatchParameter)
+            callArgs.Add("batch");
+
+        foreach (var p in method.Parameters)
+        {
+            if (p.IsFileOrValue)
+            {
+                var resolvedName = $"resolved{StringHelper.ToPascalCase(p.Name)}";
+                callArgs.Add(p.TypeName.EndsWith("?") ? resolvedName : resolvedName + "!");
+            }
+            else if (IsTimeSpanType(p.TypeName))
+            {
+                callArgs.Add(p.TypeName.EndsWith("?")
+                    ? p.Name
+                    : $"{p.Name} ?? default(System.TimeSpan)");
+            }
+            else if (p.IsEnum || (p.IsFromString && !StringHelper.IsStringType(p.TypeName)))
+            {
+                // Already parsed to local variable
+                callArgs.Add(p.Name);
+            }
+            else
+            {
+                var propName = p.ExposedName ?? p.Name;
+                var pascalProp = StringHelper.ToPascalCase(propName);
+                callArgs.Add(GetDispatchCallExpression(p, pascalProp));
+            }
+        }
+
+        // Inject ambient progress context LAST (matches Core method signature where IProgress is the last parameter)
+        if (method.HasProgressParameter)
+            callArgs.Add("Sbroenne.ExcelMcp.ComInterop.ProgressContext.Current");
+
+        var isVoid = method.ReturnType == "void";
+        if (isVoid)
+        {
+            sb.AppendLine($"                    commands.{method.MethodName}({string.Join(", ", callArgs)});");
+            sb.AppendLine("                    return null;");
+        }
+        else
+        {
+            sb.AppendLine($"                    var result = commands.{method.MethodName}({string.Join(", ", callArgs)});");
+            sb.AppendLine("                    return System.Text.Json.JsonSerializer.Serialize(result, DispatchJsonOptions);");
+        }
+
+        sb.AppendLine("                }");
+    }
+
+    /// <summary>
+    /// Gets the C# expression to pass a non-enum parameter from the args object to the Core method.
+    /// Handles nullable unwrapping, default values, and null-forgiving operators.
+    /// </summary>
+    private static string GetDispatchCallExpression(ParameterInfo p, string pascalProp)
+    {
+        var typeName = p.TypeName;
+
+        // If Core type is already nullable, pass as-is from args
+        if (typeName.EndsWith("?"))
+            return $"args.{pascalProp}";
+
+        // Non-nullable Core type. Args property is nullable (MakeArgsPropertyType adds ?).
+        // Need to provide a non-null value.
+
+        if (p.HasDefault && p.DefaultValue != null)
+        {
+            // Use default value when args property is null
+            return $"args.{pascalProp} ?? {p.DefaultValue}";
+        }
+
+        // Required/non-nullable parameter without default.
+        // For value types: use ?? default(T) to avoid nullable unwrap issues
+        // For reference types: use ! (null-forgiving)
+        if (IsKnownValueType(typeName))
+        {
+            return $"args.{pascalProp} ?? default({typeName})";
+        }
+
+        // Reference type: null-forgiving
+        return $"args.{pascalProp}!";
+    }
+
+    /// <summary>
+    /// Checks if a type name represents a known value type (struct).
+    /// Used to determine whether to use ?? default(T) vs ! for nullable unwrapping.
+    /// </summary>
+    private static bool IsKnownValueType(string typeName)
+    {
+        return typeName is "int" or "long" or "short" or "byte" or "sbyte"
+            or "float" or "double" or "decimal" or "bool" or "char"
+            || typeName.Contains("TimeSpan");
+    }
+}

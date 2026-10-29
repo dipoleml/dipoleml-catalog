@@ -1,0 +1,395 @@
+using System.ComponentModel;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Sbroenne.ExcelMcp.CLI.Infrastructure;
+using Sbroenne.ExcelMcp.CLI.Telemetry;
+using Sbroenne.ExcelMcp.Core.Models;
+using Sbroenne.ExcelMcp.Core.Utilities;
+using Sbroenne.ExcelMcp.Service;
+using Spectre.Console.Cli;
+
+namespace Sbroenne.ExcelMcp.CLI.Commands;
+
+// ============================================================================
+// SESSION COMMANDS
+// ============================================================================
+
+internal sealed class SessionDiscoverCommand : AsyncCommand
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, CancellationToken cancellationToken)
+    {
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest { Command = "session.discover" };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request, () => client.SendAsync(request, cancellationToken));
+        if (!response.Success)
+            return CliErrorOutput.WriteServiceError(response);
+        return CliResultOutput.Write(response, request.Command);
+    }
+}
+
+internal sealed class SessionAttachCommand : AsyncCommand<SessionAttachCommand.Settings>
+{
+    public override async Task<int> ExecuteAsync(
+        CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.WorkbookId))
+            return CliErrorOutput.WriteError("Open-workbook identifier is required.");
+
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest
+        {
+            Command = "session.attach",
+            Args = JsonSerializer.Serialize(
+                new { workbookId = settings.WorkbookId }, ServiceProtocol.JsonOptions)
+        };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request, () => client.SendAsync(request, cancellationToken));
+        if (!response.Success)
+            return CliErrorOutput.WriteServiceError(response);
+        return CliResultOutput.Write(response, request.Command);
+    }
+
+    internal sealed class Settings : CommandSettings
+    {
+        [CommandOption("--workbook-id <ID>")]
+        [Description("Open-workbook identifier returned by session discover")]
+        public string WorkbookId { get; init; } = string.Empty;
+    }
+}
+
+internal sealed class SessionCreateCommand : AsyncCommand<SessionCreateCommand.Settings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.FilePath))
+        {
+            return CliErrorOutput.WriteError("File path is required.");
+        }
+
+        try
+        {
+            ParameterTransforms.ValidateTimeoutSeconds(
+                settings.TimeoutSeconds,
+                "timeoutSeconds",
+                minimumSeconds: 10,
+                maximumSeconds: 3600);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return CliErrorOutput.WriteError(ex.Message);
+        }
+
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest
+        {
+            Command = "session.create",
+            Args = JsonSerializer.Serialize(new
+            {
+                filePath = settings.FilePath,
+                show = settings.Show,
+                timeoutSeconds = settings.TimeoutSeconds
+            }, ServiceProtocol.JsonOptions)
+        };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request,
+            () => client.SendAsync(request, cancellationToken));
+
+        if (response.Success)
+        {
+            return CliResultOutput.Write(response, request.Command);
+        }
+        else
+        {
+            return CliErrorOutput.WriteServiceError(response);
+        }
+    }
+
+    internal sealed class Settings : CommandSettings
+    {
+        [CommandArgument(0, "<FILE>")]
+        [Description("Path to the new Excel file to create")]
+        public string FilePath { get; init; } = string.Empty;
+
+        [CommandOption("--timeout-seconds <SECONDS>")]
+        [Description("Session open/create and operation timeout in whole seconds (default: 120; range: 10-3600)")]
+        public int? TimeoutSeconds { get; init; }
+
+        [CommandOption("--show")]
+        [Description("Show the Excel window for IRM/auth prompts instead of running hidden")]
+        public bool Show { get; init; }
+
+    }
+}
+
+internal sealed class SessionOpenCommand : AsyncCommand<SessionOpenCommand.Settings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.FilePath))
+        {
+            return CliErrorOutput.WriteError("File path is required.");
+        }
+
+        try
+        {
+            ParameterTransforms.ValidateTimeoutSeconds(
+                settings.TimeoutSeconds,
+                "timeoutSeconds",
+                minimumSeconds: 10,
+                maximumSeconds: 3600);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return CliErrorOutput.WriteError(ex.Message);
+        }
+
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest
+        {
+            Command = "session.open",
+            Args = JsonSerializer.Serialize(new
+            {
+                filePath = settings.FilePath,
+                show = settings.Show,
+                timeoutSeconds = settings.TimeoutSeconds
+            }, ServiceProtocol.JsonOptions)
+        };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request,
+            () => client.SendAsync(request, cancellationToken));
+
+        if (response.Success)
+        {
+            return CliResultOutput.Write(response, request.Command);
+        }
+        else
+        {
+            return CliErrorOutput.WriteServiceError(response);
+        }
+    }
+
+    internal sealed class Settings : CommandSettings
+    {
+        [CommandArgument(0, "<FILE>")]
+        [Description("Absolute Windows path or URL. Excel determines what it can open; use --show to answer prompts")]
+        public string FilePath { get; init; } = string.Empty;
+
+        [CommandOption("--timeout-seconds <SECONDS>")]
+        [Description("Session open and operation timeout in whole seconds (default: 120; range: 10-3600)")]
+        public int? TimeoutSeconds { get; init; }
+
+        [CommandOption("--show")]
+        [Description("Show the Excel window for IRM/auth prompts instead of running hidden")]
+        public bool Show { get; init; }
+
+    }
+}
+
+internal sealed class SessionSaveCommand : AsyncCommand<SessionSaveCommand.Settings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.SessionId))
+            return CliErrorOutput.WriteError("Session ID is required.");
+
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest { Command = "session.save", SessionId = settings.SessionId };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request, () => client.SendAsync(request, cancellationToken));
+        if (!response.Success)
+            return CliErrorOutput.WriteServiceError(response);
+
+        return CliResultOutput.Write(response, request.Command);
+    }
+
+    internal sealed class Settings : CommandSettings
+    {
+        [CommandOption("-s|--session <SESSION>")]
+        [Description("Session ID to save without closing")]
+        public string SessionId { get; init; } = string.Empty;
+    }
+}
+
+internal sealed class SessionCloseCommand : AsyncCommand<SessionCloseCommand.Settings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.SessionId))
+        {
+            return CliErrorOutput.WriteError("Session ID is required.");
+        }
+
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest
+        {
+            Command = "session.close",
+            SessionId = settings.SessionId,
+            Args = JsonSerializer.Serialize(new { save = settings.Save }, ServiceProtocol.JsonOptions)
+        };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request,
+            () => client.SendAsync(request, cancellationToken));
+
+        return CliResultOutput.Write(response, request.Command);
+    }
+
+    internal sealed class Settings : CommandSettings
+    {
+        [CommandOption("-s|--session <SESSION>")]
+        [Description("Session ID to close")]
+        public string SessionId { get; init; } = string.Empty;
+
+        [CommandOption("--save")]
+        [Description("Save changes before closing")]
+        public bool Save { get; init; }
+    }
+}
+
+internal sealed class SessionListCommand : AsyncCommand
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, CancellationToken cancellationToken)
+    {
+        var pipeName = DaemonAutoStart.GetPipeName();
+        var daemonConnection = CliCommandRuntime.Current.DaemonConnection;
+        var request = new ServiceRequest { Command = "session.list" };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request,
+            () => daemonConnection.SendControlRequestAsync(
+                pipeName,
+                request,
+                cancellationToken,
+                DaemonConnectionPolicy.ControlTimeout));
+        if (response.Success && response.Result != null)
+        {
+            JsonObject result;
+            try
+            {
+                result = JsonNode.Parse(response.Result) as JsonObject
+                    ?? throw new JsonException("Service returned an invalid session list response.");
+            }
+            catch (JsonException)
+            {
+                CliTelemetry.RecordFinalFailure("InvalidResponse");
+                throw;
+            }
+            result["daemonState"] = DaemonConnectionPolicy.RunningState;
+            return CliResultOutput.WriteJson(result.ToJsonString(ServiceProtocol.JsonOptions));
+        }
+
+        if (response.Success)
+        {
+            response = new ServiceResponse
+            {
+                Success = false,
+                Command = "session.list",
+                ErrorCategory = "InvalidResponse",
+                ErrorMessage = "Service returned an invalid session list response."
+            };
+            CliTelemetry.RecordFinalFailure(response.ErrorCategory);
+        }
+
+        var failureState = daemonConnection.ResolveFailureState(pipeName, response);
+        if (failureState.Name == DaemonConnectionPolicy.StoppedState)
+        {
+            return WriteStoppedSessionList();
+        }
+
+        return CliErrorOutput.WriteDaemonError(response, failureState.Name, failureState.Running);
+    }
+
+    private static int WriteStoppedSessionList()
+    {
+        return CliResultOutput.WriteJson(JsonSerializer.Serialize(new
+        {
+            success = true,
+            daemonState = DaemonConnectionPolicy.StoppedState,
+            sessions = Array.Empty<object>(),
+            count = 0
+        }, ServiceProtocol.JsonOptions));
+    }
+}
+
+internal sealed class SessionTestCommand : AsyncCommand<SessionTestCommand.Settings>
+{
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.FilePath))
+        {
+            return CliErrorOutput.WriteError("File path is required.");
+        }
+
+        try
+        {
+            ParameterTransforms.ValidateTimeoutSeconds(
+                settings.TimeoutSeconds,
+                "timeoutSeconds",
+                minimumSeconds: 10,
+                maximumSeconds: 3600);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return CliErrorOutput.WriteException(ex, "InvalidInput");
+        }
+
+        using var client = await CliCommandRuntime.Current.ClientFactory.ConnectAsync(cancellationToken);
+        var request = new ServiceRequest
+        {
+            Command = "session.test",
+            Args = JsonSerializer.Serialize(
+                new
+                {
+                    filePath = settings.FilePath,
+                    timeoutSeconds = settings.TimeoutSeconds
+                },
+                ServiceProtocol.JsonOptions)
+        };
+        var response = await CliTelemetry.TrackCommandAsync(
+            request,
+            () => client.SendAsync(request, cancellationToken));
+
+        if (!response.Success)
+        {
+            return CliErrorOutput.WriteServiceError(response);
+        }
+
+        if (string.IsNullOrWhiteSpace(response.Result))
+        {
+            CliTelemetry.RecordFinalFailure("InvalidResponse");
+            return CliErrorOutput.WriteError("Service returned an invalid file test response.");
+        }
+
+        FileValidationInfo? result;
+        try
+        {
+            result = ServiceProtocol.Deserialize<FileValidationInfo>(response.Result);
+        }
+        catch (JsonException)
+        {
+            CliTelemetry.RecordFinalFailure("InvalidResponse");
+            throw;
+        }
+        if (result == null)
+        {
+            CliTelemetry.RecordFinalFailure("InvalidResponse");
+            return CliErrorOutput.WriteError("Service returned an invalid file test response.");
+        }
+
+        if (!result.CanOpen)
+        {
+            CliTelemetry.RecordExpectedNegative();
+        }
+        return CliResultOutput.Write(response, request.Command);
+    }
+
+    internal sealed class Settings : CommandSettings
+    {
+        [CommandArgument(0, "<FILE>")]
+        [Description("Absolute Windows path or URL; remote URLs report that local file details are unavailable")]
+        public string FilePath { get; init; } = string.Empty;
+
+        [CommandOption("--timeout-seconds <SECONDS>")]
+        [Description("Excel validation open timeout in whole seconds (default: 120; range: 10-3600)")]
+        public int? TimeoutSeconds { get; init; }
+    }
+}

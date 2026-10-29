@@ -1,0 +1,435 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Differential processing utilities for incremental updates
+//!
+//! This module handles the efficient processing of files by only updating
+//! blocks that have changed, removing obsolete blocks, and maintaining
+//! consistency in the database.
+
+use crate::config::Config;
+use crate::embedding::{calculate_content_hash_with_lines, calculate_unique_content_hash};
+use crate::indexer::code_region_extractor::extract_meaningful_regions;
+use crate::indexer::contextual::{FileContext, FileContextMap};
+use crate::indexer::file_processor::chunk_text;
+use crate::indexer::languages;
+use crate::indexer::markdown_processor::parse_markdown_content;
+use crate::state::SharedState;
+use crate::store::{CodeBlock, DocumentBlock, Store, TextBlock};
+use anyhow::Result;
+use std::collections::{HashMap, HashSet};
+use tree_sitter::{Node, Parser};
+
+#[cfg(test)]
+#[path = "differential_processor_tests.rs"]
+mod differential_processor_tests;
+
+/// Walk the whole tree and accumulate imports + exports from every node the
+/// language parser recognizes. The per-language `extract_imports_exports`
+/// inspects a single node's kind, so we have to visit every descendant — the
+/// root is almost never an `import_statement` itself.
+fn walk_for_imports_exports(node: Node, contents: &str, lang: &dyn languages::Language) -> (Vec<String>, Vec<String>) {
+	let mut imports = Vec::new();
+	let mut exports = Vec::new();
+	let mut stack = vec![node];
+	while let Some(n) = stack.pop() {
+		let (imp, exp) = lang.extract_imports_exports(n, contents);
+		imports.extend(imp);
+		exports.extend(exp);
+		let mut cursor = n.walk();
+		for child in n.children(&mut cursor) {
+			stack.push(child);
+		}
+	}
+	dedup_in_place(&mut imports);
+	dedup_in_place(&mut exports);
+	(imports, exports)
+}
+
+fn dedup_in_place(v: &mut Vec<String>) {
+	let mut seen = HashSet::new();
+	v.retain(|s| seen.insert(s.clone()));
+}
+
+/// Context for file processing to reduce the number of function arguments
+pub struct ProcessFileContext<'a> {
+	pub store: &'a Store,
+	pub config: &'a Config,
+	pub state: SharedState,
+}
+
+/// Differential processing for code files - only updates changed blocks
+#[allow(clippy::too_many_arguments)]
+pub async fn process_file_differential(
+	ctx: &ProcessFileContext<'_>,
+	contents: &str,
+	file_path: &str,
+	language: &str,
+	code_blocks_batch: &mut Vec<CodeBlock>,
+	_text_blocks_batch: &mut [TextBlock], // Unused for code files
+	all_code_blocks: &mut Vec<CodeBlock>,
+	file_context: &mut FileContextMap,
+) -> Result<()> {
+	let mut parser = Parser::new();
+
+	// Get force_reindex flag from state
+	let force_reindex = ctx.state.read().force_reindex;
+
+	// Get the language implementation
+	let lang_impl = match languages::get_language(language) {
+		Some(impl_) => impl_,
+		None => return Ok(()), // Skip unsupported languages
+	};
+
+	// Set the parser language
+	parser.set_language(&lang_impl.get_ts_language())?;
+
+	let tree = parser
+		.parse(contents, None)
+		.unwrap_or_else(|| parser.parse("", None).unwrap());
+	let mut code_regions = Vec::new();
+
+	extract_meaningful_regions(tree.root_node(), contents, lang_impl.as_ref(), &mut code_regions);
+
+	// Only build the contextual-description input when that feature is on;
+	// otherwise this second AST walk + symbol collect is wasted (default: off).
+	if ctx.config.index.contextual_descriptions {
+		// Extract file-level imports/exports for the LLM contextual-description
+		// prompt (Anthropic "situate within document").
+		let (imports, exports) = walk_for_imports_exports(tree.root_node(), contents, lang_impl.as_ref());
+		let all_symbols: Vec<String> = code_regions.iter().flat_map(|r| r.symbols.iter().cloned()).collect();
+		file_context.insert(
+			file_path.to_string(),
+			FileContext {
+				imports,
+				exports,
+				all_symbols,
+			},
+		);
+	}
+
+	// If not force reindexing, get existing hashes for this file to compare.
+	// Every block hash embeds the file path, so this per-file set is exactly
+	// the set of hashes a table-wide existence query could match — checking it
+	// in memory avoids one DB round-trip per block.
+	let existing_hashes: HashSet<String> = if force_reindex {
+		HashSet::new()
+	} else {
+		ctx.store
+			.get_file_blocks_metadata(file_path, "code_blocks")
+			.await?
+			.into_iter()
+			.collect()
+	};
+
+	// Create set of new hashes for this file
+	let mut new_hashes = HashSet::new();
+	let mut graphrag_blocks_added = 0;
+	// Unchanged blocks GraphRAG still needs, fetched with one per-file query on
+	// first use instead of one query per unchanged block.
+	let mut stored_blocks_by_hash: Option<HashMap<String, CodeBlock>> = None;
+
+	for region in code_regions {
+		// Use a hash that includes content, path, and line ranges
+		let content_hash =
+			calculate_content_hash_with_lines(&region.content, file_path, region.start_line, region.end_line);
+		new_hashes.insert(content_hash.clone());
+
+		// Skip the check if force_reindex is true
+		let exists = !force_reindex && existing_hashes.contains(&content_hash);
+		if !exists {
+			let code_block = CodeBlock {
+				path: file_path.to_string(),
+				hash: content_hash.clone(),
+				language: lang_impl.name().to_string(),
+				content: region.content,
+				symbols: region.symbols,
+				start_line: region.start_line,
+				end_line: region.end_line,
+				distance: None, // No relevance score when indexing
+			};
+
+			// Only clone for the GraphRAG collection when enabled; otherwise
+			// move straight into the embedding batch (no clone).
+			if ctx.config.graphrag.enabled {
+				all_code_blocks.push(code_block.clone());
+				graphrag_blocks_added += 1;
+			}
+			code_blocks_batch.push(code_block);
+		} else if ctx.config.graphrag.enabled {
+			// If skipping because block exists, but we need for GraphRAG, fetch from store
+			if stored_blocks_by_hash.is_none() {
+				let blocks = ctx
+					.store
+					.get_all_code_blocks_by_path(file_path)
+					.await
+					.unwrap_or_default();
+				let mut by_hash = HashMap::with_capacity(blocks.len());
+				for block in blocks {
+					by_hash.entry(block.hash.clone()).or_insert(block);
+				}
+				stored_blocks_by_hash = Some(by_hash);
+			}
+			if let Some(existing_block) = stored_blocks_by_hash
+				.as_ref()
+				.and_then(|by_hash| by_hash.get(&content_hash).cloned())
+			{
+				// Add the existing block to the GraphRAG collection
+				all_code_blocks.push(existing_block);
+				graphrag_blocks_added += 1;
+			}
+		}
+	}
+
+	// Remove blocks that no longer exist (only if not force reindexing)
+	if !force_reindex && !existing_hashes.is_empty() {
+		let hashes_to_remove: Vec<String> = existing_hashes
+			.into_iter()
+			.filter(|hash| !new_hashes.contains(hash))
+			.collect();
+
+		if !hashes_to_remove.is_empty() {
+			ctx.store
+				.remove_blocks_by_hashes(&hashes_to_remove, "code_blocks")
+				.await?;
+		}
+	}
+
+	// Update GraphRAG state if enabled and blocks were added
+	if ctx.config.graphrag.enabled && graphrag_blocks_added > 0 {
+		let mut state_guard = ctx.state.write();
+		state_guard.graphrag_blocks += graphrag_blocks_added;
+	}
+
+	Ok(())
+}
+
+/// Differential processing for text files - only updates changed blocks
+/// FIXED: Now stores simple path without chunk numbers
+pub async fn process_text_file_differential(
+	store: &Store,
+	contents: &str,
+	file_path: &str,
+	text_blocks_batch: &mut Vec<TextBlock>,
+	config: &Config,
+	state: SharedState,
+) -> Result<()> {
+	let force_reindex = state.read().force_reindex;
+
+	// Get existing text block hashes for this file (including chunked versions)
+	let existing_hashes: HashSet<String> = if force_reindex {
+		HashSet::new()
+	} else {
+		// Get blocks for this file path (the chunks will have same path now)
+		store
+			.get_file_blocks_metadata(file_path, "text_blocks")
+			.await?
+			.into_iter()
+			.collect()
+	};
+
+	// Split content into chunks using configuration values
+	let chunks = chunk_text(contents, config.index.chunk_size, config.index.chunk_overlap);
+	let mut new_hashes = HashSet::new();
+
+	for (chunk_idx, chunk_with_lines) in chunks.iter().enumerate() {
+		// Use chunk index in hash for uniqueness but keep path clean
+		let chunk_hash =
+			calculate_unique_content_hash(&chunk_with_lines.content, &format!("{}#{}", file_path, chunk_idx));
+		new_hashes.insert(chunk_hash.clone());
+
+		// Skip the check if force_reindex is true
+		let exists = !force_reindex && existing_hashes.contains(&chunk_hash);
+		if !exists {
+			text_blocks_batch.push(TextBlock {
+				path: file_path.to_string(),
+				language: "text".to_string(),
+				content: chunk_with_lines.content.clone(),
+				start_line: chunk_with_lines.start_line, // Use directly from TextChunkWithLines
+				end_line: chunk_with_lines.end_line,     // Use directly from TextChunkWithLines
+				hash: chunk_hash,
+				distance: None,
+			});
+		}
+	}
+
+	// Remove blocks that no longer exist (only if not force reindexing)
+	if !force_reindex && !existing_hashes.is_empty() {
+		let hashes_to_remove: Vec<String> = existing_hashes
+			.into_iter()
+			.filter(|hash| !new_hashes.contains(hash))
+			.collect();
+
+		if !hashes_to_remove.is_empty() {
+			store.remove_blocks_by_hashes(&hashes_to_remove, "text_blocks").await?;
+		}
+	}
+
+	Ok(())
+}
+
+/// Differential processing for markdown files - only updates changed blocks
+pub async fn process_markdown_file_differential(
+	store: &Store,
+	contents: &str,
+	file_path: &str,
+	document_blocks_batch: &mut Vec<DocumentBlock>,
+	config: &Config,
+	state: SharedState,
+) -> Result<()> {
+	// Get force_reindex flag from state
+	let force_reindex = state.read().force_reindex;
+
+	// Get existing document block hashes for this file
+	let existing_hashes: HashSet<String> = if force_reindex {
+		HashSet::new()
+	} else {
+		store
+			.get_file_blocks_metadata(file_path, "document_blocks")
+			.await?
+			.into_iter()
+			.collect()
+	};
+
+	// Parse markdown content into document blocks using context-aware chunking
+	let document_blocks = parse_markdown_content(contents, file_path, config);
+	let mut new_hashes = HashSet::new();
+
+	for doc_block in document_blocks {
+		new_hashes.insert(doc_block.hash.clone());
+
+		// Check if this document block already exists (unless force reindex)
+		let exists = !force_reindex && existing_hashes.contains(&doc_block.hash);
+		if !exists {
+			document_blocks_batch.push(doc_block);
+		}
+	}
+
+	// Remove blocks that no longer exist (only if not force reindexing)
+	if !force_reindex && !existing_hashes.is_empty() {
+		let hashes_to_remove: Vec<String> = existing_hashes
+			.into_iter()
+			.filter(|hash| !new_hashes.contains(hash))
+			.collect();
+
+		if !hashes_to_remove.is_empty() {
+			store
+				.remove_blocks_by_hashes(&hashes_to_remove, "document_blocks")
+				.await?;
+		}
+	}
+
+	Ok(())
+}
+
+/// Legacy processing for code files (non-differential)
+/// Processes a single file, extracting code blocks and adding them to the batch
+#[allow(clippy::too_many_arguments)]
+pub async fn process_file(
+	ctx: &ProcessFileContext<'_>,
+	contents: &str,
+	file_path: &str,
+	language: &str,
+	code_blocks_batch: &mut Vec<CodeBlock>,
+	_text_blocks_batch: &mut [TextBlock], // Unused for code files - only used for unsupported files
+	all_code_blocks: &mut Vec<CodeBlock>,
+	file_context: &mut FileContextMap,
+) -> Result<()> {
+	let mut parser = Parser::new();
+
+	// Get force_reindex flag from state
+	let force_reindex = ctx.state.read().force_reindex;
+
+	// Get the language implementation
+	let lang_impl = match languages::get_language(language) {
+		Some(impl_) => impl_,
+		None => return Ok(()), // Skip unsupported languages
+	};
+
+	// Set the parser language
+	parser.set_language(&lang_impl.get_ts_language())?;
+
+	let tree = parser
+		.parse(contents, None)
+		.unwrap_or_else(|| parser.parse("", None).unwrap());
+	let mut code_regions = Vec::new();
+
+	extract_meaningful_regions(tree.root_node(), contents, lang_impl.as_ref(), &mut code_regions);
+
+	// Only build the contextual-description input when that feature is on;
+	// otherwise this second AST walk + symbol collect is wasted (default: off).
+	if ctx.config.index.contextual_descriptions {
+		// Extract file-level imports/exports for the LLM contextual-description prompt.
+		let (imports, exports) = walk_for_imports_exports(tree.root_node(), contents, lang_impl.as_ref());
+		let all_symbols: Vec<String> = code_regions.iter().flat_map(|r| r.symbols.iter().cloned()).collect();
+		file_context.insert(
+			file_path.to_string(),
+			FileContext {
+				imports,
+				exports,
+				all_symbols,
+			},
+		);
+	}
+
+	// Track the number of blocks we added to all_code_blocks for GraphRAG
+	let mut graphrag_blocks_added = 0;
+
+	for region in code_regions {
+		// Use a hash that includes content, path, and line ranges
+		let content_hash =
+			calculate_content_hash_with_lines(&region.content, file_path, region.start_line, region.end_line);
+
+		// Skip the check if force_reindex is true
+		let exists = !force_reindex && ctx.store.content_exists(&content_hash, "code_blocks").await?;
+		if !exists {
+			let code_block = CodeBlock {
+				path: file_path.to_string(),
+				hash: content_hash,
+				language: lang_impl.name().to_string(),
+				content: region.content,
+				symbols: region.symbols,
+				start_line: region.start_line,
+				end_line: region.end_line,
+				distance: None, // No relevance score when indexing
+			};
+
+			// Only clone for the GraphRAG collection when enabled; otherwise
+			// move straight into the embedding batch (no clone).
+			if ctx.config.graphrag.enabled {
+				all_code_blocks.push(code_block.clone());
+				graphrag_blocks_added += 1;
+			}
+			code_blocks_batch.push(code_block);
+		} else if ctx.config.graphrag.enabled {
+			// If skipping because block exists, but we need for GraphRAG, fetch from store
+			if let Ok(existing_block) = ctx.store.get_code_block_by_hash(&content_hash).await {
+				// Add the existing block to the GraphRAG collection
+				all_code_blocks.push(existing_block);
+				graphrag_blocks_added += 1;
+			}
+		}
+	}
+
+	// Update GraphRAG state if enabled and blocks were added
+	if ctx.config.graphrag.enabled && graphrag_blocks_added > 0 {
+		let mut state_guard = ctx.state.write();
+		state_guard.graphrag_blocks += graphrag_blocks_added;
+	}
+
+	// Note: We DON'T create text blocks for code files - only for unsupported file types
+	// Code files are already indexed as semantic code blocks above
+
+	Ok(())
+}

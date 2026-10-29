@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.negokaz.excel-mcp-server",
+  "type": "mcp",
+  "name": "Excel MCP Server",
+  "slug": "excel-mcp-server",
+  "vendor": "negokaz",
+  "description": "A Model Context Protocol (MCP) server that reads and writes MS Excel data",
+  "version": "0.12.0",
+  "homepage": "https://github.com/negokaz/excel-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "negokaz",
+    "brandName": "negokaz",
+    "source": "https://github.com/negokaz.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:23Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "negokaz/excel-mcp-server",
+    "url": "https://github.com/negokaz/excel-mcp-server",
+    "commit": "1ff4340573c3e421920282da1602afd89f3bb282",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1046,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:29Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@negokaz/excel-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@negokaz/excel-mcp-server"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

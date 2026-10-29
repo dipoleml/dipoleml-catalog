@@ -1,0 +1,184 @@
+# AI Team OS 安装指南（供 Claude Code 阅读）
+
+本文件供 Claude Code (CC) 辅助安装时阅读。如果你是人类用户，请查看 [README.zh-CN.md](README.zh-CN.md)。
+
+共有**两条受支持的安装路线**：
+
+- **路线 A — 插件 marketplace**（推荐给大多数用户）：无需 clone，自动配置。
+- **路线 B — 从源码安装**（推荐给开发者 / 贡献者）：editable 安装，始终跟随最新源码。
+
+> 原「pip install ai-team-os」（PyPI）路径已**删除**：wheel 不包含 `plugin/` 与配置资源，功能不全，且其安装后置命令从来无效。请改用路线 A 或路线 B。
+
+---
+
+## 安装前检查
+
+安装前请验证 Python 环境：
+
+1. 运行：`python3 -c "import sys; print(sys.executable); print(sys.prefix); print(sys.base_prefix)"`
+2. 如果输出中 `sys.prefix` 包含 `.venv`、`virtualenv` 或 `env` 路径，**警告用户**：
+
+   > ⚠️ 警告：你当前处于虚拟环境中（`{sys.prefix}`）。
+   > AI Team OS 应安装到系统 Python，而非项目 venv。
+   > 如果安装在 venv 中，hook 脚本在其他项目中将无法工作。
+   > 请先执行 `deactivate`，或打开一个没有 venv 的新终端，然后重新安装。
+
+3. 确认 `sys.prefix == sys.base_prefix` — 表示当前在系统 Python 中，可以安全安装。
+
+---
+
+## 必需：配置设置
+
+AI Team OS 需要在 Claude Code 配置目录（设了 `CLAUDE_CONFIG_DIR` 就是它，否则为 `~/.claude`）的 `settings.json` 中配置特定设置。**运行以下脚本自动完成配置**：
+
+```bash
+python3 -c "
+import json, os
+
+folder = os.environ.get('CLAUDE_CONFIG_DIR', '').strip() or os.path.join(os.path.expanduser('~'), '.claude')
+p = os.path.join(os.path.expanduser(folder), 'settings.json')
+os.makedirs(os.path.dirname(p), exist_ok=True)
+
+settings = {}
+if os.path.exists(p):
+    with open(p) as f:
+        settings = json.load(f)
+
+changed = False
+
+# 1. 启用 Agent Teams（团队协作必需）
+env = settings.setdefault('env', {})
+if env.get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') != '1':
+    env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+    changed = True
+    print('[OK] Agent Teams 已启用')
+
+# 2. effortLevel — 由用户自行选择，不自动设置
+
+if changed:
+    with open(p, 'w') as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+    print('[完成] 设置已更新 — 请告知用户重启 Claude Code')
+else:
+    print('[OK] 所有设置已就绪')
+"
+```
+
+**运行后，告知用户重启 Claude Code** 以使设置生效。
+
+---
+
+## 安装步骤
+
+### 路线 A：插件 marketplace（推荐给大多数用户）
+
+```bash
+# 添加 marketplace 源并安装插件
+claude plugin marketplace add CronusL-1141/AI-company
+claude plugin install ai-team-os
+
+# 重启一次 Claude Code。
+```
+
+**安装后首次启动**时，`auto_install` hook 会自动运行并：
+- 从源码（GitHub）把 Python 依赖装进你的系统 Python；
+- 把插件清单的解释器自愈为 `sys.executable`（绝对路径），使得即便在 stock macOS（无 `python` shim）或项目 `.venv` 激活时，MCP + 全部 hook 仍能正常工作；
+- 打印 "Please restart Claude Code to activate all features."
+
+因此完整顺序是：安装 → 重启 →（首次启动自动装依赖，约 30 秒，仅一次）→ 再重启一次。之后一切就绪。
+
+### 路线 B：从源码安装（推荐给开发者 / 贡献者）
+
+```bash
+# 克隆仓库
+git clone https://github.com/CronusL-1141/AI-company.git
+cd AI-company
+
+# 运行安装程序（针对你的工作区配置 MCP + Hooks + Agent 模板）
+python3 install.py
+
+# 重启 Claude Code
+```
+
+这会把包**以 editable 方式装到你的工作区**，因此始终跟随你 pull 的最新源码。`greenlet` 现已是核心依赖，Apple Silicon（arm64）macOS 可直接安装、无需额外步骤。LangGraph 遗留 CLI 路径现降为可选 extra，仅当你需要 `aiteam task run` 时才安装：
+
+```bash
+pip install 'ai-team-os[langgraph]'
+```
+
+### Homebrew / PEP 668（externally-managed-environment）
+
+在 Homebrew Python 或任意 PEP 668 环境下，`pip` 可能拒绝装入系统 Python 并报 `externally-managed-environment` 错误。AI Team OS 的**设计**就是要住在系统 Python 里（全局 hook 脚本依赖它——见下方 venv 警告），因此请设置：
+
+```bash
+export PIP_BREAK_SYSTEM_PACKAGES=1
+```
+
+再运行安装（路线 B）或首次启动的自动安装（路线 A）。**不要**通过装入 venv 来绕过此错误。
+
+---
+
+## 验证安装
+
+重启 Claude Code 后：
+
+1. 运行 `/mcp` — `ai-team-os` 应显示为已连接。完整工具集包含 **118 个 MCP 工具**。 <!-- install:mcp-tool-count -->
+   此总数适用于 `AITEAM_TOOLSETS` 未设置或为 `all`，且未启用 `AITEAM_READONLY` 的情况；`default` 档、指定分组或只读模式可能减少实际暴露的工具数，请按配置核对。
+2. 运行 `os_health_check` MCP 工具 — 预期响应：`{"status": "ok"}`
+3. 检查 API：`curl http://localhost:8000/api/health` — 预期：`{"status": "ok"}`
+
+如果工具未显示，检查 Claude Code 全局配置 `.claude.json` 中的**全局 MCP 注册**（CC 从这里读取全局 MCP 服务器，**不是** `settings.json`）：
+- 文件位置：设了 `CLAUDE_CONFIG_DIR` 时在该目录里，否则为 `~/.claude.json`（Windows 上为 `%USERPROFILE%\.claude.json`）；`aiteam paths` 输出里的 `claude.global_config` 就是它
+- 在该文件的 `mcpServers` 下查找 `ai-team-os`
+
+---
+
+## 已知限制
+
+- **不要在项目 `.venv` 中安装** — 全局 hook 脚本依赖系统 Python。在 venv 中安装意味着 AI Team OS 仅在该 venv 激活时可用。
+- 如果误装在 venv 中：`pip uninstall ai-team-os`，然后 `deactivate`，然后重装到系统 Python。
+- 需要 Python >= 3.11。
+- 需要支持 MCP 的 Claude Code（CC 版本 >= 1.0）。
+
+---
+
+## 更新
+
+```bash
+# 路线 A（插件）：先刷新市场；只跑 plugin update 会把旧版本报成最新
+claude plugin marketplace update ai-team-os
+claude plugin update ai-team-os@ai-team-os
+# 重启 Claude Code；首次启动会升级依赖，之后可能还要再重启一次
+
+# 路线 B（源码）：
+git pull
+python3 install.py --update
+```
+
+## 卸载
+
+```bash
+# 路线 A（插件）：
+claude plugin uninstall ai-team-os
+
+# 插件卸载会留下全局 hook 主链；先预览这些残留：
+python3 "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/ai-team-os/uninstall_main_chain.py"
+# 核对将删除的条目/文件后，使用预览给出的 token 与你的确认原话：
+python3 "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/ai-team-os/uninstall_main_chain.py" --apply "<token>" --user-quote "<你的确认原话>"
+# 若只是停用插件，也可重新启用；脚本拒绝清理源码安装拥有的主链。
+
+# 路线 B（源码）：先预览，再卸载
+python3 scripts/uninstall.py --dry-run
+python3 scripts/uninstall.py
+# 停掉配置端口上的 AI Team OS API（认不出是 OS API 的进程不动），并删除 hook、注册、
+# MCP、agents、skills、commands、loop.md 与 pip 包 ai-team-os。
+
+# 两条路线都保留 OS 数据目录（含 aiteam.db；位置用 `aiteam paths` 查），以及未读 hook 的
+# 调用审计 ~/.local/state/ai-team-os（或 $XDG_STATE_HOME/ai-team-os；每个宿主的日志到 5 MB 轮换）。
+# 要连这两处一起删（不可恢复；先备份，并确认 Codex 等其他宿主已不再使用）：
+python3 scripts/uninstall.py --purge-data   # 路线 B：先列出路径、大小与版本再要求确认；路线 A 手动删除这两处
+
+# 清理插件残留文件：
+# Windows: rmdir /s %USERPROFILE%\.claude\plugins\data\ai-team-os-ai-team-os
+# macOS/Linux: rm -rf "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/data/ai-team-os-*
+```

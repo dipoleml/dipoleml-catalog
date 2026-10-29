@@ -1,0 +1,140 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.tapetide-hq.nse-bse-indian-stock-market-data-mcp",
+  "type": "mcp",
+  "name": "Nse Bse Indian Stock Market Data MCP",
+  "slug": "nse-bse-indian-stock-market-data-mcp",
+  "vendor": "tapetide-hq",
+  "description": "Indian stock market MCP server for NSE & BSE — 48 tools (55 with aliases) for about 8,000 stocks: live quotes, financials, technicals, 326-ratio screener, FII/DII flows, option chains & IV, filings, IPOs & portfolio. Remote (OAuth) or npx. Works with DipoleML, ChatGPT, Cursor, VS Code, Codex & Gemini CLI",
+  "version": "1.0.9",
+  "homepage": "https://github.com/Tapetide-hq/nse-bse-indian-stock-market-data-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "bse",
+    "chatgpt",
+    "claude-code-plugin",
+    "claude-plugin",
+    "financial-data",
+    "gemini-cli-extension",
+    "indian-stock-market",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "bse",
+    "chatgpt",
+    "claude",
+    "claude-code-plugin",
+    "claude-plugin",
+    "financial-data",
+    "gemini-cli-extension",
+    "indian-stock-market",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "nifty",
+    "nse",
+    "remote-mcp",
+    "sensex",
+    "stock-analysis",
+    "stock-market",
+    "stock-market-data",
+    "stock-screener",
+    "technical-analysis"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tapetide-hq",
+    "brandName": "tapetide-hq",
+    "source": "https://github.com/Tapetide-hq.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Tapetide-hq/nse-bse-indian-stock-market-data-mcp",
+    "url": "https://github.com/Tapetide-hq/nse-bse-indian-stock-market-data-mcp",
+    "commit": "946d7b846767535f17c5fe3d5b838af07cdda60f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 143,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Nse Bse Indian Stock Market Data MCP | Indian stock market MCP server for NSE & BSE — 48 tools (55 with aliases) for about 8,000 stocks: live quotes, financials, technicals, 326-ratio screener, FII/DII flows, option chains & IV, filings, IPOs & portfolio. Remote (OAuth) or npx. Works with Claude, ChatGPT, Cursor, VS Code, Codex & Gemini CLI",
+        "after": "Nse Bse Indian Stock Market Data MCP | Indian stock market MCP server for NSE & BSE — 48 tools (55 with aliases) for about 8,000 stocks: live quotes, financials, technicals, 326-ratio screener, FII/DII flows, option chains & IV, filings, IPOs & portfolio. Remote (OAuth) or npx. Works with DipoleML, ChatGPT, Cursor, VS Code, Codex & Gemini CLI",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "tapetide-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "tapetide-mcp"
+    ],
+    "env": [
+      "TAPETIDE_TOKEN",
+      "YOUR_TOKEN_HERE",
+      "TAPETIDE_MCP_URL"
+    ],
+    "credentials": [
+      "TAPETIDE_TOKEN",
+      "YOUR_TOKEN_HERE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

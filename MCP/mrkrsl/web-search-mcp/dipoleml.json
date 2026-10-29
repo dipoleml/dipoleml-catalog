@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mrkrsl.web-search-mcp",
+  "type": "mcp",
+  "name": "Web Search MCP",
+  "slug": "web-search-mcp",
+  "vendor": "mrkrsl",
+  "description": "A simple, locally hosted Web Search MCP server for use with Local LLMs",
+  "version": "0.3.1",
+  "homepage": "https://github.com/mrkrsl/web-search-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "lmstudio",
+    "local-llm",
+    "web-search"
+  ],
+  "tags": [
+    "llm",
+    "lmstudio",
+    "local-llm",
+    "mcp",
+    "web-search"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mrkrsl",
+    "brandName": "mrkrsl",
+    "source": "https://github.com/mrkrsl.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:22Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mrkrsl/web-search-mcp",
+    "url": "https://github.com/mrkrsl/web-search-mcp",
+    "commit": "eeb03f88525cbf74c4019e59a3fea45a537a760b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1190,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "web-search-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "web-search-mcp-server"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

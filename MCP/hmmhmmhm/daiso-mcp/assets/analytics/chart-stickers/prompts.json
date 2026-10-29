@@ -1,0 +1,19 @@
+{
+  "generator": "built-in image_gen",
+  "reference": "../workers-chart-pixel-background.png",
+  "base": "Create ONE isolated cute pixel-art STICKER, transparent background with true alpha. Style reference is the attached cozy pixel DAISO town, especially its hamsters. A deliberately SIMPLE retro game sprite, designed on a 32x32 or 48x48 pixel grid then enlarged with nearest-neighbor: chunky square pixels, stepped edges, limited palette, only 3 tones per color, no smooth shading, no gradients, no realistic detail. Bold dark-brown pixel outline and a thin warm-ivory pixel sticker outline. Single object centered with a modest transparent margin; fill about 80% of the canvas. Must remain unmistakable when exported to a tiny 64x64 sticker inside a chart. No background scene, no ground, no title, no speech bubbles, no text, no numbers, no watermark. Cheerful warm red/cream/sage palette matching the reference. ",
+  "scenes": [
+    [
+      "hamster",
+      "A single round golden hamster with pink cheeks and tiny paws, happily floating diagonally, holding one little red heart. A compact adorable full-body sprite, ears and tail fully inside frame."
+    ],
+    [
+      "bag",
+      "A tiny red-and-ivory DAISO shopping bag with a handle and a recognizable six WHITE DOTS emblem arranged 3 columns by 2 rows on a red square. No letters or words. A couple of little household-goods shapes peeking out. Slight playful tilt, but crisp stair-step pixel edges."
+    ],
+    [
+      "gray-hamster",
+      "A single round gray hamster with cream belly and pink cheeks, happily peeking over a tiny red shopping basket. A compact adorable full-body sprite, ears and basket fully in frame."
+    ]
+  ]
+}

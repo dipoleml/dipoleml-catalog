@@ -1,0 +1,429 @@
+import { isFreshOperationalRequest } from './operationalFreshness.js';
+import { ServiceError } from '../core/errors.js';
+import { selectGs25InventoryProduct } from '../services/gs25/productSelection.js';
+import { convenienceTransportFromBindings } from '../utils/convenienceTransport.js';
+import { geocodeBindings, validKoreanCoordinates } from '../utils/geocode.js';
+/**
+ * GS25 GET API 핸들러
+ */
+/* c8 ignore start */
+
+import {
+  type ApiContext,
+  errorResponse,
+  serviceErrorResponse,
+  successResponse,
+} from './response.js';
+import {
+  attachDistanceToGs25Stores,
+  fetchGs25SearchProducts,
+  fetchGs25Stores,
+  fetchGs25WebStores,
+  filterGs25StoresByKeyword,
+  geocodeGs25Address,
+  selectGs25StoresForKeyword,
+  sortGs25Stores,
+} from '../services/gs25/client.js';
+import { isGs25UpstreamUnavailableError } from '../services/gs25/errors.js';
+
+const GS25_FALLBACK_STORE_LOOKUP_ITEM_CODE = '8801117752804';
+
+/**
+ * GS25 매장 검색 API 핸들러
+ * GET /api/gs25/stores?keyword={키워드}&lat={위도}&lng={경도}
+ */
+export async function handleGs25FindStores(c: ApiContext) {
+  const keyword = c.req.query('keyword') || '';
+  const serviceCode = c.req.query('serviceCode') || '01';
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const rawLat = c.req.query('lat');
+  const rawLng = c.req.query('lng');
+
+  const parsedLat = rawLat ? parseFloat(rawLat) : undefined;
+  const parsedLng = rawLng ? parseFloat(rawLng) : undefined;
+
+  let latitude =
+    typeof parsedLat === 'number' && Number.isFinite(parsedLat) ? parsedLat : undefined;
+  let longitude =
+    typeof parsedLng === 'number' && Number.isFinite(parsedLng) ? parsedLng : undefined;
+  let geocodeUsed = false;
+
+  try {
+    if (
+      (typeof latitude !== 'number' || typeof longitude !== 'number') &&
+      keyword.trim().length > 0
+    ) {
+      const geocoded = await geocodeGs25Address(keyword, {
+        timeout: 15000,
+        ...geocodeBindings(c.env),
+      });
+      if (geocoded) {
+        latitude = geocoded.latitude;
+        longitude = geocoded.longitude;
+        geocodeUsed = true;
+      }
+    }
+
+    let fallbackUsed = false;
+    let storeResult = await fetchGs25Stores(
+      {
+        serviceCode,
+        latitude,
+        longitude,
+      },
+      {
+        timeout: 20000,
+        ...convenienceTransportFromBindings(c.env),
+        bypassCache: await isFreshOperationalRequest(c),
+        zyteApiKey: c.env?.ZYTE_API_KEY,
+        apiKey: c.env?.GS25_API_KEY,
+      },
+    ).catch(async (error: unknown) => {
+      if (!isGs25UpstreamUnavailableError(error) || keyword.trim().length === 0) throw error;
+      const webStoreResult = await fetchGs25WebStores(keyword, { timeout: 20000 });
+      fallbackUsed = true;
+      return { ...webStoreResult, cacheHit: false };
+    });
+
+    if (
+      !fallbackUsed &&
+      storeResult.stores.length === 0 &&
+      typeof latitude === 'number' &&
+      typeof longitude === 'number'
+    ) {
+      try {
+        const fallbackResult = await fetchGs25Stores(
+          {
+            serviceCode,
+            itemCode: GS25_FALLBACK_STORE_LOOKUP_ITEM_CODE,
+            realTimeStockYn: 'Y',
+            latitude,
+            longitude,
+            useCache: false,
+          },
+          {
+            timeout: 20000,
+            ...convenienceTransportFromBindings(c.env),
+            bypassCache: await isFreshOperationalRequest(c),
+            zyteApiKey: c.env?.ZYTE_API_KEY,
+            apiKey: c.env?.GS25_API_KEY,
+          },
+        );
+
+        if (fallbackResult.stores.length > 0) {
+          storeResult = fallbackResult;
+          fallbackUsed = true;
+        }
+      } catch {
+        fallbackUsed = false;
+      }
+    }
+
+    if (!fallbackUsed && storeResult.stores.length === 0 && keyword.trim().length > 0) {
+      const webStoreResult = await fetchGs25WebStores(keyword, { timeout: 20000 });
+      storeResult = { ...webStoreResult, cacheHit: false };
+      fallbackUsed = true;
+    }
+
+    const selected = selectGs25StoresForKeyword(storeResult.stores, keyword, {
+      relaxWhenEmpty: typeof latitude === 'number' && typeof longitude === 'number',
+    });
+    const withDistance = attachDistanceToGs25Stores(selected.stores, latitude, longitude);
+    const stores = sortGs25Stores(withDistance).slice(0, limit);
+
+    return successResponse(
+      c,
+      {
+        serviceCode,
+        keyword,
+        geocodeUsed,
+        location:
+          typeof latitude === 'number' && typeof longitude === 'number'
+            ? { latitude, longitude }
+            : null,
+        cacheHit: storeResult.cacheHit,
+        filterRelaxed: selected.filterRelaxed,
+        fallbackUsed,
+        stores,
+      },
+      {
+        total: selected.stores.length,
+        pageSize: limit,
+      },
+    );
+  } catch (error) {
+    if (error instanceof ServiceError) return serviceErrorResponse(c, error, 'gs25_request');
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return errorResponse(c, 'GS25_STORE_SEARCH_FAILED', message, 500);
+  }
+}
+
+/**
+ * GS25 상품 검색 API 핸들러
+ * GET /api/gs25/products?keyword={검색어}
+ */
+export async function handleGs25SearchProducts(c: ApiContext) {
+  const keyword = c.req.query('keyword') || '';
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+
+  if (keyword.trim().length === 0) {
+    return errorResponse(c, 'MISSING_QUERY', '검색어(keyword)를 입력해주세요.');
+  }
+
+  try {
+    const products = await fetchGs25SearchProducts(keyword, {
+      timeout: 20000,
+      ...convenienceTransportFromBindings(c.env),
+      bypassCache: await isFreshOperationalRequest(c),
+      zyteApiKey: c.env?.ZYTE_API_KEY,
+    });
+    const limitedProducts = products.slice(0, limit);
+
+    return successResponse(
+      c,
+      {
+        keyword,
+        count: limitedProducts.length,
+        products: limitedProducts.map((p) => ({
+          itemCode: p.itemCode,
+          itemName: p.itemName,
+          shortItemName: p.shortItemName,
+          imageUrl: p.imageUrl,
+          rating: p.rating,
+          stockCheckEnabled: p.stockCheckEnabled,
+        })),
+      },
+      {
+        total: limitedProducts.length,
+        pageSize: limit,
+      },
+    );
+  } catch (error) {
+    if (error instanceof ServiceError) return serviceErrorResponse(c, error, 'gs25_request');
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return errorResponse(c, 'GS25_PRODUCT_SEARCH_FAILED', message, 500);
+  }
+}
+
+/**
+ * GS25 재고 조회 API 핸들러
+ * GET /api/gs25/inventory?keyword={검색어}&storeKeyword={매장키워드}&lat={위도}&lng={경도}
+ */
+export async function handleGs25CheckInventory(c: ApiContext) {
+  const keyword = c.req.query('keyword') || '';
+  const itemCode = c.req.query('itemCode') || '';
+  const storeKeyword = c.req.query('storeKeyword') || '';
+  const serviceCode = c.req.query('serviceCode') || '01';
+  const storeLimit = parseInt(c.req.query('storeLimit') || '20', 10);
+  const rawLat = c.req.query('lat');
+  const rawLng = c.req.query('lng');
+
+  const parsedLat = rawLat ? parseFloat(rawLat) : undefined;
+  const parsedLng = rawLng ? parseFloat(rawLng) : undefined;
+
+  let latitude =
+    typeof parsedLat === 'number' && Number.isFinite(parsedLat) ? parsedLat : undefined;
+  let longitude =
+    typeof parsedLng === 'number' && Number.isFinite(parsedLng) ? parsedLng : undefined;
+  let geocodeUsed = false;
+
+  if (keyword.trim().length === 0 && itemCode.trim().length === 0) {
+    return errorResponse(
+      c,
+      'MISSING_QUERY',
+      '검색어(keyword) 또는 상품 코드(itemCode)를 입력해주세요.',
+    );
+  }
+
+  try {
+    if (
+      (typeof latitude !== 'number' || typeof longitude !== 'number') &&
+      storeKeyword.trim().length > 0
+    ) {
+      const directGeocoded = await geocodeGs25Address(storeKeyword, {
+        timeout: 15000,
+        ...geocodeBindings(c.env),
+      });
+      if (directGeocoded) {
+        latitude = directGeocoded.latitude;
+        longitude = directGeocoded.longitude;
+        geocodeUsed = true;
+      } else {
+        const baseStores = await fetchGs25Stores(
+          {
+            serviceCode,
+          },
+          {
+            timeout: 20000,
+            ...convenienceTransportFromBindings(c.env),
+            bypassCache: await isFreshOperationalRequest(c),
+            zyteApiKey: c.env?.ZYTE_API_KEY,
+            apiKey: c.env?.GS25_API_KEY,
+          },
+        );
+
+        const candidates = filterGs25StoresByKeyword(baseStores.stores, storeKeyword);
+        const firstStore =
+          candidates.find((store) => validKoreanCoordinates(store.latitude, store.longitude)) ||
+          candidates.find((store) => store.address.trim().length > 0);
+        if (firstStore && validKoreanCoordinates(firstStore.latitude, firstStore.longitude)) {
+          latitude = firstStore.latitude;
+          longitude = firstStore.longitude;
+        } else if (firstStore?.address.trim()) {
+          const geocoded = await geocodeGs25Address(firstStore.address, {
+            timeout: 15000,
+            ...geocodeBindings(c.env),
+          });
+          if (geocoded) {
+            latitude = geocoded.latitude;
+            longitude = geocoded.longitude;
+            geocodeUsed = true;
+          }
+        }
+      }
+    }
+
+    if (storeKeyword.trim() && !validKoreanCoordinates(latitude ?? NaN, longitude ?? NaN))
+      throw new ServiceError('GS25_LOCATION_UNRESOLVED',
+        '요청한 지역의 위치를 확인하지 못했습니다. 좌표를 지정하거나 잠시 후 다시 조회해주세요.', 503, true);
+
+    // 1단계: totalSearch API로 키워드 → itemCode 변환
+    let firstProduct: Awaited<ReturnType<typeof fetchGs25SearchProducts>>[number] | undefined;
+
+    let stockResult: Awaited<ReturnType<typeof fetchGs25Stores>>;
+    let itemCodeUsed = itemCode.trim().length > 0;
+    let resolvedItemCode: string | null = itemCode.trim().length > 0 ? itemCode.trim() : null;
+
+    if (resolvedItemCode) {
+      stockResult = await fetchGs25Stores(
+        {
+          serviceCode,
+          itemCode: resolvedItemCode,
+          realTimeStockYn: 'Y',
+          latitude,
+          longitude,
+          useCache: false,
+        },
+        {
+          timeout: 20000,
+          ...convenienceTransportFromBindings(c.env),
+          bypassCache: await isFreshOperationalRequest(c),
+          zyteApiKey: c.env?.ZYTE_API_KEY,
+          apiKey: c.env?.GS25_API_KEY,
+        },
+      );
+    } else {
+      const searchProducts = await fetchGs25SearchProducts(keyword, {
+        timeout: 20000,
+        ...convenienceTransportFromBindings(c.env),
+        bypassCache: await isFreshOperationalRequest(c),
+        zyteApiKey: c.env?.ZYTE_API_KEY,
+      });
+      firstProduct = selectGs25InventoryProduct(searchProducts, keyword);
+
+      if (firstProduct) {
+        resolvedItemCode = firstProduct.itemCode;
+        itemCodeUsed = true;
+
+        stockResult = await fetchGs25Stores(
+          {
+            serviceCode,
+            itemCode: resolvedItemCode,
+            realTimeStockYn: 'Y',
+            latitude,
+            longitude,
+            useCache: false,
+          },
+          {
+            timeout: 20000,
+            ...convenienceTransportFromBindings(c.env),
+            bypassCache: await isFreshOperationalRequest(c),
+            zyteApiKey: c.env?.ZYTE_API_KEY,
+            apiKey: c.env?.GS25_API_KEY,
+          },
+        );
+      } else {
+        stockResult = await fetchGs25Stores(
+          {
+            serviceCode,
+            keyword,
+            realTimeStockYn: 'Y',
+            latitude,
+            longitude,
+            useCache: false,
+          },
+          {
+            timeout: 20000,
+            ...convenienceTransportFromBindings(c.env),
+            bypassCache: await isFreshOperationalRequest(c),
+            zyteApiKey: c.env?.ZYTE_API_KEY,
+            apiKey: c.env?.GS25_API_KEY,
+          },
+        );
+      }
+    }
+
+    const selected = selectGs25StoresForKeyword(stockResult.stores, storeKeyword, {
+      relaxWhenEmpty: typeof latitude === 'number' && typeof longitude === 'number',
+    });
+    const filtered = selected.stores;
+    const withDistance = attachDistanceToGs25Stores(filtered, latitude, longitude);
+    const stores = sortGs25Stores(withDistance).slice(0, storeLimit);
+
+    // 상품 정보: searchProducts에서 먼저 가져오고, 없으면 stores에서
+    const productName =
+      firstProduct?.itemName ||
+      firstProduct?.shortItemName ||
+      filtered.find((item) => item.searchItemName.length > 0)?.searchItemName ||
+      null;
+    const productPrice =
+      filtered.find((item) => item.searchItemSellPrice !== null)?.searchItemSellPrice ?? null;
+    const inStockStoreCount = filtered.filter(
+      (item) => item.realStockQuantity !== null && item.realStockQuantity > 0,
+    ).length;
+    const unknownStockStoreCount = filtered.filter(
+      (store) => store.realStockQuantity === null,
+    ).length;
+    const totalStockQuantity =
+      unknownStockStoreCount === filtered.length
+        ? null
+        : filtered.reduce((sum, item) => sum + Math.max(item.realStockQuantity ?? 0, 0), 0);
+
+    return successResponse(c, {
+      serviceCode,
+      keyword,
+      itemCodeUsed,
+      itemCode: resolvedItemCode,
+      storeKeyword,
+      geocodeUsed,
+      filterRelaxed: selected.filterRelaxed,
+      location:
+        typeof latitude === 'number' && typeof longitude === 'number'
+          ? { latitude, longitude }
+          : null,
+      product: {
+        name: productName,
+        sellPrice: productPrice,
+        imageUrl: firstProduct?.imageUrl || null,
+        rating: firstProduct?.rating || null,
+      },
+      inventory: {
+        totalStoreCount: stockResult.totalCount,
+        matchedStoreCount: filtered.length,
+        inStockStoreCount,
+        unknownStockStoreCount,
+        totalStockQuantity,
+        count: stores.length,
+        stores,
+      },
+    });
+  } catch (error) {
+    if (error instanceof ServiceError) return serviceErrorResponse(c, error, 'gs25_request');
+    if (isGs25UpstreamUnavailableError(error)) {
+      return errorResponse(c, 'GS25_UPSTREAM_UNAVAILABLE', error.message, 503);
+    }
+    const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.';
+    return errorResponse(c, 'GS25_INVENTORY_CHECK_FAILED', message, 500);
+  }
+}
+/* c8 ignore stop */

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.joshuayoes.ios-simulator-mcp",
+  "type": "mcp",
+  "name": "Ios Simulator MCP",
+  "slug": "ios-simulator-mcp",
+  "vendor": "joshuayoes",
+  "description": "MCP server for interacting with the iOS simulator",
+  "version": "2.2.0",
+  "homepage": "https://github.com/joshuayoes/ios-simulator-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "joshuayoes",
+    "brandName": "joshuayoes",
+    "source": "https://github.com/joshuayoes.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:09Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "joshuayoes/ios-simulator-mcp",
+    "url": "https://github.com/joshuayoes/ios-simulator-mcp",
+    "commit": "379af1d3f645bdab7b2bf123a8bd92d159c77b83",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2201,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ios-simulator-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "ios-simulator-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

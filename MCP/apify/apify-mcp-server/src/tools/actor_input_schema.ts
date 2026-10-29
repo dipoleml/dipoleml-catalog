@@ -1,0 +1,399 @@
+import type { ValidateFunction } from 'ajv';
+import type Ajv from 'ajv';
+
+import { ACTOR_ENUM_MAX_LENGTH, ACTOR_MAX_DESCRIPTION_LENGTH } from '../const.js';
+import { SchemaTooLargeError } from '../errors.js';
+import type { ActorInputSchema, SchemaProperties } from '../types.js';
+import { fixZodSchemaRequired } from '../utils/ajv.js';
+import {
+    addGlobsProperties,
+    addKeyValueProperties,
+    addProxyProperties,
+    addPseudoUrlsProperties,
+    addRequestListSourcesProperties,
+    addResourcePickerProperties as addArrayResourcePickerProperties,
+} from '../utils/apify_properties.js';
+import { getToolSchemaID } from './actor_tool_naming.js';
+import { getActorToolPolicy } from './actors/actor_tool_contract.js';
+
+type ActorInputSchemaProperties = Record<string, SchemaProperties>;
+
+// Real Apify Actor input schemas run up to ~140 KB post-transform; cap at 256 KB to bound AJV's
+// synchronous codegen so a pathological untrusted schema can't freeze the event loop. Only the
+// untrusted callers (actor_tools_factory, mcp/proxy) reach AJV through here; trusted compileSchema()
+// is intentionally uncapped.
+export const MAX_UNTRUSTED_SCHEMA_BYTES = 262_144;
+
+// source https://github.com/ajv-validator/ajv/issues/1413#issuecomment-867064234
+export function fixedAjvCompile(ajvInstance: Ajv, schema: object): ValidateFunction<unknown> {
+    // Skip AJV codegen (synchronous, would freeze the event loop) on an oversized untrusted schema.
+    // Throws SchemaTooLargeError, which callers log as a soft fail (not a server error).
+    if (Buffer.byteLength(JSON.stringify(schema)) > MAX_UNTRUSTED_SCHEMA_BYTES) {
+        throw new SchemaTooLargeError(MAX_UNTRUSTED_SCHEMA_BYTES);
+    }
+    const validate = ajvInstance.compile(schema);
+    ajvInstance.removeSchema(schema);
+
+    // Force reset values that aren't reset with removeSchema
+    /* eslint-disable no-underscore-dangle */
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    (ajvInstance.scope as any)._values.schema!.delete(schema);
+    (ajvInstance.scope as any)._values.validate!.delete(validate);
+    const schemaIdx = (ajvInstance.scope as any)._scope.schema.indexOf(schema);
+    const validateIdx = (ajvInstance.scope as any)._scope.validate.indexOf(validate);
+    if (schemaIdx !== -1) (ajvInstance.scope as any)._scope.schema.splice(schemaIdx, 1);
+    if (validateIdx !== -1) (ajvInstance.scope as any)._scope.validate.splice(validateIdx, 1);
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+    /* eslint-enable no-underscore-dangle */
+    return validate;
+}
+
+/**
+ * Adds predefined nested properties to special-case object types so the agent can structure
+ * object inputs correctly:
+ * - proxy objects (type='object', editor='proxy') get a 'useApifyProxy' property.
+ * - request list sources (type='array', editor='requestListSources') get URL structure on items.
+ *
+ * @param {Record<string, SchemaProperties>} properties - The input schema properties
+ * @returns {Record<string, SchemaProperties>} Modified properties with nested properties
+ */
+export function buildApifySpecificProperties(
+    properties: Record<string, SchemaProperties>,
+): Record<string, SchemaProperties> {
+    const clonedProperties = { ...properties };
+
+    for (const [propertyName, property] of Object.entries(clonedProperties)) {
+        if (property.type === 'object' && property.editor === 'proxy') {
+            clonedProperties[propertyName] = addProxyProperties(property);
+        } else if (property.type === 'array' && property.editor === 'requestListSources') {
+            clonedProperties[propertyName] = addRequestListSourcesProperties(property);
+        } else if (property.type === 'array' && property.editor === 'pseudoUrls') {
+            clonedProperties[propertyName] = addPseudoUrlsProperties(property);
+        } else if (property.type === 'array' && property.editor === 'globs') {
+            clonedProperties[propertyName] = addGlobsProperties(property);
+        } else if (property.type === 'array' && property.editor === 'keyValue') {
+            clonedProperties[propertyName] = addKeyValueProperties(property);
+        } else if (property.type === 'array' && property.editor === 'resourcePicker') {
+            clonedProperties[propertyName] = addArrayResourcePickerProperties(property);
+        }
+    }
+
+    return clonedProperties;
+}
+
+/**
+ * Filters schema properties to include only the necessary fields.
+ * This is done to reduce the size of the input schema and to make it more readable.
+ *
+ * Only copies a whitelisted key when the upstream property actually declares it, so
+ * unset fields (e.g. no `default`) aren't turned into phantom `default: undefined` keys.
+ *
+ * @param properties
+ */
+export function filterSchemaProperties(properties: { [key: string]: SchemaProperties }): {
+    [key: string]: SchemaProperties;
+} {
+    const filteredProperties: { [key: string]: SchemaProperties } = {};
+    for (const [key, property] of Object.entries(properties)) {
+        filteredProperties[key] = {
+            title: property.title,
+            description: property.description,
+            type: property.type,
+            ...(property.enum !== undefined && { enum: property.enum }),
+            ...(property.default !== undefined && { default: property.default }),
+            ...(property.prefill !== undefined && { prefill: property.prefill }),
+            ...(property.properties !== undefined && { properties: property.properties }),
+            ...(property.items !== undefined && { items: property.items }),
+            ...(property.required !== undefined && { required: property.required }),
+        };
+    }
+    return filteredProperties;
+}
+
+/**
+ * For array properties missing items.type, infers and sets the type using inferArrayItemType.
+ * @param properties
+ */
+export function inferArrayItemsTypeIfMissing(properties: { [key: string]: SchemaProperties }): {
+    [key: string]: SchemaProperties;
+} {
+    for (const [, property] of Object.entries(properties)) {
+        if (property.type === 'array' && !property.items?.type) {
+            const itemsType = inferArrayItemType(property);
+            if (itemsType) {
+                property.items = {
+                    ...property.items,
+                    title: property.title ?? 'Item',
+                    description: property.description ?? 'Item',
+                    type: itemsType,
+                };
+            }
+        }
+    }
+    return properties;
+}
+
+/**
+ * Marks input properties as required by adding a "REQUIRED" prefix to their descriptions.
+ * Takes an ActorInput object and returns a modified Record of SchemaProperties.
+ *
+ * Prepending to the description (rather than relying on the schema's `required` array) maximizes
+ * compatibility with libraries/agent frameworks that ignore or mishandle required fields.
+ * @param {ActorInputSchema} input - Actor input object containing properties and required fields
+ * @returns {Record<string, SchemaProperties>} - Modified properties with required fields marked
+ */
+export function markInputPropertiesAsRequired(input: ActorInputSchema): Record<string, SchemaProperties> {
+    const { required = [], properties } = input;
+
+    for (const property of Object.keys(properties)) {
+        if (required.includes(property)) {
+            properties[property] = {
+                ...properties[property],
+                description: `**REQUIRED** ${properties[property].description}`,
+            };
+        }
+    }
+
+    return properties;
+}
+
+/**
+ * Builds the final Actor input schema for MCP tool usage.
+ */
+export function buildActorInputSchema(actorFullName: string, input: ActorInputSchema | undefined) {
+    if (!input) {
+        return {
+            inputSchema: {
+                $id: getToolSchemaID(actorFullName),
+                type: 'object',
+                properties: {},
+                required: [],
+            },
+        };
+    }
+
+    // A required property with a default is optional: the platform fills it in (see apify/apify-mcp-server#1513).
+    const working = fixZodSchemaRequired(structuredClone(input)) as ActorInputSchema;
+
+    if (working && typeof working === 'object' && 'properties' in working && working.properties) {
+        working.properties = transformActorInputSchemaProperties(working);
+    }
+
+    // Remove the schemaVersion field if present
+    // since it was causing issues with Gemini CLI
+    // https://github.com/apify/apify-mcp-server/issues/295
+    if (working.schemaVersion) {
+        delete working.schemaVersion;
+    }
+
+    // Remove $ref and $schema fields if present
+    // since AJV cannot resolve external schema references
+    // $ref and $schema are present in apify/website-content-crawler input schema
+    if ('$ref' in working) {
+        delete (working as { $ref?: string }).$ref;
+    }
+    if ('$schema' in working) {
+        delete (working as { $schema?: string }).$schema;
+    }
+
+    const policy = getActorToolPolicy(actorFullName);
+    const finalSchema = policy?.exposedInputs
+        ? pruneSchemaPropertiesByWhitelist(working, policy.exposedInputs)
+        : working;
+    for (const [name, description] of Object.entries(policy?.inputDescriptionSuffixes ?? {})) {
+        if (finalSchema.properties[name]) finalSchema.properties[name].description += ` ${description}`;
+    }
+
+    finalSchema.$id = getToolSchemaID(actorFullName);
+    return { inputSchema: finalSchema };
+}
+
+/**
+ * Returns a shallow-cloned input schema that keeps only whitelisted properties
+ * and filters the required array accordingly. All other top-level fields are preserved.
+ * If properties are missing, the original input is returned unchanged.
+ *
+ * Exposure policies can offer a subset of Actor inputs without redefining the schema.
+ */
+export function pruneSchemaPropertiesByWhitelist(
+    input: ActorInputSchema,
+    whitelist: Iterable<string>,
+): ActorInputSchema {
+    if (!input || !input.properties || typeof input.properties !== 'object' || !whitelist) return input;
+
+    const allowed = new Set<string>(Array.from(whitelist));
+    const newProps: Record<string, SchemaProperties> = {};
+    for (const key of Object.keys(input.properties)) {
+        if (allowed.has(key)) newProps[key] = input.properties[key];
+    }
+
+    const cloned: ActorInputSchema = { ...input, properties: newProps };
+    if (Array.isArray(input.required)) {
+        cloned.required = input.required.filter((k) => allowed.has(k));
+    }
+    return cloned;
+}
+
+/**
+ * Determines the type of items in an array schema property, since Actor input schemas usually
+ * omit `items.type`.
+ * Priority order: explicit type in items > prefill type > default value type > editor type.
+ */
+export function inferArrayItemType(property: SchemaProperties): string | null {
+    return (
+        property.items?.type ||
+        (Array.isArray(property.prefill) && property.prefill.length > 0 && typeof property.prefill[0]) ||
+        (Array.isArray(property.default) && property.default.length > 0 && typeof property.default[0]) ||
+        (property.editor && getEditorItemType(property.editor)) ||
+        null
+    );
+
+    function getEditorItemType(editor: string): string | null {
+        const editorTypeMap: Record<string, string> = {
+            requestListSources: 'object',
+            stringList: 'string',
+            json: 'object',
+            globs: 'object',
+            select: 'string',
+        };
+        return editorTypeMap[editor] || null;
+    }
+}
+
+/**
+ * Adds prefill/default values to descriptions as examples, for clients that ignore JSON Schema
+ * `examples`. Never duplicates `enum` here — a kept enum already carries its values in the
+ * schema; only `shortenProperties()`'s dropped-enum note needs to spell them out in text.
+ */
+export function addExampleValuesToDescriptions(
+    properties: Record<string, SchemaProperties>,
+): Record<string, SchemaProperties> {
+    for (const property of Object.values(properties)) {
+        const value = property.prefill ?? property.default;
+        if (value && !(Array.isArray(value) && value.length === 0)) {
+            property.examples = Array.isArray(value) ? value : [value];
+            property.description = `${property.description}\nExample values: ${JSON.stringify(value)}`;
+        }
+    }
+    return properties;
+}
+
+const ENUM_DROPPED_NOTE_EXAMPLE_COUNT = 10;
+const ENUM_DROPPED_NOTE_EXAMPLE_MAX_LENGTH = 60;
+
+/** Note for a dropped enum, with complete examples that remain valid inputs. */
+function buildEnumDroppedNote(rawValues: string[]): string {
+    const examples = rawValues
+        .filter((value) => value !== '' && value.length <= ENUM_DROPPED_NOTE_EXAMPLE_MAX_LENGTH)
+        .slice(0, ENUM_DROPPED_NOTE_EXAMPLE_COUNT);
+    const exampleText = examples.length > 0 ? ` Examples: ${examples.join(', ')}.` : '';
+    return `\n\nThe complete list of accepted values is too long to include.${exampleText}`;
+}
+
+/**
+ * Blanks removed, kept whole if it fits ACTOR_ENUM_MAX_LENGTH; otherwise dropped entirely
+ * — a partially-cut enum falsely implies exhaustiveness to both the LLM and AJV.
+ */
+function getEnumIfFits(enumList: string[]): string[] | undefined {
+    const nonEmpty = enumList.filter((value) => value !== '');
+    if (nonEmpty.length === 0) return undefined;
+    const charCount = nonEmpty.reduce((sum, value) => sum + value.length, 0);
+    return charCount <= ACTOR_ENUM_MAX_LENGTH ? nonEmpty : undefined;
+}
+
+/** Cut at the last complete sentence in the cap, or the last complete word if there is none. */
+function shortenDescription(description: string): string {
+    const truncated = description.slice(0, ACTOR_MAX_DESCRIPTION_LENGTH);
+    const remainder = description.slice(ACTOR_MAX_DESCRIPTION_LENGTH);
+    const sentenceEnd =
+        [...truncated.matchAll(/[.!?](?=\s)/g)].at(-1)?.index ??
+        (/[.!?]$/.test(truncated) && /^\s/.test(remainder) ? truncated.length - 1 : undefined);
+    const shortened =
+        sentenceEnd === undefined
+            ? `${/^\s/.test(remainder) ? truncated.trimEnd() : truncated.replace(/\s+\S*$/, '')}…`
+            : truncated.slice(0, sentenceEnd + 1);
+    return `${shortened}\n\n[Description truncated]`;
+}
+
+function applyEnumLimit(holder: { enum?: string[] }, descriptionHost: SchemaProperties, rawEnum: string[]): void {
+    const enumValues = getEnumIfFits(rawEnum);
+    if (enumValues) {
+        holder.enum = enumValues;
+        return;
+    }
+    delete holder.enum;
+    if (rawEnum.some((value) => value !== '')) {
+        descriptionHost.description += buildEnumDroppedNote(rawEnum);
+    }
+}
+
+/** Caps description length; drops (not truncates) an oversized enum/items.enum, noting examples instead. */
+export function shortenProperties(properties: { [key: string]: SchemaProperties }): {
+    [key: string]: SchemaProperties;
+} {
+    for (const property of Object.values(properties)) {
+        if (property.description.length > ACTOR_MAX_DESCRIPTION_LENGTH) {
+            property.description = shortenDescription(property.description);
+        }
+
+        if (property.enum && property.enum.length > 0) {
+            applyEnumLimit(property, property, property.enum);
+        }
+
+        if (property.items?.enum && property.items.enum.length > 0) {
+            applyEnumLimit(property.items, property, property.items.enum);
+        }
+    }
+
+    return properties;
+}
+
+/**
+ * Fixes dot notation in the property names of schema properties.
+ *
+ * Some providers, such as Anthropic, allow only the following characters in property names: `^[a-zA-Z0-9_-]{1,64}$`.
+ *
+ * @param properties - The schema properties to fix.
+ * @returns {Record<string, SchemaProperties>} The schema properties with fixed names.
+ */
+export function encodeDotPropertyNames(properties: Record<string, SchemaProperties>): Record<string, SchemaProperties> {
+    const encodedProperties: Record<string, SchemaProperties> = {};
+    for (const [key, value] of Object.entries(properties)) {
+        // Replace dots with '-dot-' to avoid issues with property names
+        const fixedKey = key.replace(/\./g, '-dot-');
+        encodedProperties[fixedKey] = value;
+    }
+    return encodedProperties;
+}
+
+/**
+ * Restores original property names by replacing '-dot-' with '.'.
+ *
+ * This is necessary to decode the property names that were encoded to avoid issues with providers
+ * that do not allow dots in property names.
+ *
+ * @param properties - The schema properties with encoded names.
+ * @returns {Record<string, SchemaProperties>} The schema properties with restored names.
+ */
+export function decodeDotPropertyNames(properties: Record<string, unknown>): Record<string, unknown> {
+    const decodedProperties: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(properties)) {
+        // Replace '-dot-' with '.' to restore original property names
+        const decodedKey = key.replace(/-dot-/g, '.');
+        decodedProperties[decodedKey] = value;
+    }
+    return decodedProperties;
+}
+
+export function transformActorInputSchemaProperties(input: Readonly<ActorInputSchema>): ActorInputSchemaProperties {
+    // Deep clone input to avoid mutating the original object
+    const inputClone: ActorInputSchema = structuredClone(input);
+    let transformedProperties = markInputPropertiesAsRequired(inputClone);
+    transformedProperties = buildApifySpecificProperties(transformedProperties);
+    transformedProperties = inferArrayItemsTypeIfMissing(transformedProperties);
+    transformedProperties = filterSchemaProperties(transformedProperties);
+    transformedProperties = shortenProperties(transformedProperties);
+    transformedProperties = addExampleValuesToDescriptions(transformedProperties);
+    transformedProperties = encodeDotPropertyNames(transformedProperties);
+    return transformedProperties;
+}

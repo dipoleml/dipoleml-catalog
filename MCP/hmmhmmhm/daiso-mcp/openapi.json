@@ -1,0 +1,3256 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DAISO MCP API (OpenAI Actions용)",
+    "description": "OpenAI 챗봇의 OpenAPI import 개수 제한을 피하기 위해 모든 GET API를 단일 facade 엔드포인트로 집약한 스펙입니다.\n\n실제 런타임은 기존 /api/{service}/... 엔드포인트로 위임하며, 이 스펙은 OpenAI Actions 등록 전용으로 사용합니다.\n\n브랜드명이 요청 앞부분에 나오면 뒤의 상품/재고 요청까지 같은 브랜드로 해석해야 합니다. 예: \"안산 중앙역 주변 다이소 찾아주시고 핫식스 재고 찾아주세요\"는 다이소 기준 조회를 먼저 수행하고, 결과가 없을 때만 다른 브랜드를 제안합니다.\n\n일본 다이소는 상품·매장 검색과 온라인 구매 가능 여부만 제공하며 매장별 재고는 지원하지 않습니다. 오피넷 유가·주유소 조회도 action 선택값으로 제공합니다. 실패와 미확인 수량을 재고 0으로 해석하지 마세요.\n전체 개별 엔드포인트 스펙이 필요하면 /openapi-full.json 또는 /openapi-full.yaml 을 사용하세요.",
+    "version": "1.1.0",
+    "contact": {
+      "name": "GitHub Repository",
+      "url": "https://github.com/hmmhmmhm/daiso-mcp"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://mcp.aka.page",
+      "description": "Production Server"
+    }
+  ],
+  "paths": {
+    "/api/actions/query": {
+      "get": {
+        "operationId": "queryAction",
+        "summary": "공통 GET 액션 실행",
+        "description": "action 값에 따라 기존 GET API 엔드포인트로 프록시합니다. OpenAI Actions 등록 시 이 단일 엔드포인트를 사용하세요.",
+        "parameters": [
+          {
+            "name": "fuelCode",
+            "in": "query",
+            "required": false,
+            "description": "유종 코드. B027=휘발유, D047=경유, B034=고급휘발유, C004=실내등유, K015=자동차부탄",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stationId",
+            "in": "query",
+            "required": false,
+            "description": "opinetGetStationDetail에 필요한 실제 주유소 ID. 검색 결과에서 얻습니다.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "description": "최저가 주유소 반환 개수",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "radiusMeters",
+            "in": "query",
+            "required": false,
+            "description": "주변 주유소 검색 반경(m)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "x",
+            "in": "query",
+            "required": false,
+            "description": "오피넷 KATEC X좌표. 보통은 location 또는 lat/lng를 사용하세요.",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "y",
+            "in": "query",
+            "required": false,
+            "description": "오피넷 KATEC Y좌표. 보통은 location 또는 lat/lng를 사용하세요.",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "cinemaCode",
+            "in": "query",
+            "required": false,
+            "description": "디트릭스 극장 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "brandCode",
+            "in": "query",
+            "required": false,
+            "description": "디트릭스 브랜드 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "description": "디트릭스 광역 지역명",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "movieName",
+            "in": "query",
+            "required": false,
+            "description": "디트릭스 영화명 부분 일치",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includePlayDates",
+            "in": "query",
+            "required": false,
+            "description": "디트릭스 상영 가능 날짜 포함",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": true,
+            "description": "실행할 액션 이름입니다. 사용 가능한 값은 enum 목록을 참고하세요.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "dtryxListCinemas",
+                "dtryxListNowShowing",
+                "dtryxGetRemainingSeats",
+                "daisoSearchProducts",
+                "daisoGetProduct",
+                "daisoFindStores",
+                "daisoJpSearchProducts",
+                "daisoJpGetProduct",
+                "daisoJpFindStores",
+                "opinetGetAveragePrices",
+                "opinetGetLowestPriceStations",
+                "opinetSearchStationsAround",
+                "opinetGetStationDetail",
+                "daisoCheckInventory",
+                "daisoGetDisplayLocation",
+                "oliveyoungSearchProducts",
+                "oliveyoungFindStores",
+                "oliveyoungCheckInventory",
+                "cuFindStores",
+                "cuCheckInventory",
+                "emart24FindStores",
+                "emart24SearchProducts",
+                "emart24CheckInventory",
+                "gs25FindStores",
+                "gs25SearchProducts",
+                "gs25CheckInventory",
+                "sevenelevenSearchProducts",
+                "sevenelevenSearchStores",
+                "sevenelevenCheckInventory",
+                "sevenelevenGetPopwords",
+                "sevenelevenGetCatalog",
+                "compareProducts",
+                "placesSearchNearby",
+                "submitDeveloperRequest",
+                "megaboxFindTheaters",
+                "megaboxListMovies",
+                "megaboxGetSeats",
+                "lottecinemaFindTheaters",
+                "lottecinemaListMovies",
+                "lottecinemaGetSeats",
+                "cgvFindTheaters",
+                "cgvSearchMovies",
+                "cgvGetTimetable"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "한국·일본 다이소 제품 검색어",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "description": "세븐일레븐 상품 검색어",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemCode",
+            "in": "query",
+            "required": false,
+            "description": "GS25 상품 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "query",
+            "required": false,
+            "description": "제품 ID 또는 상세 조회용 path 파라미터. 상품명만 알면 먼저 daisoSearchProducts 또는 /api/daiso/products로 productId를 확인하세요.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "description": "공통 키워드 파라미터",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "required": false,
+            "description": "주변 장소 검색 지역/역/주소 키워드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "description": "주변 장소 카테고리(restaurant, cafe, food, dessert, all)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "services",
+            "in": "query",
+            "required": false,
+            "description": "통합 비교 서비스 목록(daiso,gs25,seveneleven,emart24)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "개발자 요청 유형(bug, improvement, feature, docs, other)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "description": "개발자 요청 영향도(low, medium, high, critical)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "description": "개발자 요청 제목",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "description",
+            "in": "query",
+            "required": false,
+            "description": "개발자 요청 상세 설명",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toolName",
+            "in": "query",
+            "required": false,
+            "description": "문제가 발생했거나 개선이 필요한 MCP 도구 이름",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reproduction",
+            "in": "query",
+            "required": false,
+            "description": "오류 재현 방법",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expected",
+            "in": "query",
+            "required": false,
+            "description": "기대 결과",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actual",
+            "in": "query",
+            "required": false,
+            "description": "실제 결과",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "요청 출처(mcp, chatgpt, claude, cli, api, other)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sido",
+            "in": "query",
+            "required": false,
+            "description": "다이소 시/도",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "gugun",
+            "in": "query",
+            "required": false,
+            "description": "다이소 구/군",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dong",
+            "in": "query",
+            "required": false,
+            "description": "다이소 동",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "area",
+            "in": "query",
+            "required": false,
+            "description": "지역",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "area1",
+            "in": "query",
+            "required": false,
+            "description": "이마트24 1차 지역",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "area2",
+            "in": "query",
+            "required": false,
+            "description": "이마트24 2차 지역",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "areaCode",
+            "in": "query",
+            "required": false,
+            "description": "메가박스 지역 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "brandVariant",
+            "in": "query",
+            "required": false,
+            "description": "브랜드 변형",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "description": "위도",
+            "schema": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": false,
+            "description": "경도",
+            "schema": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "페이지 번호",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "pageIdx",
+            "in": "query",
+            "required": false,
+            "description": "올리브영 페이지 번호",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "pageLimit",
+            "in": "query",
+            "required": false,
+            "description": "추가 페이지 수",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "description": "페이지 크기",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "description": "페이지 크기 또는 검색 크기",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "CU 검색 오프셋",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "최대 결과 수",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "storeLimit",
+            "in": "query",
+            "required": false,
+            "description": "매장 결과 제한 수",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "storeCode",
+            "in": "query",
+            "required": false,
+            "description": "매장 코드. 다이소 진열 위치는 /api/daiso/inventory 응답의 storeInventory.stores[].storeCode에서 확인하세요.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storeName",
+            "in": "query",
+            "required": false,
+            "description": "매장명",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storeKeyword",
+            "in": "query",
+            "required": false,
+            "description": "매장 키워드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "playDate",
+            "in": "query",
+            "required": false,
+            "description": "상영일(YYYYMMDD)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "regionCode",
+            "in": "query",
+            "required": false,
+            "description": "CGV 지역 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "theaterCode",
+            "in": "query",
+            "required": false,
+            "description": "CGV 극장 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "theaterId",
+            "in": "query",
+            "required": false,
+            "description": "메가박스/롯데시네마 지점 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "movieCode",
+            "in": "query",
+            "required": false,
+            "description": "CGV 영화 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "movieId",
+            "in": "query",
+            "required": false,
+            "description": "메가박스/롯데시네마 영화 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pluCd",
+            "in": "query",
+            "required": false,
+            "description": "이마트24 상품 PLU 코드",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "bizNoArr",
+            "in": "query",
+            "required": false,
+            "description": "이마트24 사업자번호 목록",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "required": false,
+            "description": "세븐일레븐 인기 검색어 라벨",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "정렬 기준",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "searchSort",
+            "in": "query",
+            "required": false,
+            "description": "CU 검색 정렬 기준",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "service24h",
+            "in": "query",
+            "required": false,
+            "description": "이마트24 24시간 필터",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "includeSoldOut",
+            "in": "query",
+            "required": false,
+            "description": "올리브영 품절 포함 여부",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "includeIssues",
+            "in": "query",
+            "required": false,
+            "description": "세븐일레븐 이달의 행사지 포함 여부",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "includeExhibition",
+            "in": "query",
+            "required": false,
+            "description": "세븐일레븐 전시상품 포함 여부",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "timeoutMs",
+            "in": "query",
+            "required": false,
+            "description": "원본 요청 타임아웃(ms), 디트릭스는 1~60000",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "프록시 호출 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "잘못된 요청",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Product": {
+        "type": "object",
+        "description": "제품 정보",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "제품 ID",
+            "example": "1234567890"
+          },
+          "name": {
+            "type": "string",
+            "description": "제품명",
+            "example": "PP 수납박스 대형"
+          },
+          "price": {
+            "type": "integer",
+            "description": "가격 (원)",
+            "example": 5000
+          },
+          "imageUrl": {
+            "type": "string",
+            "description": "제품 이미지 URL",
+            "example": "https://cdn.daisomall.co.kr/..."
+          },
+          "soldOut": {
+            "type": "boolean",
+            "description": "품절 여부",
+            "example": false
+          },
+          "isNew": {
+            "type": "boolean",
+            "description": "신상품 여부",
+            "example": false
+          },
+          "pickupAvailable": {
+            "type": "boolean",
+            "description": "매장 픽업 가능 여부",
+            "example": true
+          }
+        }
+      },
+      "ProductDetail": {
+        "type": "object",
+        "description": "제품 상세 정보",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "제품 ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "제품명"
+          },
+          "price": {
+            "type": "integer",
+            "description": "가격 (원)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "통화",
+            "example": "KRW"
+          },
+          "imageUrl": {
+            "type": "string",
+            "description": "제품 이미지 URL"
+          },
+          "brand": {
+            "type": "string",
+            "description": "브랜드명"
+          },
+          "soldOut": {
+            "type": "boolean",
+            "description": "품절 여부"
+          },
+          "isNew": {
+            "type": "boolean",
+            "description": "신상품 여부"
+          }
+        }
+      },
+      "InventoryProduct": {
+        "type": "object",
+        "description": "재고 응답에 포함되는 상품 요약 정보",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "제품 ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "제품명"
+          },
+          "imageUrl": {
+            "type": "string",
+            "description": "제품 이미지 URL"
+          },
+          "brand": {
+            "type": "string",
+            "description": "브랜드명"
+          },
+          "soldOut": {
+            "type": "boolean",
+            "description": "품절 여부"
+          },
+          "isNew": {
+            "type": "boolean",
+            "description": "신상품 여부"
+          }
+        }
+      },
+      "Store": {
+        "type": "object",
+        "description": "매장 정보",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "매장명",
+            "example": "다이소 강남역점"
+          },
+          "phone": {
+            "type": "string",
+            "description": "전화번호",
+            "example": "02-1234-5678"
+          },
+          "address": {
+            "type": "string",
+            "description": "주소",
+            "example": "서울특별시 강남구 강남대로 123"
+          },
+          "lat": {
+            "type": "number",
+            "format": "float",
+            "description": "위도",
+            "example": 37.4979
+          },
+          "lng": {
+            "type": "number",
+            "format": "float",
+            "description": "경도",
+            "example": 127.0276
+          },
+          "openTime": {
+            "type": "string",
+            "description": "영업 시작 시간",
+            "example": "10:00"
+          },
+          "closeTime": {
+            "type": "string",
+            "description": "영업 종료 시간",
+            "example": "22:00"
+          },
+          "options": {
+            "type": "object",
+            "description": "매장 옵션",
+            "properties": {
+              "parking": {
+                "type": "boolean",
+                "description": "주차 가능 여부"
+              },
+              "pickup": {
+                "type": "boolean",
+                "description": "픽업 가능 여부"
+              },
+              "taxFree": {
+                "type": "boolean",
+                "description": "면세 가능 여부"
+              }
+            }
+          }
+        }
+      },
+      "StoreInventory": {
+        "type": "object",
+        "description": "매장 재고 정보",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "description": "매장 코드",
+            "example": "ST001"
+          },
+          "storeName": {
+            "type": "string",
+            "description": "매장명",
+            "example": "다이소 강남역점"
+          },
+          "address": {
+            "type": "string",
+            "description": "주소"
+          },
+          "distance": {
+            "type": "string",
+            "description": "거리",
+            "example": "0.5km"
+          },
+          "quantity": {
+            "type": "integer",
+            "nullable": true,
+            "description": "재고 수량",
+            "example": 12
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "parking": {
+                "type": "boolean"
+              },
+              "pickup": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "ProductSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "products": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "description": "전체 결과 수"
+              },
+              "page": {
+                "type": "integer",
+                "description": "현재 페이지"
+              },
+              "pageSize": {
+                "type": "integer",
+                "description": "페이지당 결과 수"
+              }
+            }
+          }
+        }
+      },
+      "ProductDetailResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProductDetail"
+          }
+        }
+      },
+      "StoreSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "stores": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Store"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "description": "전체 결과 수"
+              }
+            }
+          }
+        }
+      },
+      "InventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "productId": {
+                "type": "string",
+                "description": "제품 ID"
+              },
+              "product": {
+                "$ref": "#/components/schemas/InventoryProduct"
+              },
+              "location": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "format": "float"
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "onlineStock": {
+                "type": "integer",
+                "nullable": true,
+                "description": "온라인 재고 수량",
+                "example": 150
+              },
+              "storeInventory": {
+                "type": "object",
+                "properties": {
+                  "totalStores": {
+                    "type": "integer",
+                    "description": "전체 매장 수"
+                  },
+                  "inStockCount": {
+                    "type": "integer",
+                    "description": "재고 있는 매장 수"
+                  },
+                  "unknownStockCount": {
+                    "type": "integer",
+                    "description": "수량을 확인하지 못한 매장 수"
+                  },
+                  "stores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/StoreInventory"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "OliveyoungStore": {
+        "type": "object",
+        "description": "올리브영 매장 정보",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "example": "D176"
+          },
+          "storeName": {
+            "type": "string",
+            "example": "올리브영 명동 타운"
+          },
+          "address": {
+            "type": "string",
+            "example": "서울특별시 중구 명동길 53"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.56409158
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 126.9851771
+          },
+          "pickupYn": {
+            "type": "boolean",
+            "example": false
+          },
+          "o2oRemainQuantity": {
+            "type": "integer",
+            "example": 0
+          }
+        }
+      },
+      "OliveyoungProduct": {
+        "type": "object",
+        "description": "올리브영 상품 재고 정보",
+        "properties": {
+          "goodsNumber": {
+            "type": "string",
+            "example": "A000000200614"
+          },
+          "goodsName": {
+            "type": "string",
+            "example": "달바 퍼플 톤업 선크림 듀오 기획"
+          },
+          "imageUrl": {
+            "type": "string",
+            "example": "https://image.oliveyoung.co.kr/uploads/images/goods/10/0000/0020/A00000020061401ko.jpg"
+          },
+          "priceToPay": {
+            "type": "integer",
+            "example": 32130
+          },
+          "originalPrice": {
+            "type": "integer",
+            "example": 51000
+          },
+          "discountRate": {
+            "type": "integer",
+            "example": 37
+          },
+          "o2oStockFlag": {
+            "type": "boolean",
+            "description": "올리브영 원본 재고 가능 플래그",
+            "example": true
+          },
+          "o2oRemainQuantity": {
+            "type": "integer",
+            "description": "올리브영 원본 잔여 수량 필드. 0이어도 재고가 있을 수 있음",
+            "example": 0
+          },
+          "inStock": {
+            "type": "boolean",
+            "description": "현재 조회한 주변 매장 기준 재고 여부. storeInventory가 있으면 그 결과를 우선 반영",
+            "example": true
+          },
+          "stockStatus": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "out_of_stock",
+              "not_sold",
+              "unknown"
+            ],
+            "example": "in_stock"
+          },
+          "stockSource": {
+            "type": "string",
+            "enum": [
+              "global_search",
+              "nearby_store"
+            ],
+            "example": "nearby_store"
+          },
+          "storeInventory": {
+            "$ref": "#/components/schemas/OliveyoungProductStoreInventory"
+          }
+        }
+      },
+      "OliveyoungStockStore": {
+        "type": "object",
+        "description": "올리브영 상품별 매장 재고 상태",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "example": "B040"
+          },
+          "storeName": {
+            "type": "string",
+            "example": "안산중앙역점"
+          },
+          "address": {
+            "type": "string",
+            "example": "경기도 안산시 단원구 고잔2길 65 1층"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.3177184
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 126.8385857
+          },
+          "distance": {
+            "type": "number",
+            "format": "float",
+            "example": 0.07
+          },
+          "pickupYn": {
+            "type": "boolean",
+            "example": true
+          },
+          "salesStoreYn": {
+            "type": "boolean",
+            "example": true
+          },
+          "remainQuantity": {
+            "type": "integer",
+            "nullable": true,
+            "example": 3
+          },
+          "o2oRemainQuantity": {
+            "type": "integer",
+            "nullable": true,
+            "example": 2
+          },
+          "stockStatus": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "out_of_stock",
+              "not_sold",
+              "unknown"
+            ],
+            "example": "in_stock"
+          },
+          "stockLabel": {
+            "type": "string",
+            "example": "재고 3개"
+          },
+          "openYn": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "OliveyoungProductStoreInventory": {
+        "type": "object",
+        "properties": {
+          "totalCount": {
+            "type": "integer",
+            "example": 1
+          },
+          "inStockCount": {
+            "type": "integer",
+            "example": 1
+          },
+          "outOfStockCount": {
+            "type": "integer",
+            "example": 0
+          },
+          "notSoldCount": {
+            "type": "integer",
+            "example": 0
+          },
+          "stores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OliveyoungStockStore"
+            }
+          }
+        }
+      },
+      "OliveyoungStoreSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "stores": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OliveyoungStore"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "OliveyoungProductSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "example": "마스크팩"
+              },
+              "count": {
+                "type": "integer",
+                "example": 2
+              },
+              "products": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OliveyoungProduct"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              },
+              "nextPage": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "OliveyoungInventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "example": "선크림"
+              },
+              "location": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "format": "float"
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "nearbyStores": {
+                "type": "object",
+                "properties": {
+                  "totalCount": {
+                    "type": "integer"
+                  },
+                  "stores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/OliveyoungStore"
+                    }
+                  }
+                }
+              },
+              "inventory": {
+                "type": "object",
+                "properties": {
+                  "totalCount": {
+                    "type": "integer"
+                  },
+                  "nextPage": {
+                    "type": "boolean"
+                  },
+                  "stockCheckedCount": {
+                    "type": "integer"
+                  },
+                  "stockUncheckedCount": {
+                    "type": "integer"
+                  },
+                  "inStockCount": {
+                    "type": "integer"
+                  },
+                  "outOfStockCount": {
+                    "type": "integer"
+                  },
+                  "notSoldCount": {
+                    "type": "integer"
+                  },
+                  "products": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/OliveyoungProduct"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "MegaboxTheater": {
+        "type": "object",
+        "properties": {
+          "theaterId": {
+            "type": "string",
+            "example": "1372"
+          },
+          "theaterName": {
+            "type": "string",
+            "example": "강남"
+          },
+          "address": {
+            "type": "string",
+            "example": "서울특별시 강남구 강남대로 438"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.4982
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 127.0264
+          },
+          "distanceKm": {
+            "type": "number",
+            "format": "float",
+            "example": 0.5
+          }
+        }
+      },
+      "MegaboxShowtime": {
+        "type": "object",
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "example": "2603041372011"
+          },
+          "movieId": {
+            "type": "string",
+            "example": "25104500"
+          },
+          "movieName": {
+            "type": "string",
+            "example": "미키 17"
+          },
+          "theaterId": {
+            "type": "string",
+            "example": "1372"
+          },
+          "theaterName": {
+            "type": "string",
+            "example": "강남"
+          },
+          "playDate": {
+            "type": "string",
+            "example": "20260304"
+          },
+          "startTime": {
+            "type": "string",
+            "example": "09:30"
+          },
+          "endTime": {
+            "type": "string",
+            "example": "11:20"
+          },
+          "totalSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 120
+          },
+          "remainingSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 42
+          }
+        }
+      },
+      "MegaboxTheaterSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "format": "float"
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "playDate": {
+                "type": "string"
+              },
+              "areaCode": {
+                "type": "string"
+              },
+              "theaters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MegaboxTheater"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "MegaboxMovieListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "theaterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "movieId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "areaCode": {
+                    "type": "string"
+                  }
+                }
+              },
+              "theaters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "theaterId": {
+                      "type": "string"
+                    },
+                    "theaterName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "movies": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "movieId": {
+                      "type": "string"
+                    },
+                    "movieName": {
+                      "type": "string"
+                    },
+                    "movieStatus": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "showtimes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MegaboxShowtime"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "MegaboxSeatListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "theaterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "movieId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "areaCode": {
+                    "type": "string"
+                  }
+                }
+              },
+              "seats": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MegaboxShowtime"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CuStore": {
+        "type": "object",
+        "description": "CU 매장 정보",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "example": "28376"
+          },
+          "storeName": {
+            "type": "string",
+            "example": "중앙하이츠빌점"
+          },
+          "phone": {
+            "type": "string",
+            "example": "0315088023"
+          },
+          "address": {
+            "type": "string",
+            "example": "경기도 안산시 단원구 안산천서로 23"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.318482
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 126.841838
+          },
+          "distanceM": {
+            "type": "number",
+            "example": 97
+          },
+          "stock": {
+            "type": "integer",
+            "nullable": true,
+            "example": 10
+          },
+          "deliveryYn": {
+            "type": "boolean",
+            "example": true
+          },
+          "pickupYn": {
+            "type": "boolean",
+            "example": false
+          },
+          "reserveYn": {
+            "type": "boolean",
+            "example": false
+          }
+        }
+      },
+      "CuInventoryItem": {
+        "type": "object",
+        "description": "CU 재고 검색 상품",
+        "properties": {
+          "itemCode": {
+            "type": "string",
+            "example": "8801728108946"
+          },
+          "itemName": {
+            "type": "string",
+            "example": "바삭한 감자칩"
+          },
+          "price": {
+            "type": "integer",
+            "example": 1700
+          },
+          "pickupYn": {
+            "type": "boolean",
+            "example": true
+          },
+          "deliveryYn": {
+            "type": "boolean",
+            "example": true
+          },
+          "reserveYn": {
+            "type": "boolean",
+            "example": false
+          }
+        }
+      },
+      "CuStoreSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "format": "float"
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "keyword": {
+                "type": "string"
+              },
+              "stores": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CuStore"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CuInventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "example": "과자"
+              },
+              "location": {
+                "type": "object",
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "format": "float"
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "nearbyStores": {
+                "type": "object",
+                "properties": {
+                  "totalCount": {
+                    "type": "integer"
+                  },
+                  "stores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/CuStore"
+                    }
+                  }
+                }
+              },
+              "inventory": {
+                "type": "object",
+                "properties": {
+                  "totalCount": {
+                    "type": "integer"
+                  },
+                  "spellModifyYn": {
+                    "type": "string",
+                    "example": "Y"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/CuInventoryItem"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Emart24Store": {
+        "type": "object",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "example": "28339"
+          },
+          "storeName": {
+            "type": "string",
+            "example": "강남스퀘어점"
+          },
+          "address": {
+            "type": "string",
+            "example": "서울특별시 강남구 강남대로 396"
+          },
+          "phone": {
+            "type": "string",
+            "example": "02-000-0000"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.4982
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 127.0276
+          },
+          "service24h": {
+            "type": "boolean",
+            "example": true
+          },
+          "distanceM": {
+            "type": "number",
+            "nullable": true,
+            "example": 120
+          }
+        }
+      },
+      "Emart24Product": {
+        "type": "object",
+        "properties": {
+          "pluCd": {
+            "type": "string",
+            "example": "8800244010504"
+          },
+          "goodsName": {
+            "type": "string",
+            "example": "두바이초콜릿"
+          },
+          "originPrice": {
+            "type": "integer",
+            "example": 3500
+          },
+          "viewPrice": {
+            "type": "integer",
+            "example": 3000
+          },
+          "category": {
+            "type": "string",
+            "example": "간식"
+          },
+          "kind": {
+            "type": "string",
+            "example": "초콜릿"
+          }
+        }
+      },
+      "Emart24StoreSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "stores": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Emart24Store"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Emart24ProductSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "products": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Emart24Product"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "page": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Emart24InventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "example": "고양이 츄르"
+              },
+              "pluCd": {
+                "type": "string",
+                "example": "8800244010504"
+              },
+              "productCandidates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Emart24Product"
+                }
+              },
+              "location": {
+                "type": "object",
+                "nullable": true,
+                "properties": {
+                  "latitude": {
+                    "type": "number",
+                    "format": "float"
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                }
+              },
+              "storeFilters": {
+                "type": "object",
+                "properties": {
+                  "storeKeyword": {
+                    "type": "string",
+                    "example": "안산 중앙역"
+                  },
+                  "appliedStoreKeyword": {
+                    "type": "string",
+                    "example": "안산중앙역"
+                  },
+                  "area1": {
+                    "type": "string",
+                    "example": "경기도"
+                  },
+                  "area2": {
+                    "type": "string",
+                    "example": "안산시"
+                  },
+                  "service24h": {
+                    "type": "boolean",
+                    "example": false
+                  },
+                  "storeLimit": {
+                    "type": "integer",
+                    "example": 10
+                  },
+                  "directBizNos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "example": "28339"
+                    }
+                  }
+                }
+              },
+              "nearbyStores": {
+                "type": "object",
+                "properties": {
+                  "totalCount": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "stores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Emart24Store"
+                    }
+                  }
+                }
+              },
+              "goodsInfo": {
+                "type": "object",
+                "nullable": true
+              },
+              "count": {
+                "type": "integer",
+                "example": 1
+              },
+              "stores": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "bizNo": {
+                      "type": "string",
+                      "example": "28339"
+                    },
+                    "bizQty": {
+                      "type": "integer",
+                      "nullable": true,
+                      "example": 3
+                    },
+                    "storeName": {
+                      "type": "string",
+                      "example": "강남스퀘어점"
+                    },
+                    "address": {
+                      "type": "string"
+                    },
+                    "phone": {
+                      "type": "string"
+                    },
+                    "distanceM": {
+                      "type": "number",
+                      "nullable": true,
+                      "example": 120
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Gs25Store": {
+        "type": "object",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "example": "VE463"
+          },
+          "storeName": {
+            "type": "string",
+            "example": "강남역점"
+          },
+          "address": {
+            "type": "string",
+            "example": "서울특별시 강남구 강남대로 396"
+          },
+          "phone": {
+            "type": "string",
+            "example": "02-1234-5678"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.4982
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 127.0276
+          },
+          "realStockQuantity": {
+            "type": "integer",
+            "nullable": true,
+            "example": 3
+          },
+          "distanceM": {
+            "type": "number",
+            "nullable": true,
+            "example": 120
+          },
+          "propertyNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": [
+              "반값택배픽업",
+              "와인25플러스"
+            ]
+          }
+        }
+      },
+      "Gs25ProductCandidate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "오리온)오감자50G"
+          },
+          "sellPrice": {
+            "type": "integer",
+            "nullable": true,
+            "example": 1700
+          },
+          "matchedStoreCount": {
+            "type": "integer",
+            "example": 120
+          },
+          "inStockStoreCount": {
+            "type": "integer",
+            "example": 42
+          },
+          "unknownStockStoreCount": {
+            "type": "integer",
+            "example": 0
+          },
+          "totalStockQuantity": {
+            "type": "integer",
+            "nullable": true,
+            "example": 110
+          }
+        }
+      },
+      "Gs25StoreSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "stores": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Gs25Store"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Gs25ProductSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "products": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Gs25ProductCandidate"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Gs25InventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "example": "오감자"
+              },
+              "product": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "오리온)오감자50G"
+                  },
+                  "sellPrice": {
+                    "type": "integer",
+                    "nullable": true,
+                    "example": 1700
+                  }
+                }
+              },
+              "inventory": {
+                "type": "object",
+                "properties": {
+                  "totalStoreCount": {
+                    "type": "integer",
+                    "example": 17684
+                  },
+                  "matchedStoreCount": {
+                    "type": "integer",
+                    "example": 100
+                  },
+                  "inStockStoreCount": {
+                    "type": "integer",
+                    "example": 35
+                  },
+                  "unknownStockStoreCount": {
+                    "type": "integer",
+                    "example": 0
+                  },
+                  "totalStockQuantity": {
+                    "type": "integer",
+                    "nullable": true,
+                    "example": 90
+                  },
+                  "stores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Gs25Store"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "SevenElevenProduct": {
+        "type": "object",
+        "properties": {
+          "itemCode": {
+            "type": "string",
+            "example": "8801056252243"
+          },
+          "itemName": {
+            "type": "string",
+            "example": "칠성)핫식스더킹퍼플500ml"
+          },
+          "salePrice": {
+            "type": "integer",
+            "nullable": true,
+            "example": 3000
+          },
+          "imageUrl": {
+            "type": "string",
+            "nullable": true,
+            "example": ""
+          }
+        }
+      },
+      "SevenElevenStockError": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "cause": {
+            "type": "string",
+            "example": "api"
+          },
+          "httpStatus": {
+            "type": "integer",
+            "nullable": true,
+            "example": 400
+          },
+          "code": {
+            "type": "integer",
+            "nullable": true,
+            "example": 501
+          },
+          "message": {
+            "type": "string",
+            "example": "RSA 복호화 실패"
+          },
+          "raw": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "SevenElevenStoreInventory": {
+        "type": "object",
+        "properties": {
+          "storeCode": {
+            "type": "string",
+            "example": "54928"
+          },
+          "storeName": {
+            "type": "string",
+            "example": "안산중앙일번가점"
+          },
+          "address": {
+            "type": "string",
+            "example": "경기 안산시 단원구 중앙대로 907 2동 2121호"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.317371500357
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 126.837004318586
+          },
+          "stockQuantity": {
+            "type": "integer",
+            "example": 14
+          },
+          "isSoldOut": {
+            "type": "boolean",
+            "example": false
+          },
+          "distanceM": {
+            "type": "integer",
+            "nullable": true,
+            "example": 100
+          }
+        }
+      },
+      "SevenElevenInventoryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "example": "핫식스"
+              },
+              "storeKeyword": {
+                "type": "string",
+                "example": "안산 중앙역"
+              },
+              "product": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SevenElevenProduct"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "stockAvailable": {
+                "type": "boolean",
+                "example": true
+              },
+              "stockError": {
+                "$ref": "#/components/schemas/SevenElevenStockError"
+              },
+              "note": {
+                "type": "string",
+                "example": "실시간 재고 데이터가 포함되어 있습니다."
+              },
+              "inventory": {
+                "type": "object",
+                "properties": {
+                  "totalStoreCount": {
+                    "type": "integer",
+                    "example": 4
+                  },
+                  "inStockStoreCount": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "count": {
+                    "type": "integer",
+                    "example": 4
+                  },
+                  "stores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/SevenElevenStoreInventory"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 4
+              },
+              "pageSize": {
+                "type": "integer",
+                "example": 10
+              }
+            }
+          }
+        }
+      },
+      "LotteCinemaTheater": {
+        "type": "object",
+        "properties": {
+          "theaterId": {
+            "type": "string",
+            "example": "1016"
+          },
+          "theaterName": {
+            "type": "string",
+            "example": "월드타워"
+          },
+          "regionCode": {
+            "type": "string",
+            "example": "1"
+          },
+          "regionDetailCode": {
+            "type": "string",
+            "example": "0001"
+          },
+          "address": {
+            "type": "string",
+            "example": "서울 송파구 올림픽로 300"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "example": 37.5132941
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "example": 127.104215
+          },
+          "distanceKm": {
+            "type": "number",
+            "format": "float",
+            "example": 0.5
+          }
+        }
+      },
+      "LotteCinemaResolvedLocation": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "nullable": true,
+            "example": "안산 중앙역"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "float",
+            "nullable": true,
+            "example": 37.3172
+          },
+          "longitude": {
+            "type": "number",
+            "format": "float",
+            "nullable": true,
+            "example": 126.839
+          },
+          "geocodeUsed": {
+            "type": "boolean",
+            "example": true
+          },
+          "formattedAddress": {
+            "type": "string",
+            "nullable": true,
+            "example": "대한민국 경기도 안산시 단원구 고잔동 535"
+          }
+        }
+      },
+      "LotteCinemaMovie": {
+        "type": "object",
+        "properties": {
+          "movieId": {
+            "type": "string",
+            "example": "23816"
+          },
+          "movieName": {
+            "type": "string",
+            "example": "왕과 사는 남자"
+          },
+          "rating": {
+            "type": "string",
+            "example": "12세이상관람가"
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "example": 127
+          },
+          "releaseDate": {
+            "type": "string",
+            "example": "2026-03-10"
+          }
+        }
+      },
+      "LotteCinemaShowtime": {
+        "type": "object",
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "example": "20260310-1016-1201-1"
+          },
+          "theaterId": {
+            "type": "string",
+            "example": "1016"
+          },
+          "theaterName": {
+            "type": "string",
+            "example": "월드타워"
+          },
+          "movieId": {
+            "type": "string",
+            "example": "23816"
+          },
+          "movieName": {
+            "type": "string",
+            "example": "왕과 사는 남자"
+          },
+          "screenId": {
+            "type": "string",
+            "example": "1201"
+          },
+          "screenName": {
+            "type": "string",
+            "example": "1관 샤롯데"
+          },
+          "playDate": {
+            "type": "string",
+            "example": "20260310"
+          },
+          "startTime": {
+            "type": "string",
+            "example": "10:40"
+          },
+          "endTime": {
+            "type": "string",
+            "example": "12:47"
+          },
+          "totalSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 32
+          },
+          "bookedSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 4
+          },
+          "remainingSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 28
+          }
+        }
+      },
+      "LotteCinemaTheaterSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "nullable": true
+              },
+              "latitude": {
+                "type": "number",
+                "format": "float",
+                "nullable": true
+              },
+              "longitude": {
+                "type": "number",
+                "format": "float",
+                "nullable": true
+              },
+              "geocodeUsed": {
+                "type": "boolean"
+              },
+              "formattedAddress": {
+                "type": "string",
+                "nullable": true
+              },
+              "playDate": {
+                "type": "string"
+              },
+              "theaters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LotteCinemaTheater"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "LotteCinemaMovieListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "theaterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "movieId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "latitude": {
+                    "type": "number",
+                    "format": "float",
+                    "nullable": true
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float",
+                    "nullable": true
+                  }
+                }
+              },
+              "resolvedTheater": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LotteCinemaTheater"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "theaters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LotteCinemaTheater"
+                }
+              },
+              "movies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LotteCinemaMovie"
+                }
+              },
+              "showtimes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LotteCinemaShowtime"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "LotteCinemaSeatListResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "theaterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "movieId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "latitude": {
+                    "type": "number",
+                    "format": "float",
+                    "nullable": true
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "format": "float",
+                    "nullable": true
+                  }
+                }
+              },
+              "resolvedTheater": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LotteCinemaTheater"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "seats": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LotteCinemaShowtime"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CgvTheater": {
+        "type": "object",
+        "properties": {
+          "theaterCode": {
+            "type": "string",
+            "example": "0056"
+          },
+          "theaterName": {
+            "type": "string",
+            "example": "CGV강남"
+          },
+          "regionCode": {
+            "type": "string",
+            "example": "01"
+          },
+          "latitude": {
+            "type": "number",
+            "nullable": true,
+            "example": 37.5016
+          },
+          "longitude": {
+            "type": "number",
+            "nullable": true,
+            "example": 127.0264
+          },
+          "distanceKm": {
+            "type": "number",
+            "nullable": true,
+            "example": 0.8
+          },
+          "address": {
+            "type": "string",
+            "nullable": true,
+            "example": "서울특별시 강남구 강남대로 438"
+          }
+        }
+      },
+      "CgvMovie": {
+        "type": "object",
+        "properties": {
+          "movieCode": {
+            "type": "string",
+            "example": "200001"
+          },
+          "movieName": {
+            "type": "string",
+            "example": "테스트 영화"
+          },
+          "rating": {
+            "type": "string",
+            "example": "12"
+          }
+        }
+      },
+      "CgvTimetable": {
+        "type": "object",
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "example": "SCH1"
+          },
+          "movieCode": {
+            "type": "string",
+            "example": "200001"
+          },
+          "movieName": {
+            "type": "string",
+            "example": "테스트 영화"
+          },
+          "theaterCode": {
+            "type": "string",
+            "example": "0056"
+          },
+          "theaterName": {
+            "type": "string",
+            "example": "CGV강남"
+          },
+          "playDate": {
+            "type": "string",
+            "example": "20260304"
+          },
+          "startTime": {
+            "type": "string",
+            "example": "09:30"
+          },
+          "endTime": {
+            "type": "string",
+            "example": "11:20"
+          },
+          "totalSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 150
+          },
+          "remainingSeats": {
+            "type": "integer",
+            "nullable": true,
+            "example": 42
+          }
+        }
+      },
+      "CgvTheaterSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "regionCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "latitude": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              },
+              "keyword": {
+                "type": "string",
+                "nullable": true
+              },
+              "latitude": {
+                "type": "number",
+                "nullable": true
+              },
+              "longitude": {
+                "type": "number",
+                "nullable": true
+              },
+              "geocodeUsed": {
+                "type": "boolean"
+              },
+              "formattedAddress": {
+                "type": "string",
+                "nullable": true
+              },
+              "theaters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CgvTheater"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CgvMovieSearchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "theaterCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "latitude": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              },
+              "resolvedTheater": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CgvTheater"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "movies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CgvMovie"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "CgvTimetableResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "playDate": {
+                "type": "string"
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "theaterCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "movieCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "keyword": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "latitude": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "longitude": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              },
+              "resolvedTheater": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CgvTheater"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "timetable": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CgvTimetable"
+                }
+              }
+            }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "pageSize": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "에러 코드",
+                "example": "MISSING_QUERY"
+              },
+              "message": {
+                "type": "string",
+                "description": "에러 메시지",
+                "example": "검색어(q)를 입력해주세요."
+              }
+            }
+          }
+        }
+      },
+      "ActionQueryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "대상 엔드포인트가 반환한 data 객체"
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "대상 엔드포인트가 반환한 meta 객체"
+          }
+        }
+      }
+    }
+  }
+}

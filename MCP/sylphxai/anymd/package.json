@@ -1,0 +1,49 @@
+{
+  "name": "anymd-workspace",
+  "private": true,
+  "type": "module",
+  "description": "anymd repository tools: docs site, Biome, TypeScript tests over the Rust binary, and release scripts. The published packages are in packages/.",
+  "homepage": "https://sylphxai.github.io/anymd/",
+  "license": "MIT",
+  "packageManager": "bun@1.4.3",
+  "scripts": {
+    "build": "cargo build --release -p anymd",
+    "test": "bun test",
+    "test:cov": "bun test --coverage --timeout=30000",
+    "test:rust": "cargo test",
+    "lint": "biome lint .",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "check:github-actions": "bash scripts/check-github-actions.sh",
+    "check:versions": "bun scripts/set-version.ts --check && python3 scripts/check-vendored-crates.py",
+    "check:copy": "bun scripts/render-copy.ts --check && python3 bench/leaderboard.py --check",
+    "check:runner-profiles": "python3 scripts/check-public-runner-profiles.py .",
+    "typecheck": "tsc --noEmit",
+    "version:set": "bun scripts/set-version.ts",
+    "render:copy": "bun scripts/render-copy.ts",
+    "inspector": "npx @modelcontextprotocol/inspector node packages/anymd/bin/anymd.js mcp",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs && bash scripts/build-storefront.sh",
+    "docs:preview": "vitepress preview docs",
+    "perf:installed-footprint": "bun scripts/perf/measure-installed-footprint.ts"
+  },
+  "overrides": {
+    "brace-expansion": "^5.0.6",
+    "esbuild": "^0.28.1",
+    "preact": "^10.28.2",
+    "defu": "^6.1.7",
+    "postcss": "^8.5.15",
+    "rollup": "^4.60.2",
+    "vite": "^6.4.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.4",
+    "@types/pngjs": "^6.0.5",
+    "markdown-it": "^15.0.2",
+    "pngjs": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vitepress": "^1.6.4"
+  }
+}

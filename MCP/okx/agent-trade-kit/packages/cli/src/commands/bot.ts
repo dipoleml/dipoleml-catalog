@@ -1,0 +1,738 @@
+import type { ToolRunner } from "@agent-tradekit/core";
+import { outputLine, errorLine, printJson, printKv, printTable } from "../formatter.js";
+
+function emitWriteResult(item: Record<string, unknown> | undefined, label: string, idKey: string): void {
+  const isError = item?.["sCode"] !== "0" && item?.["sCode"] !== 0;
+  if (isError) {
+    errorLine(`Error: ${item?.["sMsg"]} (sCode ${item?.["sCode"]})`);
+  } else {
+    outputLine(`${label}: ${item?.[idKey]} (OK)`);
+  }
+}
+
+function getData(result: unknown): unknown {
+  return (result as Record<string, unknown>).data;
+}
+
+export async function cmdGridOrders(
+  run: ToolRunner,
+  opts: {
+    algoOrdType: string;
+    instId?: string;
+    algoId?: string;
+    status: "active" | "history";
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_get_orders", {
+    algoOrdType: opts.algoOrdType,
+    instId: opts.instId,
+    algoId: opts.algoId,
+    status: opts.status,
+  });
+  const orders = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(orders);
+  if (!orders.length) { outputLine("No grid bots"); return; }
+  printTable(
+    orders.map((o) => ({
+      algoId:     o["algoId"],
+      instId:     o["instId"],
+      type:       o["algoOrdType"],
+      state:      o["state"],
+      pnl:        o["pnlRatio"],
+      gridNum:    o["gridNum"],
+      maxPx:      o["maxPx"],
+      minPx:      o["minPx"],
+      createdAt:  new Date(Number(o["cTime"])).toLocaleString(),
+    })),
+  );
+}
+
+export async function cmdGridDetails(
+  run: ToolRunner,
+  opts: { algoOrdType: string; algoId: string; json: boolean },
+): Promise<void> {
+  const result = await run("grid_get_order_details", {
+    algoOrdType: opts.algoOrdType,
+    algoId: opts.algoId,
+  });
+  const detail = ((getData(result) as Record<string, unknown>[]) ?? [])[0];
+  if (!detail) { outputLine("Bot not found"); return; }
+  if (opts.json) return printJson(detail);
+  printKv({
+    algoId:       detail["algoId"],
+    instId:       detail["instId"],
+    type:         detail["algoOrdType"],
+    state:        detail["state"],
+    maxPx:        detail["maxPx"],
+    minPx:        detail["minPx"],
+    gridNum:      detail["gridNum"],
+    runType:      detail["runType"] === "1" ? "arithmetic" : "geometric",
+    pnl:          detail["pnl"],
+    pnlRatio:     detail["pnlRatio"],
+    investAmt:    detail["investAmt"],
+    totalAnnRate: detail["totalAnnRate"],
+    createdAt:    new Date(Number(detail["cTime"])).toLocaleString(),
+  });
+}
+
+export async function cmdGridSubOrders(
+  run: ToolRunner,
+  opts: {
+    algoOrdType: string;
+    algoId: string;
+    type: "filled" | "live";
+    groupId?: string;
+    after?: string;
+    before?: string;
+    limit?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_get_sub_orders", {
+    algoOrdType: opts.algoOrdType,
+    algoId: opts.algoId,
+    type: opts.type,
+    groupId: opts.groupId,
+    after: opts.after,
+    before: opts.before,
+    limit: opts.limit,
+  });
+  const orders = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(orders);
+  if (!orders.length) { outputLine("No sub-orders"); return; }
+  printTable(
+    orders.map((o) => ({
+      ordId:   o["ordId"],
+      side:    o["side"],
+      px:      o["px"],
+      sz:      o["sz"],
+      fillPx:  o["fillPx"],
+      fillSz:  o["fillSz"],
+      state:   o["state"],
+      fee:     o["fee"],
+    })),
+  );
+}
+
+export async function cmdGridCreate(
+  run: ToolRunner,
+  opts: {
+    instId: string;
+    algoOrdType: string;
+    maxPx: string;
+    minPx: string;
+    gridNum: string;
+    runType?: string;
+    quoteSz?: string;
+    baseSz?: string;
+    direction?: string;
+    lever?: string;
+    sz?: string;
+    basePos?: boolean;
+    tpTriggerPx?: string;
+    slTriggerPx?: string;
+    tpRatio?: string;
+    slRatio?: string;
+    algoClOrdId?: string;
+    aiBuilderCode?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_create_order", {
+    instId: opts.instId,
+    algoOrdType: opts.algoOrdType,
+    maxPx: opts.maxPx,
+    minPx: opts.minPx,
+    gridNum: opts.gridNum,
+    runType: opts.runType,
+    quoteSz: opts.quoteSz,
+    baseSz: opts.baseSz,
+    direction: opts.direction,
+    lever: opts.lever,
+    sz: opts.sz,
+    basePos: opts.basePos,
+    tpTriggerPx: opts.tpTriggerPx,
+    slTriggerPx: opts.slTriggerPx,
+    tpRatio: opts.tpRatio,
+    slRatio: opts.slRatio,
+    algoClOrdId: opts.algoClOrdId,
+    aiBuilderCode: opts.aiBuilderCode,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Grid bot created", "algoId");
+}
+
+export async function cmdGridAmend(
+  run: ToolRunner,
+  opts: {
+    algoId: string;
+    // price-range mode
+    maxPx?: string;
+    minPx?: string;
+    gridNum?: string;
+    // TP/SL mode
+    instId?: string;
+    tpTriggerPx?: string;
+    slTriggerPx?: string;
+    tpRatio?: string;
+    slRatio?: string;
+    // shared optional
+    topUpAmt?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_amend_order", {
+    algoId: opts.algoId,
+    instId: opts.instId,
+    maxPx: opts.maxPx,
+    minPx: opts.minPx,
+    gridNum: opts.gridNum,
+    tpTriggerPx: opts.tpTriggerPx,
+    slTriggerPx: opts.slTriggerPx,
+    tpRatio: opts.tpRatio,
+    slRatio: opts.slRatio,
+    topUpAmt: opts.topUpAmt,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  const item = data?.[0];
+  if (item?.["algoId"]) {
+    outputLine(`Grid bot amended: ${item["algoId"]} (OK)`);
+  } else {
+    emitWriteResult(item, "Grid bot amended", "algoId");
+  }
+}
+
+export async function cmdGridStop(
+  run: ToolRunner,
+  opts: {
+    algoId: string;
+    algoOrdType: string;
+    instId: string;
+    stopType?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_stop_order", {
+    algoId: opts.algoId,
+    algoOrdType: opts.algoOrdType,
+    instId: opts.instId,
+    stopType: opts.stopType,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Grid bot stopped", "algoId");
+}
+
+export async function cmdGridPositions(
+  run: ToolRunner,
+  opts: { algoId: string; algoOrdType: string; json: boolean },
+): Promise<void> {
+  const result = await run("grid_get_positions", {
+    algoId: opts.algoId,
+    algoOrdType: opts.algoOrdType,
+  });
+  const positions = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(positions);
+  if (!positions.length) { outputLine("No positions"); return; }
+  printTable(
+    positions.map((p) => ({
+      algoId:    p["algoId"],
+      instId:    p["instId"],
+      pos:       p["pos"],
+      posSide:   p["posSide"],
+      liqPx:     p["liqPx"],
+      mgnRatio:  p["mgnRatio"],
+      upl:       p["upl"],
+    })),
+  );
+}
+
+export async function cmdGridLiquidatePrice(
+  run: ToolRunner,
+  opts: {
+    instId: string;
+    sz: string;
+    lever: string;
+    direction?: string;
+    basePos?: boolean;
+    maxPx?: string;
+    minPx?: string;
+    gridNum?: string;
+    runType?: string;
+    triggerStrategy?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_get_liquidate_price", {
+    instId: opts.instId,
+    sz: opts.sz,
+    lever: opts.lever,
+    direction: opts.direction,
+    basePos: opts.basePos,
+    maxPx: opts.maxPx,
+    minPx: opts.minPx,
+    gridNum: opts.gridNum,
+    runType: opts.runType,
+    triggerStrategy: opts.triggerStrategy,
+  });
+  const data = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(data);
+  const item = data[0];
+  if (!item) { outputLine("No data"); return; }
+  if (opts.direction === "long") {
+    printKv({ instId: opts.instId, direction: opts.direction, liqPx: item["longLiqPx"] });
+  } else if (opts.direction === "short") {
+    printKv({ instId: opts.instId, direction: opts.direction, liqPx: item["shortLiqPx"] });
+  } else {
+    printKv({ instId: opts.instId, direction: opts.direction, longLiqPx: item["longLiqPx"], shortLiqPx: item["shortLiqPx"] });
+  }
+}
+
+export async function cmdGridClosePosition(
+  run: ToolRunner,
+  opts: {
+    algoId: string;
+    mktClose: boolean;
+    sz?: string;
+    px?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("grid_close_position", {
+    algoId: opts.algoId,
+    mktClose: opts.mktClose,
+    sz: opts.sz,
+    px: opts.px,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Grid position closed", "algoId");
+}
+
+// ---------------------------------------------------------------------------
+// DCA (Spot & Contract) commands
+// ---------------------------------------------------------------------------
+
+export async function cmdDcaCreate(
+  run: ToolRunner,
+  opts: {
+    instId: string;
+    algoOrdType: string;
+    lever?: string;
+    direction: string;
+    initOrdAmt: string;
+    maxSafetyOrds: string;
+    tpPct: string;
+    safetyOrdAmt?: string;
+    pxSteps?: string;
+    pxStepsMult?: string;
+    volMult?: string;
+    slPct?: string;
+    slMode?: string;
+    allowReinvest?: string;
+    triggerStrategy?: string;
+    triggerPx?: string;
+    triggerCond?: string;
+    thold?: string;
+    timeframe?: string;
+    timePeriod?: string;
+    algoClOrdId?: string;
+    reserveFunds?: string;
+    tradeQuoteCcy?: string;
+    aiBuilderCode?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("dca_create_order", {
+    instId: opts.instId,
+    algoOrdType: opts.algoOrdType,
+    lever: opts.lever,
+    direction: opts.direction,
+    initOrdAmt: opts.initOrdAmt,
+    maxSafetyOrds: opts.maxSafetyOrds,
+    tpPct: opts.tpPct,
+    safetyOrdAmt: opts.safetyOrdAmt,
+    pxSteps: opts.pxSteps,
+    pxStepsMult: opts.pxStepsMult,
+    volMult: opts.volMult,
+    slPct: opts.slPct,
+    slMode: opts.slMode,
+    allowReinvest: opts.allowReinvest,
+    triggerStrategy: opts.triggerStrategy,
+    triggerPx: opts.triggerPx,
+    triggerCond: opts.triggerCond,
+    thold: opts.thold,
+    timeframe: opts.timeframe,
+    timePeriod: opts.timePeriod,
+    algoClOrdId: opts.algoClOrdId,
+    reserveFunds: opts.reserveFunds,
+    tradeQuoteCcy: opts.tradeQuoteCcy,
+    aiBuilderCode: opts.aiBuilderCode,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "DCA bot created", "algoId");
+}
+
+export async function cmdDcaStop(
+  run: ToolRunner,
+  opts: { algoId: string; algoOrdType: string; stopType?: string; json: boolean },
+): Promise<void> {
+  const result = await run("dca_stop_order", {
+    algoId: opts.algoId,
+    algoOrdType: opts.algoOrdType,
+    stopType: opts.stopType,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "DCA bot stopped", "algoId");
+}
+
+export async function cmdDcaAddMargin(
+  run: ToolRunner,
+  opts: { algoId: string; amt: string; json: boolean },
+): Promise<void> {
+  const result = await run("dca_add_margin", {
+    algoId: opts.algoId,
+    amt: opts.amt,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Margin added", "algoId");
+}
+
+export async function cmdDcaReduceMargin(
+  run: ToolRunner,
+  opts: { algoId: string; amt: string; json: boolean },
+): Promise<void> {
+  const result = await run("dca_reduce_margin", {
+    algoId: opts.algoId,
+    amt: opts.amt,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Margin reduced", "algoId");
+}
+
+export async function cmdDcaUpdateTakeProfit(
+  run: ToolRunner,
+  opts: { algoId: string; tpPrice: string; json: boolean },
+): Promise<void> {
+  const result = await run("dca_update_take_profit", {
+    algoId: opts.algoId,
+    tpPrice: opts.tpPrice,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Take-profit updated", "algoId");
+}
+
+export async function cmdDcaOrders(
+  run: ToolRunner,
+  opts: { algoOrdType?: string; algoId?: string; instId?: string; history: boolean; json: boolean },
+): Promise<void> {
+  const result = await run("dca_get_orders", {
+    status: opts.history ? "history" : "active",
+    algoOrdType: opts.algoOrdType,
+    algoId: opts.algoId,
+    instId: opts.instId,
+  });
+  const orders = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(orders);
+  if (!orders.length) { outputLine("No DCA bots"); return; }
+  printTable(
+    orders.map((o) => ({
+      algoId:      o["algoId"],
+      instId:      o["instId"],
+      type:        o["algoOrdType"],
+      state:       o["state"],
+      pnl:         o["pnl"],
+      pnlRatio:    o["pnlRatio"],
+      createdAt:   new Date(Number(o["cTime"])).toLocaleString(),
+    })),
+  );
+}
+
+export async function cmdDcaDetails(
+  run: ToolRunner,
+  opts: { algoId: string; algoOrdType: string; json: boolean },
+): Promise<void> {
+  const result = await run("dca_get_order_details", {
+    algoId: opts.algoId,
+    algoOrdType: opts.algoOrdType,
+  });
+  const detail = ((getData(result) as Record<string, unknown>[]) ?? [])[0];
+  if (!detail) { outputLine("DCA bot not found"); return; }
+  if (opts.json) return printJson(detail);
+  printKv({
+    algoId:        detail["algoId"],
+    algoOrdType:   detail["algoOrdType"],
+    instId:        detail["instId"],
+    sz:            detail["sz"],
+    avgPx:         detail["avgPx"],
+    initPx:        detail["initPx"],
+    tpPx:          detail["tpPx"],
+    slPx:          detail["slPx"] || "-",
+    upl:           detail["upl"],
+    fee:           detail["fee"],
+    fundingFee:    detail["fundingFee"],
+    curCycleId:    detail["curCycleId"],
+    fillSafetyOrds: detail["fillSafetyOrds"],
+    createdAt:     new Date(Number(detail["startTime"])).toLocaleString(),
+  });
+}
+
+export async function cmdDcaPositions(
+  run: ToolRunner,
+  opts: { algoId: string; algoOrdType: string; json: boolean },
+): Promise<void> {
+  const result = await run("dca_get_positions", {
+    algoId: opts.algoId,
+    algoOrdType: opts.algoOrdType,
+  });
+  const position = ((getData(result) as Record<string, unknown>[]) ?? [])[0];
+  if (!position) { outputLine("DCA position not found"); return; }
+  if (opts.json) return printJson(position);
+  printKv({
+    algoId:         position["algoId"],
+    algoOrdType:    position["algoOrdType"],
+    instId:         position["instId"],
+    sz:             position["sz"],
+    notionalUsd:    position["notionalUsd"],
+    avgPx:          position["avgPx"],
+    liqPx:          position["liqPx"] || "-",
+    tpPx:           position["tpPx"],
+    slPx:           position["slPx"] || "-",
+    upl:            position["upl"],
+    fee:            position["fee"],
+    fundingFee:     position["fundingFee"],
+    curCycleId:     position["curCycleId"],
+    fillSafetyOrds: position["fillSafetyOrds"],
+    createdAt:      new Date(Number(position["startTime"])).toLocaleString(),
+  });
+}
+
+export async function cmdDcaSubOrders(
+  run: ToolRunner,
+  opts: { algoId: string; algoOrdType: string; cycleId?: string; after?: string; before?: string; limit?: number; json: boolean },
+): Promise<void> {
+  const result = await run("dca_get_sub_orders", {
+    algoId: opts.algoId,
+    algoOrdType: opts.algoOrdType,
+    cycleId: opts.cycleId,
+    after: opts.after,
+    before: opts.before,
+    limit: opts.limit,
+  });
+  const rows = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(rows);
+  if (!rows.length) { outputLine("No sub-orders"); return; }
+
+  if (opts.cycleId) {
+    // Orders within a cycle - fields from /orders endpoint
+    printTable(
+      rows.map((o) => ({
+        ordId:     o["ordId"],
+        side:      o["side"],
+        ordType:   o["ordType"],
+        px:        o["px"],
+        filledSz:  o["filledSz"],
+        avgFillPx: o["avgFillPx"],
+        state:     o["state"],
+        fee:       o["fee"],
+      })),
+    );
+  } else {
+    // Cycle list - fields from /cycle-list endpoint
+    printTable(
+      rows.map((o) => ({
+        cycleId:     o["cycleId"],
+        status:      o["cycleStatus"],
+        current:     o["currentCycle"] ? "yes" : "",
+        avgPx:       o["avgPx"],
+        tpPx:        o["tpPx"],
+        realizedPnl: o["realizedPnl"],
+        fee:         o["fee"],
+        startTime:   o["startTime"] ? new Date(Number(o["startTime"] as string)).toLocaleString() : "",
+      })),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Smart Portfolio commands
+// ---------------------------------------------------------------------------
+
+export async function cmdSmartPortfolioCreate(
+  run: ToolRunner,
+  opts: {
+    stgyName: string;
+    investmentCcy: string;
+    initCapital: string;
+    portfolioList: string;
+    interval: string;
+    deltaRatio: string;
+    tradeQuoteCcy?: string;
+    investType?: string;
+    algoClOrdId?: string;
+    aiBuilderCode?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  const result = await run("smart_portfolio_create_order", {
+    stgyName: opts.stgyName,
+    investmentCcy: opts.investmentCcy,
+    initCapital: opts.initCapital,
+    portfolioList: opts.portfolioList,
+    interval: opts.interval,
+    deltaRatio: opts.deltaRatio,
+    tradeQuoteCcy: opts.tradeQuoteCcy,
+    investType: opts.investType,
+    algoClOrdId: opts.algoClOrdId,
+    aiBuilderCode: opts.aiBuilderCode,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Smart Portfolio created", "algoId");
+}
+
+export async function cmdSmartPortfolioOrders(
+  run: ToolRunner,
+  opts: { history?: boolean; algoId?: string; instId?: string; state?: string; instType?: string; after?: string; before?: string; limit?: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_get_orders", {
+    status: opts.history ? "history" : "active",
+    algoId: opts.algoId,
+    instId: opts.instId,
+    state: opts.state,
+    instType: opts.instType,
+    after: opts.after,
+    before: opts.before,
+    limit: opts.limit,
+  });
+  const orders = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(orders);
+  if (!orders.length) {
+    outputLine(opts.history ? "No Smart Portfolio history" : "No Smart Portfolio bots");
+    return;
+  }
+  printTable(
+    orders.map((o) => ({
+      algoId:        o["algoId"],
+      stgyName:      o["stgyName"],
+      state:         o["state"],
+      investmentCcy: o["investmentCcy"],
+      totalPnl:      o["totalPnl"],
+      pnlRatio:      o["pnlRatio"],
+      createdAt:     new Date(Number(o["cTime"])).toLocaleString(),
+    })),
+  );
+}
+
+export async function cmdSmartPortfolioDetails(
+  run: ToolRunner,
+  opts: { algoId: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_get_order_details", { algoId: opts.algoId });
+  const detail = ((getData(result) as Record<string, unknown>[]) ?? [])[0];
+  if (!detail) { outputLine("Smart Portfolio bot not found"); return; }
+  if (opts.json) return printJson(detail);
+  printKv({
+    algoId:     detail["algoId"],
+    stgyName:   detail["stgyName"],
+    state:      detail["state"],
+    investmentCcy: detail["investmentCcy"],
+    deltaRatio: detail["deltaRatio"],
+    interval:   detail["interval"],
+    totalPnl:   detail["totalPnl"],
+    pnlRatio:   detail["pnlRatio"],
+    createdAt:  detail["cTime"] ? new Date(Number(detail["cTime"] as string)).toLocaleString() : "",
+  });
+}
+
+export async function cmdSmartPortfolioStop(
+  run: ToolRunner,
+  opts: { algoId: string; stopType: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_stop_order", { algoId: opts.algoId, stopType: opts.stopType });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  emitWriteResult(data?.[0], "Smart Portfolio stopped", "algoId");
+}
+
+export async function cmdSmartPortfolioAmendRebalance(
+  run: ToolRunner,
+  opts: { algoId: string; deltaRatio: string; interval: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_amend_rebalance", {
+    algoId: opts.algoId,
+    deltaRatio: opts.deltaRatio,
+    interval: opts.interval,
+  });
+  const data = getData(result) as Record<string, unknown>[];
+  if (opts.json) return printJson(data);
+  outputLine(`Smart Portfolio rebalance amended: ${opts.algoId} (OK)`);
+}
+
+export async function cmdSmartPortfolioInstantRebalance(
+  run: ToolRunner,
+  opts: { algoId: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_instant_rebalance", { algoId: opts.algoId });
+  const items = getData(result) as Array<Record<string, unknown>>;
+  if (opts.json) return printJson(items);
+  const triggered = items?.[0]?.["triggered"];
+  if (triggered) {
+    outputLine(`Smart Portfolio rebalance triggered: ${opts.algoId} (OK)`);
+  } else {
+    outputLine(`Smart Portfolio rebalance not triggered for ${opts.algoId} (portfolio may already be balanced)`);
+  }
+}
+
+export async function cmdSmartPortfolioRecommendZones(
+  run: ToolRunner,
+  opts: { recommendId?: string; assetType?: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_get_recommend_zones", {
+    recommendId: opts.recommendId,
+    assetType: opts.assetType,
+  });
+  const zones = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(zones);
+  if (!zones.length) { outputLine("No recommended zones found"); return; }
+  printTable(
+    zones.map((z) => ({
+      recommendId: z["recommendId"],
+      title:       z["title"],
+      assetType:   z["assetType"],
+      coinCount:   z["coinCount"],
+      userCount:   z["userCount"],
+      deltaRatio:  (z["stgyParam"] as Record<string, unknown> | undefined)?.["deltaRatio"],
+      interval:    (z["stgyParam"] as Record<string, unknown> | undefined)?.["interval"],
+    })),
+  );
+}
+
+export async function cmdSmartPortfolioZonesBacktest(
+  run: ToolRunner,
+  opts: { recommendId: string; period?: string; json: boolean },
+): Promise<void> {
+  const result = await run("smart_portfolio_get_zones_backtest", {
+    recommendId: opts.recommendId,
+    period: opts.period,
+  });
+  const data = (getData(result) as Record<string, unknown>[]) ?? [];
+  if (opts.json) return printJson(data);
+  const item = data[0];
+  if (!item) { outputLine("No backtest data"); return; }
+  printKv({
+    recommendId: opts.recommendId,
+    period:      item["period"],
+    pnlRatio:    item["pnlRatio"],
+    apy:         item["apy"],
+    updateTime:  item["updateTime"],
+  });
+}

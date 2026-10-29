@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# Local state and artifacts
+.port
+session.json
+screenshots/
+test-results/
+playwright-report/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Never commit registry credentials
+.npmrc

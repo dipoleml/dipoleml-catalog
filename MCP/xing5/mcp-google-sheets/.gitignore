@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+**/credentials.json
+**/token.json
+**/service_account.json
+
+.env
+.codex/github-todos/
+
+# Virtual environments
+.venv

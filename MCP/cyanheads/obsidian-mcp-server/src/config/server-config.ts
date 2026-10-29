@@ -1,0 +1,172 @@
+/**
+ * @fileoverview Server-specific config for obsidian-mcp-server.
+ * Loads OBSIDIAN_* env vars used by the Obsidian Local REST API service layer.
+ * @module config/server-config
+ */
+
+import { z } from '@cyanheads/mcp-ts-core';
+import { parseEnvConfig } from '@cyanheads/mcp-ts-core/config';
+
+/**
+ * Boolean env flag parser. Accepts true/false/1/0/yes/no/on/off (case-insensitive);
+ * rejects unrecognized values at startup rather than silently coercing.
+ * Schema fields call `.default(false)` on top of this.
+ */
+const envBoolean = z.union([z.boolean(), z.stringbool()]);
+
+/**
+ * Comma-separated path-list preprocessor. Semantics (see issue #40):
+ * - undefined / `''` / whitespace-only → undefined (treat as unset; default = full vault)
+ * - `,` / `,,,` (separators only, no path content) → throw ZodError → ConfigurationError
+ * - mixed empties (`a,,b`) → drop empties → `['a', 'b']`
+ * - absolute path / `..` traversal → throw
+ * - valid: `\` → `/` + lower-case + trim trailing slash + dedupe (preserves first occurrence order)
+ *
+ * Separator normalization is required for parity with `PathPolicy.normalize()`,
+ * which also collapses `\` → `/` on candidate paths. Without matching
+ * normalization here, a prefix like `Foo\Bar` would never match a candidate
+ * `Foo\Bar\note.md` (candidate becomes `foo/bar/note.md`, prefix stays as
+ * `foo\bar`).
+ */
+const envPathList = z
+  .preprocess(
+    (val) => {
+      if (val === undefined || val === null) return;
+      if (Array.isArray(val)) return val;
+      if (typeof val !== 'string') return val;
+      if (val.trim() === '') return;
+      const parts = val
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      return parts;
+    },
+    z
+      .array(z.string())
+      .optional()
+      .transform((parts, ctx) => {
+        if (parts === undefined) return;
+        if (parts.length === 0) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'contained separators but no valid paths after trimming',
+          });
+          return z.NEVER;
+        }
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const raw of parts) {
+          if (raw.startsWith('/') || raw.startsWith('\\')) {
+            ctx.addIssue({
+              code: 'custom',
+              message: `must be vault-relative; got absolute path '${raw}'`,
+            });
+            return z.NEVER;
+          }
+          const segments = raw.split(/[\\/]/);
+          if (segments.includes('..')) {
+            ctx.addIssue({
+              code: 'custom',
+              message: `must not contain '..' traversal; got '${raw}'`,
+            });
+            return z.NEVER;
+          }
+          const normalized = raw.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+          if (normalized.length === 0) continue;
+          if (seen.has(normalized)) continue;
+          seen.add(normalized);
+          out.push(normalized);
+        }
+        return out.length > 0 ? out : undefined;
+      }),
+  )
+  .describe(
+    'Comma-separated list of vault-relative folder prefixes. Empty/whitespace falls back to unset.',
+  );
+
+const ServerConfigSchema = z.object({
+  apiKey: z
+    .string()
+    .min(1)
+    .describe(
+      'Bearer token for the Obsidian Local REST API plugin (Settings → Community Plugins → Local REST API).',
+    ),
+  baseUrl: z
+    .string()
+    .url()
+    .default('http://127.0.0.1:27123')
+    .describe(
+      'Base URL of the Obsidian Local REST API. Defaults to http://127.0.0.1:27123 — enable "Non-encrypted (HTTP) Server" in the plugin settings to match. Use https://127.0.0.1:27124 to hit the always-on HTTPS port (self-signed cert; pair with OBSIDIAN_VERIFY_SSL=false). A trailing slash is stripped — writing one is natural and every request path already starts with `/`, so leaving it would double the separator and 404 every endpoint.',
+    )
+    /**
+     * Normalized here rather than at each `${baseUrl}${path}` join: the schema
+     * is the one place that runs before anything reads the value, so a single
+     * transform covers `#request`, the HEAD size probe, the capability probe,
+     * and `deriveOmnisearchUrl` alike (issue #121).
+     */
+    .transform((url) => url.replace(/\/+$/, '')),
+  verifySsl: envBoolean
+    .default(false)
+    .describe(
+      "Whether to verify the TLS certificate on the Obsidian endpoint. Defaults to false because the plugin uses a self-signed cert. The relaxation is scoped to this server's own requests to an `https:` OBSIDIAN_BASE_URL — nothing else the process talks to is affected, and a plain-HTTP base URL is unaffected either way.",
+    ),
+  requestTimeoutMs: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30_000)
+    .describe('Per-request timeout in milliseconds.'),
+  enableCommands: envBoolean
+    .default(false)
+    .describe(
+      'Opt-in flag for the command-palette pair (`obsidian_list_commands` + `obsidian_execute_command`). Off by default — Obsidian commands are opaque and can be destructive.',
+    ),
+  readPaths: envPathList.describe(
+    'Optional vault-relative folder allowlist for read operations. Comma-separated; prefix-based with implicit recursion; case-insensitive; trailing slashes normalized. Unset = full vault.',
+  ),
+  writePaths: envPathList.describe(
+    'Optional vault-relative folder allowlist for write operations. Same syntax as OBSIDIAN_READ_PATHS. Write paths are implicitly readable. Unset = full vault, or the read scope when reads are restricted.',
+  ),
+  readOnly: envBoolean
+    .default(false)
+    .describe(
+      'Global kill switch. When true, denies every write regardless of OBSIDIAN_WRITE_PATHS, and suppresses the OBSIDIAN_ENABLE_COMMANDS pair (commands can mutate). Defaults to false.',
+    ),
+  deleteElicitation: envBoolean
+    .default(false)
+    .describe(
+      'When true, `obsidian_delete_note` asks the user to confirm each delete through an elicitation round, and HTTP startup requires a stateful session (MCP_SESSION_MODE=stateless is refused) unless OBSIDIAN_READ_ONLY=true, which disables the tool. Defaults to false: the delete runs on the first call, bounded by OBSIDIAN_WRITE_PATHS and OBSIDIAN_READ_ONLY.',
+    ),
+  omnisearchUrl: z
+    .string()
+    .url()
+    .optional()
+    .describe(
+      'Override URL for the Omnisearch plugin HTTP server. When unset, derives from OBSIDIAN_BASE_URL host with port 51361 (falling back to http://localhost:51361). Used to enable the optional `omnisearch` mode on `obsidian_search_notes`; if the URL is unreachable at startup, the mode is omitted from the tool schema.',
+    ),
+});
+
+export type ServerConfig = z.infer<typeof ServerConfigSchema>;
+
+let _config: ServerConfig | undefined;
+
+export function getServerConfig(): ServerConfig {
+  _config ??= parseEnvConfig(ServerConfigSchema, {
+    apiKey: 'OBSIDIAN_API_KEY',
+    baseUrl: 'OBSIDIAN_BASE_URL',
+    verifySsl: 'OBSIDIAN_VERIFY_SSL',
+    requestTimeoutMs: 'OBSIDIAN_REQUEST_TIMEOUT_MS',
+    enableCommands: 'OBSIDIAN_ENABLE_COMMANDS',
+    readPaths: 'OBSIDIAN_READ_PATHS',
+    writePaths: 'OBSIDIAN_WRITE_PATHS',
+    readOnly: 'OBSIDIAN_READ_ONLY',
+    deleteElicitation: 'OBSIDIAN_DELETE_ELICITATION',
+    omnisearchUrl: 'OBSIDIAN_OMNISEARCH_URL',
+  });
+  return _config;
+}
+
+/** Test hook to reset the cached config. Not used at runtime. */
+export function resetServerConfig(): void {
+  _config = undefined;
+}

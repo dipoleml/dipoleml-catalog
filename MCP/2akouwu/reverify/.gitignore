@@ -1,0 +1,26 @@
+install-last.log
+*.zip
+*.7z
+*.rar
+*.tar
+*.tgz
+_chinese_scan.txt
+.publication/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.tmp
+*.bak
+*.log
+.DS_Store
+Thumbs.db
+
+# Python build artifacts
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+
+# reverify durable ledgers (per-binary grounded facts)
+.reverify/

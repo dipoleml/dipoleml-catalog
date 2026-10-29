@@ -1,0 +1,327 @@
+/**
+ * CLI 응답 렌더러
+ */
+
+interface ApiEnvelope {
+  success?: boolean;
+  data?: unknown;
+  meta?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function toText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+/** 미확인 재고를 실제 0개와 구분합니다. */
+function inventoryText(value: unknown): string {
+  return value === null || value === undefined || (typeof value === 'number' && (!Number.isFinite(value) || value < 0))
+    ? '확인 불가' : toText(value);
+}
+
+function formatMeta(meta: unknown): string[] {
+  if (!isRecord(meta)) {
+    return [];
+  }
+
+  const pairs = Object.entries(meta)
+    .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+    .map(([key, value]) => `${key}=${value}`);
+
+  if (pairs.length === 0) {
+    return [];
+  }
+
+  return [`메타: ${pairs.join(', ')}`];
+}
+
+function detectName(item: Record<string, unknown>): string {
+  const keys = [
+    'name',
+    'productName',
+    'goodsNm',
+    'goodsName',
+    'itemName',
+    'searchItemName',
+    'storeName',
+    'theaterName',
+    'movieName',
+  ];
+  for (const key of keys) {
+    if (typeof item[key] === 'string' && item[key].trim().length > 0) {
+      return item[key] as string;
+    }
+  }
+
+  return '이름 없음';
+}
+
+function formatCollection(title: string, items: unknown): string[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  const lines = [`${title}: ${items.length}건`];
+
+  const preview = items.slice(0, 5);
+  for (const entry of preview) {
+    if (!isRecord(entry)) {
+      lines.push(`- ${toText(entry)}`);
+      continue;
+    }
+
+    const name = detectName(entry);
+    const id =
+      entry.id ??
+      entry.productId ??
+      entry.PD_NO ??
+      entry.itemCode ??
+      entry.pluCd ??
+      entry.goodsNumber ??
+      entry.productNo ??
+      entry.storeCode ??
+      entry.bizNo ??
+      entry.theaterId ??
+      entry.movieId ??
+      entry.link;
+    const price =
+      entry.price ??
+      entry.prc ??
+      entry.PD_PRC ??
+      entry.viewPrice ??
+      entry.priceToPay ??
+      entry.searchItemSellPrice;
+
+    let detail = `- ${name}`;
+    if (id !== undefined) {
+      detail += ` [${toText(id)}]`;
+    }
+    if (price !== undefined) {
+      detail += ` / ${toText(price)}${entry.currency === 'JPY' ? ' JPY' : '원'}`;
+    }
+
+    const detailParts = [
+      entry.brand,
+      entry.hours,
+      entry.address ?? entry.storeAddress,
+      entry.distance !== undefined ? `${toText(entry.distance)}km` : undefined,
+      entry.distanceKm !== undefined ? `${toText(entry.distanceKm)}km` : undefined,
+      entry.distanceM !== undefined ? `${toText(entry.distanceM)}m` : undefined,
+      entry.quantity !== undefined ? `수량 ${inventoryText(entry.quantity)}` : undefined,
+      entry.stock !== undefined ? `수량 ${inventoryText(entry.stock)}` : undefined,
+      entry.realStockQuantity !== undefined ? `수량 ${inventoryText(entry.realStockQuantity)}` : undefined,
+      entry.bizQty !== undefined ? `수량 ${inventoryText(entry.bizQty)}` : undefined,
+      entry.remainQuantity !== undefined ? `수량 ${inventoryText(entry.remainQuantity)}` : undefined,
+      entry.o2oRemainQuantity !== undefined ? `수량 ${inventoryText(entry.o2oRemainQuantity)}` : undefined,
+      entry.stockLabel,
+    ].filter((value): value is string | number | boolean => value !== undefined);
+    if (detailParts.length > 0) {
+      detail += ` / ${detailParts.map(toText).join(' / ')}`;
+    }
+
+    lines.push(detail);
+  }
+
+  if (items.length > preview.length) {
+    lines.push(`...외 ${items.length - preview.length}건`);
+  }
+
+  return lines;
+}
+
+function formatNestedInventory(data: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+
+  if (isRecord(data.nearbyStores)) {
+    lines.push(...formatCollection('주변 매장', data.nearbyStores.stores));
+  }
+
+  if (isRecord(data.inventory)) {
+    lines.push(...formatCollection('재고 매장', data.inventory.stores));
+    lines.push(...formatCollection('재고 항목', data.inventory.items));
+    lines.push(...formatCollection('재고 상품', data.inventory.products));
+
+    if (Array.isArray(data.inventory.products)) {
+      for (const product of data.inventory.products.slice(0, 3)) {
+        if (!isRecord(product) || !isRecord(product.storeInventory)) {
+          continue;
+        }
+        lines.push(...formatCollection('상품별 매장 재고', product.storeInventory.stores));
+      }
+    }
+  }
+
+  return lines;
+}
+
+function formatDisplayLocation(data: Record<string, unknown>): string[] {
+  const lines = [`진열 위치: ${data.hasLocation === true ? '있음' : '없음'}`];
+  if (!Array.isArray(data.locations) || data.locations.length === 0) {
+    return lines;
+  }
+
+  lines.push(`위치 목록: ${data.locations.length}건`);
+  for (const location of data.locations.slice(0, 5)) {
+    if (!isRecord(location)) {
+      lines.push(`- ${toText(location)}`);
+      continue;
+    }
+
+    const zoneNo = toText(location.zoneNo);
+    const stairNo = toText(location.stairNo);
+    const storeErp =
+      location.storeErp !== undefined ? ` / storeErp ${toText(location.storeErp)}` : '';
+    lines.push(`- 구역 ${zoneNo} / 층 ${stairNo}${storeErp}`);
+  }
+
+  if (data.locations.length > 5) {
+    lines.push(`...외 ${data.locations.length - 5}건`);
+  }
+
+  return lines;
+}
+
+function formatProductDetail(data: Record<string, unknown>): string[] {
+  const id = data.id ?? data.productId ?? '-';
+  const name = data.name ?? data.productName ?? '-';
+  const price = data.price ?? '-';
+  const soldOut = data.soldOut;
+
+  const lines = [`제품 상세: ${toText(name)} (${toText(id)})`, `가격: ${toText(price)}원`];
+  if (typeof soldOut === 'boolean') {
+    lines.push(`품절 여부: ${soldOut ? '품절' : '재고 있음'}`);
+  }
+  return lines;
+}
+
+function formatInventory(data: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+
+  const onlineStock = data.onlineStock;
+  if (onlineStock !== undefined) {
+    lines.push(`온라인 재고: ${inventoryText(onlineStock)}`);
+  }
+
+  const storeInventory = data.storeInventory;
+  if (isRecord(storeInventory)) {
+    const total = storeInventory.totalStores;
+    const inStock = storeInventory.inStockCount;
+    lines.push(`매장 재고: 재고보유 ${toText(inStock)} / 전체 ${toText(total)}`);
+    lines.push(...formatCollection('매장 목록', storeInventory.stores));
+  }
+
+  return lines;
+}
+
+function formatCompare(data: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  if (isRecord(data.bestPrice)) {
+    lines.push(
+      `최저가 후보: ${toText(data.bestPrice.serviceName)} / ${toText(data.bestPrice.name)} / ${toText(data.bestPrice.price)}원`,
+    );
+  }
+  lines.push(...formatCollection('가격 후보', data.results));
+  if (Array.isArray(data.errors) && data.errors.length > 0) {
+    lines.push(`서비스 조회 실패: ${data.errors.length}건`);
+    for (const error of data.errors) {
+      lines.push(isRecord(error)
+        ? `- ${toText(error.service)}: ${toText(error.message)}`
+        : `- ${toText(error)}`);
+    }
+  }
+  if (typeof data.note === 'string') {
+    lines.push(`참고: ${data.note}`);
+  }
+  return lines;
+}
+
+export function renderApiEnvelope(command: string, url: URL, payload: unknown): string {
+  if (!isRecord(payload)) {
+    return `요청 성공: ${url.pathname}\n${toText(payload)}\n\n원본 JSON은 --json 옵션으로 확인하세요.`;
+  }
+
+  const envelope = payload as ApiEnvelope;
+  if (envelope.success !== true) {
+    return JSON.stringify(payload, null, 2);
+  }
+
+  const partialCompare = command === 'compare' && isRecord(envelope.data) &&
+    Array.isArray(envelope.data.errors) && envelope.data.errors.length > 0;
+  const lines: string[] = [
+    `${partialCompare ? '일부 서비스 조회 실패' : '요청 성공'}: ${url.pathname}`,
+  ];
+  lines.push(...formatMeta(envelope.meta));
+
+  if (!isRecord(envelope.data)) {
+    lines.push(`응답 데이터: ${toText(envelope.data)}`);
+    lines.push('', '원본 JSON은 --json 옵션으로 확인하세요.');
+    return lines.join('\n');
+  }
+
+  const data = envelope.data;
+
+  if (command === 'jp-product') {
+    lines.push(`제품 상세: ${toText(data.name)}`, `가격: ${toText(data.price)} JPY`, `온라인 판매 가능: ${toText(data.onlineAvailable)}`, '매장 재고 미지원');
+  } else if (command === 'product') {
+    lines.push(...formatProductDetail(data));
+  } else if (command === 'inventory') {
+    lines.push(...formatInventory(data));
+  } else if (command === 'display-location') {
+    lines.push(...formatDisplayLocation(data));
+  } else if (command === 'compare') {
+    lines.push(...formatCompare(data));
+  } else if (command === 'cu-inventory') {
+    lines.push(
+      ...formatCollection(
+        '매장 목록',
+        isRecord(data.nearbyStores) ? data.nearbyStores.stores : undefined,
+      ),
+    );
+    lines.push(
+      ...formatCollection('재고 항목', isRecord(data.inventory) ? data.inventory.items : undefined),
+    );
+  } else if (command.endsWith('-inventory')) {
+    lines.push(...formatNestedInventory(data));
+  } else {
+    lines.push(...formatCollection('제품 목록', data.products));
+    lines.push(...formatCollection('매장 목록', data.stores));
+    lines.push(...formatCollection('극장 목록', data.theaters));
+    lines.push(...formatCollection('장소 목록', data.places));
+    lines.push(...formatCollection('영화 목록', data.movies));
+    lines.push(...formatCollection('시간표', data.timetable));
+    lines.push(...formatCollection('좌석 목록', data.seats));
+    lines.push(...formatCollection('상영 목록', data.showtimes));
+
+    if (lines.length <= 2) {
+      const summaryEntries = Object.entries(data)
+        .filter(
+          ([, value]) =>
+            typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean',
+        )
+        .slice(0, 8);
+
+      for (const [key, value] of summaryEntries) {
+        lines.push(`${key}: ${toText(value)}`);
+      }
+    }
+  }
+
+  if (command.startsWith('jp-')) {
+    lines.push('일본 매장 재고 미지원', `page: ${toText(data.page)} / hasNext: ${toText(data.hasNext)}`, toText(data.note));
+  }
+
+  lines.push('', '원본 JSON은 --json 옵션으로 확인하세요.');
+  return lines.join('\n');
+}

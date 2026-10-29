@@ -1,0 +1,79 @@
+# Copyright IBM Corp. 2025
+# SPDX-License-Identifier: MPL-2.0
+
+# This Dockerfile contains multiple targets.
+# Use 'docker build --target=<name> .' to build one.
+
+# ===================================
+#
+#   Non-release images.
+#
+# ===================================
+
+# certbuild captures the ca-certificates
+FROM docker.mirror.hashicorp.services/alpine:3.22@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412 AS certbuild
+RUN apk add --no-cache ca-certificates
+
+# devbuild compiles the binary
+# -----------------------------------
+FROM golang:1.26.10-alpine@sha256:5cb67f19c5e7994dcb80c074f7cfca8aeeada45bbdca035f73df269cefdcce61 AS devbuild
+ARG VERSION="dev"
+# Set the working directory
+WORKDIR /build
+RUN go env -w GOMODCACHE=/root/.cache/go-build
+# Install dependencies
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/.cache/go-build go mod download
+COPY . ./
+# Build the server
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -ldflags="-s -w" \
+    -o terraform-mcp-server ./cmd/terraform-mcp-server
+
+# dev runs the binary from devbuild
+# -----------------------------------
+# Make a stage to run the app
+FROM scratch AS dev
+ARG VERSION="dev"
+# Set the working directory
+WORKDIR /server
+# Copy the binary from the build stage
+COPY --from=devbuild /build/terraform-mcp-server .
+COPY --from=certbuild /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# Run as a non-root user for Kubernetes compatibility.
+USER 65532:65532
+# Command to run the server (mode determined by environment variables or defaults to stdio)
+ENTRYPOINT ["./terraform-mcp-server"]
+
+# ===================================
+#
+#   Release images that uses CI built binaries (CRT generated)
+#
+# ===================================
+
+# default release image (refereced in .github/workflows/build.yml)
+# -----------------------------------
+FROM scratch AS release-default
+ARG BIN_NAME
+# Export BIN_NAME for the CMD below, it can't see ARGs directly.
+ENV BIN_NAME=$BIN_NAME
+ARG PRODUCT_VERSION
+ARG PRODUCT_REVISION
+ARG PRODUCT_NAME=$BIN_NAME
+# TARGETARCH and TARGETOS are set automatically when --platform is provided.
+ARG TARGETOS TARGETARCH
+LABEL version=$PRODUCT_VERSION
+LABEL revision=$PRODUCT_REVISION
+LABEL io.modelcontextprotocol.server.name="io.github.hashicorp/terraform-mcp-server"
+COPY dist/$TARGETOS/$TARGETARCH/$BIN_NAME /bin/terraform-mcp-server
+COPY --from=certbuild /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# Run as a non-root user for Kubernetes compatibility.
+USER 65532:65532
+# Command to run the server (mode determined by environment variables or defaults to stdio)
+ENTRYPOINT ["/bin/terraform-mcp-server"]
+
+# ===================================
+#
+#   Set default target to 'dev'.
+#
+# ===================================
+FROM dev

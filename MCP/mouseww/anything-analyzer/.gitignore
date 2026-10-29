@@ -1,0 +1,37 @@
+node_modules/
+out/
+dist/
+release/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment and secrets
+.env
+.env.*
+
+# Electron userdata (contains LLM API keys)
+userData/
+
+# Spec workflow templates
+.spec-workflow/
+
+# Superpowers generated docs
+docs/superpowers/
+.superpowers/
+
+# Report copies
+report-*copy*
+.claude/skills/version-release-pipeline/SKILL.md
+report-2026-04-17-copilot-claude-sonnet-4.6.md

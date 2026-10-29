@@ -1,0 +1,547 @@
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+import httpx
+
+from dbt_mcp.config.config_providers import AdminApiConfig, ConfigProvider
+from dbt_mcp.config.settings import PLATFORM_API_TIMEOUT
+from dbt_mcp.dbt_admin.artifacts import read_artifact
+from dbt_mcp.errors import (
+    AdminAPIError,
+    ArtifactRetrievalError,
+    InvalidParameterError,
+    UpstreamResponseError,
+    NotFoundError,
+)
+from dbt_mcp.oauth.dbt_platform import (
+    DbtPlatformEnvironment,
+    DbtPlatformEnvironmentResponse,
+)
+from dbt_mcp.http_limits import response_limit_hook
+
+
+from dbt_mcp.pagination import (
+    ResultPage,
+    offset_pagination,
+    validate_offset,
+    validate_page_size,
+)
+
+logger = logging.getLogger(__name__)
+
+# Only plain relative path characters are allowed: no '%' (blocks percent-encoded
+# segments like '%2e%2e' from reaching the request URL), no '?'/'#' (would be
+# parsed as the start of a query string or fragment), no ':' or leading '/'.
+ARTIFACT_PATH_PATTERN = re.compile(r"[A-Za-z0-9._/-]+")
+
+
+class DbtAdminAPIClient:
+    """Client for interacting with the dbt Admin API."""
+
+    def __init__(self, config_provider: ConfigProvider[AdminApiConfig]):
+        self.config_provider = config_provider
+
+    async def get_headers(self) -> dict[str, str]:
+        config = await self.config_provider.get_config()
+        return {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        } | config.headers_provider.get_headers()
+
+    async def _make_request(
+        self, method: str, endpoint: str, *, response_type: str = "admin", **kwargs: Any
+    ) -> dict[str, Any]:
+        """Make a request to the dbt API."""
+        config = await self.config_provider.get_config()
+        url = f"{config.url}{endpoint}"
+        headers = await self.get_headers()
+
+        try:
+            async with (
+                config.http_config.admission(),
+                httpx.AsyncClient(
+                    headers={"Accept-Encoding": "gzip, deflate"},
+                    timeout=PLATFORM_API_TIMEOUT,
+                    event_hooks={
+                        "response": [
+                            response_limit_hook(
+                                config.http_config.response_limits,
+                                response_type=response_type,
+                                observer=config.http_config.observer,
+                            )
+                        ]
+                    },
+                ) as client,
+            ):
+                response = await client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    follow_redirects=True,
+                    **kwargs,
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            # Don't interpolate the httpx error directly: its string contains the
+            # full request URL, which can leak internal hostnames to the caller.
+            # The status code plus method/endpoint are enough to act on.
+            if 400 <= e.response.status_code < 500:
+                raise InvalidParameterError(
+                    f"API request failed ({e.response.status_code}) "
+                    f"for {method} {endpoint}"
+                ) from e
+            raise AdminAPIError(
+                f"API request failed ({e.response.status_code}) for {method} {endpoint}"
+            ) from e
+        except httpx.HTTPError as e:
+            # Same rationale: transport errors also embed the URL in their string.
+            raise AdminAPIError(f"API request failed for {method} {endpoint}") from e
+
+    async def get_account(self, account_id: int) -> dict[str, Any]:
+        """Get details for an account."""
+        result = await self._make_request(
+            "GET",
+            f"/api/v2/accounts/{account_id}/",
+        )
+        return result.get("data", {})
+
+    async def get_current_user(self) -> dict[str, Any]:
+        """Get details for the current authenticated user."""
+        result = await self._make_request("GET", "/api/v2/whoami/")
+        return result.get("data", {})
+
+    async def get_environment(self, environment_id: int) -> dict[str, Any]:
+        """Get details for an environment, including the project it belongs to."""
+        config = await self.config_provider.get_config()
+        result = await self._make_request(
+            "GET",
+            f"/api/v2/accounts/{config.account_id}/environments/{environment_id}/",
+        )
+        return result.get("data", {})
+
+    async def list_user_credentials(self, user_id: int) -> list[dict[str, Any]]:
+        """List the development credentials of a user.
+
+        Only works with the user's own personal access token or OAuth token;
+        service tokens are rejected by the API.
+        """
+        result = await self._make_request(
+            "GET", f"/api/v3/users/{user_id}/credentials/"
+        )
+        return result.get("data", [])
+
+    @staticmethod
+    def resolve_environments(
+        environments: list[DbtPlatformEnvironmentResponse],
+    ) -> tuple[DbtPlatformEnvironment | None, DbtPlatformEnvironment | None]:
+        """Resolve prod and dev environments from a list of environment responses.
+
+        Returns a tuple of (prod_environment, dev_environment).
+        """
+        prod_environment: DbtPlatformEnvironment | None = None
+        dev_environment: DbtPlatformEnvironment | None = None
+
+        for environment in environments:
+            if (
+                environment.deployment_type
+                and environment.deployment_type.lower() == "production"
+            ):
+                prod_environment = DbtPlatformEnvironment(
+                    id=environment.id,
+                    name=environment.name,
+                    deployment_type=environment.deployment_type,
+                )
+                break
+
+        for environment in environments:
+            if environment.type and environment.type.lower() == "development":
+                dev_environment = DbtPlatformEnvironment(
+                    id=environment.id,
+                    name=environment.name,
+                    deployment_type=None,
+                )
+                break
+
+        return prod_environment, dev_environment
+
+    async def fetch_project_environment_responses(
+        self,
+        project_id: int,
+        *,
+        page_size: int = 100,
+    ) -> list[DbtPlatformEnvironmentResponse]:
+        """Fetch active environments using offset/limit pagination."""
+        offset = 0
+        environments: list[DbtPlatformEnvironmentResponse] = []
+        config = await self.config_provider.get_config()
+        while True:
+            result = await self._make_request(
+                "GET",
+                f"/api/v3/accounts/{config.account_id}/projects/{project_id}/environments/",
+                params={"state": 1, "offset": offset, "limit": page_size},
+            )
+            page_raw = result.get("data", [])
+            if len(page_raw) > page_size:
+                raise UpstreamResponseError(
+                    "API exceeded the requested environment page size."
+                )
+            environments.extend(
+                DbtPlatformEnvironmentResponse(**row) for row in page_raw
+            )
+            if len(page_raw) < page_size:
+                break
+            offset += page_size
+        return environments
+
+    async def get_environments_for_project(
+        self,
+        project_id: int,
+        *,
+        page_size: int = 100,
+    ) -> tuple[DbtPlatformEnvironment | None, DbtPlatformEnvironment | None]:
+        """Fetch environments for a project and resolve prod/dev."""
+        raw = await self.fetch_project_environment_responses(
+            project_id,
+            page_size=page_size,
+        )
+        return self.resolve_environments(raw)
+
+    async def list_jobs(
+        self, account_id: int, limit: int = 50, offset: int = 0, **params: Any
+    ) -> ResultPage[list[dict[str, Any]]]:
+        """List jobs for an account."""
+        validate_page_size(limit)
+        validate_offset(offset)
+        params.update(limit=limit, offset=offset)
+        params["include_related"] = "['most_recent_run','most_recent_completed_run']"
+        result = await self._make_request(
+            "GET",
+            f"/api/v2/accounts/{account_id}/jobs/",
+            params=params,
+        )
+        data = result.get("data", [])
+
+        # we filter the data to the most relevant fields
+        # the rest of the fields can be retrieved with the get_job tool
+        filtered_data = [
+            {
+                "id": job.get("id"),
+                "name": job.get("name"),
+                "description": job.get("description"),
+                "dbt_version": job.get("dbt_version"),
+                "job_type": job.get("job_type"),
+                "triggers": job.get("triggers"),
+                "most_recent_run_id": job.get("most_recent_run").get("id")
+                if job.get("most_recent_run")
+                else None,
+                "most_recent_run_status": job.get("most_recent_run").get(
+                    "status_humanized"
+                )
+                if job.get("most_recent_run")
+                else None,
+                "most_recent_run_started_at": job.get("most_recent_run").get(
+                    "started_at"
+                )
+                if job.get("most_recent_run")
+                else None,
+                "most_recent_run_finished_at": job.get("most_recent_run").get(
+                    "finished_at"
+                )
+                if job.get("most_recent_run")
+                else None,
+                "most_recent_completed_run_id": job.get(
+                    "most_recent_completed_run"
+                ).get("id")
+                if job.get("most_recent_completed_run")
+                else None,
+                "most_recent_completed_run_status": job.get(
+                    "most_recent_completed_run"
+                ).get("status_humanized")
+                if job.get("most_recent_completed_run")
+                else None,
+                "most_recent_completed_run_started_at": job.get(
+                    "most_recent_completed_run"
+                ).get("started_at")
+                if job.get("most_recent_completed_run")
+                else None,
+                "most_recent_completed_run_finished_at": job.get(
+                    "most_recent_completed_run"
+                ).get("finished_at")
+                if job.get("most_recent_completed_run")
+                else None,
+                "environment_id": job.get("environment_id"),
+                "project_id": job.get("project_id"),
+                "schedule": job.get("schedule").get("cron")
+                if job.get("schedule")
+                else None,
+                "next_run": job.get("next_run"),
+            }
+            for job in data
+        ]
+
+        return ResultPage(
+            result=filtered_data,
+            pagination=offset_pagination(
+                result, count=len(data), limit=limit, offset=offset
+            ),
+        )
+
+    async def get_job_details(self, account_id: int, job_id: int) -> dict[str, Any]:
+        """Get details for a specific job."""
+        result = await self._make_request(
+            "GET",
+            f"/api/v2/accounts/{account_id}/jobs/{job_id}/",
+            params={
+                "include_related": "['most_recent_run','most_recent_completed_run']"
+            },
+        )
+        return result.get("data", {})
+
+    async def list_projects(
+        self, account_id: int, limit: int = 50, offset: int = 0
+    ) -> ResultPage[list[dict[str, Any]]]:
+        """List active projects for an account."""
+        validate_page_size(limit)
+        validate_offset(offset)
+        result = await self._make_request(
+            "GET",
+            f"/api/v3/accounts/{account_id}/projects/",
+            params={
+                "state": 1,
+                "limit": limit,
+                "offset": offset,
+                "include_related": "['environments','repository']",
+            },
+        )
+        data = result.get("data", [])
+        filtered_data = [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "description": p.get("description"),
+                "dbt_project_subdirectory": p.get("dbt_project_subdirectory"),
+                "has_semantic_layer": p.get("semantic_layer_config_id") is not None,
+                "type": p.get("type"),
+                "environments": [
+                    {
+                        "id": e.get("id"),
+                        "name": e.get("name"),
+                        "type": (e.get("deployment_type") or "generic")
+                        if e.get("type") == "deployment"
+                        else e.get("type"),
+                    }
+                    for e in (p.get("environments") or [])
+                ],
+                "repository_full_name": (p.get("repository") or {}).get("full_name"),
+            }
+            for p in data
+        ]
+
+        return ResultPage(
+            result=filtered_data,
+            pagination=offset_pagination(
+                result, count=len(data), limit=limit, offset=offset
+            ),
+        )
+
+    async def trigger_job_run(
+        self, account_id: int, job_id: int, cause: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Trigger a job run."""
+        data = {"cause": cause, **kwargs}
+        result = await self._make_request(
+            "POST", f"/api/v2/accounts/{account_id}/jobs/{job_id}/run/", json=data
+        )
+        return result.get("data", {})
+
+    async def list_jobs_runs(
+        self, account_id: int, limit: int = 50, offset: int = 0, **params: Any
+    ) -> ResultPage[list[dict[str, Any]]]:
+        """List runs for an account."""
+        validate_page_size(limit)
+        validate_offset(offset)
+        params.update(limit=limit, offset=offset)
+        params["include_related"] = "['job']"
+        result = await self._make_request(
+            "GET", f"/api/v2/accounts/{account_id}/runs/", params=params
+        )
+
+        data = result.get("data", [])
+
+        # we remove less relevant fields from the data we get to avoid filling the context with too much data
+        for run in data:
+            job = run.get("job") or {}
+            run["job_name"] = job.get("name", "")
+            run["job_steps"] = job.get("execute_step", "")
+            run.pop("job", None)
+            run.pop("account_id", None)
+            run.pop("environment_id", None)
+            run.pop("blocked_by", None)
+            run.pop("used_repo_cache", None)
+            run.pop("audit", None)
+            run.pop("created_at_humanized", None)
+            run.pop("duration_humanized", None)
+            run.pop("finished_at_humanized", None)
+            run.pop("queued_duration_humanized", None)
+            run.pop("run_duration_humanized", None)
+            run.pop("artifacts_saved", None)
+            run.pop("artifact_s3_path", None)
+            run.pop("has_docs_generated", None)
+            run.pop("has_sources_generated", None)
+            run.pop("notifications_sent", None)
+            run.pop("executed_by_thread_id", None)
+            run.pop("updated_at", None)
+            run.pop("dequeued_at", None)
+            run.pop("last_checked_at", None)
+            run.pop("last_heartbeat_at", None)
+            run.pop("trigger", None)
+            run.pop("run_steps", None)
+            run.pop("deprecation", None)
+            run.pop("environment", None)
+
+        return ResultPage(
+            result=data,
+            pagination=offset_pagination(
+                result, count=len(data), limit=limit, offset=offset
+            ),
+        )
+
+    async def get_job_run_details(
+        self, account_id: int, run_id: int, include_logs: bool = False
+    ) -> dict[str, Any]:
+        """Get details for a specific job run."""
+        result = await self._make_request(
+            "GET",
+            f"/api/v2/accounts/{account_id}/runs/{run_id}/",
+            response_type="admin.run_details",
+            params={"include_related": "['run_steps']"},
+        )
+        data = result.get("data", {})
+
+        # we remove the truncated debug logs and logs (conditionally), they are not very relevant
+        for step in data.get("run_steps", []):
+            if not include_logs:
+                step.pop("logs", None)
+            step.pop("truncated_debug_logs", None)
+
+        return data
+
+    async def cancel_job_run(self, account_id: int, run_id: int) -> dict[str, Any]:
+        """Cancel a job run."""
+        result = await self._make_request(
+            "POST", f"/api/v2/accounts/{account_id}/runs/{run_id}/cancel/"
+        )
+        return result.get("data", {})
+
+    async def retry_job_run(self, account_id: int, run_id: int) -> dict[str, Any]:
+        """Retry a failed job run."""
+        result = await self._make_request(
+            "POST", f"/api/v2/accounts/{account_id}/runs/{run_id}/retry/"
+        )
+        return result.get("data", {})
+
+    async def list_job_run_artifacts(self, account_id: int, run_id: int) -> list[str]:
+        """List artifacts for a job run."""
+        result = await self._make_request(
+            "GET", f"/api/v2/accounts/{account_id}/runs/{run_id}/artifacts/"
+        )
+        # The API returns {"data": null} when a run produced no artifacts, so
+        # coalesce to a list rather than passing the null through to iteration.
+        data = result.get("data") or []
+
+        # Strip per-node SQL artifacts (compiled/, run/) and dbt docs v2 /
+        # dbt Information Schema Parquet artifacts (index/, metadata/) — the
+        # latter are binary files generated by --write-index / --write-metadata
+        # and cannot be returned as text.
+        filtered_data = [
+            artifact
+            for artifact in data
+            if (
+                not artifact.startswith("compiled/")
+                and not artifact.startswith("run/")
+                and not artifact.startswith("index/")
+                and not artifact.startswith("metadata/")
+            )
+        ]
+        return filtered_data
+
+    async def get_job_run_artifact(
+        self,
+        account_id: int,
+        run_id: int,
+        artifact_path: str,
+        step: int | None = None,
+        *,
+        jq_filter: str | None = None,
+    ) -> Any:
+        """Get a specific job run artifact."""
+        segments = artifact_path.split("/")
+        if (
+            not ARTIFACT_PATH_PATTERN.fullmatch(artifact_path)
+            or artifact_path.startswith("/")
+            or ".." in segments
+        ):
+            raise InvalidParameterError(
+                "artifact_path must be a relative path within the run's artifacts, "
+                "using only letters, numbers, '.', '_', '-', and '/' between segments."
+            )
+
+        # dbt docs v2 / dbt Information Schema artifacts are binary Parquet and
+        # cannot be returned as text. No MCP tooling for querying them exists yet.
+        if artifact_path.startswith("index/") or artifact_path.startswith("metadata/"):
+            raise ArtifactRetrievalError(
+                f"Artifact '{artifact_path}' is a dbt docs v2 Parquet file and "
+                "cannot be returned as text. Querying dbt Information Schema "
+                "artifacts is not yet supported."
+            )
+
+        params = {}
+        if step is not None:
+            params["step"] = step
+
+        config = await self.config_provider.get_config()
+        get_artifact_header = {
+            "Accept": "*/*",
+        } | config.headers_provider.get_headers()
+
+        try:
+            return await read_artifact(
+                f"{config.url}/api/v2/accounts/{account_id}/runs/{run_id}/artifacts/{artifact_path}",
+                headers=get_artifact_header,
+                params=params,
+                timeout=PLATFORM_API_TIMEOUT,
+                jq_filter=jq_filter,
+                config=config.artifact_config,
+                response_type="artifact."
+                + (
+                    artifact_path[:-5]
+                    if artifact_path
+                    in {
+                        "manifest.json",
+                        "run_results.json",
+                        "catalog.json",
+                        "sources.json",
+                    }
+                    else "other"
+                ),
+            )
+        except TimeoutError as e:
+            raise InvalidParameterError(
+                f"Artifact processing timed out after {config.artifact_config.execution_seconds:g}s; select a smaller artifact or step."
+            ) from e
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise NotFoundError(
+                    f"Artifact '{artifact_path}' not found for run {run_id}"
+                ) from e
+            raise ArtifactRetrievalError(
+                f"Artifact '{artifact_path}' not available for run {run_id}"
+            ) from e
+        except httpx.HTTPError as e:
+            raise ArtifactRetrievalError(
+                f"Artifact '{artifact_path}' not available for run {run_id}"
+            ) from e

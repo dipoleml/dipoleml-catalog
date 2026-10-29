@@ -1,0 +1,37 @@
+{
+  "openGraph": {
+    "title": "Arc from The Browser Company",
+    "description": "Experience a calmer, more personal internet in this browser designed for you. Let go of the clicks, the clutter, the distractions.",
+    "url": "https://arc.net",
+    "type": "website",
+    "image": "https://arc.net/og.png"
+  },
+  "twitter": {
+    "site": "@thebrowsercompany",
+    "creator": "@thebrowsercompany",
+    "card": "summary_large_image"
+  },
+  "description": "Experience a calmer, more personal internet in this browser designed for you. Let go of the clicks, the clutter, the distractions with the Arc browser.",
+  "canonical": null,
+  "themeColor": "rgba(49, 57, 251, 1)",
+  "viewport": "width=device-width, initial-scale=1.0",
+  "favicons": [
+    {
+      "rel": "shortcut icon",
+      "href": "https://arc.net/favicon.png",
+      "sizes": "",
+      "type": ""
+    }
+  ],
+  "manifest": null,
+  "structuredData": [],
+  "score": {
+    "hasOg": true,
+    "hasTwitter": true,
+    "hasDescription": true,
+    "hasCanonical": false,
+    "hasStructuredData": false,
+    "hasFavicon": true,
+    "hasThemeColor": true
+  }
+}

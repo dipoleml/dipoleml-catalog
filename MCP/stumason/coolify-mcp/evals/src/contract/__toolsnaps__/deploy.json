@@ -1,0 +1,43 @@
+{
+  "name": "deploy",
+  "title": "Deploy",
+  "description": "Deploy by tag/UUID",
+  "annotations": {
+    "destructiveHint": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "tag_or_uuid": {
+        "type": "string"
+      },
+      "force": {
+        "type": "boolean"
+      },
+      "wait": {
+        "description": "Wait for the deployment to reach a terminal status (finished/failed/cancelled) instead of returning immediately, polling every ~5s. If tag_or_uuid matches multiple applications (a tag can trigger several deployments), only the first is watched — the rest are returned under additional_deployment_uuids for you to check separately via `deployment get`. On failure the response includes a bounded log tail. Default false (fire-and-forget, unchanged response).",
+        "type": "boolean"
+      },
+      "timeout_seconds": {
+        "description": "Max seconds to poll when wait is true before giving up and returning the current status plus a next-action hint (default 300). Ignored when wait is false.",
+        "type": "number"
+      },
+      "pr": {
+        "description": "Redeploy the existing preview for this pull request (application uuid only). The GitHub webhook creates the first preview.",
+        "type": "integer",
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991
+      },
+      "rollback_to": {
+        "description": "Roll back to this image tag instead (application uuid only, Coolify 4.3+). Tags: `deployment` rollback_images.",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "tag_or_uuid"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": {}
+  }
+}

@@ -1,0 +1,358 @@
+# Development
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- Unreal Engine 5.4–5.8 (for live testing)
+- A UE project to test against
+
+## Setup
+
+```bash
+git clone https://github.com/db-lyon/ue-mcp.git
+cd ue-mcp
+npm install
+```
+
+## Resolving an Issue with Claude Code
+
+From inside your `ue-mcp` clone:
+
+```bash
+npx ue-mcp resolve 16
+```
+
+This:
+
+1. Fetches issue #16 from `db-lyon/ue-mcp` via `gh`.
+2. Creates a `resolve/16` branch from `origin/main` in your current checkout.
+3. Pipes a generated prompt (issue body + repo conventions) into `claude --print --dangerously-skip-permissions`.
+4. Claude reads code, implements the fix, runs `npx tsc --noEmit`, and commits.
+5. The script then pushes the branch and opens a PR against `db-lyon/ue-mcp`.
+
+Requires `gh` and `claude` CLIs, write access to the repo (or a fork to push to), and you must run it from inside a `ue-mcp` clone - it operates on the working tree, not a temp clone.
+
+## Building
+
+```bash
+npx tsc                # TypeScript -> dist/ (what the server ships as)
+npm run build          # UE C++ plugin build (requires editor closed)
+```
+
+`npx tsc` emits the TypeScript server into `dist/`. `npm run build` is the C++ plugin build that runs Unreal's build tool against the test project and requires the editor to be closed first.
+
+For mesh edge connectivity, use `FMeshDescription::GetEdgeConnectedTriangleIDs`, as UV island inspection does. It returns an array view without copying triangle IDs; `GetEdgeConnectedTriangles` is deprecated.
+
+The build script only ever builds the `ue_mcpEditor` target against the bundled `tests/ue_mcp/ue_mcp.uproject`, and it refuses to start if that resolves anywhere else. It also passes `-NoEngineChanges`, so Unreal itself aborts the build and prints the offending file list if the build would overwrite a file that already exists under the engine tree. That is what keeps a test build from invalidating the outputs of a shared source engine you use for other work.
+
+Engine selection order is `UE_MCP_TEST_ENGINE_ROOT`, then `UE_BUILD_TOOL_PATH`, then the default install locations. A pinned root that has no build tool is an error rather than a silent fallback to an engine you did not ask for.
+
+Two optional environment variables tune the guard:
+
+```powershell
+# Roots the build and run scripts must never touch, whatever else is set.
+$env:UE_MCP_PROTECTED_ENGINE_ROOTS = 'D:\UE-Primary;D:\UE-Release'
+
+# Pin the engine used for test builds and editor launches.
+$env:UE_MCP_TEST_ENGINE_ROOT = 'D:\UE-Test'
+
+npm run build
+```
+
+`UE_MCP_PROTECTED_ENGINE_ROOTS` uses the platform path-list delimiter (`;` on Windows, `:` on macOS and Linux). A selected engine equal to or nested under a protected root is rejected, including when it arrives through `UE_BUILD_TOOL_PATH` or `UE_EDITOR_PATH`.
+
+A fresh engine may need to create its engine-side outputs once. For that bootstrap only, set `UE_MCP_ALLOW_TEST_ENGINE_CHANGES=true` to drop `-NoEngineChanges`. Protected roots stay forbidden even with this opt-in, and the build prints a warning naming the variable so an opt-in left in your environment is visible. Use `npm run up:build` to chain stop-build-start during plugin iteration.
+
+## Running
+
+```bash
+# Build and run
+npm run up:build
+
+# Run (assumes already built)
+npm run up
+
+# Dev mode (tsx, no build step)
+npm run dev
+
+# Direct
+node dist/index.js C:/path/to/MyGame.uproject
+
+# Interactive setup (also available via npx ue-mcp init)
+node dist/index.js init C:/path/to/MyGame.uproject
+```
+
+## Project Structure
+
+```
+src/
+├── index.ts              # `ue-mcp` bin: MCP server, or a CLI subcommand
+├── init.ts, update.ts, deploy-cli.ts  # Other package bins, thin shims over cli/
+├── task.ts, guard-task.ts  # Public `ue-mcp/task` and `ue-mcp/guard` exports
+├── tools.ts              # ALL_TOOLS registry
+├── core/                 # Errors, logging, env, shared types, package root, version check
+├── config/               # ProjectContext, ue-mcp.yml layers, user state, .uproject discovery
+├── bridge/               # EditorBridge WebSocket client, one-shot calls, ports, lockfiles
+├── editor/               # Editor start/stop/build, engine resolution, deploy, dialog guard
+├── sessions/             # Registry of editors and each session's graph and guard
+├── surface/              # categoryTool, action specs, schemas, signatures, parameter routing
+│   └── context/          # micro/lean strategies, instructions, tool search
+├── dispatch/             # Per-call routing, editor gate, locks, offline and Python gates
+├── codeintel/            # Engine symbol index, C++ parsing, .ini reading, Content index
+├── feedback/             # Feedback routing and filing, GitHub auth, scrubbers
+├── extensions/           # ue-mcp extension packages, registry, skills, scaffolding
+├── integrations/claude-code/  # Hooks and MCP client config
+├── cli/                  # Subcommands, --editor parsing, terminal UI (cli/ui/)
+├── flow/                 # Flow engine (registry, loader, task factory, HTTP)
+└── tools/                # <!-- count:tools -->30<!-- /count --> category tools, one file each
+    ├── project/          # project category, split by action group
+    ├── epic/             # Generated epic_* actions (npm run epic:generate)
+    └── specs/            # Generated parameter specs (npm run specs:generate)
+
+plugin/ue_mcp_bridge/     # C++ bridge plugin (deployed to UE projects)
+└── Source/UE_MCP_Bridge/
+    ├── UE_MCP_Bridge.Build.cs
+    └── Private/
+        └── Handlers/<Category>/  # C++ handlers, one folder per category
+
+tests/unit/                # Unit tests (no editor needed)
+tests/multi-editor/        # Multi-session tests (no editor needed)
+tests/golden/              # Recorded advertised surface
+tests/live/, tests/smoke/  # Need a running editor on tests/ue_mcp
+scripts/                   # Build and run scripts
+docs/                      # Documentation (MkDocs Material)
+```
+
+## Testing
+
+### Unit Tests
+
+Pure-TypeScript tests under `tests/unit/`. No editor required.
+
+```bash
+npm run test:unit
+```
+
+These also run in CI on every PR.
+
+### Volume placement regression
+
+`npm run test:automation -- --filter UE.MCP.Level.PlaceVolume` checks that
+`level(place_actor)` initializes native volume brushes with a 200 cm cube,
+preserves requested location, rotation and scale, and leaves existing custom
+brushes and ordinary actor placement unchanged. It checks polygon geometry,
+bounds and collision body setup in a disposable editor world, then restores
+the original editor world. Run it through the automation harness against
+`tests/ue_mcp/ue_mcp.uproject` after deploying and rebuilding the plugin.
+
+### Smoke Tests
+
+Smoke tests run against a **live editor** and verify tool functionality end-to-end.
+
+```bash
+# Every Vitest smoke suite, or the ones whose file name matches a filter
+npm run test:suites
+npm run test:suites -- level
+
+# Full smoke test runner - exercises every registered handler
+npm run test:smoke
+```
+
+!!! warning "Smoke tests require the test project"
+    The smoke runner targets `tests/ue_mcp/ue_mcp.uproject` only. Real mutations execute against the connected editor (creating blueprints, deleting assets, modifying the level). **Never run smoke tests against a real project.** After connecting, the runner asks the editor which project it has open and aborts before sending anything if the answer is not `tests/ue_mcp`. Non-loopback hosts are refused outright.
+
+!!! note "Prerequisites"
+    - Editor running with the test project
+    - Bridge connected (`project(action="get_status")` returns `editorConnected: true`)
+
+#### How the harness finds the bridge
+
+The editor binds a per-project port, not a fixed one, and publishes the port it
+actually bound to `tests/ue_mcp/Saved/UE_MCP_Bridge/port.json`. Both harnesses
+(`scripts/smoke-test.js` and the Vitest suites) resolve the endpoint through
+`scripts/bridge-target.mjs`, which probes in this order:
+
+1. The port recorded in that lockfile.
+2. The port derived from the project path, which is what the bridge binds when
+   nothing is in its way.
+3. The legacy fixed port `9877`, for older bridges.
+
+Start the editor and run the tests; no environment variable is needed. When
+nothing answers, the failure names the lockfile path it read, the state that
+file was in (missing, malformed, or stale with a dead pid), and every port it
+tried. `--port` on the runner and `UE_MCP_TEST_PORT` for the Vitest suites still
+pin the port for unusual setups, and neither weakens the project check above.
+
+### Live tests
+
+The live tests drives a real editor through the shipped server: the advertised
+surface with an editor attached, per-path dispatch, addressing, gating, and the
+records the bridge publishes.
+
+```bash
+npm run test:live
+```
+
+It runs sharded: each shard is a copy of `tests/ue_mcp` with its own editor
+and port, launched with the flags its files declare (`// @live-editor
+headless`, `render`, `interactive`, `base`, `scm`), most of them `-nullrhi`.
+Files are split by measured time, the shard count follows the memory free at
+launch, and the run fails when it takes longer than 10 minutes or a single
+test passes its budget. Every shard is checked to have its own project open
+before anything is sent, and no other project is ever touched.
+
+`npm run test:live -- --attach` instead drives the `tests/ue_mcp` editor that
+is **already running**, and never starts or stops it. Its preflight finds the
+bridge, asks the editor which project it has open, prints the target, and
+aborts with the ports it tried when nothing answers.
+
+- **One editor is enough.** Cases that need more than one editor use a second
+  session for a throwaway project whose editor is not running: a session is
+  registered for every project regardless of editor state, and the session
+  count is what arms targeting, gating and the union refusal.
+- **The leak assertions need the parameter echo**, which can only be armed when
+  the editor process starts. Shard editors are launched with it. In attach mode,
+  launch the editor with `UE_MCP_PARAM_ECHO=1` in its environment to include
+  them; without it they skip and the runner says so.
+- `tests/live/matrix.ts` records, case by case, where each assertion lives, and
+  `tests/live/coverage.test.ts` checks every reference still resolves.
+- **Crash-class inputs** (`tests/live/crash-class-inputs.test.ts`) drive the
+  calls that have taken the editor down: the loaded map, an asset open in its
+  editor, an asset during PIE, and null, empty, whitespace and malformed
+  references. Every call is followed by a liveness probe, so a crash fails the
+  case that caused it.
+- **Editor lifecycle** cases stop, crash, restart and rebuild the test editor,
+  so they run only with `npm run test:live -- --lifecycle`.
+
+### Test Suites
+
+| Suite | What It Tests |
+|-------|---------------|
+| `level` | Actor CRUD, selection, components, volumes, lights |
+| `asset` | Asset listing, search, CRUD, import |
+| `blueprint` | BP reading, creation, graph editing, compilation |
+| `material` | Material creation, parameters, instances |
+| `editor` | Console, PIE, viewport, undo/redo |
+| `reflection` | Class/struct/enum reflection, gameplay tags |
+| `animation` | Anim BP, montages, skeletons |
+| `landscape` | Landscape info, sculpting, painting |
+| `gameplay` | Physics, collision, navigation, AI |
+| `audio` | Sound listing, playback |
+| `niagara` | Niagara system inspection and authoring |
+| `pcg` | PCG graph listing and authoring |
+| `foliage` | Foliage types |
+| `widget` | Widget blueprint creation, tree manipulation, slot properties |
+| `networking` | Replication config |
+| `gas` | GAS component inspection |
+
+## Adding a New Tool
+
+### TypeScript Side
+
+1. Create `src/tools/myfeature.ts`:
+
+```typescript
+import { categoryTool, bp, type ToolDef } from '../types.js';
+import { z } from 'zod';
+
+export const myfeatureTool: ToolDef = categoryTool(
+  'myfeature',
+  'Description of this tool category',
+  {
+    my_action: bp('my_cpp_handler_method'),
+    local_action: {
+      handler: async (ctx, params) => {
+        // local implementation
+        return { result: 'done' };
+      },
+    },
+  },
+  '- my_action: Does something. Params: foo, bar\n- local_action: Does something locally.',
+  {
+    foo: z.string().optional().describe('Description of foo'),
+  },
+);
+```
+
+2. Register it in `src/index.ts`.
+
+Category handlers that invoke another action in their own category must route
+that call through the active `ToolDef.handler` from `ctx.getToolGraph()`. That
+keeps session-injected actions and the shared timeout, path repair, parameter
+folding, and result projection pipeline. Use the exported base tool only when
+the context has no registry graph accessor, such as a direct unit invocation.
+
+### C++ Side
+
+1. Create handler files in `plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Handlers/<Category>/`
+2. Register handlers in `HandlerCatalog.cpp`
+3. Each handler receives `TSharedPtr<FJsonObject>` params and returns `TSharedPtr<FJsonValue>`
+
+## C++ Plugin Development
+
+Native USTRUCTs are registered without the leading `F`: `FTableRowBase` is the `UScriptStruct` named `TableRowBase`, path `/Script/Engine.TableRowBase`. `MCPResolveScriptStruct` in `HandlerClassResolve.h` is the shared lookup for `reflection(reflect_struct)` and `asset(create_datatable)`. It tries the literal spelling first, then strips one leading `F` from the name, including the leaf of a `/Script/Module.FName` path. Only `reflect_struct` also tries adding one `F`. A short name shared by more than one loaded struct is an error that lists the qualified `/Script/Module.Name` candidates, never an arbitrary pick. Shared header, not a file-local copy: see "File-local helpers and the unity build" below.
+
+The plugin source lives in `plugin/ue_mcp_bridge/`. When you modify C++ handler code:
+
+1. Edit the source in `plugin/ue_mcp_bridge/`
+2. The deployer copies the plugin to the target project on server start
+3. In the editor, use **Live Coding** (Ctrl+Alt+F11) or `editor(action="hot_reload")` to reload
+
+For a full editor restart: `editor(action="restart_editor")`
+
+### JSON object range loops
+
+Iterate `FJsonObject::Values` with `const auto&` and convert the key to `FString` inside the body if needed. UE 5.8 changed the key type, so an explicit `TPair<FString, TSharedPtr<FJsonValue>>` loop variable trips Clang's `-Wrange-loop-construct`, an error on Linux. `tests/unit/json-object-range-loops.test.ts` enforces this.
+
+### Blueprint graph node flags
+
+Construct persisted Blueprint and animation graph nodes with `RF_Transactional`.
+`UEdGraph::AddNode` does not set this flag. Without it, opening the asset runs a
+transactional repair that dirties the Blueprint and requests another save.
+Use `NewObject<TNode>(Graph, NAME_None, RF_Transactional)`, or
+`NewObject<UEdGraphNode>(Graph, NodeClass, NAME_None, RF_Transactional)` when the
+class is resolved at runtime. The flag makes node edits eligible for editor
+transactions; it does not wrap bridge calls in undo transactions.
+
+The native filter `UE.MCP.Blueprint.TransactionalNodes` exercises all five
+Blueprint construction paths and representative animation handlers, then saves,
+evicts and reloads temporary assets before checking the editor's repair step.
+
+### File-local helpers and the unity build
+
+UBT compiles a module as a **unity build**: several `.cpp` files are concatenated into one translation unit (`Module.UE_MCP_Bridge.2.cpp` and friends). An anonymous namespace is per translation unit, so two handler files can each define a file-local helper of the same name and both compile in isolation. When the grouping puts them in the same blob, the two anonymous namespaces merge and the second definition becomes a redefinition:
+
+```
+AssetHandlers_BulkUpsert.cpp(53,6): error C2084: function
+'`anonymous-namespace'::IsProtectedAssetPath' already has a body
+```
+
+The grouping is not stable. It shifts with file count, file order, and the adaptive-unity working set, which UBT derives from `git status`. A duplicate can therefore build clean on the machine that wrote it and fail on the next machine to compile the same source.
+
+When two handler files need the same helper, **put it in a shared header** (one of the `Public/Handler*.h` headers that `HandlerUtils.h` gathers, for anything asset- or actor-shaped) rather than copying it. Copies drift as well as collide: the guardrail this rule came from had four copies, two of which enforced weaker rules than the others.
+
+```bash
+npm run audit:unity      # duplicate file-local definitions, per module
+```
+
+The audit runs as part of `npm run audit` and as a unit test, so CI gates on it. Genuine overloads pass, because the signature is the key, not the name. To reproduce the worst-case grouping by hand, build with every file in one blob:
+
+```bash
+# in UE_MCP_Bridge.Build.cs, temporarily:
+#   NumIncludedBytesPerUnityCPPOverride = 256 * 1024 * 1024;
+Build.bat ue_mcpEditor Win64 Development -Project="...\ue_mcp.uproject" -DisableAdaptiveUnity
+```
+
+`-DisableAdaptiveUnity` matters: adaptive unity pulls locally-modified files out of their blob into standalone translation units, which is exactly what hides a collision from the person who just introduced it.
+
+## Dependencies
+
+### Runtime
+- `@modelcontextprotocol/sdk` - MCP protocol implementation
+- `ws` - WebSocket client
+- `zod` - Schema validation
+
+### Dev
+- `typescript` - Type checking
+- `tsx` - TypeScript execution (dev mode)
+- `vitest` - Test runner

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.blender.ableton-mcp",
+  "type": "mcp",
+  "name": "Ableton MCP",
+  "slug": "ableton-mcp",
+  "vendor": "blender",
+  "description": "Control Ableton Live with any LLM: create tracks, arrange clips & compose music via MCP",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ahujasid/ableton-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ableton",
+    "daw",
+    "generative-ai",
+    "model-context-protocol",
+    "music"
+  ],
+  "tags": [
+    "ableton",
+    "ai",
+    "claude",
+    "daw",
+    "generative-ai",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "music",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "blender",
+    "brandName": "blender",
+    "source": "https://cdn.simpleicons.org/blender",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:43Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "ahujasid/ableton-mcp",
+    "url": "https://github.com/ahujasid/ableton-mcp",
+    "commit": "9dddc7bd5b95412510fdeb745949e3bf23f3fd8a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3263,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "ableton-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

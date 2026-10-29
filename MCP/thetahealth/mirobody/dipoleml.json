@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.thetahealth.mirobody",
+  "type": "mcp",
+  "name": "Mirobody",
+  "slug": "mirobody",
+  "vendor": "thetahealth",
+  "description": "Mirror your body in data. One standard, every source, one complete picture of you: a self-hosted health record built from lab reports, wearables and genetics, with every number traced to its source and a built-in MCP server. Run it with Docker and one LLM key, or keep every model local on llama.cpp.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/thetahealth/mirobody",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "apple-health",
+    "digital-health",
+    "genetic-data",
+    "genomics",
+    "health",
+    "health-data",
+    "healthcare-ai",
+    "lab-reports"
+  ],
+  "tags": [
+    "ai-agents",
+    "apple-health",
+    "digital-health",
+    "genetic-data",
+    "genomics",
+    "health",
+    "health-data",
+    "healthcare-ai",
+    "lab-reports",
+    "lab-results",
+    "llama-cpp",
+    "mcp-server",
+    "medical-records",
+    "personal-health-record",
+    "quantified-self",
+    "self-hosted",
+    "wearables"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "docker",
+    "brandName": "docker",
+    "source": "https://cdn.simpleicons.org/docker",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:44Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "thetahealth/mirobody",
+    "url": "https://github.com/thetahealth/mirobody",
+    "commit": "2f0b0eeb47b9ff12cb9cbc056982681ff757e19f",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1396,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "mirobody"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

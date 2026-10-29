@@ -1,0 +1,44 @@
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ring {
+  border: 2px solid var(--color-border);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+/* Sizes */
+.sm .ring {
+  width: 14px;
+  height: 14px;
+}
+
+.md .ring {
+  width: 20px;
+  height: 20px;
+}
+
+.lg .ring {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+/* Full-area spinner with overlay */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 10, 0.6);
+  z-index: 10;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

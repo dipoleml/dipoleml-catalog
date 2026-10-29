@@ -1,0 +1,110 @@
+# SSH MCP Server v2 — Example Configuration
+#
+# Copy to:
+#   Linux:   ~/.config/ssh-mcp/config.toml
+#   macOS:   ~/Library/Application Support/ssh-mcp/config.toml
+#   Windows: %APPDATA%\ssh-mcp\config.toml
+#
+# IMPORTANT: Set permissions to 0600 (chmod 600 config.toml)
+# The server will refuse to load group/world-readable config files.
+
+[defaults]
+defaultProfile = "dev"            # Profile used when none is specified
+sessionMaxPerConnection = 5       # Max interactive+background sessions per host
+sessionIdleTimeoutMs = 600000     # 10min idle -> auto-close session
+sessionBackgroundMaxMs = 3600000  # 1hr max for background sessions
+commandTimeoutMs = 60000          # Per-command timeout
+commandMaxChars = 5000            # Max command length
+commandMaxOutputBytes = 1048576   # 1MB output cap per command
+connectionIdleReapMs = 900000     # 15min -> close idle connection
+approvalMode = "ask-destructive"  # auto | ask-destructive | ask-all | deny
+
+# Streaming SFTP file tools (sftp-list, sftp-upload-file, sftp-download-file).
+#
+# transferRoot is the consent: it is the only directory those tools may read
+# from or write to on this machine, and without it they refuse. There is no
+# setting that means "anywhere". The directory must be 0700, owned by the
+# account running this server, and separate from the installation, this config
+# file, the audit log and ~/.ssh — the server checks all of that at call time
+# and refuses rather than degrading.
+#
+# Commented out on purpose: a placeholder path here would either not exist (the
+# tools refuse, with a message about a directory the operator never chose) or,
+# worse, exist and be wrong. Uncomment it with a directory you made for this.
+# transferRoot = "/srv/ssh-mcp-transfers"
+transferMaxBytes = 268435456       # 256MB cap per transfer; also bounds what one
+                                   #   call can stage inside transferRoot
+transferTimeoutMs = 300000         # 5min with *no bytes moving*, not a total
+                                   #   budget: a slow large transfer survives,
+                                   #   a stalled channel still fails fast
+
+# Development server — permissive
+[[profiles]]
+name = "dev"
+host = "localhost"
+port = 2222
+user = "developer"
+auth = "agent"                    # agent | key | password | keychain
+role = "admin"
+readOnly = false
+approvalPolicy = "auto"           # dev is permissive
+
+# Production web server — strict
+[[profiles]]
+name = "prod-web-1"
+host = "10.0.1.50"
+port = 22
+user = "deploy"
+auth = "key"
+keyRef = "~/.ssh/id_ed25519"      # Path to private key
+via = "bastion"                   # ProxyJump profile name
+workdir = "/var/www/myapp"
+# trustedHostKey = "SHA256:<real fingerprint>"   # Pin the host key (optional, and the
+#   one control here that survives a restart). Commented out on purpose: a placeholder
+#   value is not inert — it is a pin nothing can match, so the profile refuses every
+#   connection. Get the real one with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`
+#   on the server.
+role = "operator"
+readOnly = false
+approvalPolicy = "ask-all"        # Prod requires approval for everything
+tty = false
+timeout = 30000
+sessionMaxPerConnection = 3       # Stricter limit for prod
+sessionIdleTimeoutMs = 300000     # 5min idle for prod
+
+# Bastion / jump host
+[[profiles]]
+name = "bastion"
+host = "bastion.example.com"
+port = 22
+user = "deploy"
+auth = "agent"
+role = "viewer"
+readOnly = true
+
+# Read-only database observer
+[[profiles]]
+name = "db-observer"
+host = "db.internal"
+port = 22
+user = "monitor"
+auth = "keychain"
+keychainEntry = "ssh-mcp/db-observer"
+role = "viewer"
+readOnly = true
+approvalPolicy = "auto"
+
+# Optional. Merged over the built-in role matrix, keyed by role then host group.
+# Uncomment to grant sudo on hosts you have labelled prod, rather than
+# relabelling them as staging. Only the cells you name change: admin on staging
+# and dev, and the other roles, keep their defaults.
+#
+# [policy.roleBindings.admin]
+# prod = ["read-only", "safe", "destructive", "privileged"]
+#
+# Your own deny patterns, as regexes. These are added to the built-in
+# never-allowed list rather than replacing it, and an invalid pattern fails at
+# startup.
+#
+# [policy]
+# denylist = ["^terraform\\s+destroy"]

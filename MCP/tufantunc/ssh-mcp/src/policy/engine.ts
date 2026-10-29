@@ -1,0 +1,707 @@
+import type {
+  CommandClass,
+  ParsedCommand,
+  PolicyConfig,
+  PolicyEvaluation,
+  Profile,
+  ApprovalMode,
+} from '../types.js';
+import { classifyCommand, findForbiddenMatch, formatReadOnlyRejection } from './classifier.js';
+import { normalizeRemotePath, normalizeRemotePathForWindows } from './remote-path.js';
+import { findNeverAllowedWriteTarget, neverAllowedWriteLabel } from './never-allowed-writes.js';
+import { OperatorError } from '../errors.js';
+
+/** The operator-facing promise every built-in never-allowed refusal ends with. */
+const NEVER_ALLOWED_TRAILER =
+  'This list cannot be switched off — the [policy].denylist key adds patterns, it does not remove these.';
+
+export interface PolicyRules {
+  roleBindings: Record<string, Record<string, CommandClass[]>>;
+  /**
+   * Extra deny patterns supplied by the operator, as regex source strings.
+   * The canonical never-allowed list lives in classifier.ts (FORBIDDEN_PATTERNS,
+   * FORBIDDEN_RULES) plus src/policy/never-allowed-writes.ts for the write-path
+   * families, and is always applied on top of these — not repeated here.
+   */
+  denylist?: string[];
+}
+
+/**
+ * How long to wait for the OPA sidecar before treating it as unavailable.
+ *
+ * Bounded because an unbounded wait held every tool call for undici's five-minute header
+ * timeout. Ten seconds and not two: in the default mode a timeout falls back to the local
+ * decision, so the budget is also the price of turning an explicit OPA *deny* into an
+ * allow — at two seconds a sidecar under load crosses it by accident, and anyone who can
+ * add latency crosses it on purpose. Ten is above a loaded sidecar's p99 and still thirty
+ * times cheaper than the hang it replaced. `--opaTimeoutMs` moves it: lower makes the
+ * fail-open cheaper to reach, higher makes an outage slower to notice.
+ */
+const DEFAULT_OPA_TIMEOUT_MS = 10_000;
+
+/** Tiers, most restrictive first. Unknown/unset tiers resolve to the first. */
+export const HOST_GROUPS = ['prod', 'staging', 'dev'] as const;
+
+export const DEFAULT_RULES: PolicyRules = {
+  // Null-prototype for the reason spelled out at `mergePolicyRules`: a role name is
+  // a free string, and this object is indexed by it. `mergePolicyRules` returns this
+  // one unchanged when there is no override, so fixing only the merged copy would
+  // leave the commonest path — no `[policy]` section at all — on a plain object.
+  roleBindings: Object.assign(Object.create(null), {
+    viewer: {
+      prod: ['read-only'],
+      staging: ['read-only'],
+      dev: ['read-only', 'safe'],
+    },
+    operator: {
+      prod: ['read-only', 'safe'],
+      staging: ['read-only', 'safe', 'destructive'],
+      dev: ['read-only', 'safe', 'destructive'],
+    },
+    admin: {
+      prod: ['read-only', 'safe', 'destructive'],
+      staging: ['read-only', 'safe', 'destructive', 'privileged'],
+      dev: ['read-only', 'safe', 'destructive', 'privileged'],
+    },
+  }),
+};
+
+/**
+ * Layer an operator's `[policy]` section over the compiled-in defaults.
+ *
+ * The merge is at role → group depth, not role depth. Replacing a whole role's
+ * bindings from a partial table is the trap here: a config naming only
+ * `admin.prod` would otherwise wipe `admin.staging` and `admin.dev` back to
+ * nothing, widening or narrowing two tiers the operator never mentioned.
+ *
+ * Roles and groups absent from the override keep their defaults, and a role or
+ * tier the defaults have never heard of is added rather than rejected. That is
+ * what makes a custom `group = "tier-1"` resolve to real bindings.
+ *
+ * `denylist` replaces rather than appends, because the defaults carry none and
+ * FORBIDDEN_PATTERNS is applied on top by the engine regardless.
+ *
+ * With nothing to layer, `base` is returned as-is rather than copied. The
+ * result is read-only either way — PolicyEngine only reads `rules`, and the
+ * copying below exists so a *later* merge cannot reach DEFAULT_RULES through a
+ * shared tier object, not because callers are expected to mutate what they get.
+ */
+export function mergePolicyRules(
+  base: PolicyRules,
+  override?: PolicyConfig,
+): PolicyRules {
+  if (!override?.roleBindings && !override?.denylist) return base;
+
+  // Copy every tier map: assigning base's objects straight through would let a
+  // later merge mutate DEFAULT_RULES, which is a module-level singleton.
+  //
+  // `Object.create(null)`, not `{}`, because the loop below assigns a key the
+  // operator chose: `roleBindings[role] = ...` with `role === '__proto__'` invokes
+  // the prototype setter on a plain object rather than creating a key. Measured, the
+  // effect is not global — `Object.prototype` is untouched — but this object's own
+  // prototype is replaced by the operator's tier map, after which `roleBindings.prod`
+  // resolves through the chain as though `prod` were a role. Reported as
+  // https://github.com/tufantunc/ssh-mcp/issues/172.
+  //
+  // Reaching it needs the schema guard in config/schema.ts to be bypassed first, and
+  // that guard is exactly what zod 4 silently disabled once already (2.5.0 rebuilt
+  // it). Insurance in the authorization engine is worth one function call.
+  //
+  // It also removes a second case with no config involved: on a plain object,
+  // `roleBindings['toString']` returns a function, so a profile whose role is named
+  // after an `Object.prototype` member found a truthy "binding". That failed closed —
+  // `findPolicyProblems` still refused it and evaluation floored at read-only — but it
+  // took a different branch than an unknown role, for no reason a reader could see.
+  const roleBindings: Record<string, Record<string, CommandClass[]>> =
+    Object.create(null);
+  for (const [role, groups] of Object.entries(base.roleBindings)) {
+    roleBindings[role] = { ...groups };
+  }
+  for (const [role, groups] of Object.entries(override.roleBindings ?? {})) {
+    roleBindings[role] = { ...(roleBindings[role] ?? {}), ...groups };
+  }
+
+  return {
+    roleBindings,
+    denylist: override.denylist ?? base.denylist,
+  };
+}
+
+/**
+ * Which tier's role binding applies to this profile.
+ *
+ * `profile.group` is authoritative. Without it we still infer from the name
+ * for convenience, but an unrecognised name resolves to the most restrictive
+ * tier: the previous default sent every unrecognised profile to `dev`, so a
+ * production host merely named "web-01" silently received the loosest
+ * permissions in the matrix.
+ *
+ * Exported rather than kept private because startup validation has to reach the
+ * same answer the engine will reach, inference included. Checking only the
+ * explicit `group` would pass every profile that never set one, which is where
+ * the widening below actually happens.
+ */
+export function resolveProfileGroup(profile: Profile): string {
+  if (profile.group) return profile.group;
+
+  const name = profile.name.toLowerCase();
+  if (name.includes('prod')) return 'prod';
+  if (name.includes('staging')) return 'staging';
+  if (/\b(dev|local|test|sandbox)\b/.test(name) || /(^|[-_])(dev|local|test|sandbox)([-_]|$)/.test(name)) {
+    return 'dev';
+  }
+  return HOST_GROUPS[0];
+}
+
+/**
+ * Every way a config's policy can mean something other than what it says.
+ *
+ * Checked in both directions, because a silent no-op is reachable from either:
+ * a profile can name a role or tier that nothing defines, and a `[policy]`
+ * block can define a role or tier that no profile can reach. #95 was the second
+ * kind (written, parsed, dropped), and the first kind lands on `['read-only']`,
+ * which at runtime is indistinguishable from a deliberate policy decision.
+ *
+ * The `[policy]` side is checked against `override`, never the merged table:
+ * the merge carries the three compiled-in roles, and no real config references
+ * all of them.
+ *
+ * Returns every problem rather than the first, matching the config validation
+ * error in loader.ts. An operator fixing a config file wants the whole list.
+ */
+export function findPolicyProblems(
+  merged: PolicyRules,
+  profiles: Profile[],
+  override?: PolicyConfig,
+): string[] {
+  const problems: string[] = [];
+
+  for (const profile of profiles) {
+    const roleBinding = merged.roleBindings[profile.role];
+    if (!roleBinding) {
+      problems.push(
+        `profile "${profile.name}": role "${profile.role}" has no role bindings, so it can only ever ` +
+        `run read-only commands. Define [policy.roleBindings.${profile.role}], or set role to one of: ` +
+        `${Object.keys(merged.roleBindings).join(', ')}.`,
+      );
+      continue;
+    }
+
+    const group = resolveProfileGroup(profile);
+    if (roleBinding[group]) continue;
+
+    const tiers = Object.keys(roleBinding).join(', ');
+    problems.push(
+      profile.group
+        ? `profile "${profile.name}": role "${profile.role}" has no bindings for group "${group}". ` +
+          `Add a "${group}" key under [policy.roleBindings.${profile.role}], or set group to one of: ${tiers}.`
+        : `profile "${profile.name}": no group is set, so the tier is inferred from the name as "${group}", ` +
+          `and role "${profile.role}" has no bindings for it. Set group explicitly to one of: ${tiers}, ` +
+          `or add a "${group}" key under [policy.roleBindings.${profile.role}].`,
+    );
+  }
+
+  const rolesInUse = [...new Set(profiles.map((p) => p.role))];
+  for (const [role, tiers] of Object.entries(override?.roleBindings ?? {})) {
+    if (!rolesInUse.includes(role)) {
+      problems.push(
+        `[policy.roleBindings.${role}]: no profile uses role "${role}", so this block changes nothing. ` +
+        `Roles in use: ${rolesInUse.join(', ')}.`,
+      );
+    }
+    for (const tier of Object.keys(tiers)) {
+      if ((HOST_GROUPS as readonly string[]).includes(tier)) continue;
+      if (profiles.some((p) => p.group === tier)) continue;
+      problems.push(
+        `[policy.roleBindings.${role}]: key "${tier}" matches no profile's group and is not a built-in ` +
+        `tier (${HOST_GROUPS.join(', ')}), so it changes nothing. Set group = "${tier}" on a profile, ` +
+        `or remove the key.`,
+      );
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The rules main() runs on: the compiled-in defaults, the operator's overrides
+ * layered on top, and a refusal to start when the two do not describe the same
+ * world.
+ *
+ * Refusing rather than warning. A warning here goes to stderr, which for a
+ * stdio MCP server means a log file the operator is not reading, and "written,
+ * ignored, nothing said" is the whole of #95.
+ */
+export function resolvePolicyRules(
+  profiles: Profile[],
+  override?: PolicyConfig,
+): PolicyRules {
+  const merged = mergePolicyRules(DEFAULT_RULES, override);
+  const problems = findPolicyProblems(merged, profiles, override);
+  if (problems.length > 0) {
+    throw new OperatorError(
+      'Policy configuration error:\n' +
+      problems.map((p) => `  ${p}`).join('\n') +
+      '\nSee the "Configuring the matrix" section of the README.',
+    );
+  }
+  return merged;
+}
+
+/**
+ * What a call acts on, beyond its command string. Only the SFTP tools pass anything:
+ * their command string is one this server composes, so a `[policy].denylist` rule
+ * written for the path is also tested against the path itself (#230). The same value
+ * lands in the OPA input's `resource` — the name follows that vocabulary, where the
+ * resource is what is acted on and the subject is the profile doing the acting.
+ */
+export interface PolicyResource {
+  remotePath?: string;
+  /**
+   * The call writes its remote path. Set by the SFTP upload tools, left unset by the
+   * read tools: the never-allowed write paths are refused for a declared write and
+   * stay class-governed for a read, and the fact is the tool layer's to state — the
+   * engine does not guess it from the composed command string.
+   */
+  remoteWrite?: boolean;
+}
+
+/**
+ * Compile eagerly: a deny rule that silently degrades (the old code fell back to
+ * substring-matching the command against the regex *source*) is worse than a startup
+ * failure, because nothing surfaces the degradation.
+ */
+function compileDenylist(rules: PolicyRules): ReadonlyArray<{ exact: RegExp; caseInsensitive: RegExp }> {
+  return (rules.denylist ?? []).map((pattern) => {
+    try {
+      return { exact: new RegExp(pattern), caseInsensitive: new RegExp(pattern, 'i') };
+    } catch (err) {
+      throw new OperatorError(
+        `Invalid denylist pattern ${JSON.stringify(pattern)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
+}
+
+/**
+ * Rules ready to run on: the rules as given, and the operator's denylist patterns
+ * compiled once — each twice: as written, and case-insensitively for the Windows
+ * reading of a remote path, where a case variant reaches the same file (#230). The
+ * built-ins live in classifier.ts.
+ */
+export interface CompiledRules {
+  readonly rules: PolicyRules;
+  readonly patterns: ReadonlyArray<{ exact: RegExp; caseInsensitive: RegExp }>;
+}
+
+export class PolicyEngine {
+  private opaUrl: string | null = null;
+  private opaFailClosed = false;
+  private opaTimeoutMs = DEFAULT_OPA_TIMEOUT_MS;
+  /** Rate-limits the fail-open warning so one outage can't flood stderr. */
+  private lastOpaWarning = 0;
+  private compiled: CompiledRules;
+
+  /**
+   * The fallible half of installing rules: throws on a denylist pattern that is not a
+   * valid regular expression. A reload calls it while validating, before anything is
+   * swapped, and hands the result to `replaceRules`.
+   */
+  static compile(rules: PolicyRules): CompiledRules {
+    return { rules, patterns: compileDenylist(rules) };
+  }
+
+  constructor(rules: PolicyRules = DEFAULT_RULES) {
+    this.compiled = PolicyEngine.compile(rules);
+  }
+
+  /** The rules the engine runs on now: what a reload compares new rules with. */
+  get rules(): PolicyRules {
+    return this.compiled.rules;
+  }
+
+  /**
+   * Swap in reloaded rules, already compiled, in one assignment: it cannot throw, so the
+   * engine is never on half of each. OPA settings are argv-only and stay as they are.
+   */
+  replaceRules(compiled: CompiledRules): void {
+    this.compiled = compiled;
+  }
+
+  setOpaUrl(url: string | null, failClosed = false, timeoutMs = DEFAULT_OPA_TIMEOUT_MS): void {
+    this.opaTimeoutMs = timeoutMs;
+    // Reset the warning throttle when the mode changes, or the one warning per minute can
+    // be the *previous* mode's sentence — "commands OPA would deny may now be allowed"
+    // printed while the engine refuses everything.
+    if (failClosed !== this.opaFailClosed || url !== this.opaUrl) this.lastOpaWarning = 0;
+    this.opaUrl = url;
+    this.opaFailClosed = failClosed;
+  }
+
+  evaluate(
+    command: string,
+    profile: Profile,
+    resource: PolicyResource = {},
+  ): PolicyEvaluation {
+    const parsed = classifyCommand(command);
+    const allowedClasses = this.getAllowedClasses(profile);
+    const classAllowed = allowedClasses.includes(parsed.class);
+    // Copied onto every branch below rather than just the role-binding one:
+    // `read-command`'s `enforceClass` check reads it off an `allow` decision,
+    // since a grammar-rejected reader is allowed as `safe` for most roles and
+    // only refused one layer up, in the tool itself.
+    const readOnlyRejection = parsed.readOnlyRejection;
+
+    const denied = this.findDenyMatch(command, resource);
+    if (denied) {
+      return {
+        decision: 'deny',
+        commandClass: parsed.class,
+        binary: parsed.binary,
+        ruleId: 'denylist',
+        reason: denied,
+        readOnlyRejection,
+      };
+    }
+
+    const needsApproval =
+      parsed.class === 'destructive' || parsed.class === 'privileged';
+
+    const approvalRequired = this.requiresApproval(profile, needsApproval);
+
+    if (!classAllowed) {
+      return {
+        decision: 'deny',
+        commandClass: parsed.class,
+        binary: parsed.binary,
+        ruleId: 'role-binding',
+        reason: this.explainRoleDenial(profile, parsed),
+        readOnlyRejection,
+      };
+    }
+
+    if (approvalRequired) {
+      // approvalPolicy "deny" rejects outright instead of prompting — otherwise
+      // it would behave exactly like ask-destructive and never deny anything.
+      if (profile.approvalPolicy === 'deny') {
+        return {
+          decision: 'deny',
+          commandClass: parsed.class,
+          binary: parsed.binary,
+          ruleId: 'approval-policy',
+          reason: `Profile "${profile.name}" denies ${parsed.class} commands (approvalPolicy = "deny")`,
+          readOnlyRejection,
+        };
+      }
+      return {
+        decision: 'require-approval',
+        commandClass: parsed.class,
+        binary: parsed.binary,
+        ruleId: 'approval-policy',
+        reason: `Profile "${profile.name}" requires approval for ${parsed.class} commands`,
+        readOnlyRejection,
+      };
+    }
+
+    return {
+      decision: 'allow',
+      commandClass: parsed.class,
+      binary: parsed.binary,
+      ruleId: 'default',
+      readOnlyRejection,
+    };
+  }
+
+  async evaluateWithOpa(
+    command: string,
+    profile: Profile,
+    toolName: string,
+    resource: PolicyResource = {},
+  ): Promise<PolicyEvaluation> {
+    const local = this.evaluate(command, profile, resource);
+
+    if (local.decision === 'deny') {
+      return local;
+    }
+
+    if (!this.opaUrl) {
+      return local;
+    }
+
+    try {
+      const parsed = classifyCommand(command);
+      // The path as given, plus both readings the local denylist tests, so a Rego rule
+      // can match a canonical spelling without reimplementing either here. Undefined for
+      // every tool but the SFTP ones — and for an empty path, which means no path — and
+      // JSON drops the keys then.
+      const remotePath = resource.remotePath || undefined;
+      const input = {
+        subject: { role: profile.role, profile: profile.name },
+        action: { tool: toolName, commandClass: parsed.class },
+        resource: {
+          command: parsed.fullCommand,
+          binary: parsed.binary,
+          host: profile.host,
+          remotePath,
+          remoteWrite: resource.remoteWrite || undefined,
+          remotePathNormalized: remotePath === undefined ? undefined : normalizeRemotePath(remotePath),
+          remotePathWindows: remotePath === undefined ? undefined : normalizeRemotePathForWindows(remotePath),
+        },
+        context: { readOnly: profile.readOnly },
+      };
+
+      const resp = await fetch(`${this.opaUrl}/v1/data/ssh/mcp/allow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+        // A sidecar that accepts the connection and never answers is the canonical way
+        // OPA is "unreachable", and without this the call ran to undici's five-minute
+        // header timeout while every tool call waited on it. The abort lands in the catch
+        // below, so both modes reach their own answer inside the budget.
+        signal: AbortSignal.timeout(this.opaTimeoutMs),
+      });
+
+      if (!resp.ok) {
+        return this.onOpaUnavailable(`HTTP ${resp.status}`, local);
+      }
+
+      const payload: unknown = await resp.json();
+      // Guarded, not cast. `as { result?: unknown }` is a lie for a `null` body — reading
+      // `.result` off it threw, so the cause on stderr read as a defect in this server
+      // rather than as the "no decision" condition it names below.
+      const result = typeof payload === 'object' && payload !== null
+        ? (payload as { result?: unknown }).result
+        : undefined;
+      if (typeof result !== 'boolean') {
+        // A 200 carrying no decision is how OPA answers for an undefined document, which
+        // is what a wrong package path, an unactivated bundle, or an `allow` rule written
+        // without `default allow := false` all produce. Reading that as consent meant
+        // `--opaFailClosed` did not cover the way an OPA gate actually goes down: six of
+        // seven response shapes allowed, with no warning at all.
+        return this.onOpaUnavailable('no boolean `result` in the response', local);
+      }
+      if (result === false) {
+        return {
+          decision: 'deny',
+          commandClass: parsed.class,
+          binary: parsed.binary,
+          ruleId: 'opa',
+          reason: 'Denied by OPA policy',
+        };
+      }
+    } catch (err) {
+      return this.onOpaUnavailable(err instanceof Error ? err.message : String(err), local);
+    }
+
+    return local;
+  }
+
+  /**
+   * What an OPA outage means, which is the operator's choice rather than ours.
+   *
+   * Falling back to the local decision is the default and stays the default: OPA is an
+   * additional deny layer, and an outage that stopped all work would be a worse failure
+   * than one that narrows the policy. But an operator who deployed OPA *as* the
+   * authorization gate has a control that disappears during an outage, and the only signal
+   * is a stderr line that MCP clients usually discard. `--opaFailClosed` lets them say
+   * that the gate being down means no.
+   */
+  private onOpaUnavailable(cause: string, local: PolicyEvaluation): PolicyEvaluation {
+    this.warnOpaUnavailable(cause);
+    if (!this.opaFailClosed) return local;
+    return {
+      decision: 'deny',
+      commandClass: local.commandClass,
+      binary: local.binary,
+      ruleId: 'opa-unavailable',
+      // Fixed string. `cause` goes to stderr, where the operator is; this `reason` is
+      // rethrown as the tool's error text and written to the audit record, and it carried
+      // `this.opaUrl` — an internal hostname, and any credential embedded in it — out to
+      // the MCP client on every refusal.
+      reason: 'OPA evaluation unavailable and --opaFailClosed is set',
+    };
+  }
+
+  /**
+   * OPA is an *additional* deny layer, so an outage falls back to the local
+   * decision rather than blocking all work. That is a deliberate trade-off, but
+   * it must be loud: an operator who deployed OPA as a hard authorization gate
+   * would otherwise have no signal that the gate is down while commands it
+   * would have denied keep running.
+   */
+  private warnOpaUnavailable(cause: string): void {
+    const now = Date.now();
+    if (now - this.lastOpaWarning < 60_000) return;
+    this.lastOpaWarning = now;
+    console.error(
+      `POLICY WARNING: OPA evaluation unavailable (${cause}). ` +
+      (this.opaFailClosed
+        ? 'Refusing every command while it is down, because --opaFailClosed is set.'
+        : 'Falling back to local policy — commands OPA would deny may now be allowed.'),
+    );
+  }
+
+  /**
+   * Say which three things produced the refusal, not one of them.
+   *
+   * The message used to read `Role "admin" cannot run "privileged" commands`,
+   * which names the role and the class but not the host group — and the group
+   * is usually what decided, because `admin` has `privileged` on staging and
+   * dev but not on prod. A reader concludes their role is simply incapable of
+   * sudo and goes looking for a bigger role that does not exist (#91).
+   *
+   * The inferred case matters most: a profile with no group set has its tier
+   * guessed from its name, so the reason is something the operator never wrote
+   * down anywhere and cannot see.
+   */
+  private explainRoleDenial(profile: Profile, parsed: ParsedCommand): string {
+    const commandClass = parsed.class;
+    let reason: string;
+
+    if (profile.readOnly) {
+      reason = `Profile "${profile.name}" is read-only, so "${commandClass}" commands are refused. ` +
+        `Clear readOnly on the profile to allow them.`;
+    } else {
+      const group = resolveProfileGroup(profile);
+      const inferred = !profile.group;
+      const allowed = this.getAllowedClasses(profile).join(', ');
+
+      reason =
+        `Role "${profile.role}" on host group "${group}" cannot run "${commandClass}" commands ` +
+        `(allowed: ${allowed}).`;
+
+      if (inferred) {
+        // Not "defaulted to the most restrictive tier": the name is matched
+        // against prod/staging/dev first, so a profile called "staging-web" lands
+        // on staging and the old wording described a fallback that did not
+        // happen. What the operator needs to know is that nothing they wrote
+        // chose this tier.
+        reason +=
+          ` No group is set for profile "${profile.name}", so the tier was inferred from its name as "${group}".` +
+          ` Set group explicitly on the profile, or pass --group, if that is not where this host belongs.`;
+      } else {
+        reason += ` Change the profile's group, or grant the class to this role in the policy's roleBindings.`;
+      }
+    }
+
+    // A `safe` command refused here is often not a hard "no" — it is one
+    // spelling away from `read-only` (an argv word the grammar refused, or a
+    // shell metacharacter), and without this the reader concludes the binary is
+    // forbidden outright and never learns which spelling would have worked.
+    if (parsed.readOnlyRejection) {
+      reason += ` ${formatReadOnlyRejection(parsed.readOnlyRejection)}`;
+    }
+
+    return reason;
+  }
+
+  private getAllowedClasses(profile: Profile): CommandClass[] {
+    if (profile.readOnly) {
+      return ['read-only'];
+    }
+    const roleBinding = this.rules.roleBindings[profile.role];
+    if (!roleBinding) {
+      return ['read-only'];
+    }
+    // No hop to another tier when this one has no bindings. While roleBindings
+    // were compiled in, falling back to HOST_GROUPS[0] meant falling back to
+    // that role's *strictest* cell, so the old comment here was true. Once a
+    // [policy] block can write the prod cell, the same hop hands an unresolved
+    // tier whatever prod was granted. That is a widening, and a silent one.
+    //
+    // An unresolved tier is a startup error now (resolvePolicyRules), so
+    // reaching this line means the engine was constructed directly rather than
+    // from a config file. Fail closed.
+    //
+    // `??` rather than `||`: an empty class list is a deliberate lockdown, and
+    // whether it survives should not rest on `[]` being truthy.
+    return roleBinding[resolveProfileGroup(profile)] ?? ['read-only'];
+  }
+
+  /**
+   * Whether this command trips the profile's approval gate. What happens at the
+   * gate — prompt or deny — is decided by evaluate() from the approvalPolicy.
+   */
+  private requiresApproval(profile: Profile, needsApproval: boolean): boolean {
+    const mode: ApprovalMode = profile.approvalPolicy;
+    if (mode === 'auto') return false;
+    if (mode === 'ask-all') return true;
+    // ask-destructive and deny both gate on destructive/privileged commands.
+    return needsApproval;
+  }
+
+  /**
+   * Which deny rule refused this command, worded so the reader can act on it.
+   *
+   * The old message was `Command matches denylist pattern` and named nothing —
+   * not the rule, not where it came from, not whether the operator could change
+   * it. A user who hit it had no way to tell a built-in refusal from one they
+   * had written themselves (#91). explainRoleDenial already names the role, the
+   * group, the class and the allowed set; this path never got the same
+   * treatment.
+   */
+  private findDenyMatch(command: string, resource: PolicyResource): string | null {
+    const builtIn = findForbiddenMatch(command);
+    if (builtIn) {
+      return `Command matches a built-in never-allowed rule: ${builtIn}. ${NEVER_ALLOWED_TRAILER}`;
+    }
+
+    // The built-in never-allowed write paths, tested against a remote path the tool
+    // declared it writes. Runs before the early return below because the defaults
+    // carry no operator denylist — this check is not the operator's to switch on.
+    if (resource.remoteWrite && resource.remotePath) {
+      const target = findNeverAllowedWriteTarget(resource.remotePath);
+      if (target !== null) {
+        return `Remote path ${quotePath(resource.remotePath)} matches a built-in never-allowed rule: ` +
+          `${neverAllowedWriteLabel(target)}. ${NEVER_ALLOWED_TRAILER}`;
+      }
+    }
+
+    // Nothing below can match: skip reading the path at all, which is the commonest
+    // config — the defaults carry no denylist.
+    if (this.compiled.patterns.length === 0) return null;
+
+    // The path is tested on its own as well as inside the command string, because for the
+    // SFTP tools that string is ours to lay out and a rule written for the path should not
+    // depend on where we put it (#230). An empty path means none was passed.
+    const remotePath = resource.remotePath || undefined;
+    const normalized = remotePath === undefined ? undefined : normalizeRemotePath(remotePath);
+    const windows = remotePath === undefined ? undefined : normalizeRemotePathForWindows(remotePath);
+    const fromConfig = 'a pattern from [policy].denylist in your config file. ' +
+      'Remove or narrow it there to allow this command.';
+    for (const { exact, caseInsensitive } of this.compiled.patterns) {
+      if (exact.test(command)) {
+        return `Command matches /${exact.source}/, ${fromConfig}`;
+      }
+      if (remotePath === undefined) continue;
+      if (exact.test(remotePath)) {
+        return `Remote path ${quotePath(remotePath)} matches /${exact.source}/, ${fromConfig}`;
+      }
+      if (normalized !== remotePath && exact.test(normalized!)) {
+        return `Remote path ${quotePath(remotePath)} (read as ${quotePath(normalized!)}) ` +
+          `matches /${exact.source}/, ${fromConfig}`;
+      }
+      // The Windows reading runs even when it string-equals the plain one, because the
+      // pattern is tested case-insensitively here and exactly above: on Windows the case
+      // variants are the same file (measured, see remote-path.ts).
+      if (caseInsensitive.test(windows!)) {
+        return `Remote path ${quotePath(remotePath)} (read as ${quotePath(windows!)}, the Windows reading) ` +
+          `matches /${caseInsensitive.source}/i, ${fromConfig}`;
+      }
+    }
+
+    return null;
+  }
+}
+
+/**
+ * A path as it may appear in a refusal, capped. The paths are caller-supplied and can be
+ * as long as `MAX_REMOTE_PATH_CHARS` (4096); the refusal is rethrown to the MCP client
+ * and written into the audit record, where the command string already carries the full
+ * spelling — so the tail gives up nothing an operator needs, and a refusal stops being
+ * the engine's most verbose sentence by an order of magnitude.
+ */
+function quotePath(path: string): string {
+  const capped = path.length > 256 ? `${path.slice(0, 253)}…` : path;
+  return JSON.stringify(capped);
+}

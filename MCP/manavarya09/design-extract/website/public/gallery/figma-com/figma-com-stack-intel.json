@@ -1,0 +1,11 @@
+{
+  "cms": [
+    "sanity"
+  ],
+  "analytics": [],
+  "experimentation": [],
+  "signals": {
+    "scriptCount": 19,
+    "metaCount": 19
+  }
+}

@@ -1,0 +1,66 @@
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 1px 8px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-2xs);
+  line-height: 1.4;
+  border-radius: var(--radius-badge);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Default */
+.default {
+  background: var(--color-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+/* Semantic variants */
+.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success-border);
+}
+
+.info {
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  border: 1px solid var(--color-info-border);
+}
+
+.warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning-border);
+}
+
+.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border: 1px solid var(--color-error-border);
+}
+
+.purple {
+  background: var(--color-purple-bg);
+  color: var(--color-purple);
+  border: 1px solid rgba(168, 85, 247, 0.15);
+}
+
+.orange {
+  background: var(--color-orange-bg);
+  color: var(--color-orange);
+  border: 1px solid rgba(249, 115, 22, 0.15);
+}
+
+/* Clickable */
+.clickable {
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.clickable:hover {
+  opacity: 0.8;
+}

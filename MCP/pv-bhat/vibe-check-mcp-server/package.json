@@ -1,0 +1,83 @@
+{
+  "name": "@pv-bhat/vibe-check-mcp",
+  "mcpName": "io.github.PV-Bhat/vibe-check-mcp-server",
+  "version": "2.9.0",
+  "description": "Metacognitive AI agent oversight: adaptive CPI interrupts for alignment, reflection and safety",
+  "main": "build/index.js",
+  "type": "module",
+  "packageManager": "npm@10.8.2",
+  "bin": {
+    "vibe-check-mcp": "build/cli/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs');['build/index.js','build/cli/index.js'].forEach((f)=>{if(fs.existsSync(f)){fs.chmodSync(f,0o755);}})\"",
+    "prepare": "npm run build",
+    "start": "node build/index.js",
+    "dev": "tsc-watch --onSuccess \"node build/index.js\"",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "security-check": "node scripts/security-check.cjs",
+    "prepublishOnly": "npm run build",
+    "sync-version": "node scripts/sync-version.mjs"
+  },
+  "dependencies": {
+    "@google/genai": "^2.13.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "axios": "^1.18.1",
+    "commander": "^12.1.0",
+    "cors": "^2.8.5",
+    "diff": "^8.0.3",
+    "dotenv": "^16.4.7",
+    "execa": "^9.5.1",
+    "express": "^5.2.1",
+    "openai": "^6.49.0",
+    "semver": "^7.6.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.17.25",
+    "@types/semver": "^7.7.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "tsc-watch": "^6.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "vibe-check",
+    "vibe-coding",
+    "metacognition",
+    "ai-alignment",
+    "llm-agents",
+    "autonomous-agents",
+    "reflection",
+    "agent-oversight",
+    "ai-safety",
+    "prompt-engineering"
+  ],
+  "author": "PV Bhat",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PV-Bhat/vibe-check-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PV-Bhat/vibe-check-mcp-server/issues"
+  },
+  "homepage": "https://github.com/PV-Bhat/vibe-check-mcp-server#readme",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "overrides": {
+    "@hono/node-server": "^2.0.11"
+  }
+}

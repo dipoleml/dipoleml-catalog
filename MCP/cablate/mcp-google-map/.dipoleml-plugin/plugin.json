@@ -1,0 +1,16 @@
+{
+  "name": "mcp-google-map",
+  "displayName": "MCP Google Map",
+  "version": "0.0.69",
+  "description": "Google Maps place research, travel planning, and local SEO through three focused Skills and a standalone CLI.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cablate"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cablate/mcp-google-map",
+  "repository": "https://github.com/cablate/mcp-google-map",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

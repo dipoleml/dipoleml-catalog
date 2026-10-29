@@ -1,0 +1,527 @@
+import type { ToolSpec } from "../types.js";
+import {
+  asRecord,
+  compactObject,
+  normalizeResponse,
+  readNumber,
+  readString,
+  requireString,
+} from "../helpers.js";
+import { privateRateLimit } from "../common.js";
+import { OkxApiError } from "../../utils/errors.js";
+
+const BASE = "/api/v5/tradingBot/dca";
+
+/**
+ * Shared request for dca_get_positions and the deprecated dca_get_order_details.
+ * OKX has no dedicated DCA positions endpoint: /position-details already returns
+ * position-only fields (avgPx, upl, liqPx, ...), so both tools hit it as-is.
+ */
+async function getDcaPositionDetails(
+  rawArgs: unknown,
+  context: Parameters<ToolSpec["handler"]>[1],
+  rateLimitKey: string,
+) {
+  const args = asRecord(rawArgs);
+  const algoId = requireString(args, "algoId");
+  const algoOrdType = requireString(args, "algoOrdType");
+
+  const response = await context.client.privateGet(
+    `${BASE}/position-details`,
+    { algoId, algoOrdType },
+    privateRateLimit(rateLimitKey, 20),
+  );
+  return normalizeResponse(response);
+}
+
+/** Build triggerParams for dca_create_order. */
+function buildTriggerParam(
+  args: Record<string, unknown>,
+  algoOrdType: string,
+): Record<string, string> {
+  const triggerStrategy = readString(args, "triggerStrategy") ?? "instant";
+
+  if (triggerStrategy === "price" && algoOrdType === "spot_dca") {
+    throw new OkxApiError(
+      "triggerStrategy 'price' is only supported for contract_dca. spot_dca supports: instant, rsi",
+      { code: "VALIDATION", endpoint: `${BASE}/create` },
+    );
+  }
+
+  const param: Record<string, string> = { triggerAction: "start", triggerStrategy };
+
+  if (triggerStrategy === "price") {
+    param["triggerPx"] = requireString(args, "triggerPx");
+    const triggerCond = readString(args, "triggerCond");
+    if (triggerCond) param["triggerCond"] = triggerCond;
+  } else if (triggerStrategy === "rsi") {
+    param["triggerCond"] = requireString(args, "triggerCond");
+    param["thold"] = requireString(args, "thold");
+    param["timeframe"] = requireString(args, "timeframe");
+    param["timePeriod"] = readString(args, "timePeriod") ?? "14";
+  }
+
+  return param;
+}
+
+/** Validate conditional required params when maxSafetyOrds > 0. */
+function validateSafetyOrderParams(
+  args: Record<string, unknown>,
+  maxSafetyOrds: string,
+): void {
+  if (Number(maxSafetyOrds) <= 0) return;
+  const required = ["safetyOrdAmt", "pxSteps", "pxStepsMult", "volMult"] as const;
+  for (const field of required) {
+    if (!readString(args, field)) {
+      throw new OkxApiError(`${field} is required when maxSafetyOrds > 0`, {
+        code: "VALIDATION",
+        endpoint: `${BASE}/create`,
+      });
+    }
+  }
+}
+
+/** For write operations: surface any inner sCode/sMsg errors from data items. */
+function normalizeWrite(response: {
+  endpoint: string;
+  requestTime: string;
+  data: unknown;
+}): Record<string, unknown> {
+  const data = response.data;
+  if (Array.isArray(data) && data.length > 0) {
+    const failed = data.filter(
+      (item) =>
+        item !== null &&
+        typeof item === "object" &&
+        "sCode" in (item as object) &&
+        (item as Record<string, unknown>)["sCode"] !== "0",
+    ) as Record<string, unknown>[];
+    if (failed.length > 0) {
+      const messages = failed.map(
+        (item) => `[${item["sCode"]}] ${item["sMsg"] ?? "Operation failed"}`,
+      );
+      throw new OkxApiError(messages.join("; "), {
+        code: String(failed[0]!["sCode"] ?? ""),
+        endpoint: response.endpoint,
+      });
+    }
+  }
+  return {
+    endpoint: response.endpoint,
+    requestTime: response.requestTime,
+    data,
+  };
+}
+
+function translateKnownErrorCodes(
+  response: { endpoint: string; requestTime: string; data: unknown },
+  errorTable: Record<string, string>,
+  endpoint: string,
+): void {
+  const data = response.data;
+  if (!Array.isArray(data)) return;
+  for (const item of data) {
+    if (item === null || typeof item !== "object") continue;
+    const sCode = String((item as Record<string, unknown>)["sCode"] ?? "");
+    const msg = errorTable[sCode];
+    if (msg) throw new OkxApiError(msg, { code: sCode, endpoint });
+  }
+}
+
+const MARGIN_ERRORS: Record<string, string> = {
+  "59302": "Cancel the pending close order first, then retry",
+  "59301": "Adjustment amount is outside the allowed margin range",
+};
+
+const COPY_TRADING_ERRORS: Record<string, string> = {
+  "51223": "This operation is not available for sync copy-trading follower accounts",
+};
+
+export function registerDcaTools(): ToolSpec[] {
+  return [
+    {
+      name: "dca_create_order",
+      title: "Martingale Bot Create",
+      module: "bot.dca",
+      description:
+        "Create a DCA (Martingale) bot. [CAUTION] Real trades. " +
+        "contract_dca requires lever; spot_dca must be long. " +
+        "If maxSafetyOrds>0: need safetyOrdAmt, pxSteps.",
+      isWrite: true,
+      destructiveHint: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          instId: { type: "string", description: "BTC-USDT (spot) or BTC-USDT-SWAP (contract)" },
+          algoOrdType: { type: "string", enum: ["spot_dca", "contract_dca"] },
+          lever: { type: "string", description: "Required for contract_dca" },
+          direction: { type: "string", enum: ["long", "short"] },
+          initOrdAmt: { type: "string", description: "Initial order amount in quote ccy (spot_dca) or margin in quote ccy (contract_dca)" },
+          maxSafetyOrds: { type: "string", description: "0=no DCA, max 100" },
+          tpPct: { type: "string", description: "Take-profit ratio, 0.03=3%" },
+          safetyOrdAmt: { type: "string", description: "Safety order amount in quote ccy (spot_dca) or margin in quote ccy (contract_dca). Need if maxSafetyOrds>0" },
+          pxSteps: { type: "string", description: "Price drop per safety order. Need if maxSafetyOrds>0" },
+          pxStepsMult: { type: "string", description: "Step multiplier. Required when maxSafetyOrds>0, e.g. '1'" },
+          volMult: { type: "string", description: "Size multiplier. Required when maxSafetyOrds>0, e.g. '1'" },
+          slPct: { type: "string", description: "Stop-loss ratio, 0.05=5%" },
+          slMode: { type: "string", enum: ["limit", "market"] },
+          allowReinvest: { type: "boolean", description: "Default true" },
+          triggerStrategy: { type: "string", enum: ["instant", "price", "rsi"], description: "contract_dca: instant|price|rsi; spot_dca: instant|rsi. Default: instant" },
+          triggerPx: { type: "string", description: "Need if triggerStrategy=price (contract_dca only)" },
+          triggerCond: { type: "string", enum: ["cross_up", "cross_down"], description: "Required when triggerStrategy=rsi. Optional when triggerStrategy=price" },
+          thold: { type: "string", description: "RSI threshold (e.g. '30'). Need if triggerStrategy=rsi" },
+          timeframe: { type: "string", description: "RSI timeframe (e.g. '15m'). Need if triggerStrategy=rsi" },
+          timePeriod: { type: "string", description: "RSI period. Default '14'. Optional when triggerStrategy=rsi" },
+          algoClOrdId: { type: "string", description: "Client order ID, 1-32 chars" },
+          // Backend expects boolean, but kept as string for backward compatibility with older clients.
+          reserveFunds: { type: "string", description: "spot_dca only. 'true' or 'false', default 'true'. Reserves funds for safety orders at bot creation." },
+          tradeQuoteCcy: { type: "string" },
+        },
+        required: ["instId", "algoOrdType", "initOrdAmt", "maxSafetyOrds", "tpPct"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const instId = requireString(args, "instId");
+        const algoOrdType = requireString(args, "algoOrdType");
+
+        // Validate lever: required for contract_dca
+        if (algoOrdType === "contract_dca" && !readString(args, "lever")) {
+          throw new OkxApiError("lever is required for contract_dca", {
+            code: "VALIDATION",
+            endpoint: `${BASE}/create`,
+          });
+        }
+
+        // direction: required for contract_dca; defaults to "long" for spot_dca
+        let direction = readString(args, "direction");
+        if (!direction) {
+          if (algoOrdType === "contract_dca") {
+            throw new OkxApiError("direction is required for contract_dca", {
+              code: "VALIDATION",
+              endpoint: `${BASE}/create`,
+            });
+          }
+          direction = "long";
+        }
+
+        const triggerParam = buildTriggerParam(args, algoOrdType);
+        const maxSafetyOrds = requireString(args, "maxSafetyOrds");
+        validateSafetyOrderParams(args, maxSafetyOrds);
+
+        const allowReinvestRaw = args["allowReinvest"];
+        const allowReinvest = allowReinvestRaw !== undefined
+          ? allowReinvestRaw === true || allowReinvestRaw === "true"
+          : undefined;
+
+        const response = await context.client.privatePost(
+          `${BASE}/create`,
+          compactObject({
+            instId,
+            algoOrdType,
+            lever: readString(args, "lever"),
+            direction,
+            initOrdAmt: requireString(args, "initOrdAmt"),
+            safetyOrdAmt: readString(args, "safetyOrdAmt"),
+            maxSafetyOrds,
+            pxSteps: readString(args, "pxSteps"),
+            pxStepsMult: readString(args, "pxStepsMult"),
+            volMult: readString(args, "volMult"),
+            tpPct: requireString(args, "tpPct"),
+            slPct: readString(args, "slPct"),
+            slMode: readString(args, "slMode"),
+            allowReinvest,
+            triggerParams: [triggerParam],
+            tag: context.config.sourceTag,
+            algoClOrdId: readString(args, "algoClOrdId"),
+            reserveFunds: readString(args, "reserveFunds"),
+            tradeQuoteCcy: readString(args, "tradeQuoteCcy"),
+          }),
+          privateRateLimit("dca_create_order", 20),
+        );
+        return normalizeWrite(response);
+      },
+    },
+    {
+      name: "dca_stop_order",
+      title: "Martingale Bot Stop",
+      module: "bot.dca",
+      idempotentHint: true,
+      description:
+        "[CAUTION] Stop a DCA bot or close its remaining open position — real trades, irreversible. " +
+        "Workflow: " +
+        "(1) If the user has not specified which bot to stop, call dca_get_orders first and ask the user to confirm which bot before proceeding. " +
+        "(2) Call dca_get_order_details to check the current 'state' field. " +
+        "(3) If state='running' → call this tool. " +
+        "(4) If state='no_close_position' → call this tool with stopType='1' to close the remaining open position. " +
+        "spot_dca requires stopType: 1=sell all tokens, 2=keep tokens.",
+      isWrite: true,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          algoOrdType: { type: "string", enum: ["spot_dca", "contract_dca"] },
+          stopType: { type: "string", enum: ["1", "2"], description: "Required for spot_dca: 1=sell all, 2=keep tokens" },
+        },
+        required: ["algoId", "algoOrdType"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoId = requireString(args, "algoId");
+        const algoOrdType = requireString(args, "algoOrdType");
+        const stopType = readString(args, "stopType");
+
+        // Validate stopType: required for spot_dca
+        if (algoOrdType === "spot_dca" && !stopType) {
+          throw new OkxApiError(
+            "stopType is required for spot_dca. Use '1' (sell all tokens) or '2' (keep tokens)",
+            { code: "VALIDATION", endpoint: `${BASE}/stop` },
+          );
+        }
+
+        const response = await context.client.privatePost(
+          `${BASE}/stop`,
+          compactObject({ algoId, algoOrdType, stopType }),
+          privateRateLimit("dca_stop_order", 20),
+        );
+        return normalizeWrite(response);
+      },
+    },
+    {
+      name: "dca_get_orders",
+      title: "Martingale Bot List Orders",
+      module: "bot.dca",
+      description: "List DCA bots. Default: active (running). Use status=history for stopped.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["active", "history"] },
+          algoOrdType: { type: "string", enum: ["spot_dca", "contract_dca"], description: "Default: contract_dca" },
+          algoId: { type: "string", description: "Algo order ID" },
+          instId: { type: "string" },
+          after: { type: "string", description: "Pagination cursor (older data)" },
+          before: { type: "string", description: "Pagination cursor (newer data)" },
+          limit: { type: "number" },
+        },
+        required: [],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const status = readString(args, "status") ?? "active";
+        const path = status === "history" ? `${BASE}/history-list` : `${BASE}/ongoing-list`;
+        // Default to contract_dca for backward compatibility
+        const algoOrdType = readString(args, "algoOrdType") ?? "contract_dca";
+
+        const response = await context.client.privateGet(
+          path,
+          compactObject({
+            algoOrdType,
+            algoId: readString(args, "algoId"),
+            instId: readString(args, "instId"),
+            after: readString(args, "after"),
+            before: readString(args, "before"),
+            limit: readNumber(args, "limit"),
+          }),
+          privateRateLimit("dca_get_orders", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    {
+      name: "dca_get_order_details",
+      title: "Martingale Bot Get Detail",
+      module: "bot.dca",
+      description: "[DEPRECATED] Use dca_get_positions for position info instead. Get DCA bot position details (avgPx, upl, liqPx, etc).",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          algoOrdType: { type: "string", enum: ["spot_dca", "contract_dca"] },
+        },
+        required: ["algoId", "algoOrdType"],
+      },
+      handler: (rawArgs, context) => getDcaPositionDetails(rawArgs, context, "dca_get_order_details"),
+    },
+    {
+      name: "dca_get_positions",
+      title: "Martingale Bot Get Positions",
+      module: "bot.dca",
+      description: "Get DCA bot position info (avgPx, upl, liqPx, sz, tpPx, slPx, fee). Use dca_get_orders for strategy-level info (state, pnl, config).",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          algoOrdType: { type: "string", enum: ["spot_dca", "contract_dca"] },
+        },
+        required: ["algoId", "algoOrdType"],
+      },
+      handler: (rawArgs, context) => getDcaPositionDetails(rawArgs, context, "dca_get_positions"),
+    },
+    {
+      name: "dca_get_sub_orders",
+      title: "Martingale Bot Get Sub-Orders",
+      module: "bot.dca",
+      description: "Get DCA cycles or orders in a cycle. Omit cycleId=cycle list; with cycleId=orders. Supports after/before/limit pagination in both branches.",
+      isWrite: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          algoOrdType: { type: "string", enum: ["spot_dca", "contract_dca"] },
+          cycleId: { type: "string", description: "Omit for cycles; provide for orders" },
+          after: { type: "string", description: "Pagination cursor (older data)" },
+          before: { type: "string", description: "Pagination cursor (newer data)" },
+          limit: { type: "number" },
+        },
+        required: ["algoId", "algoOrdType"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoId = requireString(args, "algoId");
+        const algoOrdType = requireString(args, "algoOrdType");
+        const cycleId = readString(args, "cycleId");
+
+        if (cycleId) {
+          // orders within a specific cycle
+          const response = await context.client.privateGet(
+            `${BASE}/orders`,
+            compactObject({
+              algoId,
+              algoOrdType,
+              cycleId,
+              after: readString(args, "after"),
+              before: readString(args, "before"),
+              limit: readNumber(args, "limit"),
+            }),
+            privateRateLimit("dca_get_sub_orders", 20),
+          );
+          return normalizeResponse(response);
+        }
+        // cycle list
+        const response = await context.client.privateGet(
+          `${BASE}/cycle-list`,
+          compactObject({
+            algoId,
+            algoOrdType,
+            after: readString(args, "after"),
+            before: readString(args, "before"),
+            limit: readNumber(args, "limit"),
+          }),
+          privateRateLimit("dca_get_sub_orders", 20),
+        );
+        return normalizeResponse(response);
+      },
+    },
+    // ── Operational management ─────────────────────────────────────────────
+    {
+      name: "dca_add_margin",
+      title: "Martingale Bot Add Margin",
+      module: "bot.dca",
+      description:
+        "[CAUTION] Add margin to a running contract DCA bot. Moves funds into the position. " +
+        "Use to prevent liquidation or extend position runway.",
+      isWrite: true,
+      destructiveHint: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          amt: { type: "string", description: "Amount to add (in quote currency, must be > 0)" },
+        },
+        required: ["algoId", "amt"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoId = requireString(args, "algoId");
+        const amt = requireString(args, "amt");
+        if (!Number.isFinite(Number(amt)) || Number(amt) <= 0) {
+          throw new OkxApiError("amt must be greater than 0", {
+            code: "VALIDATION",
+            endpoint: `${BASE}/margin/add`,
+          });
+        }
+        const response = await context.client.privatePost(
+          `${BASE}/margin/add`,
+          { algoId, amt },
+          privateRateLimit("dca_add_margin", 20),
+        );
+        translateKnownErrorCodes(response, MARGIN_ERRORS, `${BASE}/margin/add`);
+        return normalizeWrite(response);
+      },
+    },
+    {
+      name: "dca_reduce_margin",
+      title: "Martingale Bot Reduce Margin",
+      module: "bot.dca",
+      description:
+        "[CAUTION] Reduce margin on a running contract DCA bot. Moves funds out of the position. " +
+        "Use to free up margin no longer needed for the position.",
+      isWrite: true,
+      destructiveHint: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          amt: { type: "string", description: "Amount to reduce (in quote currency, must be > 0)" },
+        },
+        required: ["algoId", "amt"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoId = requireString(args, "algoId");
+        const amt = requireString(args, "amt");
+        if (!Number.isFinite(Number(amt)) || Number(amt) <= 0) {
+          throw new OkxApiError("amt must be greater than 0", {
+            code: "VALIDATION",
+            endpoint: `${BASE}/margin/reduce`,
+          });
+        }
+        const response = await context.client.privatePost(
+          `${BASE}/margin/reduce`,
+          { algoId, amt },
+          privateRateLimit("dca_reduce_margin", 20),
+        );
+        translateKnownErrorCodes(response, MARGIN_ERRORS, `${BASE}/margin/reduce`);
+        return normalizeWrite(response);
+      },
+    },
+    {
+      name: "dca_update_take_profit",
+      title: "Martingale Bot Update Take-Profit",
+      module: "bot.dca",
+      description:
+        "[CAUTION] Update the take-profit price on a running contract DCA bot. Changes a live risk parameter. " +
+        "Not available for sync copy-trading follower accounts.",
+      isWrite: true,
+      destructiveHint: false,
+      inputSchema: {
+        type: "object",
+        properties: {
+          algoId: { type: "string", description: "Algo order ID" },
+          tpPrice: { type: "string", description: "New take-profit price" },
+        },
+        required: ["algoId", "tpPrice"],
+      },
+      handler: async (rawArgs, context) => {
+        const args = asRecord(rawArgs);
+        const algoId = requireString(args, "algoId");
+        const tpPrice = requireString(args, "tpPrice");
+        if (!Number.isFinite(Number(tpPrice)) || Number(tpPrice) <= 0) {
+          throw new OkxApiError("tpPrice must be greater than 0", {
+            code: "VALIDATION",
+            endpoint: `${BASE}/settings/take-profit`,
+          });
+        }
+        const response = await context.client.privatePost(
+          `${BASE}/settings/take-profit`,
+          { algoId, algoOrdType: "contract_dca", tpPrice },
+          privateRateLimit("dca_update_take_profit", 20),
+        );
+        translateKnownErrorCodes(response, COPY_TRADING_ERRORS, `${BASE}/settings/take-profit`);
+        return normalizeWrite(response);
+      },
+    },
+  ];
+}

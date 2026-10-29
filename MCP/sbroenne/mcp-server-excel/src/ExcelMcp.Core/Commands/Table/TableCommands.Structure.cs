@@ -1,0 +1,167 @@
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Models;
+using Excel = Microsoft.Office.Interop.Excel;
+
+namespace Sbroenne.ExcelMcp.Core.Commands.Table;
+
+/// <summary>
+/// Table structure operations (Resize, ToggleTotals, SetColumnTotal, SetStyle)
+/// </summary>
+public partial class TableCommands
+{
+    /// <inheritdoc />
+    public OperationResult Resize(IExcelBatch batch, string tableName, string newRange)
+    {
+        ValidateRequiredTableName(tableName);
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.ListObject? table = null;
+            Excel.Worksheet? sheet = null;
+            Excel.Range? newRangeObj = null;
+            try
+            {
+                table = FindTable(ctx.Book, tableName);
+
+                sheet = (Excel.Worksheet)table.Parent;
+                newRangeObj = sheet.Range[newRange];
+
+                // Resize the table
+                table.Resize(newRangeObj);
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref newRangeObj);
+                ComUtilities.Release(ref sheet);
+                ComUtilities.Release(ref table);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult ToggleTotals(IExcelBatch batch, string tableName, bool showTotals)
+    {
+        ValidateRequiredTableName(tableName);
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.ListObject? table = null;
+            try
+            {
+                table = FindTable(ctx.Book, tableName);
+
+                table.ShowTotals = showTotals;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref table);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetColumnTotal(IExcelBatch batch, string tableName, string columnName, string totalFunction)
+    {
+        ValidateRequiredTableName(tableName);
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.ListObject? table = null;
+            Excel.ListColumns? listColumns = null;
+            Excel.ListColumn? column = null;
+            try
+            {
+                table = FindTable(ctx.Book, tableName);
+
+                // Ensure totals row is shown
+                if (!table.ShowTotals)
+                {
+                    table.ShowTotals = true;
+                }
+
+                // Find the column
+                listColumns = table.ListColumns;
+                column = null;
+                for (int i = 1; i <= listColumns.Count; i++)
+                {
+                    Excel.ListColumn? col = null;
+                    try
+                    {
+                        col = listColumns[i];
+                        if (col.Name == columnName)
+                        {
+                            column = col;
+                            col = null;
+                            break;
+                        }
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref col);
+                    }
+                }
+
+                if (column == null)
+                {
+                    throw new InvalidOperationException($"Column '{columnName}' not found in table '{tableName}'");
+                }
+
+                // Map function name to Excel constant
+                // xlTotalsCalculationSum = 1, xlTotalsCalculationAverage = 2, xlTotalsCalculationCount = 3,
+                // xlTotalsCalculationCountNums = 4, xlTotalsCalculationMax = 5, xlTotalsCalculationMin = 6,
+                // xlTotalsCalculationStdDev = 7, xlTotalsCalculationVar = 9, xlTotalsCalculationNone = 0
+                int xlFunction = totalFunction.ToLowerInvariant() switch
+                {
+                    "sum" => 1,
+                    "average" or "avg" => 2,
+                    "count" => 3,
+                    "countnums" => 4,
+                    "max" => 5,
+                    "min" => 6,
+                    "stddev" => 7,
+                    "var" => 9,
+                    "none" => 0,
+                    _ => throw new ArgumentException($"Unknown total function '{totalFunction}'. Valid: sum, average, count, countnums, max, min, stddev, var, none")
+                };
+
+                column.TotalsCalculation = (Excel.XlTotalsCalculation)xlFunction;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref column);
+                ComUtilities.Release(ref listColumns);
+                ComUtilities.Release(ref table);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetStyle(IExcelBatch batch, string tableName, string tableStyle)
+    {
+        ValidateRequiredTableName(tableName);
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Excel.ListObject? table = null;
+            try
+            {
+                table = FindTable(ctx.Book, tableName);
+
+                table.TableStyle = tableStyle;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref table);
+            }
+        });
+    }
+}

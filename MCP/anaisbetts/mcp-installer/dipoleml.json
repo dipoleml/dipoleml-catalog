@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.anaisbetts.mcp-installer",
+  "type": "mcp",
+  "name": "MCP Installer",
+  "slug": "mcp-installer",
+  "vendor": "anaisbetts",
+  "description": "An MCP server that installs other MCP servers for you",
+  "version": "0.5.0",
+  "homepage": "https://github.com/anaisbetts/mcp-installer",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "anaisbetts",
+    "brandName": "anaisbetts",
+    "source": "https://github.com/anaisbetts.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "anaisbetts/mcp-installer",
+    "url": "https://github.com/anaisbetts/mcp-installer",
+    "commit": "747fbd88aa2e54368f98252fc9e8d228748dc594",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1534,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:57Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anaisbetts/mcp-installer"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@anaisbetts/mcp-installer"
+    ],
+    "env": [
+      "GITHUB_PERSONAL_ACCESS_TOKEN"
+    ],
+    "credentials": [
+      "GITHUB_PERSONAL_ACCESS_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "COPYING",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

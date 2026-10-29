@@ -1,0 +1,178 @@
+#!/usr/bin/env node
+
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { spawnCommandSync } from '../../spawn-command.mjs';
+
+function readPayload() {
+  const input = readFileSync(0, 'utf8').trim();
+  return input === '' ? {} : JSON.parse(input);
+}
+
+function projectRoot(payload) {
+  const configured = process.env.CURSOR_PROJECT_DIR?.trim();
+  if (configured) return configured;
+  if (Array.isArray(payload.workspace_roots) && typeof payload.workspace_roots[0] === 'string') {
+    return payload.workspace_roots[0];
+  }
+  return process.cwd();
+}
+
+function sessionId(payload) {
+  if (typeof payload.session_id === 'string' && payload.session_id !== '')
+    return payload.session_id;
+  if (typeof payload.conversation_id === 'string' && payload.conversation_id !== '') {
+    return payload.conversation_id;
+  }
+  return undefined;
+}
+
+function agentIdFor(session) {
+  return `cursor:${createHash('sha256').update(session).digest('hex').slice(0, 8)}`;
+}
+
+function concordExecutable() {
+  return process.env.CONCORD_EXECUTABLE?.trim() || 'concord';
+}
+
+function runConcord(root, args, output = false, input = undefined) {
+  const result = spawnCommandSync(concordExecutable(), args, {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8',
+    timeout: 12_000,
+    windowsHide: true,
+    ...(input === undefined ? {} : { input }),
+    stdio: [
+      input === undefined ? 'ignore' : 'pipe',
+      ...(output ? ['pipe', 'pipe'] : ['ignore', 'ignore']),
+    ],
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(result.stderr?.trim() || `concord exited with status ${String(result.status)}`);
+  }
+  return result.stdout ?? '';
+}
+
+/** Whether `concord inbox status` finds a Concord workspace, local or cloud, from `root`. */
+function inboxStatus(root) {
+  try {
+    runConcord(root, ['inbox', 'status']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The workspace id and, for a repository in the machine-wide store, the
+ * instructions it has no rule file for. Undefined from a CLI too old to say.
+ */
+function workspaceStatus(root) {
+  try {
+    return JSON.parse(runConcord(root, ['inbox', 'status', '--json'], true));
+  } catch {
+    return undefined;
+  }
+}
+
+function sessionContext(agentId, status) {
+  // A user-level Cursor server may run far from this folder; the id routes it.
+  const workspace =
+    typeof status?.workspace_id === 'string'
+      ? ` Pass workspace_id "${status.workspace_id}" to Concord tools so they act on this ` +
+        `folder.`
+      : '';
+  const instructions = typeof status?.instructions === 'string' ? `\n\n${status.instructions}` : '';
+  return (
+    `Concord: this Cursor session is agent ${agentId}.${workspace} To receive peer messages ` +
+    `while idle, start exactly one Cursor background Shell task with: ` +
+    `concord inbox watch --agent ${agentId} --provider cursor --once. Leave it active when the turn ends so ` +
+    `Cursor's background-task completion resumes you. When it completes, answer the emitted ` +
+    `peer message, then immediately start a fresh monitor.${instructions}`
+  );
+}
+
+function register(root, agentId) {
+  runConcord(root, ['inbox', 'register', '--agent', agentId, '--provider', 'cursor']);
+}
+
+function renderMessages(messages) {
+  return messages
+    .map((message) => {
+      const task = typeof message.taskId === 'string' ? ` task=${message.taskId}` : '';
+      return `[concord from ${String(message.senderAgentId)} id=${String(message.messageId)}${task}]\n${String(message.content)}`;
+    })
+    .join('\n\n');
+}
+
+function writeResult(result) {
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+}
+
+async function main() {
+  const mode = process.argv[2];
+  const payload = readPayload();
+  const root = projectRoot(payload);
+  const session = sessionId(payload);
+  // A local workspace, or a repository linked to Concord Cloud. The database
+  // check is the quick path; otherwise the CLI decides, finding the repository
+  // root and a worktree's primary checkout as every other command does.
+  const usesConcord =
+    Boolean(session) && (existsSync(join(root, '.concord', 'concord.db')) || inboxStatus(root));
+  if (!session || !usesConcord) {
+    writeResult({});
+    return;
+  }
+  const agentId = agentIdFor(session);
+
+  if (mode === 'session-start') {
+    register(root, agentId);
+    writeResult({
+      env: { CONCORD_AGENT_ID: agentId },
+      additional_context: sessionContext(agentId, workspaceStatus(root)),
+    });
+    return;
+  }
+
+  if (mode === 'session-end') {
+    writeResult({});
+    return;
+  }
+
+  if (mode === 'stop') {
+    register(root, agentId);
+    // The payload goes along so the drain can record which session took the
+    // messages and read evidence from the session transcript.
+    const output = runConcord(
+      root,
+      [
+        'inbox',
+        'drain',
+        '--agent',
+        agentId,
+        '--provider',
+        'cursor',
+        '--payload-stdin',
+        '--format',
+        'json',
+      ],
+      true,
+      JSON.stringify(payload),
+    );
+    const parsed = JSON.parse(output || '[]');
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      writeResult({});
+      return;
+    }
+    writeResult({ followup_message: renderMessages(parsed) });
+    return;
+  }
+
+  throw new Error(`Unknown Cursor hook mode: ${String(mode)}`);
+}
+
+await main();

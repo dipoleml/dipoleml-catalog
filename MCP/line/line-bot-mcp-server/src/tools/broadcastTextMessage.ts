@@ -1,0 +1,48 @@
+import { McpServer } from "@modelcontextprotocol/server";
+import { LineBotClient, messagingApi } from "@line/bot-sdk";
+import {
+  createErrorResponse,
+  createSuccessResponse,
+} from "../common/response.js";
+import { AbstractTool } from "./AbstractTool.js";
+import { textMessageSchema } from "../common/schema/textMessage.js";
+import { z } from "zod";
+
+export default class BroadcastTextMessage extends AbstractTool {
+  private client: LineBotClient;
+
+  constructor(client: LineBotClient) {
+    super();
+    this.client = client;
+  }
+
+  register(server: McpServer) {
+    server.registerTool(
+      "broadcast_text_message",
+      {
+        title: "Broadcast Text Message",
+        description:
+          "Broadcast a simple text message via LINE to all users who have followed your LINE Official Account. Use this for sending " +
+          "plain text messages without formatting. Please be aware that this message will be sent to all users.",
+        inputSchema: z.object({
+          message: textMessageSchema,
+        }),
+        annotations: {
+          destructiveHint: true,
+        },
+      },
+      async ({ message }) => {
+        try {
+          const response = await this.client.broadcast({
+            messages: [message as unknown as messagingApi.Message],
+          });
+          return createSuccessResponse(response);
+        } catch (error: unknown) {
+          return createErrorResponse(
+            `Failed to broadcast message: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      },
+    );
+  }
+}

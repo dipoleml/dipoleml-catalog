@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.alioshr.memory-bank-mcp",
+  "type": "mcp",
+  "name": "Memory Bank MCP",
+  "slug": "memory-bank-mcp",
+  "vendor": "alioshr",
+  "description": "A Model Context Protocol (MCP) server implementation for remote memory bank management, inspired by Cline Memory Bank.",
+  "version": "0.2.1",
+  "homepage": "https://github.com/alioshr/memory-bank-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "antrophic",
+    "cline",
+    "cline-memory-bank",
+    "cursor",
+    "memory-bank",
+    "model-context-protocol",
+    "windsurf"
+  ],
+  "tags": [
+    "antrophic",
+    "claude",
+    "cline",
+    "cline-memory-bank",
+    "cursor",
+    "mcp-server",
+    "memory-bank",
+    "model-context-protocol",
+    "windsurf"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alioshr",
+    "brandName": "alioshr",
+    "source": "https://github.com/alioshr.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alioshr/memory-bank-mcp",
+    "url": "https://github.com/alioshr/memory-bank-mcp",
+    "commit": "559e42274147bb60f263b24c496d54593fb7f807",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 920,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@allpepper/memory-bank-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@allpepper/memory-bank-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

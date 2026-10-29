@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ryanfrigo.kalshi-ai-trading-bot",
+  "type": "mcp",
+  "name": "Kalshi Ai Trading Bot",
+  "slug": "kalshi-ai-trading-bot",
+  "vendor": "ryanfrigo",
+  "description": "The honest edge layer for Kalshi prediction markets - an agent-native toolkit (CLI, MCP server, DipoleML skill) that measures whether you actually beat the book instead of claiming it.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ryanfrigo/kalshi-ai-trading-bot",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-ai",
+    "ai-trading",
+    "automated-trading",
+    "edge-measurement",
+    "kalshi",
+    "kalshi-api",
+    "machine-learning",
+    "portfolio-optimization"
+  ],
+  "tags": [
+    "agentic-ai",
+    "ai-agents",
+    "ai-trading",
+    "automated-trading",
+    "edge-measurement",
+    "kalshi",
+    "kalshi-api",
+    "llm",
+    "machine-learning",
+    "mcp",
+    "portfolio-optimization",
+    "prediction-markets",
+    "python",
+    "quantitative-trading",
+    "risk-management",
+    "trading-bot"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ryanfrigo",
+    "brandName": "ryanfrigo",
+    "source": "https://github.com/ryanfrigo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:35Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ryanfrigo/kalshi-ai-trading-bot",
+    "url": "https://github.com/ryanfrigo/kalshi-ai-trading-bot",
+    "commit": "7b9667bb7e7e7b263f14b54ab8647a05cbdd1383",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 636,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Kalshi Ai Trading Bot | The honest edge layer for Kalshi prediction markets - an agent-native toolkit (CLI, MCP server, Claude skill) that measures whether you actually beat the book instead of claiming it.",
+        "after": "Kalshi Ai Trading Bot | The honest edge layer for Kalshi prediction markets - an agent-native toolkit (CLI, MCP server, DipoleML skill) that measures whether you actually beat the book instead of claiming it.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "kalshi-ai-trading-bot"
+    ],
+    "env": [
+      "KALSHI_API_KEY",
+      "OPENROUTER_API_KEY"
+    ],
+    "credentials": [
+      "KALSHI_API_KEY",
+      "OPENROUTER_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

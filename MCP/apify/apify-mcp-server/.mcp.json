@@ -1,0 +1,32 @@
+{
+    "mcpServers": {
+        "dev": {
+            "type": "http",
+            "url": "http://localhost:3001",
+            "headers": {
+                "Authorization": "Bearer ${APIFY_TOKEN}"
+            }
+        },
+        "stdio": {
+            "command": "node",
+            "args": [
+                "dist/stdio.js"
+            ],
+            "env": {
+                "APIFY_TOKEN": "${APIFY_TOKEN}",
+                "NODE_EXTRA_CA_CERTS": "${NODE_EXTRA_CA_CERTS}"
+            }
+        },
+        "stdio-full": {
+            "command": "node",
+            "args": [
+                "dist/stdio.js",
+                "--tools=actors,docs,runs,storage,tasks,schedules,apify/rag-web-browser"
+            ],
+            "env": {
+                "APIFY_TOKEN": "${APIFY_TOKEN}",
+                "NODE_EXTRA_CA_CERTS": "${NODE_EXTRA_CA_CERTS}"
+            }
+        }
+    }
+}

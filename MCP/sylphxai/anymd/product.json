@@ -1,0 +1,76 @@
+{
+  "name": "anymd",
+  "tagline": "Any file → clean Markdown for AI agents",
+  "description": "Any file → clean Markdown for AI agents: PDF, Word, PowerPoint, Excel, EPUB, HTML and web pages, images (OCR), audio and video (metadata, subtitles, transcripts). A fast Rust MCP server and CLI that runs on your machine. No API key.",
+  "shortDescription": "Any file → clean Markdown for AI agents: PDF, Office, EPUB, HTML, images, audio/video. Local MCP.",
+  "formats": [
+    "PDF",
+    "Word",
+    "PowerPoint",
+    "Excel",
+    "EPUB",
+    "HTML",
+    "web pages",
+    "images",
+    "OCR",
+    "audio",
+    "video",
+    "subtitles",
+    "transcripts"
+  ],
+  "formerly": "pdf-reader-mcp",
+  "hosted": {
+    "name": "Sylphx AI parse",
+    "url": "https://sylphx.com/ai",
+    "blurb": "the same crates, hosted and metered per page for callers that want no local runtime."
+  },
+  "keywords": [
+    "markdown",
+    "mcp",
+    "model-context-protocol",
+    "pdf-to-markdown",
+    "docx-to-markdown",
+    "html-to-markdown",
+    "pdf",
+    "docx",
+    "pptx",
+    "xlsx",
+    "epub",
+    "ocr",
+    "transcription",
+    "rag",
+    "ai-agents",
+    "llm",
+    "markitdown-alternative",
+    "document-conversion",
+    "rust",
+    "cli"
+  ],
+  "alsoFrom": [
+    {
+      "name": "repomap",
+      "url": "https://github.com/SylphxAI/repomap",
+      "description": "A map of your codebase for AI agents: code graph, search, call paths and change impact."
+    },
+    {
+      "name": "lockdocs",
+      "url": "https://github.com/SylphxAI/lockdocs",
+      "description": "Exact-version library docs from your lockfile. Local, offline, no rate limits."
+    },
+    {
+      "name": "skills",
+      "url": "https://github.com/SylphxAI/skills",
+      "description": "Battle-tested agent skills for Claude Code and Codex, installed in one command."
+    },
+    {
+      "name": "readme-mark",
+      "url": "https://github.com/SylphxAI/readme-mark",
+      "description": "Beautiful README images from one URL: banners, badges, icons and stats cards."
+    },
+    {
+      "name": "Sylphx apps",
+      "url": "https://sylphx.com/apps",
+      "description": "Apps and tools from Sylphx."
+    }
+  ]
+}

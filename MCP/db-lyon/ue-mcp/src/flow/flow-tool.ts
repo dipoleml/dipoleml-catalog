@@ -1,0 +1,623 @@
+import { z } from "zod";
+import { FlowRunner } from "@db-lyon/flowkit";
+import type {
+  TaskRegistry,
+  FlowRunResult,
+  FlowStepResult,
+  FlowRunnerHooks,
+  PlanStep,
+  TaskDefinition,
+  FlowDefinition,
+} from "@db-lyon/flowkit";
+import type { FlowContext } from "./context.js";
+import { FlowStepKeySchema, type FlowConfig } from "./schema.js";
+import type { ToolDef, ToolContext, ActionSpec } from "../core/types.js";
+import { actionEnum } from "../surface/category-tool.js";
+import { McpError, ErrorCode } from "../core/errors.js";
+import { nearestActions } from "../surface/action-schema.js";
+import { unknownRecord } from "../surface/context/call-envelope.js";
+import {
+  takeSnapshot,
+  restoreSnapshot,
+  reloadAffectedPackages,
+  pruneOldSnapshots,
+  type Snapshot,
+} from "./git-snapshot.js";
+import {
+
+  emitFlowEvent,
+  nextRunId,
+  trimStepResult,
+  trimError,
+} from "./events.js";
+import { unappliedRollbackCall } from "./handler-outcome.js";
+import {
+  DEFAULT_EDITOR_LOSS_TIMEOUT_MS,
+  EditorLossGuard,
+  type ConnectionSource,
+  type EditorLossPolicy,
+  type EditorLossReport,
+} from "./editor-loss.js";
+import { taskEffect } from "../surface/action-effects.js";
+import { LOCAL_ACTIONS } from "../dispatch/offline.js";
+import { EDITOR_OPERATION_TASKS } from "./editor-op-task.js";
+import { deriveFlowInputs } from "./flow-inputs.js";
+
+/**
+ * Name a failed rollback by the bridge method it tried to call. Every record
+ * routes through the generic "ue-mcp.bridge" task now, so taskName alone
+ * renders three different failed inverses as three identical lines.
+ */
+function rollbackLabel(e: { taskName: string; payload?: Record<string, unknown> }): string {
+  const method = e.payload?.method;
+  return typeof method === "string" && method.length > 0 ? method : e.taskName;
+}
+
+/**
+ * The task registry and flow config a call resolves to.
+ *
+ * Both are per editor (#817): the registry is built from that project's tool
+ * graph, and the config is that project's ue-mcp.yml. Passing plain values
+ * still works and means "the same one for every call", which is what a
+ * single-editor server and the script runner want.
+ */
+export type FlowRegistrySource = TaskRegistry | ((ctx: ToolContext) => TaskRegistry);
+export type FlowConfigSource = (() => FlowConfig) | ((ctx: ToolContext) => FlowConfig);
+
+export function createFlowTool(
+  registrySource: FlowRegistrySource,
+  reloadConfig: FlowConfigSource,
+): ToolDef {
+  const registryFor = (ctx: ToolContext): TaskRegistry =>
+    typeof registrySource === "function" ? registrySource(ctx) : registrySource;
+  const configFor = (ctx: ToolContext): FlowConfig => reloadConfig(ctx);
+
+  const actions: Record<string, ActionSpec> = {
+    run: {
+      kind: "handler",
+      effect: "mutate",
+      description:
+        "Execute a named flow from ue-mcp.yml. Params: flowName, "
+        + "skip? (step names or numbers), params? (runtime options merged into every step's options, "
+        + "highest priority), rollback_on_failure? (invoke inverse tasks in reverse order when a "
+        + "later step fails). A step whose handler reports success:false FAILS the step and stops the "
+        + "run, and the inverses collected up to and including it are what rollback_on_failure "
+        + "unwinds. A step whose failure is EXPECTED says so itself, in the YAML, with "
+        + "ignore_failure: true - the run walks on, and the step is still recorded as failed with its "
+        + "error and its data, marked ignoredFailure. That is how stop, build, start survives an editor "
+        + "that was already stopped, instead of editor(stop_editor) reporting a success it did not "
+        + "achieve. The failing step's OWN inverse, which a few handlers attach after a partial write, is "
+        + "collected like every other: under rollback_on_failure it is replayed FIRST, ahead of the steps "
+        + "before it, so the partial write is undone before they unwind. It arrives verbatim on "
+        + "steps[i].partialWriteRollback, whose replayed flag says whether the runner ran it or it is yours "
+        + "to run, and in that step's error text. A nested flow's steps arrive on steps[i].nestedSteps, "
+        + "reported on the same terms. Returns a summary, every step's data, and the runId.",
+      handler: async (ctx, params) => runFlow(registryFor(ctx), configFor(ctx), ctx, params),
+    },
+    plan: {
+      kind: "handler",
+      effect: "read",
+      description:
+        "Show a flow's execution plan without running a step of it. Params: flowName. Returns the ordered plan, "
+        + "and the flow as declared under definition: its description and each step's task or nested flow, "
+        + "options and conditions, with ${steps.N...} references left unresolved. inputs lists the params a run may pass: "
+        + "each parameter the step tasks read and the steps leave unset, with its type, required flag and the steps that read it.",
+      handler: async (ctx, params) => planFlow(registryFor(ctx), configFor(ctx), ctx, params),
+    },
+    list: {
+      kind: "handler",
+      effect: "read",
+      description:
+        "List the flows available to this project, merged from ue-mcp.yml, the user-global config "
+        + "and any loaded plugin. Params: none",
+      handler: async (ctx) => listFlows(configFor(ctx)),
+    },
+  };
+
+  const def: ToolDef = {
+    name: "flow",
+    description:
+      `Run pre-built named sequences for this project. ` +
+      `ALWAYS check project(action="get_status") first - its 'flows' field lists what's available. ` +
+      `If a flow matches the user's request, run it via ` +
+      `flow(action="run", flowName="...") instead of composing the sequence by hand. ` +
+      `Config reloads on every call - no restart needed.\n\n` +
+      `Actions:\n` +
+      Object.entries(actions)
+        .map(([name, spec]) => `- ${name}: ${spec.description ?? ""}`)
+        .join("\n") +
+      `\n\nStep types supported in YAML flows: any MCP action (category.action), nested flows (flow:),\n` +
+      `and 'shell' for running shell/exec commands. Per-step options: options, when, retries,\n` +
+      `retryDelay, retryOn, and ignore_failure (record this step's failure and carry on).\n` +
+      `Example shell step:\n` +
+      `  steps:\n` +
+      `    1: { task: shell, options: { command: "npm run up:build" } }`,
+    schema: {
+      action: actionEnum(Object.keys(actions) as [string, ...string[]]),
+      flowName: z.string().optional().describe("Flow name from ue-mcp.yml"),
+      skip: z.array(z.string()).optional().describe("run: step names or numbers to skip"),
+      params: unknownRecord().optional().describe("run: runtime options merged into every step's options (highest priority)"),
+      rollback_on_failure: z.boolean().optional().describe("run: invoke inverse tasks in reverse order on failure"),
+    },
+    actions,
+    handler: async (ctx, params) => {
+      const action = params.action as string;
+      const spec = actions[action];
+      if (!spec?.handler) {
+        const available = Object.keys(actions);
+        const close = nearestActions(action, available);
+        throw new McpError(
+          ErrorCode.UNKNOWN_ACTION,
+          `Unknown action '${action}' on 'flow'.`
+            + (close.length ? ` Did you mean: ${close.join(", ")}?` : "")
+            + ` Available: ${available.join(", ")}.`,
+        );
+      }
+      return spec.handler(ctx, params);
+    },
+  };
+  return def;
+}
+
+function listFlows(config: FlowConfig): Record<string, unknown> {
+  const flows = Object.entries(config.flows).map(([name, def]) => ({
+    name,
+    description: def.description,
+    stepCount: Object.keys(def.steps).length,
+  }));
+  return { flowCount: flows.length, flows };
+}
+
+/**
+ * The runner orders steps by their keys as numbers, so a named key is a step
+ * it cannot find. Said before the run instead of as a crash inside it.
+ */
+function refuseUnorderedSteps(config: FlowConfig, flowName: string): void {
+  const def = (config.flows as Record<string, { steps?: Record<string, unknown> } | undefined>)[flowName];
+  const bad = Object.keys(def?.steps ?? {}).filter((key) => !FlowStepKeySchema.safeParse(key).success);
+  if (bad.length > 0) {
+    throw new Error(
+      `Flow '${flowName}' has step key${bad.length > 1 ? "s" : ""} ${bad.map((k) => `"${k}"`).join(", ")}: `
+      + 'a flow step key is its run order, a whole number such as "1" or "2".',
+    );
+  }
+}
+
+async function planFlow(
+  registry: TaskRegistry,
+  config: FlowConfig,
+  ctx: ToolContext,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const flowName = params.flowName as string;
+  if (!flowName) throw new Error("flowName is required");
+  refuseUnorderedSteps(config, flowName);
+
+  // Plan mode short-circuits inside the runner before any hooks fire,
+  // so the runId placeholder we pass here is never observed.
+  const runner = makeRunner(registry, config, ctx, nextRunId(), flowName);
+  const planned = await runner.run({ flowName, plan: true });
+  // The plan names each step's task; the definition carries what a reader needs to see how the
+  // steps connect, which is the options and the ${steps.N...} references between them.
+  const def = (config.flows as Record<string, FlowDefinition | undefined>)[flowName];
+  if (!def) return planned;
+  // What a run may pass in params, derived from the steps' task schemas (#1508).
+  const inputs = await deriveFlowInputs(flowName, {
+    flows: config.flows as Record<string, FlowDefinition>,
+    tasks: config.tasks as Record<string, TaskDefinition>,
+    registry,
+    tools: (ctx as FlowContext).getToolGraph?.() ?? ctx.session?.toolGraph ?? [],
+  });
+  return { ...planned, inputs, definition: { description: def.description, steps: def.steps, ...(def.options_scope ? { options_scope: def.options_scope } : {}) } };
+}
+
+async function runFlow(
+  registry: TaskRegistry,
+  config: FlowConfig,
+  ctx: ToolContext,
+  params: Record<string, unknown>,
+): Promise<unknown> {
+  const flowName = params.flowName as string;
+  if (!flowName) throw new Error("flowName is required");
+  refuseUnorderedSteps(config, flowName);
+  const skip = (params.skip as string[] | undefined) ?? [];
+  const flowParams = params.params as Record<string, unknown> | undefined;
+  const rollback_on_failure = params.rollback_on_failure as boolean | undefined;
+
+  // One runId per top-level call. Every per-step / per-run event we
+  // emit carries this id so SSE subscribers can filter to a specific
+  // run; the response includes it so callers can correlate.
+  const runId = nextRunId();
+  const def = (config.flows as Record<string, { on_editor_loss?: EditorLossPolicy; editor_loss_timeout_seconds?: number }>)[flowName];
+  const policy: EditorLossPolicy = def?.on_editor_loss ?? "resume";
+  const snapshot: SnapshotHolder = {};
+  const guard = makeLossGuard(ctx, policy, def?.editor_loss_timeout_seconds, snapshot);
+  const runner = makeRunner(guard ? guard.wrap(registry) : registry, config, ctx, runId, flowName, snapshot, guard);
+  try {
+    // Under on_editor_loss: rollback a failed run unwinds, unless the caller said otherwise.
+    const rollback = rollback_on_failure ?? (policy === "rollback" ? true : undefined);
+    const result = await runner.run({ flowName, skip, params: flowParams, rollback_on_failure: rollback });
+    const formatted = formatFlowResult(result);
+    const loss = guard?.report();
+    if (loss) formatted.summary = `${formatted.summary as string}\n\n${describeEditorLoss(loss)}`;
+    return { ...formatted, editorLoss: loss, runId };
+  } finally {
+    guard?.dispose();
+  }
+}
+
+/** The git snapshot of the run in progress, shared with the editor-loss guard. */
+interface SnapshotHolder {
+  current?: Snapshot;
+}
+
+function makeLossGuard(
+  ctx: ToolContext,
+  policy: EditorLossPolicy,
+  timeoutSeconds: number | undefined,
+  snapshot: SnapshotHolder,
+): EditorLossGuard | undefined {
+  const source = ctx.session?.bridge as unknown as ConnectionSource | undefined;
+  if (typeof source?.onConnectionChanged !== "function" || typeof source.waitForConnection !== "function") return undefined;
+  const graph = (ctx as FlowContext).getToolGraph?.() ?? ctx.session?.toolGraph;
+  return new EditorLossGuard(source, {
+    policy,
+    timeoutMs: timeoutSeconds ? timeoutSeconds * 1000 : DEFAULT_EDITOR_LOSS_TIMEOUT_MS,
+    isReadOnly: (taskName) => taskEffect(taskName, graph).effect === "read",
+    needsEditor: (taskName) => !Object.hasOwn(LOCAL_ACTIONS, taskName) && !EDITOR_OPERATION_TASKS.has(taskName),
+    // Filesystem only, and only while the editor is away, so it never holds stale copies.
+    restoreWhileDown: () => {
+      if (!snapshot.current) return false;
+      try {
+        restoreSnapshot(snapshot.current);
+        snapshot.current = undefined;
+        return true;
+      } catch (e) {
+        console.error(`[ue-mcp] git snapshot restore failed: ${(e as Error).message}`);
+        return false;
+      }
+    },
+  });
+}
+
+function describeEditorLoss(loss: EditorLossReport): string {
+  const lines = [`  Editor loss (on_editor_loss: ${loss.policy}):`];
+  for (const e of loss.events) {
+    lines.push(`      ${e.step}: ${e.outcome}${e.cause ? ` (${e.cause})` : ""}, waited ${Math.round(e.waitedMs / 1000)}s`);
+  }
+  if (loss.unsavedBeforeLoss.length > 0) {
+    lines.push(`      Not saved when the editor went away, so lost if it crashed: ${loss.unsavedBeforeLoss.join(", ")}`);
+  }
+  if (loss.snapshotRestoredWhileDown) lines.push("      Git snapshot restored while the editor was away.");
+  return lines.join("\n");
+}
+
+function makeRunner(
+  registry: TaskRegistry,
+  config: FlowConfig,
+  ctx: ToolContext,
+  runId: string,
+  flowName: string,
+  snapshot: SnapshotHolder = {},
+  guard?: EditorLossGuard,
+): FlowRunner {
+  // The whole context, not two fields of it. Rebuilding it field-by-field
+  // dropped `elicit`, `getFlows`, `getPlugins` and now the editor session, so
+  // a step inside a flow saw a different server than the same action called
+  // directly - and, with more than one editor, could not tell which one it
+  // was running in.
+  const flowCtx: FlowContext = { ...ctx };
+
+  // Opt-in git snapshot: capture Content/ + Config/ on start; reset on failure.
+  // Handler-level rollbacks cover in-memory state (selection, PIE, unsaved
+  // actors); the snapshot covers anything that touched disk.
+  const snapCfg = config.git_snapshot;
+  let flowFailed = false;
+  const snapshotEnabled = !!(snapCfg?.enabled && ctx.project.projectDir);
+
+  // Always-on per-step observation. Each hook emits a single event on
+  // the module-level bus that the HTTP server's /flows/events SSE
+  // endpoint pipes to subscribed clients.
+  const hooks: FlowRunnerHooks = {
+    beforeRun: async (_name, plan) => {
+      emitFlowEvent({
+        type: "run_started",
+        runId,
+        flowName,
+        plan,
+        timestamp: Date.now(),
+      });
+      if (!snapshotEnabled) return;
+      const projectDir = ctx.project.projectDir!;
+      const snapshotDir = snapCfg!.snapshot_dir ?? ".ue-mcp/snapshot.git";
+      const absSnap = snapshotDir.startsWith(".") || !snapshotDir.match(/^([a-zA-Z]:|\/)/)
+        ? `${projectDir}/${snapshotDir}`
+        : snapshotDir;
+      pruneOldSnapshots(absSnap, (snapCfg!.max_age_hours ?? 24) * 3_600_000);
+      try {
+        snapshot.current = takeSnapshot(
+          projectDir,
+          snapCfg!.paths ?? ["Content", "Config"],
+          snapshotDir,
+        );
+      } catch (e) {
+        // Don't fail the flow on snapshot failure - just log. Handler
+        // rollbacks still apply.
+        console.error(`[ue-mcp] git snapshot failed: ${(e as Error).message}`);
+      }
+    },
+    beforeStep: async (step: PlanStep) => {
+      emitFlowEvent({
+        type: "step_started",
+        runId,
+        flowName,
+        step,
+        timestamp: Date.now(),
+      });
+    },
+    afterStep: async (step: PlanStep, result: FlowStepResult) => {
+      guard?.stepCompleted(step.name, result.result?.data);
+      emitFlowEvent({
+        type: "step_completed",
+        runId,
+        flowName,
+        step,
+        result: trimStepResult(result),
+        timestamp: Date.now(),
+      });
+    },
+    onStepError: async (step: PlanStep, error: Error) => {
+      emitFlowEvent({
+        type: "step_failed",
+        runId,
+        flowName,
+        step,
+        error: trimError(error),
+        timestamp: Date.now(),
+      });
+    },
+    afterRun: async (result: FlowRunResult) => {
+      // Restore the git snapshot first (if enabled and the flow failed)
+      // so the run_completed event is the last thing observers see.
+      if (snapshotEnabled) {
+        flowFailed = !result.success;
+        const activeSnapshot = snapshot.current;
+        if (activeSnapshot && flowFailed) {
+          try {
+            const { changedPaths } = restoreSnapshot(activeSnapshot);
+            if (ctx.bridge.isConnected) {
+              await reloadAffectedPackages(ctx.bridge, activeSnapshot.projectDir, changedPaths);
+            }
+            (result as unknown as { snapshotRestore?: unknown }).snapshotRestore = {
+              restored: true,
+              changedCount: changedPaths.length,
+            };
+          } catch (e) {
+            (result as unknown as { snapshotRestore?: unknown }).snapshotRestore = {
+              restored: false,
+              error: (e as Error).message,
+            };
+          }
+        }
+      }
+      emitFlowEvent({
+        type: "run_completed",
+        runId,
+        flowName,
+        success: result.success,
+        duration: result.duration,
+        stepCount: result.steps.length,
+        failedStep: stoppingStep(result),
+        timestamp: Date.now(),
+      });
+    },
+  };
+
+  return new FlowRunner({
+    tasks: config.tasks as Record<string, TaskDefinition>,
+    flows: config.flows as Record<string, FlowDefinition>,
+    registry,
+    context: flowCtx,
+    hooks,
+  });
+}
+
+/**
+ * The step that STOPPED the run, which is not the same as any step that failed.
+ *
+ * A step carrying `ignore_failure: true` fails, is recorded as failed, and the
+ * runner walks past it. Naming it here would report a failed step on a run
+ * that completed, which is the reading the flag exists to prevent - so the
+ * search skips the ones the flow declared it expected.
+ */
+function stoppingStep(result: FlowRunResult): string | undefined {
+  return result.steps.find((s) => s.result?.success === false && !s.ignoredFailure)?.name;
+}
+
+/**
+ * Whether the runner actually invoked the inverses it collected.
+ *
+ * `FlowRunResult.rollback` is set only on the run that reached
+ * `performRollback`, which needs a failure, `rollback_on_failure`, and at least
+ * one record. So its presence answers the one question a partial-write report
+ * turns on: from flowkit 0.17.1 a failing step's own inverse is harvested like
+ * any other, and this says whether the harvest was replayed or was never armed.
+ */
+function rollbackRan(result: FlowRunResult): boolean {
+  return result.rollback !== undefined;
+}
+
+/**
+ * One step rendered into the summary, and its children under it.
+ *
+ * A `flow` step carries the child's own step results from 0.17.1 onward, and a
+ * child's partial write is undone or handed back on exactly the same terms as a
+ * main step's, so it is rendered on the same terms too - one level deeper.
+ */
+function formatStepLines(
+  s: FlowStepResult,
+  lines: string[],
+  replayed: boolean,
+  depth: number,
+): void {
+  const pad = "  ".repeat(depth);
+  const detail = `${pad}      `;
+  const stepIcon = s.skipped ? "○" : s.result?.success ? "✓" : s.ignoredFailure ? "!" : "✗";
+  // "FAILED (ignored)" and not "ok": the step failed, the flow said in
+  // advance that it would tolerate this one, and both halves have to be
+  // visible or the run reads as though the step passed.
+  const status = s.skipped
+    ? "skipped"
+    : s.result?.success
+      ? formatDuration(s.duration)
+      : s.ignoredFailure
+        ? "FAILED (ignored)"
+        : "FAILED";
+  const attempts = s.attempts && s.attempts > 1 ? ` [${s.attempts} attempts]` : "";
+  lines.push(`${pad}  ${stepIcon} ${s.stepNumber}. ${s.name} (${s.type}) - ${status}${attempts}`);
+
+  if (s.result?.error) {
+    lines.push(`${detail}${s.result.error.message}`);
+  }
+
+  // A step that failed AFTER writing part of its change attaches its own
+  // inverse. Under rollback_on_failure the runner replays it first, ahead of
+  // the steps before it; otherwise nothing replays it and printing it is what
+  // keeps it from being discarded in silence. See flow/handler-outcome.ts.
+  if (s.result && s.result.success === false && s.result.rollback) {
+    lines.push(
+      replayed
+        ? `${detail}Undo for the part that applied (replayed by rollback_on_failure):`
+        : `${detail}Undo for the part that applied (NOT run automatically):`,
+    );
+    lines.push(`${detail}${unappliedRollbackCall(s.result.rollback)}`);
+  }
+
+  if (s.result?.data?.output && typeof s.result.data.output === "string") {
+    const output = s.result.data.output;
+    if (output.length > 0) {
+      const truncated = output.length > 500 ? output.slice(-500) + "\n      ..." : output;
+      for (const line of truncated.split("\n")) {
+        lines.push(`${detail}${line}`);
+      }
+    }
+  }
+
+  for (const child of s.nestedSteps ?? []) {
+    formatStepLines(child, lines, replayed, depth + 1);
+  }
+}
+
+function formatFlowResult(result: FlowRunResult): Record<string, unknown> {
+  const lines: string[] = [];
+  const icon = result.success ? "✓" : "✗";
+  lines.push(`${icon} Flow ${result.success ? "completed" : "failed"} in ${formatDuration(result.duration)}`);
+  lines.push("");
+
+  const replayed = rollbackRan(result);
+  for (const s of result.steps) {
+    formatStepLines(s, lines, replayed, 0);
+  }
+
+  if (result.error && !result.steps.some((s) => s.result?.error)) {
+    lines.push("");
+    lines.push(`  Error: ${result.error.message}`);
+  }
+
+  if (result.rollback) {
+    lines.push("");
+    lines.push(
+      `  Rollback: ${result.rollback.succeeded}/${result.rollback.attempted} inverses succeeded` +
+        (result.rollback.errors.length ? ` - ${result.rollback.errors.length} failed` : ""),
+    );
+    for (const e of result.rollback.errors) {
+      lines.push(`      ✗ ${rollbackLabel(e)}: ${e.error.message}`);
+    }
+  }
+
+  const snap = (result as unknown as { snapshotRestore?: { restored: boolean; changedCount?: number; error?: string } }).snapshotRestore;
+  if (snap) {
+    lines.push("");
+    if (snap.restored) {
+      lines.push(`  Git snapshot restored: ${snap.changedCount} files reset`);
+    } else {
+      lines.push(`  Git snapshot restore FAILED: ${snap.error}`);
+    }
+  }
+
+  if (result.hookErrors && result.hookErrors.length > 0) {
+    lines.push("");
+    lines.push(`  Hook errors (${result.hookErrors.length}):`);
+    for (const h of result.hookErrors) {
+      lines.push(`      ✗ ${h.phase}:${h.name} - ${h.error.message}`);
+    }
+  }
+
+  return {
+    summary: lines.join("\n"),
+    success: result.success,
+    duration: result.duration,
+    stepCount: result.steps.length,
+    failedStep: stoppingStep(result),
+    // What each step answered. The per-step events carry no data by design
+    // (an SSE subscriber does not want a shell log or an asset listing pushed
+    // at it), which left the run response as the only place the data could
+    // arrive, and it was dropping it too: a flow that read anything returned a
+    // summary line and nothing else, so the same action was strictly less
+    // useful inside a flow than called directly.
+    steps: result.steps.map((s) => reportStep(s, replayed)),
+    rollback: result.rollback,
+    hookErrors: result.hookErrors,
+  };
+}
+
+/**
+ * One step, and the child flow's steps under it, as the caller reads them.
+ */
+function reportStep(s: FlowStepResult, replayed: boolean): Record<string, unknown> {
+  return {
+    stepNumber: s.stepNumber,
+    name: s.name,
+    type: s.type,
+    skipped: s.skipped,
+    success: s.result?.success ?? false,
+    // Declared in the flow, reported on the step: this one failed and was
+    // tolerated. Absent on every other step, so a reader never has to guess
+    // which failure was expected.
+    ignoredFailure: s.ignoredFailure ? true : undefined,
+    duration: s.duration,
+    attempts: s.attempts,
+    error: s.result?.error
+      ? { message: s.result.error.message, name: s.result.error.name }
+      : undefined,
+    data: s.result?.data,
+    // The inverse a FAILING step carried for the part of its write that landed,
+    // verbatim and replayable either way. `replayed` is the whole question: the
+    // runner harvests this record like any other, so `rollback_on_failure`
+    // decides whether it already ran or is the caller's to run.
+    partialWriteRollback: s.result && s.result.success === false && s.result.rollback
+      ? {
+          record: s.result.rollback,
+          step: unappliedRollbackCall(s.result.rollback),
+          replayed,
+          note: replayed
+            ? "This step applied part of its change before failing. rollback_on_failure was on, so the runner " +
+              "replayed this inverse FIRST, ahead of the inverses from the steps before it. Check " +
+              "`rollback.errors` for the ones that did not succeed."
+            : "This step applied part of its change before failing. rollback_on_failure was not armed for this " +
+              "run, so nothing replayed this inverse. Run it as the step shown, or call the bridge method in " +
+              "`record.payload.method` with the rest of the payload.",
+        }
+      : undefined,
+    // A `flow` step's child steps, from flowkit 0.17.1. Before it, a nested
+    // step was summarised to `data.stepCount` and everything else about the
+    // child was reachable only by reading its run error as prose.
+    nestedSteps: s.nestedSteps?.map((child) => reportStep(child, replayed)),
+  };
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}

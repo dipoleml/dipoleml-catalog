@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "namespace" ALTER COLUMN "totalPages" SET DEFAULT 0.0,
+ALTER COLUMN "totalPages" SET DATA TYPE DOUBLE PRECISION;
+
+-- AlterTable
+ALTER TABLE "organization" ALTER COLUMN "totalPages" SET DEFAULT 0.0,
+ALTER COLUMN "totalPages" SET DATA TYPE DOUBLE PRECISION;

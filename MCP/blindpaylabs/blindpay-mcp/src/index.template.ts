@@ -1,0 +1,1010 @@
+#!/usr/bin/env node
+/**
+ * BlindPay MCP server. This file is assembled by scripts/sync.mts from this
+ * template plus a freshly generated toolDefinitionMap — do not hand-edit
+ * src/index.ts directly, edit this template instead. See CLAUDE.md.
+ */
+
+// Load environment variables from .env file
+import dotenv from 'dotenv';
+dotenv.config();
+
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type Tool,
+  type ToolAnnotations,
+  type CallToolResult,
+  type CallToolRequest,
+} from '@modelcontextprotocol/sdk/types.js';
+
+import { z, ZodError } from 'zod';
+import axios, { type AxiosRequestConfig, type AxiosError } from 'axios';
+
+/**
+ * Type definition for JSON objects
+ */
+type JsonObject = Record<string, any>;
+
+/**
+ * Interface for MCP Tool Definition
+ */
+interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: any;
+  method: string;
+  pathTemplate: string;
+  executionParameters: { name: string; in: string }[];
+  requestBodyContentType?: string;
+  securityRequirements: any[];
+}
+
+/**
+ * Server configuration
+ */
+export const SERVER_NAME = '@blindpay/mcp';
+export const SERVER_VERSION = '__SERVER_VERSION__';
+export const API_BASE_URL = 'https://api.blindpay.com';
+
+/**
+ * Set to the instance the API key belongs to (`in_...`). When set, it fills
+ * in the instance parameter of every instance-scoped tool (see
+ * instanceParamName), the way the hosted server fills it in from the
+ * signed-in connection.
+ */
+const ENV_INSTANCE_ID = process.env.BLINDPAY_INSTANCE_ID || undefined;
+
+/**
+ * Tool profiles (BLINDPAY_MCP_PROFILE):
+ *   full      every public API operation (default)
+ *   readonly  GET operations only: status, balances, history.
+ *             Consumer directories (Claude, ChatGPT) reject tools that move
+ *             money, so this is the profile they get.
+ */
+type ToolProfile = 'full' | 'readonly';
+const TOOL_PROFILE: ToolProfile =
+  (process.env.BLINDPAY_MCP_PROFILE ?? 'full').toLowerCase() === 'readonly' ? 'readonly' : 'full';
+
+// Shared by both instruction texts, as in hosted instructions.ts.
+const BALANCE_AND_FEE_UNITS =
+  'Wallet balances (GetV1InstancesCustomersWalletsBalance) are whole tokens (10.5 = 10.5 USDC). Partner percentage fees are basis points (100 = 1%) and flat fees are cents.';
+const UNITS = `Units: request_amount and every *_amount on quotes, payouts and payins are integer cents (1000 = 10.00). ${BALANCE_AND_FEE_UNITS} expires_at on quotes is epoch milliseconds.`;
+const DOCS =
+  'Docs for agents: https://blindpay.com/docs/llms.txt (full text at https://blindpay.com/docs/llms-full.txt).';
+
+/**
+ * Server instructions the full profile sends on `initialize`. Same text as the
+ * hosted server's SERVER_INSTRUCTIONS (blindpay-v2
+ * apps/api/src/shared/public-mcp/instructions.ts) except the second sentence,
+ * which depends on BLINDPAY_INSTANCE_ID here. Change both together.
+ */
+const INSTANCE_SENTENCE = ENV_INSTANCE_ID
+  ? 'These tools call the BlindPay API for the one instance your API key is bound to; the instance id is filled in for you.'
+  : 'These tools call the BlindPay API for the one instance your API key is bound to. Pass that instance id (in_...) as instance_id, or as id on GetV1InstancesById, PutV1InstancesById, GetV1InstancesMembers, PutV1InstancesMembersByUserId and DeleteV1InstancesMembersByUserId; ask the user for it if you do not have it.';
+
+export const SERVER_INSTRUCTIONS = `BlindPay moves money between stablecoins and local bank rails. ${INSTANCE_SENTENCE}
+
+Start with GetV1InstancesById. If type is "development", settlement is simulated with the test token USDB and no real money moves. If type is "production", every payout, transfer and payin moves real funds: confirm amounts and recipients with the user before calling a create tool.
+
+${UNITS}
+
+Payout flow: PostV1EInstancesTos returns a consent URL; the end customer must open it and accept, and the tos_id (to_...) comes back as a query parameter on your redirect_url and in the tos.accept webhook. Then PostV1InstancesCustomers with that tos_id, then PostV1InstancesCustomersBankAccounts (call GetV1AvailableBankDetails with the rail first for the required fields), then PostV1InstancesQuotes, then execute within 5 minutes, when the quote expires. Use PostV1InstancesPayoutsEvm for BlindPay-managed wallets on any network, Solana included; PostV1InstancesPayoutsSolana and PostV1InstancesPayoutsStellar are for self-custodied wallets that sign.
+
+Payin flow: PostV1InstancesPayinQuotes (minimum 1000 cents for USD and BRL; a payin quote never takes a network, the wallet decides it), then PostV1InstancesPayinsEvm with the payin_quote_id within 5 minutes.
+
+Files: customer and payout document fields take HTTPS URLs that BlindPay downloads. The URL must be publicly fetchable; data: URIs are rejected. File upload is REST-only (POST /v1/upload), not available as a tool.
+
+Retries: send an Idempotency-Key header (any unique string, reused only for a retry of the same call) on every create call that moves money, so a retry after a timeout cannot create a second payout. Do not reuse a key for a new quote.
+
+Development instances: payins settle by themselves within about 30 seconds, KYC is auto-approved, and request_amount 66600 makes a payout or payin fail while 77700 makes it refunded; any other amount completes.
+
+Webhooks: the event names and payload schemas are resources at blindpay://webhooks/events. Register an endpoint with PostV1InstancesWebhookEndpoints.
+
+Done by a person in the dashboard (app.blindpay.com), not by tools: creating API keys, creating instances, instance onboarding (KYB), inviting team members and terms of service acceptance by the end customer. Ask the user when you reach one of these.
+
+${DOCS}`;
+
+/**
+ * Instructions for the readonly profile: hosted READ_ONLY_SERVER_INSTRUCTIONS
+ * (the /mcp/readonly text) except the instance sentence. Naming a tool the
+ * profile doesn't have makes the model try to move money it can't, so this
+ * text names none.
+ */
+const READ_ONLY_INSTANCE_SENTENCE = ENV_INSTANCE_ID
+  ? "the tools read the one instance your API key is bound to, with the instance id filled in for you, plus BlindPay's reference data (payment rails, bank details, NAICS and SWIFT codes)."
+  : "the tools read the one instance your API key is bound to, plus BlindPay's reference data (payment rails, bank details, NAICS and SWIFT codes). Pass that instance id (in_...) as instance_id, or as id on GetV1InstancesById and GetV1InstancesMembers; ask the user for it if you do not have it.";
+
+export const READ_ONLY_SERVER_INSTRUCTIONS = `BlindPay moves money between stablecoins and local bank rails. This is the read-only connection: ${READ_ONLY_INSTANCE_SENTENCE} Nothing here can create, change or send anything.
+
+Start with GetV1InstancesById. If type is "development", settlement is simulated with the test token USDB and no real money moves. If type is "production", the data describes real funds.
+
+Units: every *_amount on payouts and payins is integer cents (1000 = 10.00). ${BALANCE_AND_FEE_UNITS}
+
+When the user asks to send a payout, move funds, create or edit a customer, bank account or wallet, register a webhook or change any setting: say this connection is read-only, point them to the dashboard at https://app.blindpay.com, and offer the lookup that helps (for example, the customer's bank accounts).
+
+Webhooks: the event names and payload schemas are resources at blindpay://webhooks/events.
+
+${DOCS}`;
+
+/**
+ * What the profile changes besides the tool list, mirroring the hosted
+ * endpoints: the instructions sent on `initialize`, and whether trace_id is
+ * dropped from JSON responses (only /mcp/readonly drops it).
+ */
+const PROFILE =
+  TOOL_PROFILE === 'readonly'
+    ? { instructions: READ_ONLY_SERVER_INSTRUCTIONS, dropTraceId: true }
+    : { instructions: SERVER_INSTRUCTIONS, dropTraceId: false };
+
+/**
+ * MCP Server instance
+ */
+const mcpServer = new McpServer(
+  { name: SERVER_NAME, version: SERVER_VERSION },
+  { capabilities: { tools: {} }, instructions: PROFILE.instructions }
+);
+
+// Access the underlying Server for handler registration
+const server = mcpServer.server;
+
+/**
+ * Map of tool definitions by name
+ */
+const toolDefinitionMap: Map<string, McpToolDefinition> = new Map([
+  /* __TOOL_DEFINITIONS__ */
+]);
+
+/**
+ * Security schemes from the OpenAPI spec
+ */
+const securitySchemes = {
+  Bearer: {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+  },
+};
+
+/**
+ * GET operations kept off the readonly profile even though the verb is
+ * read-only: one produces a wallet signature, one returns a webhook signing
+ * secret, and one returns a link that signs into the webhook portal. Same list
+ * as READ_ONLY_EXCLUDED_PATHS on the hosted /mcp/readonly endpoint.
+ */
+const READ_ONLY_EXCLUDED_PATHS = new Set([
+  '/v1/instances/{instance_id}/customers/{customer_id}/blockchain-wallets/sign-message',
+  '/v1/instances/{instance_id}/webhook-endpoints/{id}/secret',
+  '/v1/instances/{instance_id}/webhook-endpoints/portal-access',
+]);
+
+function isReadOnlyTool(def: McpToolDefinition): boolean {
+  return def.method.toLowerCase() === 'get' && !READ_ONLY_EXCLUDED_PATHS.has(def.pathTemplate);
+}
+
+function isToolInProfile(def: McpToolDefinition): boolean {
+  return TOOL_PROFILE === 'full' || isReadOnlyTool(def);
+}
+
+/** `GetV1InstancesCustomersById` -> `Get Instances Customers By Id` */
+function toolTitle(name: string): string {
+  return name
+    .replace(/^([A-Z][a-z]+)V1/, '$1')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+}
+
+/**
+ * MCP tool annotations derived from the HTTP verb. Each generated tool maps
+ * to exactly one verb, so the hints are exact rather than heuristic.
+ */
+function toolAnnotations(def: McpToolDefinition): ToolAnnotations {
+  const method = def.method.toLowerCase();
+  const readOnly = method === 'get';
+  return {
+    readOnlyHint: readOnly,
+    destructiveHint: method === 'delete',
+    idempotentHint: readOnly || method === 'put' || method === 'delete',
+    openWorldHint: true,
+  };
+}
+
+/**
+ * The parameter carrying the instance id: the first path param on a
+ * `/v1/instances/{...}` or `/v1/e/instances/{...}` route (usually
+ * `instance_id`, `id` on `/v1/instances/{id}` and its members routes), as
+ * `instanceParamNameFor` in the hosted tool-gen.ts finds it. Elsewhere, an
+ * `instance_id` query param, which the hosted server doesn't fill in.
+ */
+function instanceParamName(def: McpToolDefinition): string | undefined {
+  if (/^\/v1(?:\/e)?\/instances\/\{/.test(def.pathTemplate)) {
+    const firstBrace = def.pathTemplate.search(/\{/);
+    return def.executionParameters.find(
+      (p) => p.in === 'path' && def.pathTemplate.indexOf(`{${p.name}}`) === firstBrace
+    )?.name;
+  }
+  // A route outside /v1/instances/{id} can still take the instance as a query
+  // parameter (PostV1Presign). 1.8.0 filled it in from BLINDPAY_INSTANCE_ID,
+  // so keep doing that even though the hosted server requires it.
+  return def.executionParameters.find((p) => p.in === 'query' && p.name === 'instance_id')?.name;
+}
+
+/** The instance param BLINDPAY_INSTANCE_ID fills in, when it is set. */
+function envInstanceParam(def: McpToolDefinition): string | undefined {
+  return ENV_INSTANCE_ID ? instanceParamName(def) : undefined;
+}
+
+/**
+ * With BLINDPAY_INSTANCE_ID set, the instance param stays visible but is not
+ * required, and says it is filled in: the hosted server's schema. Without it
+ * the model has to pass the instance id, so the generated schema is kept.
+ * Arguments are validated against this schema, as on the hosted server.
+ */
+function clientInputSchema(def: McpToolDefinition): any {
+  const param = envInstanceParam(def);
+  if (!param) return def.inputSchema;
+  const { required: generatedRequired = [], ...schema } = def.inputSchema;
+  const required = generatedRequired.filter((name: string) => name !== param);
+  return {
+    ...schema,
+    properties: {
+      ...schema.properties,
+      [param]: {
+        ...schema.properties?.[param],
+        description: 'Supplied automatically from BLINDPAY_INSTANCE_ID. Omit it; any value sent here is ignored.',
+      },
+    },
+    ...(required.length > 0 && { required }),
+  };
+}
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const toolsForClient: Tool[] = Array.from(toolDefinitionMap.values())
+    .filter(isToolInProfile)
+    .map((def) => ({
+      name: def.name,
+      title: toolTitle(def.name),
+      description: def.description,
+      inputSchema: clientInputSchema(def),
+      annotations: toolAnnotations(def),
+    }));
+  return { tools: toolsForClient };
+});
+
+server.setRequestHandler(
+  CallToolRequestSchema,
+  async (request: CallToolRequest): Promise<CallToolResult> => {
+    const { name: toolName, arguments: toolArgs } = request.params;
+    const toolDefinition = toolDefinitionMap.get(toolName);
+    if (!toolDefinition || !isToolInProfile(toolDefinition)) {
+      console.error(`Error: Unknown tool requested: ${toolName}`);
+      return {
+        content: [{ type: 'text', text: `Error: Unknown tool requested: ${toolName}` }],
+        isError: true,
+      };
+    }
+    return await executeApiTool(toolName, toolDefinition, toolArgs ?? {}, securitySchemes);
+  }
+);
+
+/** Same shape as WebhookEvent in scripts/lib/openapi.mts, which produces it. */
+interface WebhookEvent {
+  event: string;
+  description: string;
+  uri: string;
+  payloadSchema: unknown;
+}
+
+/**
+ * Every webhook event in the spec's `webhooks` section with its payload
+ * schema, spliced in by scripts/sync.mts.
+ */
+const WEBHOOK_EVENTS: WebhookEvent[] = [
+  /* __WEBHOOK_EVENTS__ */
+];
+
+const WEBHOOK_EVENTS_URI = 'blindpay://webhooks/events';
+
+/**
+ * The webhook catalog as resources: an index (names and summaries) plus one
+ * resource per event with its payload schema. Same names, URIs and text as
+ * `webhookResources` on the hosted server.
+ */
+function registerWebhookResources(): void {
+  const resources = [
+    {
+      name: 'webhook-events',
+      uri: WEBHOOK_EVENTS_URI,
+      title: 'Webhook events',
+      description: 'Every webhook event BlindPay sends, with a link to each payload schema',
+      text: JSON.stringify(
+        WEBHOOK_EVENTS.map(({ event, description, uri }) => ({ event, description, uri })),
+        null,
+        2
+      ),
+    },
+    ...WEBHOOK_EVENTS.map((event) => ({
+      name: `webhook-event-${event.event}`,
+      uri: event.uri,
+      title: `Webhook ${event.event}`,
+      description: event.description,
+      text: JSON.stringify(
+        { event: event.event, description: event.description, payload_schema: event.payloadSchema },
+        null,
+        2
+      ),
+    })),
+  ];
+  for (const resource of resources) {
+    mcpServer.registerResource(
+      resource.name,
+      resource.uri,
+      { title: resource.title, description: resource.description, mimeType: 'application/json' },
+      async (uri) => ({
+        contents: [{ uri: uri.href, mimeType: 'application/json', text: resource.text }],
+      })
+    );
+  }
+}
+
+registerWebhookResources();
+
+/**
+ * Type definition for cached OAuth tokens
+ */
+interface TokenCacheEntry {
+  token: string;
+  expiresAt: number;
+}
+
+/**
+ * Declare global __oauthTokenCache property for TypeScript
+ */
+declare global {
+  var __oauthTokenCache: Record<string, TokenCacheEntry> | undefined;
+}
+
+/**
+ * Acquires an OAuth2 token using client credentials flow
+ *
+ * @param schemeName Name of the security scheme
+ * @param scheme OAuth2 security scheme
+ * @returns Acquired token or null if unable to acquire
+ */
+async function acquireOAuth2Token(
+  schemeName: string,
+  scheme: any
+): Promise<string | null | undefined> {
+  try {
+    // Check if we have the necessary credentials
+    const clientId = process.env[`OAUTH_CLIENT_ID_SCHEMENAME`];
+    const clientSecret = process.env[`OAUTH_CLIENT_SECRET_SCHEMENAME`];
+    const scopes = process.env[`OAUTH_SCOPES_SCHEMENAME`];
+
+    if (!clientId || !clientSecret) {
+      console.error(`Missing client credentials for OAuth2 scheme '${schemeName}'`);
+      return null;
+    }
+
+    // Initialize token cache if needed
+    global.__oauthTokenCache ??= {};
+
+    // Check if we have a cached token
+    const cacheKey = `${schemeName}_${clientId}`;
+    const cachedToken = global.__oauthTokenCache[cacheKey];
+    const now = Date.now();
+
+    if (cachedToken && cachedToken.expiresAt > now) {
+      console.error(
+        `Using cached OAuth2 token for '${schemeName}' (expires in ${Math.floor((cachedToken.expiresAt - now) / 1000)} seconds)`
+      );
+      return cachedToken.token;
+    }
+
+    // Determine token URL based on flow type
+    let tokenUrl = '';
+    if (scheme.flows?.clientCredentials?.tokenUrl) {
+      tokenUrl = scheme.flows.clientCredentials.tokenUrl;
+      console.error(`Using client credentials flow for '${schemeName}'`);
+    } else if (scheme.flows?.password?.tokenUrl) {
+      tokenUrl = scheme.flows.password.tokenUrl;
+      console.error(`Using password flow for '${schemeName}'`);
+    } else {
+      console.error(`No supported OAuth2 flow found for '${schemeName}'`);
+      return null;
+    }
+
+    // Prepare the token request
+    let formData = new URLSearchParams();
+    formData.append('grant_type', 'client_credentials');
+
+    // Add scopes if specified
+    if (scopes) {
+      formData.append('scope', scopes);
+    }
+
+    console.error(`Requesting OAuth2 token from ${tokenUrl}`);
+
+    // Make the token request
+    const response = await axios({
+      method: 'POST',
+      url: tokenUrl,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+      },
+      data: formData.toString(),
+    });
+
+    // Process the response
+    if (response.data?.access_token) {
+      const token = response.data.access_token;
+      const expiresIn = response.data.expires_in || 3600; // Default to 1 hour
+
+      // Cache the token
+      global.__oauthTokenCache[cacheKey] = {
+        token,
+        expiresAt: now + expiresIn * 1000 - 60000, // Expire 1 minute early
+      };
+
+      console.error(
+        `Successfully acquired OAuth2 token for '${schemeName}' (expires in ${expiresIn} seconds)`
+      );
+      return token;
+    } else {
+      console.error(
+        `Failed to acquire OAuth2 token for '${schemeName}': No access_token in response`
+      );
+      return null;
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Error acquiring OAuth2 token for '${schemeName}':`, errorMessage);
+    return null;
+  }
+}
+
+/**
+ * Executes an API tool with the provided arguments
+ *
+ * @param toolName Name of the tool to execute
+ * @param definition Tool definition
+ * @param toolArgs Arguments provided by the user
+ * @param allSecuritySchemes Security schemes from the OpenAPI spec
+ * @returns Call tool result
+ */
+async function executeApiTool(
+  toolName: string,
+  definition: McpToolDefinition,
+  toolArgs: JsonObject,
+  allSecuritySchemes: Record<string, any>
+): Promise<CallToolResult> {
+  try {
+    // Validate arguments against the schema the client was given
+    let validatedArgs: JsonObject;
+    try {
+      const zodSchema = getZodSchemaFromJsonSchema(clientInputSchema(definition), toolName);
+      const argsToParse = typeof toolArgs === 'object' && toolArgs !== null ? toolArgs : {};
+      validatedArgs = zodSchema.parse(argsToParse);
+    } catch (error: unknown) {
+      if (error instanceof ZodError) {
+        const validationErrorMessage = `Invalid arguments for tool '${toolName}': ${error.errors.map((e) => `${e.path.join('.')} (${e.code}): ${e.message}`).join(', ')}`;
+        return { content: [{ type: 'text', text: validationErrorMessage }], isError: true };
+      } else {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            { type: 'text', text: `Internal error during validation setup: ${errorMessage}` },
+          ],
+          isError: true,
+        };
+      }
+    }
+
+    // BLINDPAY_INSTANCE_ID then wins over a model-supplied value, as the
+    // hosted server's credential-bound instance does: the key only works on
+    // its own instance anyway.
+    const instanceParam = envInstanceParam(definition);
+    if (instanceParam) {
+      validatedArgs = { ...validatedArgs, [instanceParam]: ENV_INSTANCE_ID };
+    }
+
+    // Prepare URL, query parameters, headers, and request body
+    let urlPath = definition.pathTemplate;
+    const queryParams: Record<string, any> = {};
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    let requestBodyData: any = undefined;
+
+    // Apply parameters to the URL path, query, or headers
+    definition.executionParameters.forEach((param) => {
+      const value = validatedArgs[param.name];
+      if (typeof value !== 'undefined' && value !== null) {
+        if (param.in === 'path') {
+          urlPath = urlPath.replace(`{${param.name}}`, encodeURIComponent(String(value)));
+        } else if (param.in === 'query') {
+          queryParams[param.name] = String(value);
+        } else if (param.in === 'header') {
+          headers[param.name.toLowerCase()] = String(value);
+        }
+      }
+    });
+
+    // Ensure all path parameters are resolved
+    if (urlPath.includes('{')) {
+      throw new Error(`Failed to resolve path parameters: ${urlPath}`);
+    }
+
+    // Construct the full URL
+    const requestUrl = API_BASE_URL ? `${API_BASE_URL}${urlPath}` : urlPath;
+
+    // Handle request body if needed
+    if (definition.requestBodyContentType && typeof validatedArgs['requestBody'] !== 'undefined') {
+      requestBodyData = validatedArgs['requestBody'];
+      headers['content-type'] = definition.requestBodyContentType;
+    }
+
+    // Apply security requirements if available
+    // Security requirements use OR between array items and AND within each object
+    const appliedSecurity = definition.securityRequirements?.find((req) => {
+      // Try each security requirement (combined with OR)
+      return Object.entries(req).every(([schemeName, scopesArray]) => {
+        const scheme = allSecuritySchemes[schemeName];
+        if (!scheme) return false;
+
+        // API Key security (header, query, cookie)
+        if (scheme.type === 'apiKey') {
+          return !!process.env[`API_KEY_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`];
+        }
+
+        // HTTP security (basic, bearer)
+        if (scheme.type === 'http') {
+          if (scheme.scheme?.toLowerCase() === 'bearer') {
+            // Check for BLINDPAY_API_KEY first, then fall back to BEARER_TOKEN_{SCHEME}
+            return (
+              !!process.env.BLINDPAY_API_KEY ||
+              !!process.env[
+                `BEARER_TOKEN_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+              ]
+            );
+          } else if (scheme.scheme?.toLowerCase() === 'basic') {
+            return (
+              !!process.env[
+                `BASIC_USERNAME_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+              ] &&
+              !!process.env[
+                `BASIC_PASSWORD_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+              ]
+            );
+          }
+        }
+
+        // OAuth2 security
+        if (scheme.type === 'oauth2') {
+          // Check for pre-existing token
+          if (
+            process.env[`OAUTH_TOKEN_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`]
+          ) {
+            return true;
+          }
+
+          // Check for client credentials for auto-acquisition
+          if (
+            process.env[
+              `OAUTH_CLIENT_ID_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+            ] &&
+            process.env[
+              `OAUTH_CLIENT_SECRET_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+            ]
+          ) {
+            // Verify we have a supported flow
+            if (scheme.flows?.clientCredentials || scheme.flows?.password) {
+              return true;
+            }
+          }
+
+          return false;
+        }
+
+        // OpenID Connect
+        if (scheme.type === 'openIdConnect') {
+          return !!process.env[
+            `OPENID_TOKEN_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+          ];
+        }
+
+        return false;
+      });
+    });
+
+    // If we found matching security scheme(s), apply them
+    if (appliedSecurity) {
+      // Apply each security scheme from this requirement (combined with AND)
+      for (const [schemeName, scopesArray] of Object.entries(appliedSecurity)) {
+        const scheme = allSecuritySchemes[schemeName];
+
+        // API Key security
+        if (scheme?.type === 'apiKey') {
+          const apiKey =
+            process.env[`API_KEY_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`];
+          if (apiKey) {
+            if (scheme.in === 'header') {
+              headers[scheme.name.toLowerCase()] = apiKey;
+              console.error(`Applied API key '${schemeName}' in header '${scheme.name}'`);
+            } else if (scheme.in === 'query') {
+              queryParams[scheme.name] = apiKey;
+              console.error(`Applied API key '${schemeName}' in query parameter '${scheme.name}'`);
+            } else if (scheme.in === 'cookie') {
+              // Add the cookie, preserving other cookies if they exist
+              headers['cookie'] =
+                `${scheme.name}=${apiKey}${headers['cookie'] ? `; ${headers['cookie']}` : ''}`;
+              console.error(`Applied API key '${schemeName}' in cookie '${scheme.name}'`);
+            }
+          }
+        }
+        // HTTP security (Bearer or Basic)
+        else if (scheme?.type === 'http') {
+          if (scheme.scheme?.toLowerCase() === 'bearer') {
+            // Use BLINDPAY_API_KEY first, then fall back to BEARER_TOKEN_{SCHEME}
+            const token =
+              process.env.BLINDPAY_API_KEY ||
+              process.env[`BEARER_TOKEN_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`];
+            if (token) {
+              headers['authorization'] = `Bearer ${token}`;
+              console.error(`Applied Bearer token for '${schemeName}'`);
+            }
+          } else if (scheme.scheme?.toLowerCase() === 'basic') {
+            const username =
+              process.env[
+                `BASIC_USERNAME_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+              ];
+            const password =
+              process.env[
+                `BASIC_PASSWORD_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`
+              ];
+            if (username && password) {
+              headers['authorization'] =
+                `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+              console.error(`Applied Basic authentication for '${schemeName}'`);
+            }
+          }
+        }
+        // OAuth2 security
+        else if (scheme?.type === 'oauth2') {
+          // First try to use a pre-provided token
+          let token =
+            process.env[`OAUTH_TOKEN_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`];
+
+          // If no token but we have client credentials, try to acquire a token
+          if (!token && (scheme.flows?.clientCredentials || scheme.flows?.password)) {
+            console.error(`Attempting to acquire OAuth token for '${schemeName}'`);
+            token = (await acquireOAuth2Token(schemeName, scheme)) ?? '';
+          }
+
+          // Apply token if available
+          if (token) {
+            headers['authorization'] = `Bearer ${token}`;
+            console.error(`Applied OAuth2 token for '${schemeName}'`);
+
+            // List the scopes that were requested, if any
+            const scopes = scopesArray as string[];
+            if (scopes && scopes.length > 0) {
+              console.error(`Requested scopes: ${scopes.join(', ')}`);
+            }
+          }
+        }
+        // OpenID Connect
+        else if (scheme?.type === 'openIdConnect') {
+          const token =
+            process.env[`OPENID_TOKEN_${schemeName.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`];
+          if (token) {
+            headers['authorization'] = `Bearer ${token}`;
+            console.error(`Applied OpenID Connect token for '${schemeName}'`);
+
+            // List the scopes that were requested, if any
+            const scopes = scopesArray as string[];
+            if (scopes && scopes.length > 0) {
+              console.error(`Requested scopes: ${scopes.join(', ')}`);
+            }
+          }
+        }
+      }
+    }
+    // Log warning if security is required but not available
+    else if (definition.securityRequirements?.length > 0) {
+      // First generate a more readable representation of the security requirements
+      const securityRequirementsString = definition.securityRequirements
+        .map((req) => {
+          const parts = Object.entries(req)
+            .map(([name, scopesArray]) => {
+              const scopes = scopesArray as string[];
+              if (scopes.length === 0) return name;
+              return `${name} (scopes: ${scopes.join(', ')})`;
+            })
+            .join(' AND ');
+          return `[${parts}]`;
+        })
+        .join(' OR ');
+
+      console.warn(
+        `Tool '${toolName}' requires security: ${securityRequirementsString}, but no suitable credentials found.`
+      );
+    }
+
+    // Prepare the axios request configuration. Every HTTP status resolves, so
+    // an API error comes back with its full body like a success does, and the
+    // body stays raw text for formatResponseBody.
+    const config: AxiosRequestConfig = {
+      method: definition.method.toUpperCase(),
+      url: requestUrl,
+      params: queryParams,
+      headers: headers,
+      validateStatus: () => true,
+      responseType: 'text',
+      transformResponse: (data) => data,
+      ...(requestBodyData !== undefined && { data: requestBodyData }),
+    };
+
+    // Log request info to stderr (doesn't affect MCP output)
+    console.error(`Executing tool "${toolName}": ${config.method} ${config.url}`);
+
+    // Execute the request
+    const response = await axios(config);
+
+    const body = typeof response.data === 'string' ? response.data : '';
+    const responseText = formatResponseBody(body, PROFILE.dropTraceId);
+
+    // Same shape as the hosted server: status line, then the body; a 4xx or
+    // 5xx is a tool error.
+    return {
+      content: [{ type: 'text', text: `HTTP ${response.status}\n${responseText}` }],
+      isError: response.status >= 400,
+    };
+  } catch (error: unknown) {
+    // Handle errors during execution
+    let errorMessage: string;
+
+    // Format Axios errors specially
+    if (axios.isAxiosError(error)) {
+      errorMessage = formatApiError(error);
+    }
+    // Handle standard errors
+    else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    // Handle unexpected error types
+    else {
+      errorMessage = 'Unexpected error: ' + String(error);
+    }
+
+    // Log error to stderr
+    console.error(`Error during execution of tool '${toolName}':`, errorMessage);
+
+    // Return error message to client
+    return { content: [{ type: 'text', text: errorMessage }], isError: true };
+  }
+}
+
+/**
+ * Main function to start the server
+ */
+async function main() {
+  // Set up stdio transport
+  try {
+    const transport = new StdioServerTransport();
+    await mcpServer.server.connect(transport);
+    console.error(`${SERVER_NAME} MCP Server (v${SERVER_VERSION}, profile=${TOOL_PROFILE}) running on stdio`);
+  } catch (error) {
+    console.error('Error during server startup:', error);
+    process.exit(1);
+  }
+}
+
+/**
+ * Cleanup function for graceful shutdown
+ */
+async function cleanup() {
+  console.error('Shutting down MCP server...');
+  process.exit(0);
+}
+
+// Register signal handlers
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup);
+
+// Start the server
+main().catch((error) => {
+  console.error('Fatal error in main execution:', error);
+  process.exit(1);
+});
+
+const MAX_NON_JSON_BODY_CHARS = 2000;
+
+/**
+ * Pretty-prints a body that parses as JSON, whatever its content-type. The
+ * API answers in JSON, so any other body comes from something in front of it,
+ * such as a load balancer's HTML 502 page: keep the first
+ * MAX_NON_JSON_BODY_CHARS characters, enough to tell what happened without
+ * filling the model's context with markup. With dropTraceId (the readonly
+ * profile) a top-level trace_id is left out, as the hosted /mcp/readonly
+ * does: OpenAI's plugin guidelines bar internal identifiers such as trace IDs
+ * from tool results.
+ */
+function formatResponseBody(text: string, dropTraceId: boolean): string {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    if (text.length <= MAX_NON_JSON_BODY_CHARS) return text;
+    const note = `[non-JSON response cut at ${MAX_NON_JSON_BODY_CHARS} of ${text.length} characters]`;
+    return `${text.slice(0, MAX_NON_JSON_BODY_CHARS)}\n${note}`;
+  }
+  if (dropTraceId && typeof body === 'object' && body !== null && 'trace_id' in body) {
+    const { trace_id: _traceId, ...rest } = body;
+    return JSON.stringify(rest, null, 2);
+  }
+  return JSON.stringify(body, null, 2);
+}
+
+/**
+ * Formats an Axios error. Only a request that got no HTTP response lands
+ * here: every status resolves (see executeApiTool).
+ *
+ * @param error Axios error
+ * @returns Formatted error message
+ */
+function formatApiError(error: AxiosError): string {
+  let message = 'API request failed.';
+  if (error.request) {
+    message = 'API Network Error: No response received from server.';
+    if (error.code) message += ` (Code: ${error.code})`;
+  } else {
+    message += `API Request Setup Error: ${error.message}`;
+  }
+  return message;
+}
+
+/**
+ * Recursively converts a JSON Schema to a Zod schema for runtime validation.
+ * This implementation avoids using eval() for security reasons.
+ *
+ * @param schema JSON Schema node
+ * @param visited Set of visited $ref paths to prevent infinite recursion
+ * @returns Zod schema
+ */
+function jsonSchemaToZodSchema(schema: any, visited: Set<string> = new Set()): z.ZodTypeAny {
+  if (!schema || typeof schema !== 'object') {
+    return z.any();
+  }
+
+  if (schema.$ref) {
+    if (visited.has(schema.$ref)) {
+      return z.any();
+    }
+    visited.add(schema.$ref);
+  }
+
+  if (schema.anyOf) {
+    const schemas = schema.anyOf.map((s: any) => jsonSchemaToZodSchema(s, visited));
+    return schemas.length > 0 ? z.union(schemas as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]) : z.any();
+  }
+
+  if (schema.oneOf) {
+    const schemas = schema.oneOf.map((s: any) => jsonSchemaToZodSchema(s, visited));
+    return schemas.length > 0 ? z.union(schemas as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]) : z.any();
+  }
+
+  if (schema.allOf) {
+    return schema.allOf.reduce(
+      (acc: z.ZodTypeAny, s: any) => acc.and(jsonSchemaToZodSchema(s, visited)),
+      z.object({})
+    );
+  }
+
+  if (schema.enum) {
+    if (schema.enum.length === 0) return z.any();
+    if (schema.enum.length === 1) return z.literal(schema.enum[0]);
+    return z.enum(schema.enum as [string, ...string[]]);
+  }
+
+  if (schema.const !== undefined) {
+    return z.literal(schema.const);
+  }
+
+  const type = schema.type;
+
+  if (Array.isArray(type)) {
+    const schemas = type.map((t: string) => jsonSchemaToZodSchema({ ...schema, type: t }, visited));
+    return z.union(schemas as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+  }
+
+  switch (type) {
+    case 'string': {
+      let s = z.string();
+      if (typeof schema.minLength === 'number') s = s.min(schema.minLength);
+      if (typeof schema.maxLength === 'number') s = s.max(schema.maxLength);
+      if (schema.pattern) {
+        try {
+          s = s.regex(new RegExp(schema.pattern));
+        } catch {
+          // Invalid regex pattern, skip
+        }
+      }
+      if (schema.format === 'email') s = s.email();
+      if (schema.format === 'uri' || schema.format === 'url') s = s.url();
+      if (schema.format === 'uuid') s = s.uuid();
+      if (schema.format === 'date-time') s = s.datetime();
+      return s;
+    }
+
+    case 'number':
+    case 'integer': {
+      let n = type === 'integer' ? z.number().int() : z.number();
+      if (typeof schema.minimum === 'number') n = n.min(schema.minimum);
+      if (typeof schema.maximum === 'number') n = n.max(schema.maximum);
+      if (typeof schema.exclusiveMinimum === 'number') n = n.gt(schema.exclusiveMinimum);
+      if (typeof schema.exclusiveMaximum === 'number') n = n.lt(schema.exclusiveMaximum);
+      if (typeof schema.multipleOf === 'number') n = n.multipleOf(schema.multipleOf);
+      return n;
+    }
+
+    case 'boolean':
+      return z.boolean();
+
+    case 'null':
+      return z.null();
+
+    case 'array': {
+      const itemSchema = schema.items ? jsonSchemaToZodSchema(schema.items, visited) : z.any();
+      let a = z.array(itemSchema);
+      if (typeof schema.minItems === 'number') a = a.min(schema.minItems);
+      if (typeof schema.maxItems === 'number') a = a.max(schema.maxItems);
+      return a;
+    }
+
+    case 'object': {
+      const properties = schema.properties || {};
+      const required = new Set(schema.required || []);
+      const shape: Record<string, z.ZodTypeAny> = {};
+
+      for (const [key, propSchema] of Object.entries(properties)) {
+        const propZod = jsonSchemaToZodSchema(propSchema, visited);
+        shape[key] = required.has(key) ? propZod : propZod.optional();
+      }
+
+      const obj = z.object(shape);
+
+      if (schema.additionalProperties === false) {
+        return obj.strict() as z.ZodTypeAny;
+      }
+      return obj.passthrough() as z.ZodTypeAny;
+    }
+
+    default:
+      return z.any();
+  }
+}
+
+/**
+ * Converts a JSON Schema to a Zod schema for runtime validation
+ *
+ * @param jsonSchema JSON Schema
+ * @param toolName Tool name for error reporting
+ * @returns Zod schema
+ */
+function getZodSchemaFromJsonSchema(jsonSchema: any, toolName: string): z.ZodTypeAny {
+  if (typeof jsonSchema !== 'object' || jsonSchema === null) {
+    return z.object({}).passthrough();
+  }
+  try {
+    const zodSchema = jsonSchemaToZodSchema(jsonSchema);
+    if (typeof zodSchema?.parse !== 'function') {
+      throw new Error('Failed to produce a valid Zod schema.');
+    }
+    return zodSchema as z.ZodTypeAny;
+  } catch (err: any) {
+    console.error(`Failed to generate Zod schema for '${toolName}':`, err);
+    return z.object({}).passthrough();
+  }
+}

@@ -1,0 +1,104 @@
+import OAuthProvider from '@cloudflare/workers-oauth-provider'
+import { handleAnsCallback } from './events/callback'
+import { env as workerEnv } from 'cloudflare:workers'
+import { createAuthHandlers, handleTokenExchangeCallback } from './auth/oauth-handler'
+import { ALL_SCOPES, REQUIRED_SCOPES } from './auth/scopes'
+import { resolveExternalToken } from './auth/api-token-mode'
+import { logRefusedRegistration } from './auth/registration-log'
+import {
+  MCP_ROUTE,
+  handleMcpPreflight,
+  oauthMcpHandler,
+  rejectInvalidMcpRequest
+} from './mcp-handler'
+import { syncSkills } from './skills/sync'
+
+const OPENAI_APPS_CHALLENGE_PATH = '/.well-known/openai-apps-challenge'
+const OPENAI_APPS_CHALLENGE_TOKEN = 'dQ0VUqjILNASTqFl73Rc8kt2ttMpEMmpqEZWsRhlpfc'
+
+// GlobalOutbound lives with the execute tool (its only caller); wrangler
+// resolves the GLOBAL_OUTBOUND worker-loader entrypoint from this entry module,
+// so it must be re-exported here.
+export { GlobalOutbound } from './tools/execute'
+
+// Built once per isolate: constructing the provider validates its whole configuration, which used to
+// run on every request. The module-scope `env` from cloudflare:workers carries the same bindings and
+// secrets the request's env does.
+// workers-oauth-provider resolves its own access tokens first, then delegates
+// direct Cloudflare API/OAuth credentials to resolveExternalToken.
+const oauthProvider = new OAuthProvider<Env>({
+  apiHandlers: {
+    [MCP_ROUTE]: oauthMcpHandler
+  },
+  defaultHandler: createAuthHandlers(),
+  authorizeEndpoint: '/authorize',
+  tokenEndpoint: '/token',
+  clientRegistrationEndpoint: '/register',
+  clientIdMetadataDocumentEnabled: true,
+  resolveExternalToken,
+  // An upstream invalid_grant thrown here revokes the grant (workers-oauth-provider 1.x).
+  tokenExchangeCallback: (options) =>
+    handleTokenExchangeCallback(
+      options,
+      workerEnv.CLOUDFLARE_CLIENT_ID,
+      workerEnv.CLOUDFLARE_CLIENT_SECRET
+    ),
+  // The authorization server's catalogue: everything /authorize accepts.
+  scopesSupported: [...ALL_SCOPES],
+  resourceMetadata: {
+    resource: workerEnv.MCP_RESOURCE,
+    resource_name: 'Cloudflare API MCP Server'
+  },
+  // The scopes any access needs: published as the resource's scopes_supported and named in the
+  // 401, so clients request them (offline_access is dropped: it isn't a resource requirement).
+  // The consent page adds the rest; Minimal, the default, adds nothing until step-up asks.
+  requiredScopes: [...REQUIRED_SCOPES],
+  accessTokenTTL: 3600,
+  refreshTokenTTL: 2592000 // 30 days
+})
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url)
+    if (url.pathname.startsWith('/events/ans/')) return handleAnsCallback(request, env)
+    if (url.pathname === OPENAI_APPS_CHALLENGE_PATH) {
+      return new Response(OPENAI_APPS_CHALLENGE_TOKEN, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      })
+    }
+
+    const isMcpRoute = url.pathname === MCP_ROUTE
+    if (url.pathname.startsWith(MCP_ROUTE) && !isMcpRoute) {
+      return new Response('Not Found', { status: 404 })
+    }
+    if (isMcpRoute) {
+      // Validate Host and browser Origin before authentication so an invalid
+      // request cannot spend a bearer token on Cloudflare API identity probes.
+      const rejected = rejectInvalidMcpRequest(request)
+      if (rejected) return rejected
+      if (request.method === 'OPTIONS') return handleMcpPreflight(request)
+    }
+
+    // Temporary: record which clients workers-oauth-provider 1.2's redirect URI policy refuses.
+    if (url.pathname === '/register' && request.method === 'POST') {
+      const submitted = request.clone()
+      const response = await oauthProvider.fetch(request, env, ctx)
+      if (response.status === 400) {
+        ctx.waitUntil(logRefusedRegistration(submitted, response.clone()))
+      }
+      return response
+    }
+
+    return oauthProvider.fetch(request, env, ctx)
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext
+  ): Promise<void> {
+    // Every six hours (`0 */6 * * *`), the skills sync from cloudflare/skills.
+    // The spec ships with the deploy, in the forge tools service.
+    await syncSkills(env.SPEC_BUCKET)
+  }
+}

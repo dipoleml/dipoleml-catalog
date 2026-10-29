@@ -1,0 +1,37 @@
+{
+  "name": "Prisma",
+  "description": "Type-safe database client with schema migrations (Postgres, MySQL, SQLite, MongoDB).",
+  "phase": "add-on",
+  "type": "add-on",
+  "category": "orm",
+  "exclusive": ["orm"],
+  "color": "#2D3748",
+  "priority": 120,
+  "partner": { "id": "prisma", "tier": "bronze" },
+  "link": "https://www.prisma.io/",
+  "modes": ["file-router"],
+
+  "postInitSpecialSteps": ["post-init-script"],
+  "options": {
+    "database": {
+      "type": "select",
+      "label": "Database Provider",
+      "description": "Choose your database provider",
+      "default": "postgres",
+      "options": [
+        { "value": "postgres", "label": "Prisma PostgreSQL" },
+        { "value": "sqlite", "label": "SQLite" },
+        { "value": "mysql", "label": "MySQL" }
+      ]
+    }
+  },
+  "routes": [
+    {
+      "icon": "Database",
+      "url": "/demo/prisma",
+      "name": "Prisma",
+      "path": "src/routes/demo/prisma.tsx",
+      "jsName": "DemoPrisma"
+    }
+  ]
+}

@@ -1,0 +1,330 @@
+import json
+
+import traitlets
+
+from retentioneering.exceptions import RetentioneeringError
+from retentioneering.paths import anchors
+from retentioneering.widgets._base import _UNSET, RetentioneeringWidget
+from retentioneering.widgets._utils import max_steps_for_window as _max_steps_for_window
+from retentioneering.widgets._utils import parse_diff as _parse_diff
+from retentioneering.widgets._utils import step_matrix_blocks as _step_matrix_blocks
+
+
+class StepSankeyWidget(RetentioneeringWidget):
+    widget_type = traitlets.Unicode("step_sankey").tag(sync=True)
+
+    # ── recompute triggers ────────────────────────────────────────────────────
+    max_steps = traitlets.Int(10).tag(sync=True)
+    diff = traitlets.Unicode("").tag(sync=True)  # "" | '["col","v1","v2"]'
+    path_col = traitlets.Unicode("").tag(sync=True)
+    path_pattern = traitlets.Unicode("").tag(
+        sync=True
+    )  # "" | "path_start->.*->event->.*->path_end"
+    # "" | JSON anchor spec — mutually exclusive with path_pattern
+    anchor = traitlets.Unicode("").tag(sync=True)
+
+    # ── catalogues ────────────────────────────────────────────────────────────
+    path_cols = traitlets.Unicode("[]").tag(sync=True)
+    segment_levels = traitlets.Unicode("{}").tag(sync=True)
+
+    # ── result (is_loading/error are inherited from RetentioneeringWidget) ─────
+    result = traitlets.Unicode("{}").tag(sync=True)
+
+    # ── display ───────────────────────────────────────────────────────────────
+    widget_id = traitlets.Unicode("").tag(sync=True)
+    height = traitlets.Int(500).tag(sync=True)
+    sidebar_open = traitlets.Bool(True).tag(sync=True)
+    # 0 = use default (3); >0 = show only this many variable columns per anchor
+    step_window = traitlets.Int(3).tag(sync=True)
+
+    # ── persistent state ──────────────────────────────────────────────────────
+    node_positions = traitlets.Unicode("{}").tag(sync=True)
+    # "" | "[min, max]" — event count filter, absolute counts
+    event_count_filter = traitlets.Unicode("").tag(sync=True)
+    # horizontal scroll position, px
+    scroll_x = traitlets.Float(0.0).tag(sync=True)
+
+    _persist_names = (
+        "max_steps",
+        "diff",
+        "path_col",
+        "path_pattern",
+        "anchor",
+        "step_window",
+        "height",
+        "sidebar_open",
+        "node_positions",
+        "event_count_filter",
+        "scroll_x",
+    )
+
+    def __init__(
+        self,
+        eventstream,
+        max_steps=_UNSET,
+        diff=_UNSET,
+        path_col=_UNSET,
+        path_pattern=_UNSET,
+        anchor=_UNSET,
+        height=_UNSET,
+        sidebar_open=_UNSET,
+        step_window=_UNSET,
+        state_file=None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._eventstream = eventstream
+        self._initialized = False
+        self.widget_id = ""
+        self._load_state_file(state_file)
+
+        # Catalogues
+        try:
+            self.segment_levels = json.dumps(eventstream.get_segment_levels())
+        except Exception:
+            self.segment_levels = "{}"
+        self.path_cols = json.dumps(eventstream.schema.path_cols)
+
+        self.max_steps = max_steps if max_steps is not _UNSET else 10
+        _diff_val = diff if diff is not _UNSET else None
+        self.diff = json.dumps(list(_diff_val)) if _diff_val else ""
+        self.path_col = path_col if path_col is not _UNSET else ""
+        self.path_pattern = path_pattern if path_pattern is not _UNSET else ""
+        self.anchor = json.dumps(anchor) if anchor is not _UNSET and anchor else ""
+        self.height = height if height is not _UNSET else 500
+        self.sidebar_open = sidebar_open if sidebar_open is not _UNSET else True
+        self.step_window = step_window if step_window is not _UNSET else 3
+        self.node_positions = "{}"
+
+        self._apply_saved_state(
+            exclude={
+                name
+                for name, arg in (
+                    ("max_steps", max_steps),
+                    ("diff", diff),
+                    ("path_col", path_col),
+                    ("path_pattern", path_pattern),
+                    ("anchor", anchor),
+                    ("step_window", step_window),
+                    ("height", height),
+                    ("sidebar_open", sidebar_open),
+                )
+                if arg is not _UNSET
+            }
+        )
+
+        # A window wider than the computed depth would silently show fewer
+        # steps than asked for; widen the depth instead, before the first
+        # compute, so an argument-supplied window costs no extra pass.
+        self.max_steps = _max_steps_for_window(self.step_window, self.max_steps)
+
+        self._recompute()
+
+        self._initialized = True
+        self.observe(
+            self._on_params_change,
+            names=["max_steps", "diff", "path_col", "path_pattern", "anchor"],
+        )
+        self.observe(self._on_positions_change, names=["node_positions"])
+        self.observe(self._on_step_window_change, names=["step_window"])
+        self._start_state_autosave()
+
+    def _anchor_spec(self):
+        """The `anchor` traitlet as a spec, or None. Carried as JSON since
+        traitlets sync to the browser as plain strings."""
+        if not self.anchor:
+            return None
+        try:
+            return json.loads(self.anchor)
+        except (TypeError, ValueError):
+            return self.anchor
+
+    # ── observers ─────────────────────────────────────────────────────────────
+
+    def _on_params_change(self, change):
+        if not self._initialized:
+            return
+        # The sidebar can only set `path_pattern`, and the two modes are
+        # mutually exclusive — so a pattern typed there replaces an anchor
+        # passed from Python instead of colliding with it. Clearing the
+        # traitlet triggers this observer again, which recomputes.
+        if (
+            change
+            and change.get("name") == "path_pattern"
+            and change.get("new")
+            and self.anchor
+        ):
+            self.anchor = ""
+            return
+        self._recompute()
+
+    def _on_step_window_change(self, _change):
+        """A window widened from the sidebar past the computed depth deepens
+        the data to match; the extra columns don't exist otherwise. Setting
+        `max_steps` is itself observed, which is what triggers the recompute."""
+        if not self._initialized:
+            return
+        self.max_steps = _max_steps_for_window(self.step_window, self.max_steps)
+
+    def _on_positions_change(self, _change):
+        if not self._initialized:
+            return
+
+    # ── dispatch ──────────────────────────────────────────────────────────────
+
+    def _tool_step_sankey_data(self, params: dict):
+        return self._compute_raw(
+            max_steps=params.get("max_steps", self.max_steps),
+            path_col=params.get("path_col") or self.path_col or None,
+            diff=_parse_diff(params.get("diff")),
+            path_pattern=params.get("path_pattern") or self.path_pattern or None,
+            anchor=params.get("anchor") or self._anchor_spec(),
+        )
+
+    #: See RetentioneeringWidget.compute_tools.
+    compute_tools = {"step_sankey_data": _tool_step_sankey_data}
+
+    # ── computations ──────────────────────────────────────────────────────────
+
+    def _recompute(self):
+        self.is_loading = True
+        self.error = ""
+        try:
+            result = self._compute_raw(
+                max_steps=self.max_steps,
+                path_col=self.path_col or None,
+                diff=_parse_diff(self.diff),
+                path_pattern=self.path_pattern or None,
+                anchor=self._anchor_spec(),
+            )
+            self.result = json.dumps(result)
+        except RetentioneeringError:
+            raise
+        except Exception as exc:
+            self.error = str(exc)
+            self.result = "{}"
+        finally:
+            self.is_loading = False
+
+    def _compute_raw(
+        self, max_steps: int, path_col=None, diff=None, path_pattern=None, anchor=None
+    ) -> dict:
+        raw = self._eventstream.step_sankey_data(
+            max_steps=max_steps,
+            diff=diff,
+            path_col=path_col,
+            path_pattern=path_pattern,
+            anchor=anchor,
+        )
+        raw = _step_matrix_blocks(raw, diff, path_pattern or anchor)
+
+        if diff is not None:
+            diff_sms, sms1, sms2 = raw
+            matrices = [_df_to_matrix(sm) for sm in diff_sms]
+            group1_mats = [_df_to_matrix(sm) for sm in sms1]
+            group2_mats = [_df_to_matrix(sm) for sm in sms2]
+            for i, m in enumerate(matrices):
+                m["group1"] = group1_mats[i]
+                m["group2"] = group2_mats[i]
+        else:
+            matrices = [_df_to_matrix(sm) for sm in raw]
+            for m in matrices:
+                m["group1"] = None
+                m["group2"] = None
+
+        try:
+            from retentioneering import engine
+
+            path_col = path_col or self._eventstream.schema.path_col
+            event_col = self._eventstream.schema.event_col
+            df = self._eventstream._df
+            path_col_q = engine.quote_ident(path_col)
+            event_col_q = engine.quote_ident(event_col)
+
+            counts = (
+                engine.run(
+                    f"SELECT {event_col_q}, COUNT(DISTINCT {path_col_q}) AS cnt "
+                    f"FROM df GROUP BY {event_col_q}",
+                    df=df,
+                )
+                .set_index(event_col)["cnt"]
+                .to_dict()
+            )
+            event_counts = {str(k): int(v) for k, v in counts.items()}
+            total_paths = int(
+                engine.run(f"SELECT COUNT(DISTINCT {path_col_q}) FROM df", df=df).iat[
+                    0, 0
+                ]
+            )
+            for synthetic in ("path_start", "path_end"):
+                if synthetic not in event_counts:
+                    event_counts[synthetic] = total_paths
+        except Exception:
+            event_counts = {}
+
+        return {
+            "matrices": matrices,
+            "event_counts": event_counts,
+            "anchor_event": _anchor_event(None if path_pattern else anchor),
+            # The pattern the blocks were computed from: groups unrolled, so
+            # the JS layout splits it into the same blocks Python produced.
+            "layout_pattern": (
+                anchors.normalize_pattern(path_pattern, warn=False)
+                if path_pattern
+                else None
+            ),
+        }
+
+    # ── HTML export (export_html/render_static: see RetentioneeringWidget) ────
+
+    _export_label = "Step Sankey"
+
+    def _export_data(self, sidebar_open: bool | None = None) -> dict:
+        return {
+            "widget_type": "step_sankey",
+            "result": json.loads(self.result or "{}"),
+            "max_steps": self.max_steps,
+            "diff": json.loads(self.diff) if self.diff else None,
+            "path_col": self.path_col or "",
+            "path_pattern": self.path_pattern or "",
+            "anchor": self.anchor or "",
+            "path_cols": json.loads(self.path_cols or "[]"),
+            "segment_levels": json.loads(self.segment_levels or "{}"),
+            "step_window": self.step_window,
+            "node_positions": json.loads(self.node_positions or "{}"),
+            "event_count_filter": json.loads(self.event_count_filter)
+            if self.event_count_filter
+            else None,
+            "scroll_x": self.scroll_x,
+            "height": self.height,
+            "sidebar_open": sidebar_open
+            if sidebar_open is not None
+            else self.sidebar_open,
+        }
+
+
+def _anchor_event(anchor):
+    """The event every path sits on at step 0 when the widget is in anchor mode.
+
+    The frontend lays a Step Sankey out from pattern tokens and has no other
+    way to know what an anchor spec centres on, so it is resolved here with the
+    same token logic the computation uses. ``None`` outside anchor mode; ``""``
+    when an offset moves step 0 off the matched event, so no one event sits
+    there.
+    """
+    if anchor is None:
+        return None
+    from retentioneering.paths import anchors
+
+    spec = anchors.parse_spec(anchor, param="anchor")
+    if spec.offset:
+        return ""
+    return anchors.literal_tokens(spec.pattern)[spec.ordinal()]
+
+
+def _df_to_matrix(df) -> dict:
+    return {
+        "events": df.index.tolist(),
+        "values": df.values.tolist(),
+        "columns": [int(c) for c in df.columns.tolist()],
+    }

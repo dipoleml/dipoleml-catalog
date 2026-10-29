@@ -1,0 +1,43 @@
+{
+  "name": "ida-mcp",
+  "version": "20261028.0.3",
+  "description": "Official Hex-Rays IDA MCP Server.",
+  "mcpServers": {
+    "ida": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--no-dev",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "ida-mcp",
+        "stdio",
+        "--agent=claude"
+      ],
+      "env": {
+        "IDA_MCP_ID": "${IDA_MCP_ID:-}",
+        "IDA_MCP_IDLE_TIMEOUT": "${IDA_MCP_IDLE_TIMEOUT:-}",
+        "IDAUSR": "${IDAUSR:-}",
+        "IDAPYTHON_VENV_EXECUTABLE": "${IDAPYTHON_VENV_EXECUTABLE:-}",
+        "IDA_NEXUS_IDALIB_ONLY": "${IDA_NEXUS_IDALIB_ONLY:-}",
+        "IDA_NEXUS_STATE_DIR": "${IDA_NEXUS_STATE_DIR:-}",
+        "IDA_MCP_STATE_DIR": "${IDA_MCP_STATE_DIR:-}",
+        "IDAPYTHON_VENV_EXECUTABLE": "${IDAPYTHON_VENV_EXECUTABLE:-}",
+        "IDA_NEXUS_IDALIB_ONLY": "${IDA_NEXUS_IDALIB_ONLY:-}"
+      }
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__(.*[_:])?ida__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-dev --project ${CLAUDE_PLUGIN_ROOT} ida-mcp hook claude"
+          }
+        ]
+      }
+    ]
+  }
+}

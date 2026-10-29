@@ -1,0 +1,326 @@
+---
+summary: 'How mcporter discovers, merges, and mutates configuration files (project + home + imports), including OAuth and persistence.'
+read_when:
+  - 'Working on config resolution, imports, or mcporter config subcommands'
+---
+
+# Configuration Guide
+
+## Overview
+
+mcporter keeps three configuration buckets in sync: repository-scoped JSON (`config/mcporter.json`), imported editor configs (Cursor, Claude, Codex, Windsurf, OpenCode, VS Code), and ad-hoc definitions supplied on the CLI. This guide explains how those sources merge, how to mutate them with `mcporter config ...`, and the safety rails around OAuth, env interpolation, and persistence.
+
+## Quick Start
+
+1. Create `config/mcporter.json` at the repo root:
+   ```jsonc
+   {
+     "$schema": "https://raw.githubusercontent.com/openclaw/mcporter/main/mcporter.schema.json",
+     "mcpServers": {
+       "linear": {
+         "description": "Linear issues",
+         "baseUrl": "https://mcp.linear.app/mcp",
+         "headers": { "Authorization": "Bearer ${LINEAR_API_KEY}" },
+       },
+     },
+     "imports": ["cursor", "claude-code", "claude-desktop", "codex", "windsurf", "opencode", "vscode"],
+   }
+   ```
+   The `$schema` property enables IDE autocomplete and validation. Use the raw GitHub URL for the latest schema, or copy `mcporter.schema.json` locally.
+2. Run `mcporter list linear` (or `mcporter config list linear`) to make sure the runtime can reach it.
+3. Use `mcporter config add shadcn https://www.shadcn.io/api/mcp` to persist another server without editing JSON.
+4. Authenticate any OAuth-backed server with either `mcporter auth <name>` or `mcporter config login <name>`; tokens land in the shared vault (`~/.mcporter/credentials.json`, or `$XDG_DATA_HOME/mcporter/credentials.json` when set) unless you override `tokenCacheDir`.
+
+## Config Resolution Order
+
+mcporter now merges home and project config files by default so global servers stay available inside repos. The order depends on how you invoke the CLI:
+
+1. If you pass `--config <file>` (or set `--config` programmatically), only that file is used—no merging. Quoted home-relative paths such as `--config '~/.mcporter/mcporter.json'` expand consistently for reads and writes.
+2. If `MCPORTER_CONFIG` is set, only that file is used—no merging.
+3. Otherwise, mcporter loads both of these layers (when present):
+   - `$XDG_CONFIG_HOME/mcporter/mcporter.json[c]` when `XDG_CONFIG_HOME` is set, falling back to `~/.mcporter/mcporter.json[c]` when no XDG mcporter config exists
+   - `<root>/config/mcporter.json`
+     Entries from the project file override entries with the same name from the home file. Each layer still pulls in its own imports before merging.
+
+All `mcporter config …` mutations still write back to a single file: the explicit path when provided; otherwise the project config path (`<root>/config/mcporter.json`). To edit the home file explicitly, run commands like `mcporter config --config ~/.mcporter/mcporter.json add <name> …` or set `MCPORTER_CONFIG` in your shell profile.
+
+mcporter honors XDG Base Directory env vars for its own paths when they are explicitly set to absolute paths:
+
+| Kind   | Env var           | mcporter path                                   | Legacy fallback      |
+| ------ | ----------------- | ----------------------------------------------- | -------------------- |
+| config | `XDG_CONFIG_HOME` | `$XDG_CONFIG_HOME/mcporter/mcporter.json[c]`    | `~/.mcporter/...`    |
+| data   | `XDG_DATA_HOME`   | `$XDG_DATA_HOME/mcporter/credentials.json`      | `~/.mcporter/...`    | — see [Vault Encryption](#vault-encryption) |
+| cache  | `XDG_CACHE_HOME`  | `$XDG_CACHE_HOME/mcporter/<server>/schema.json` | `~/.mcporter/...`    |
+| state  | `XDG_STATE_HOME`  | `$XDG_STATE_HOME/mcporter/...`                  | `~/.mcporter/daemon` |
+
+Unset, empty, or relative XDG vars fall back to `~/.mcporter` for backwards compatibility. For config files only, an absolute `XDG_CONFIG_HOME` is XDG-first but still probes `~/.mcporter/mcporter.json[c]` when no XDG mcporter config exists, so embedders that sandbox unrelated tools with `XDG_CONFIG_HOME` do not accidentally hide the user's registry. Explicit overrides still win: `--config`/`MCPORTER_CONFIG` for config files, `tokenCacheDir` for per-server OAuth/schema cache directories, and `MCPORTER_DAEMON_DIR` for explicit isolated daemon namespaces. The production singleton daemon uses the OS account home independently of HOME/XDG; see [daemon isolation and migration](daemon.md).
+
+## Discovery & Precedence
+
+mcporter builds a merged view of all known servers before executing any command. The sources load in this order:
+
+| Priority | Source                                                           | Notes                                                                                                                                                                                                                                                     |
+| -------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | Explicit `--http-url`, `--stdio`, or bare URL passed to commands | Highest priority, never cached unless `--persist` is supplied. Requires `--allow-http` for plain HTTP URLs.                                                                                                                                               |
+| 2        | `config/mcporter.json` (or the file passed via `--config`)       | Default path is `<root>/config/mcporter.json`; missing file returns an empty config so commands continue to work.                                                                                                                                         |
+| 3        | Imports listed in `"imports"`                                    | When you omit `imports`, mcporter loads `['cursor','claude-code','claude-desktop','codex','windsurf','opencode','vscode']`. When you specify a non-empty array, mcporter appends any omitted defaults after your list so shared presets remain available. |
+
+Rules:
+
+- Later sources never override earlier ones. Local config always wins over imports; ad-hoc descriptors override both for the duration of a command.
+- Each merged server tracks its origin (local path vs. import path), so `mcporter config get <name>` can show you the path before you edit or remove the local copy with `mcporter config remove <name>`.
+- Imports remain read-only until you explicitly copy an entry via `mcporter config import <kind> --copy` or run `mcporter config add --copy-from claude-code:linear`.
+
+## CLI Workflows
+
+`mcporter config` is the entry point for reading and writing configuration files. Use the existing ad-hoc flags on `mcporter list|call|auth` when you want ephemeral definitions; once you’re ready to persist them, switch back to `mcporter config add`.
+
+Use `--scope home|project` with `mcporter config add` to pick the write target explicitly. `project` is always the default (creating `config/mcporter.json` if needed); `home` writes to the XDG config path when `XDG_CONFIG_HOME` is set, otherwise `~/.mcporter/mcporter.json`, even when a project config is present. `--persist <path>` still takes precedence when you need a custom file.
+
+`config add`, `config remove`, and `config import --copy` preserve supported unrelated top-level settings, including `daemonIdleTimeoutMs` and `daemon_idle_timeout_ms` as written, along with the `imports` list and unaffected server entries. Adding an existing server name or copying an import with a colliding name replaces the whole server entry rather than patching individual fields; omitted fields from the old entry are not retained.
+
+### `mcporter config list [filter]`
+
+- Shows **local** entries by default. Pass `--source import` to list imported editor configs, or `--json` for machine output.
+- Always appends a summary of other config files (paths, counts, sample names) so you know where imported entries live.
+- `filter` accepts a name substring, a glob fragment (`*` matches any sequence; `?` matches one character), or a `source:cursor` selector used with `--source import`. Other characters, including dots, match literally.
+- Adds informational notes when we auto-correct names (same machinery as `mcporter list`).
+
+### `mcporter config get <name>`
+
+- Prints the resolved definition for a single server, including the on-disk path, inherited headers/env, and transport details.
+- Near-miss names are auto-corrected with the same heuristics as `mcporter list`/`call`, and you’ll see suggestions whenever ambiguity remains.
+- Supports ad-hoc descriptors so you can inspect a URL before persisting it.
+
+### `mcporter config add <name> [target]`
+
+- Persists a server into the writable config file. Accepts both positional shortcuts (`mcporter config add sentry https://mcp.sentry.dev/mcp`) and flag-driven definitions:
+  - `--transport http|sse|stdio`
+  - `--url` or `--command`/`--stdio`
+  - `--env`, `--header`, `--token-cache-dir`, `--description`, `--client-name`, `--oauth-redirect-url`
+  - `--oauth-client-id`, `--oauth-client-secret-env`, `--oauth-token-endpoint-auth-method` for pre-registered OAuth clients.
+  - `--oauth-requested-scope "scope1 scope2"` to choose the exact scopes requested during OAuth authorization.
+  - `--copy-from importKind:name` to clone settings from an imported entry before editing.
+- `--dry-run` shows the JSON diff without writing, while `--persist <path>` overrides the destination file.
+
+### `mcporter config remove <name>`
+
+- Removes the local definition. Names sourced exclusively from imports remain untouched until you copy them locally.
+
+### `mcporter config import <kind>`
+
+- Displays (and optionally copies) entries from editor-specific configs:
+  - `cursor`: `.cursor/mcp.json` in the repo, falling back to `~/.config/Cursor/User/mcp.json` (or `%APPDATA%/Cursor/User` on Windows).
+  - `claude-code`: `<root>/.claude/settings.local.json`, `<root>/.claude/settings.json`, `<root>/.claude/mcp.json`, then `~/.claude/settings.json`, `~/.claude/mcp.json`, `~/.claude.json`. `settings.local.json` is meant for untracked per-developer overrides, while `settings.json` is the shared project config.
+  - `claude-desktop`: platform-specific `Claude/claude_desktop_config.json` paths.
+  - `codex`: `<root>/.codex/config.toml`, then `~/.codex/config.toml`.
+  - `windsurf`: Codeium’s Windsurf config under `%APPDATA%/Codeium/windsurf/mcp_config.json` or `~/.codeium/windsurf/mcp_config.json`.
+  - `opencode`: Honors `OPENCODE_CONFIG` when set, then `<root>/opencode.json(c)`, `OPENCODE_CONFIG_DIR/opencode.json(c)`, and finally `${XDG_CONFIG_HOME:-~/.config}/opencode/opencode.json(c)` (or `%APPDATA%/opencode/opencode.json(c)` on Windows). Both `.json` and `.jsonc` extensions are supported.
+  - `vscode`: `Code/User/mcp.json` (stable + Insiders) inside the OS-appropriate config directory.
+- `--copy` writes selected entries into your local config; `--filter <substring>` narrows the import list; `--path <file>` lets you point at bespoke locations. Both valued flags reject missing or empty values before reading or copying entries.
+
+### `mcporter config login <name|url>` / `logout`
+
+- Mirrors `mcporter auth`. `login` completes OAuth (or token provisioning) for either a named server or an ad-hoc URL. When a hosted MCP returns 401/403, mcporter automatically promotes that target to OAuth and re-runs the flow, matching the behavior documented in `docs/adhoc.md`.
+- Once an OAuth provider supplies a token, that token takes precedence over a configured `Authorization` header on HTTP and SSE requests. A later 401 refreshes against the OAuth token actually sent; the configured header remains available when the provider has no token.
+- Silent refresh reuses the protected-resource metadata URL learned during authorization, including URLs advertised only through `WWW-Authenticate`. Saved discovery and credential issuers must agree before refresh; divergent saved state is retained for diagnosis and requires reauthorization.
+- `--no-browser` suppresses automatic browser launch and prints the authorization URL to stdout so it can be copied from a headless host. `--browser none` is accepted as a compatibility alias, and `MCPORTER_OAUTH_NO_BROWSER=1` / `true` / `yes` enables the same behavior by environment.
+- In `--json --no-browser` mode, stdout contains a JSON object with `authorizationUrl` and `redirectUrl`; diagnostics stay off stdout so scripts can parse the result. Treat emitted authorization URLs as sensitive operational output.
+- A configured server name is an OAuth trust boundary. Changing its URL clears cached tokens, dynamic client registration, PKCE verifier, and callback state from the shared vault and any `tokenCacheDir`; changing the URL back does not restore the old credentials, so re-authentication is required.
+- Fresh dynamic client registrations may normalize an HTTP loopback callback's port. mcporter also accepts Fastmail's portless `localhost` representation of a requested `127.0.0.1` callback, while retaining the actual listener URI for authorization and token exchange. Other host, scheme, path, query, and fragment changes are not treated as equivalent. Cached registrations still undergo stale-callback checks when interactive authorization is needed; silent refresh keeps its existing client.
+- `logout` removes the shared vault entry, legacy `~/.mcporter/<name>/` credential files, and recognized files in `tokenCacheDir` when present (`tokens.json`, client registration, PKCE/state). The cache directory and unrelated files stay.
+
+### `mcporter config doctor`
+
+- Prints the selected `--config` / `MCPORTER_CONFIG` override when present alongside default config locations, validates loaded definitions, and reports non-absolute stdio working directories. It does not modify configuration or credentials.
+
+## Ad-hoc & Persistence
+
+- `--http-url` and `--stdio` flags live on `mcporter list|call|auth`, keeping `mcporter config` focused on persistent config files. Ad-hoc HTTP targets also accept repeatable `--header KEY=value` flags for private endpoints.
+- Names default to slugified hostnames or executable/script combos. Supply `--name` to improve reuse; mcporter uses that slug for OAuth caches even before persistence.
+- `--allow-http` is mandatory for cleartext endpoints so we never downgrade transport silently.
+- Add `--persist <path>` (defaulting to `config/mcporter.json` when omitted) to copy the ad-hoc definition into config. We reuse the same serializer as the import pipeline, so copying from Cursor → local config produces identical structure and preserves custom env/header fields.
+- When an ad-hoc HTTP server returns an OAuth challenge during `list`, `call`, or `auth`, the persisted entry is rewritten with `auth: "oauth"` so later commands use the cached OAuth path instead of retrying unauthenticated HTTP.
+- `--env KEY=VAL` entries merge with existing `env` dictionaries if you later persist the same server; nothing is lost when you alternate between CLI flags and JSON edits.
+- `--header KEY=VAL` entries merge into the persisted HTTP `headers` object when used with `--persist`; values support the same `$env:VAR`, `${VAR}`, and `${VAR:-fallback}` placeholders as config-file headers.
+
+## Requested OAuth Scopes
+
+Use `oauthRequestedScope` (or `oauth_requested_scope`) on a server to request an exact, non-empty, space-separated scope string during authorization. This is useful for a read-only OAuth app when discovery advertises a provider's entire scope catalog:
+
+```sh
+mcporter config add slack-labs https://mcp.slack.com/mcp --auth oauth \
+  --oauth-client-id YOUR_APP_ID \
+  --oauth-requested-scope "search:read.public channels:history channels:read users:read"
+mcporter config login slack-labs --no-browser
+```
+
+The setting persists per server and applies to every authorization URL, including later reauthorization and server scope challenges. It takes precedence over advertised scopes, `oauthScope`, and SDK-added `offline_access`; include `offline_access` yourself if your provider requires it for refresh tokens. A provider that requires other scopes can still reject the grant or a tool call; mcporter will not broaden the configured consent request automatically.
+
+This controls authorization consent, not the provider's client-registration metadata or scopes already granted to cached tokens. After changing it, use `mcporter auth slack-labs --reset` to obtain a new grant; revoke old grants at the provider when needed. With the setting omitted, scope selection is unchanged. The existing `oauthScope` remains a client-metadata fallback for providers without usable discovery scope metadata.
+
+## HTTP Compatibility
+
+HTTP MCP servers normally use Node's built-in `fetch` for request/response traffic. MCPorter's optional long-lived SSE receive channel uses a separate HTTP/1.1 connection so an idle stream cannot occupy the request pool and stall later tool calls. Set `httpFetch: "default"` to opt out of that isolation and use the built-in fetch for every request.
+
+If a provider rejects the built-in stack entirely but accepts plain Node `https.request` traffic, set `httpFetch: "node-http1"` on the server entry to force an HTTP/1.1 fetch implementation for all Streamable HTTP and SSE requests:
+
+```jsonc
+{
+  "mcpServers": {
+    "sunsama": {
+      "baseUrl": "https://api.sunsama.com/mcp",
+      "headers": { "Authorization": "Bearer ${SUNSAMA_TOKEN}" },
+      "httpFetch": "node-http1",
+    },
+  },
+}
+```
+
+The Sunsama endpoint is auto-detected and uses the all-request compatibility path by default.
+
+The HTTP/1.1 path honors cancellation both while preparing a request body and while receiving a response. A request cancelled before its connection starts is not sent; cancelling an active SSE response closes its connection.
+
+It decodes gzip, deflate, and Brotli response streams, including layered encodings, while preserving response headers. HTTP 301/302 redirects preserve non-POST methods such as session-termination DELETE; 303 redirects use GET except for HEAD.
+
+Transport and SDK-managed OAuth requests use the SDK's same-origin redirect policy. Redirects that change the request method or leave the allowed origin fail with endpoint guidance. Same-origin 301/302 session-termination redirects preserve DELETE and remain supported.
+
+## JSON Schema for IDE Support
+
+mcporter provides a JSON Schema for config file validation and autocompletion. Add the `$schema` property to your config file:
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/openclaw/mcporter/main/mcporter.schema.json",
+  "mcpServers": { ... }
+}
+```
+
+For local development, you can reference the schema from the repo root:
+
+```jsonc
+{
+  "$schema": "../mcporter.schema.json",
+  "mcpServers": { ... }
+}
+```
+
+The schema is auto-generated from the Zod validation schemas using `pnpm generate:schema`.
+
+## Schema Reference
+
+Top-level structure:
+
+| Key                    | Type     | Description                                                                                                                  |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `mcpServers`           | object   | Map of server names → definitions. Required even if empty.                                                                   |
+| `imports`              | string[] | Optional list of import kinds. Empty array disables imports entirely; omitting the key falls back to the default list.       |
+| `oauthVaultEncryption` | string   | `"optional"` (default) or `"required"`; see [Vault Encryption](#vault-encryption). `MCPORTER_VAULT_ENCRYPTION` overrides it. |
+
+Server definition fields (subset of what `RawEntrySchema` accepts):
+
+| Field                                           | Description                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `description`                                   | Free-form summary printed by `mcporter list`/`config list`.                                                                                                                                                                                                                                                                                                   |
+| `baseUrl` / `url` / `serverUrl`                 | HTTPS or HTTP endpoint. `http://` requires `--allow-http` in ad-hoc mode but works in config if you explicitly set it.                                                                                                                                                                                                                                        |
+| `command` / `args`                              | Stdio executable definition (string or array). Arrays are preferred because they avoid shell quoting issues.                                                                                                                                                                                                                                                  |
+| `cwd`                                           | Working directory for stdio servers. A leading `~` is expanded to `$HOME`; relative paths resolve against the config file directory. Defaults to the config file directory when omitted.                                                                                                                                                                      |
+| `env`                                           | Key/value pairs applied when launching stdio commands. Supports `${VAR}` interpolation and `${VAR:-fallback}` defaults. Existing process env values win over fallbacks.                                                                                                                                                                                       |
+| `headers`                                       | Request headers for HTTP/SSE transports. Values can reference `$env:VAR` or `${VAR}` placeholders, which must be set at runtime or mcporter aborts with a helpful error.                                                                                                                                                                                      |
+| `auth`                                          | Recognizes `oauth` and `refreshable_bearer`. `oauth` runs the browser/client OAuth flow for HTTP transports; `refreshable_bearer` refreshes cached bearer tokens non-interactively before connecting.                                                                                                                                                         |
+| `tokenCacheDir`                                 | Directory for OAuth tokens and schema caches; still honored, but mcporter now keeps a centralized vault in `~/.mcporter/credentials.json` or `$XDG_DATA_HOME/mcporter/credentials.json` when set (legacy per-server caches are auto-migrated). Supports `~` expansion.                                                                                        |
+| `clientName`                                    | Optional identifier some servers use for telemetry/audience segmentation.                                                                                                                                                                                                                                                                                     |
+| `protocolVersion` / `protocol_version`          | Protocol negotiation override: `auto` (the default), `legacy` for 2025-era protocol negotiation, or `2026-07-28` to require that modern revision.                                                                                                                                                                                                             |
+| `chromeDevtoolsRelay` / `chrome_devtools_relay` | OpenClaw Chrome extension relay policy for eligible `chrome-devtools-mcp --autoConnect` stdio definitions: `prefer` (default), `require`, or `off`. Inherited process controls cannot override shared Chrome's canonical policy; configure intended controls on the canonical server definition. See the [daemon guide](daemon.md#existing-chrome-ownership). |
+| `oauthClientId`                                 | Pre-registered OAuth client id for providers that do not support dynamic client registration.                                                                                                                                                                                                                                                                 |
+| `oauthClientSecretEnv`                          | Environment variable containing the OAuth client secret. Prefer this over committing `oauthClientSecret` directly.                                                                                                                                                                                                                                            |
+| `oauthTokenEndpointAuthMethod`                  | Optional token endpoint auth method override, for example `client_secret_post` when the provider requires client credentials in the token request body.                                                                                                                                                                                                       |
+| `oauthRedirectUrl`                              | Override the default localhost callback. Required for many pre-registered OAuth apps because the provider must allowlist the exact redirect URI. Also useful when tunneling OAuth through Codespaces or remote dev boxes.                                                                                                                                     |
+| `oauthClientMetadataUrl`                        | Optional HTTPS Client ID Metadata Document URL. When the authorization server supports URL-based client identity, the SDK uses this URL as the client id; otherwise it falls back to dynamic client registration.                                                                                                                                             |
+| `oauthScope`                                    | Optional explicit OAuth scope string. If omitted, mcporter lets the MCP SDK derive scope from server/auth metadata. Use this as an escape hatch for providers that require explicit scopes but don’t publish `scopes_supported`.                                                                                                                              |
+| `oauthRequestedScope`                           | Exact, non-empty, space-separated scope string for authorization consent; overrides discovery, scope challenges, and automatic `offline_access`. Omit to retain default negotiation. CLI: `config add --oauth-requested-scope "scope1 scope2"`.                                                                                                               |
+| `oauthCommand.args`                             | For STDIO servers that ship a custom auth subcommand (e.g., Gmail MCP). mcporter will spawn the stdio command with these args when you run `mcporter auth <name>`, so you don’t need to call `npx ... auth` manually.                                                                                                                                         |
+| `refresh`                                       | Explicit token refresh settings for `auth: "refreshable_bearer"`. Supports `tokenEndpoint`, `clientIdEnv`, `clientSecretEnv`, `clientAuthMethod`, `refreshSkewSeconds`, and `accessTokenEnv` (plus snake_case aliases).                                                                                                                                       |
+| `allowedTools` / `allowed_tools`                | Optional exact-name allowlist. Only listed tools appear in `mcporter list` and can be called. An empty array blocks all tools. Cannot be combined with `blockedTools`.                                                                                                                                                                                        |
+| `blockedTools` / `blocked_tools`                | Optional exact-name blocklist. Listed tools are hidden from `mcporter list` and rejected by `mcporter call`. Cannot be combined with `allowedTools`.                                                                                                                                                                                                          |
+
+mcporter normalizes headers to include `Accept: application/json, text/event-stream` automatically, matching the runtime’s streaming expectations.
+String-valued config fields support `${VAR}` and `${VAR:-fallback}` placeholders. Secret-bearing `headers`, `env`, and bearer-token placeholders are preserved in `config get`/`config list` output and resolved only when the transport runs; `*Env` fields name environment variables and are not expanded.
+
+Generic keep-alive servers honor `lifecycle.idleTimeoutMs` after queued and active calls finish. Different idle policies use separate transports; existing-Chrome owners remain retained, and an unknown-outcome timeout blocks automatic retirement. Plain `chrome-devtools-mcp` launches without auto-connect, connection or browser-selection flags, or ambiguous wrappers follow the generic lifecycle and require no canonical Chrome owner configuration. Connection selectors and ambiguous wrappers remain refused even without a reserved owner. Top-level `daemonIdleTimeoutMs` (or `daemon_idle_timeout_ms`) controls host shutdown only from the selected canonical OS-user config, and only without active calls, a Chrome owner, unknown outcomes or failed retirement. Project settings cannot stop the shared host. See [daemon lifecycle](daemon.md).
+
+### Refreshable Bearer Tokens
+
+Use `auth: "refreshable_bearer"` when you already seeded OAuth tokens with `mcporter vault set <server>` or `tokenCacheDir`, and the server should receive only a fresh bearer token at runtime. HTTP servers get `Authorization: Bearer <token>` when no authorization header is already configured. STDIO servers require `refresh.accessTokenEnv`; mcporter refreshes before spawning the process and injects that env var with the raw access token.
+
+```json
+{
+  "mcpServers": {
+    "example": {
+      "command": "uvx",
+      "args": ["example-mcp-server"],
+      "auth": "refreshable_bearer",
+      "refresh": {
+        "tokenEndpoint": "https://api.example.com/oauth/token",
+        "clientIdEnv": "EXAMPLE_CLIENT_ID",
+        "clientSecretEnv": "EXAMPLE_CLIENT_SECRET",
+        "clientAuthMethod": "client_secret_basic",
+        "refreshSkewSeconds": 300,
+        "accessTokenEnv": "EXAMPLE_ACCESS_TOKEN"
+      }
+    }
+  }
+}
+```
+
+For keep-alive stdio servers, refresh happens before process start. If that process cannot read updated credentials after startup, use `lifecycle: "ephemeral"` or restart the daemon before the injected token expires.
+
+## Imports & Conflict Resolution
+
+- `pathsForImport(kind, rootDir)` determines every candidate path. mcporter searches the repo first, then user-level directories, and stops at the first file that parses.
+- Entries pulled from imports are treated as read-only snapshots. The merge process keeps the first definition for each name; later sources with the same name are skipped until you override locally.
+- To copy an imported entry, either run `mcporter config import <kind> --copy --filter name` or use `mcporter config add name --copy-from kind:name`. The copy operation writes through the same JSON normalization stack, so the resulting file matches our schema even if the source format was TOML (Codex) or legacy JSON shapes (`servers` vs `mcpServers`).
+
+## Project vs. Machine Layers
+
+- Keep `config/mcporter.json` under version control. Encourage contributors to add sensitive data via env vars (`${LINEAR_API_KEY}`) rather than inline secrets.
+- For pre-registered OAuth apps, store the public `oauthClientId` in config and point `oauthClientSecretEnv` at a local environment variable. `oauthClientSecret` is supported for private machine-local configs but should not be committed.
+- For headless deployments that already have OAuth credentials, run `mcporter vault set <server> --tokens-file <path>` or `mcporter vault set <server> --stdin` with a JSON payload shaped like `{ "tokens": { ... }, "clientInfo": { ... } }`. This lets mcporter compute the vault key from the resolved server definition instead of duplicating that internal format in scripts.
+- `vault set` normalizes token expiry the same way a live OAuth exchange does, and the payload decides which reading applies:
+  - `expires_at` (or `expiresAt`), a Unix timestamp in seconds, is stored verbatim. Supply it whenever the credentials were issued before this import — a token response saved to disk an hour ago, replayed from a secret manager, or copied between machines.
+  - `expires_in` alone is interpreted as **lifetime remaining at import time**, because the payload carries no issuance timestamp. Importing a stale response under this reading marks an already-dead token as live, and `refreshable_bearer` will hand it to the server rather than refreshing first.
+
+  Scripts that seed credentials straight out of a token endpoint can keep sending `expires_in`. Anything that stores a token response and replays it later should convert once at capture time — `expires_at = <issued_at> + expires_in` — and send that instead.
+
+- Machine-specific additions can live in `~/.mcporter/local.json` or `$XDG_CONFIG_HOME/mcporter/local.json`; point `mcporter config --config ~/.mcporter/local.json add ...` there when you prefer not to touch the repo. Since the runtime only watches one config at a time, CI jobs should always pass `--config config/mcporter.json` (or run from the repo root) for deterministic behavior.
+- OAuth tokens, cached server metadata, and generated CLIs should remain outside the repo (`~/.mcporter/...` or the matching `XDG_*_HOME/mcporter/...`, plus `dist/`).
+
+## Vault Encryption
+
+> **Before opting in:** upgrade and restart every CLI, daemon, and generated CLI that shares the vault or a `tokenCacheDir`. Older binaries do not enforce encryption: re-authentication can silently put plaintext credentials back on disk. A format marker cannot stop already-released code from doing that. Do not downgrade or mix those versions against an encrypted profile; use the isolated rollback procedure below.
+
+The OAuth vault (`credentials.json`, see the XDG table above) is plaintext JSON by default. Set `MCPORTER_VAULT_PASSWORD` to store each secret value in it (`access_token`, `refresh_token`, `id_token`, `client_secret`, `registration_access_token`, the PKCE verifier and OAuth state) as an RFC 7516 JWE compact string in place: `PBES2-HS512+A256KW`, `A256GCM`, 8192 PBKDF2 iterations. The JSON document retains version 2 and gains an `encryption: { "version": 1 }` marker; server names, URLs, client IDs and timestamps stay readable, and any JOSE library can decrypt a value with the password (`jose` for Node needs `PBES2-HS512+A256KW` in `keyManagementAlgorithms`). The password must be generated, not chosen: with 8192 key-derivation iterations its randomness is the whole protection against an offline guess at a copied file. It must be at least 32 characters; `openssl rand -base64 32` produces a suitable value.
+
+- Existing plaintext values are read as before and encrypted the next time a login is added or renewed (a token refresh, `mcporter auth`, `mcporter vault set`); until then they stay plain. `mcporter config doctor` shows how many values are still plain, in the vault and in each configured `tokenCacheDir`.
+- Once marked, the vault requires the password even after its last entry is cleared. A `tokenCacheDir` records the same choice in `encryption.json`. Supporting versions refuse unknown encryption-marker versions without repairing or overwriting them. Sealed values from unmarked stores are also recognized and refused without the password.
+- There is no password rotation: with a new password the stored values no longer open; run `mcporter vault clear <server>` and log in again. Restart `mcporter daemon` after changing these variables.
+- `oauthVaultEncryption: "required"` in `mcporter.json` (or `MCPORTER_VAULT_ENCRYPTION=required`, which overrides the config key) refuses every vault operation while the password is unset, so a cleared environment cannot write plaintext values. Default `optional`. The config key applies to servers defined in config; ad-hoc servers (`mcporter auth <url>`) follow `MCPORTER_VAULT_ENCRYPTION` only. A CLI generated with `mcporter generate-cli` embeds the policy of the config file or definition it was generated from, and generating under `required` needs the password set, because tool discovery goes through the vault.
+- Tokens saved by older versions under `~/.mcporter/<server>/` are copied into the vault the first time the server is used, as before. With the password set the old plaintext files are removed after the copy; without it they stay.
+- Servers with a `tokenCacheDir` get the same treatment: the secret values in `tokens.json`, `client.json`, `code_verifier.txt` and `state.txt` are encrypted, and the first write with the password set (any write, including the discovery metadata) encrypts every one of those files that is still plain; the other files there are not secrets. Without the password, a directory that holds encrypted values refuses every write and delete and is never modified, as the vault is. The `required` policy refuses the directory too, and a plaintext directory never hides a vault that needs the password.
+- Stdio MCP servers, whether started directly or by the keep-alive daemon, and the OAuth auth helper are started without `MCPORTER_VAULT_PASSWORD` and `MCPORTER_VAULT_ENCRYPTION` in their environment; everything else they inherit is unchanged, and a value set in a server's own `env` still applies.
+
+### Downgrade and rollback
+
+There is no in-place plaintext downgrade or password rotation command. Unsetting the password is not a rollback. The markers protect supporting versions, but old binaries ignore them (and an unknown top-level vault version is treated as corrupt and rewritten by those binaries). Neither the marker nor `required` can impose a policy on code released before this feature.
+
+To run an older version safely, stop the daemon and all consumers of the encrypted profile, preserve that profile and its password, and run the older binary with a **different `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME`**. Use a fresh config in that profile; remove or change every explicit `tokenCacheDir` so it cannot point back into the encrypted profile. Authenticate again there, accepting that the old version stores those new credentials in plaintext. Do not copy encrypted credentials into the old profile. To roll forward, stop the old consumers, restore the original environment and password, and restart the supporting version against the preserved encrypted profile.
+
+If an older consumer has already written plaintext into the encrypted profile, stop it, restore the supporting version and password, and trigger a credential write to seal the whole store again. Run `mcporter config doctor` to check for residue. Sealing cannot undo exposure in backups or copies made during that window; revoke affected credentials at their providers if needed.
+
+## Validation & Troubleshooting
+
+- `mcporter list --http-url ...` refuses to auto-run OAuth to keep listing commands quick; use `mcporter config login ...` or `mcporter auth ...` to finish credential setup.
+- When env placeholders are missing, commands fail fast with the exact variable name. Add the variable or wrap it in `${VAR:-fallback}` to provide defaults.
+- Temporary server environment overrides are removed after connection setup, including when a later override fails validation or resolution. Values inherited from the process keep their existing precedence.
+- Use `mcporter config get <name>` to confirm where a server came from. If a teammate’s Cursor config keeps overriding your local entry, reorder the `imports` array to move Cursor later or set it to `[]` to disable imports entirely.
+- `docs/adhoc.md` covers deeper debugging, including tmux workflows and OAuth promotion logs.

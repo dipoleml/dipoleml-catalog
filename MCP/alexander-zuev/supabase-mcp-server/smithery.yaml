@@ -1,0 +1,47 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+build:
+  dockerBuildPath: .
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - supabaseProjectRef
+      - supabaseDbPassword
+      - supabaseRegion
+      - queryApiKey
+    properties:
+      queryApiKey:
+        type: string
+        description: "(required) - Your Query API key"
+      supabaseProjectRef:
+        type: string
+        description: "(required) - Supabase project reference ID. Defaults to: 127.0.0.1:54322"
+      supabaseDbPassword:
+        type: string
+        description: "(required) - Database password"
+      supabaseRegion:
+        type: string
+        description: "(required) - AWS region where your Supabase project is hosted - Default: us-east-1"
+      supabaseAccessToken:
+        type: string
+        description: "(optional) - Personal access token for Supabase Management API - Default: none"
+      supabaseServiceRoleKey:
+        type: string
+        description: "(optional) - Project Service Role Key for Auth Admin SDK - Default: none"
+  commandFunction:
+    |-
+    (config) => ({
+      command: 'supabase-mcp-server',
+      args: [],
+      env: {
+        QUERY_API_KEY: config.queryApiKey,
+        SUPABASE_PROJECT_REF: config.supabaseProjectRef,
+        SUPABASE_DB_PASSWORD: config.supabaseDbPassword,
+        SUPABASE_REGION: config.supabaseRegion,
+        SUPABASE_ACCESS_TOKEN: config.supabaseAccessToken,
+        SUPABASE_SERVICE_ROLE_KEY: config.supabaseServiceRoleKey
+      }
+    })

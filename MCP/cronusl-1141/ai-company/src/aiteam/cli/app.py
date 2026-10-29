@@ -1,0 +1,63 @@
+"""AI Team OS CLI — main entry point."""
+
+import typer
+from rich.console import Console
+
+from aiteam import __version__
+from aiteam.cli.commands import (
+    account_usage_cmd,
+    agent_cmd,
+    attribution_cmd,
+    external_exec_cmd,
+    init_cmd,
+    paths_cmd,
+    pricing_cmd,
+    status_cmd,
+    task_cmd,
+    team_cmd,
+    up_cmd,
+)
+
+app = typer.Typer(
+    name="aiteam",
+    help="AI Team OS — 通用可复用的AI Agent团队操作系统",
+    no_args_is_help=True,
+)
+console = Console()
+
+
+def version_callback(value: bool) -> None:
+    if value:
+        console.print(f"[bold blue]AI Team OS[/bold blue] v{__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False, "--version", "-v", help="显示版本号", callback=version_callback, is_eager=True
+    ),
+) -> None:
+    """AI Team OS — 通用可复用的AI Agent团队操作系统."""
+
+
+# Register subcommand groups
+app.add_typer(init_cmd.app, name="init", help="初始化项目，生成 aiteam.yaml 配置文件")
+app.add_typer(team_cmd.app, name="team", help="团队管理")
+app.add_typer(agent_cmd.app, name="agent", help="Agent管理")
+app.add_typer(task_cmd.app, name="task", help="任务管理")
+app.add_typer(status_cmd.app, name="status", help="查看团队和任务状态")
+app.add_typer(up_cmd.app, name="up", help="启动API服务器")
+app.add_typer(pricing_cmd.app, name="pricing", help="API 等值价格与重算（非订阅扣款）")
+app.add_typer(account_usage_cmd.app, name="account-usage", help="导出本机脱敏逐请求样本（不推断账号）")
+app.add_typer(external_exec_cmd.app, name="codex-exec", help="记录外部 Codex 执行的最小用量账据与重放")
+app.add_typer(attribution_cmd.app, name="attribution", help="用量归因的历史行修正（默认只预览）")
+app.add_typer(paths_cmd.app, name="paths", help="本会话的 OS 数据目录、Claude Code 配置目录与 Codex home（JSON，只读）")
+# `aiteam hooks` 已退役（2026-07-27，批 8.5）：它往项目级 .claude/settings.local.json
+# 只写 send_event 一个脚本、7 事件旧 matcher，与全局链（install.py → ~/.claude/
+# settings.json，11 事件 17 条）并存时每个事件双发。注册面唯一入口 = 仓库根
+# install.py（批 5 起由 I8 机检钉死 install.py ↔ hooks.json ↔ README 三方锁步）。
+
+
+if __name__ == "__main__":
+    app()

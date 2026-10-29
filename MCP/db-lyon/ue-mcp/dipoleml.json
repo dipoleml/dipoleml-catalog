@@ -1,0 +1,140 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.db-lyon.ue-mcp",
+  "type": "mcp",
+  "name": "Ue MCP",
+  "slug": "ue-mcp",
+  "vendor": "db-lyon",
+  "description": "Complete Unreal Engine development toolkit exposed as MCP tools.",
+  "version": "1.4.11-beta.13",
+  "homepage": "https://github.com/db-lyon/ue-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "blueprint",
+    "game-development",
+    "model-context-protocol",
+    "ue5",
+    "ue5-plugin",
+    "unreal-engine"
+  ],
+  "tags": [
+    "ai",
+    "blueprint",
+    "game-development",
+    "mcp-server",
+    "model-context-protocol",
+    "ue5",
+    "ue5-plugin",
+    "unreal-engine"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "db-lyon",
+    "brandName": "db-lyon",
+    "source": "https://github.com/db-lyon.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:53Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "db-lyon/ue-mcp",
+    "url": "https://github.com/db-lyon/ue-mcp",
+    "commit": "dca7e7cabd7907c0cf5fee5c57ade62634f8374b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 455,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ue-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ue-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ue-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ue-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "ue-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

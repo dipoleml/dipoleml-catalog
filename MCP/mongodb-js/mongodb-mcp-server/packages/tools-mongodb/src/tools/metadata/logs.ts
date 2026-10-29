@@ -1,0 +1,78 @@
+import { connectionScopedArgsShape, MongoDBToolBase, type IMongoDBConfig } from "../../mongodbTool.js";
+import type { ToolArgs, ToolResult } from "@mongodb-js/mcp-core";
+import type { ToolExecutionContext, OperationType } from "@mongodb-js/mcp-types";
+import { formatUntrustedData } from "@mongodb-js/mcp-core";
+import { z } from "zod";
+
+const LogsOutputSchema = {
+    logs: z.array(z.string()),
+    totalLinesWritten: z.number(),
+    shownCount: z.number(),
+};
+
+export type LogsOutput = z.infer<z.ZodObject<typeof LogsOutputSchema>>;
+
+const LogsArgsShapeVariants = connectionScopedArgsShape({
+    type: z
+        .enum(["global", "startupWarnings"])
+        .optional()
+        .default("global")
+        .describe(
+            "The type of logs to return. Global returns all recent log entries, while startupWarnings returns only warnings and errors from when the process started."
+        ),
+    limit: z
+        .number()
+        .int()
+        .max(1024)
+        .min(1)
+        .optional()
+        .default(50)
+        .describe("The maximum number of log entries to return."),
+});
+
+export class LogsTool extends MongoDBToolBase {
+    static toolName = "mongodb-logs";
+    public description = "Returns the most recent logged mongod events";
+    public argsShape(): typeof LogsArgsShapeVariants.preconfigured {
+        return this.selectConnectionScopedArgsShape(LogsArgsShapeVariants);
+    }
+    public override outputSchema(): typeof LogsOutputSchema {
+        return LogsOutputSchema;
+    }
+
+    static operationType: OperationType = "metadata";
+
+    protected async execute(
+        { connectionId, type, limit }: ToolArgs<ReturnType<typeof this.argsShape>>,
+        { request }: ToolExecutionContext<IMongoDBConfig>
+    ): Promise<ToolResult<ReturnType<typeof this.outputSchema>>> {
+        const provider = await this.resolveConnection(connectionId);
+
+        const result = await provider.runCommandWithCheck(
+            "admin",
+            {
+                getLog: type,
+            },
+            {
+                signal: request.signal,
+            }
+        );
+
+        // Trim ending newlines so that when we join the logs we don't insert empty lines
+        // between messages.
+        const logs = (result.log as string[]).slice(0, limit).map((l) => l.trimEnd());
+
+        let message = `Found: ${result.totalLinesWritten} messages`;
+        if (result.totalLinesWritten > limit) {
+            message += ` (showing only the first ${limit})`;
+        }
+        return {
+            content: formatUntrustedData(this.server.config, message, logs.join("\n")),
+            structuredContent: {
+                logs,
+                totalLinesWritten: result.totalLinesWritten as number,
+                shownCount: logs.length,
+            },
+        };
+    }
+}

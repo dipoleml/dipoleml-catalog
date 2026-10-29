@@ -1,0 +1,211 @@
+"""Kernel debugging session driven by ``kd.exe``.
+
+Kernel debugging is separate from user-mode (:mod:`cdb_session`) for two
+reasons: it needs ``kd.exe`` (``cdb.exe`` cannot drive a kernel cable), and its
+startup is different. Where a dump or ``-remote`` session is usable the moment
+the debugger prints its first prompt, a kernel target attaches asynchronously:
+``kd`` prints ``Connected to target ...`` once the KDNET/COM link comes up, and
+only then can we break in. So ``_startup`` here waits for that banner, sends
+CTRL+BREAK to halt the target, and waits for the resulting prompt.
+
+Connection strings (passed to ``-k`` verbatim):
+
+- KDNET (network):   ``net:port=50000,key=1.2.3.4``
+- Named pipe (VM):   ``com:pipe,port=\\\\.\\pipe\\com_1,baud=115200,reconnect,resets=0``
+- Serial:            ``com:port=COM1,baud=115200``
+
+A kernel crash dump (``MEMORY.DMP``, a ``Minidump\\*.dmp``) opens with ``-z``
+instead. It is a static target like a user-mode dump, so it skips the connect
+handshake and simply waits for the first prompt.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import threading
+import time
+from typing import Optional
+
+from .debug_session import (
+    DebuggerError,
+    DebuggerExitedError,
+    DebuggerSession,
+    build_debugger_args,
+    find_executable,
+)
+
+# Raised for kernel session failures.
+KDError = DebuggerError
+
+# The banners ``kd`` prints once the kernel link is up. They differ by transport,
+# and matching only the KDNET one made every pipe/serial session time out in
+# _startup even though the target was connected (#47). Matched as substrings:
+#   KDNET:       "Connected to target 172.16.2.189 on port 50005 on local IP ..."
+#   pipe/serial: "Kernel Debugger connection established."
+KERNEL_CONNECTED_BANNERS = (
+    "Connected to target",
+    "Kernel Debugger connection established",
+)
+
+# Default paths where kd.exe (kernel debugger) might be located.
+DEFAULT_KD_PATHS = [
+    # Traditional Windows SDK locations
+    r"C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\kd.exe",
+    r"C:\Program Files (x86)\Windows Kits\10\Debuggers\x86\kd.exe",
+    r"C:\Program Files\Debugging Tools for Windows (x64)\kd.exe",
+    r"C:\Program Files\Debugging Tools for Windows (x86)\kd.exe",
+
+    # Microsoft Store WinDbg locations
+    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\kdX64.exe"),
+    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\kdX86.exe"),
+    os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\kdARM64.exe"),
+]
+
+
+class KDSession(DebuggerSession):
+    """A kernel ``kd.exe`` session attached with ``-k``, or over a dump with ``-z``."""
+
+    is_live_session = True
+
+    #: Whether closing the session should let the target machine run again.
+    #: A kernel target left at a break freezes the whole machine, so the default
+    #: is to resume it; set False to intentionally leave it halted at the break.
+    resume_on_close = True
+
+    def __init__(
+        self,
+        kernel_connection: Optional[str] = None,
+        kd_path: Optional[str] = None,
+        symbols_path: Optional[str] = None,
+        timeout: int = 60,
+        verbose: bool = False,
+        dump_path: Optional[str] = None,
+        auto_dump_dir_symbols: bool = True,
+        session_log_path: Optional[str] = None,
+    ):
+        """Attach to a kernel target, or open a kernel crash dump.
+
+        Args:
+            kernel_connection: The ``-k`` connection string (KDNET/pipe/serial).
+            kd_path: Custom kd.exe path; auto-discovered when None.
+            symbols_path: Extra symbol search path.
+            timeout: Seconds to wait for the target to connect and break in, or
+                for a dump to load.
+            verbose: Echo debugger output for debugging.
+            dump_path: Kernel crash dump to open (``-z``), mutually exclusive
+                with ``kernel_connection``.
+            auto_dump_dir_symbols: Prepend the dump's directory to the symbol path.
+            session_log_path: File to append every debugger output line to.
+
+        Raises:
+            KDError: kd.exe not found, or the target never connected / broke in.
+            FileNotFoundError: the dump file does not exist.
+            ValueError: neither or both of kernel_connection and dump_path provided.
+        """
+        if not kernel_connection and not dump_path:
+            raise ValueError("Either kernel_connection or dump_path must be provided")
+        if kernel_connection and dump_path:
+            raise ValueError("kernel_connection and dump_path are mutually exclusive")
+        if dump_path and not os.path.isfile(dump_path):
+            raise FileNotFoundError(f"Dump file not found: {dump_path}")
+
+        self.kernel_connection = kernel_connection
+        self.dump_path = dump_path
+        # A dump has no running machine: no process group for CTRL+BREAK, no
+        # break-in on startup, and it quits with 'q' instead of resuming with 'g'.
+        self.is_live_session = not dump_path
+        # Set before super().__init__ starts the reader thread, which references it.
+        self._connected_event = threading.Event()
+
+        kd_path = find_executable(DEFAULT_KD_PATHS, kd_path)
+        if not kd_path:
+            raise KDError(
+                "Could not find kd.exe for kernel debugging. "
+                "Please install Debugging Tools for Windows."
+            )
+        self.kd_path = kd_path
+
+        # Auto-include the dump's own directory in the symbol search path.
+        if auto_dump_dir_symbols and dump_path:
+            dump_dir = os.path.dirname(os.path.abspath(dump_path))
+            symbols_path = f"{dump_dir};{symbols_path}" if symbols_path else dump_dir
+
+        launch_args = build_debugger_args(
+            kd_path,
+            dump_path=dump_path,
+            kernel_connection=kernel_connection,
+            symbols_path=symbols_path,
+        )
+
+        super().__init__(
+            debugger_path=kd_path,
+            launch_args=launch_args,
+            timeout=timeout,
+            verbose=verbose,
+            session_log_path=session_log_path,
+        )
+
+    def _on_output_line(self, line: str) -> None:
+        """Notice the connect banner (called under the reader lock)."""
+        if any(banner in line for banner in KERNEL_CONNECTED_BANNERS):
+            self._connected_event.set()
+
+    def _on_debugger_exit(self) -> None:
+        self._connected_event.set()
+
+    def _startup(self) -> None:
+        """Wait for the target to connect, break in, then reach the prompt."""
+        if not self.is_live_session:
+            # A dump is usable the moment kd prints its first prompt.
+            super()._startup()
+            return
+        if not self._connected_event.wait(self.timeout):
+            self.shutdown()
+            raise KDError(
+                "Timed out waiting for the kernel target to connect. "
+                "Is the target booted with debugging enabled and transmitting "
+                "on this transport? (kd reports 'no_debuggee' until it is.)"
+            )
+        if self._debugger_exited:
+            message = self._exited_message(
+                "before the kernel target connected", self._take_output()
+            )
+            self.shutdown()
+            raise DebuggerExitedError(message)
+        # Target is connected but running; break in to reach a prompt.
+        try:
+            self.process.send_signal(signal.CTRL_BREAK_EVENT)
+        except Exception as e:  # pragma: no cover - signal delivery rarely fails
+            self.shutdown()
+            raise KDError(f"Failed to break into the kernel target: {e}")
+        try:
+            self._wait_for_prompt(self.timeout)
+        except DebuggerExitedError:
+            self.shutdown()
+            raise
+        except DebuggerError:
+            self.shutdown()
+            raise KDError("Kernel debugger did not reach a prompt after break-in")
+
+    def _release_target(self) -> None:
+        """Release the kernel target before the debugger process is dropped.
+
+        Unlike a user-mode remote, a kernel target is NOT resumed by CTRL+B - it
+        stays halted, which freezes the whole machine. To leave the machine
+        running we send ``g`` (go) and disconnect while it runs. A short burst of
+        ``g`` drains any queued break requests so a single stuck break does not
+        immediately re-halt it. When ``resume_on_close`` is False we send nothing
+        and let the process terminate with the target still halted at the break.
+        A dump has no target to resume and quits like any other dump session.
+        """
+        if not self.is_live_session:
+            super()._release_target()
+            return
+        if not self.resume_on_close:
+            return
+        for _ in range(3):
+            self.process.stdin.write("g\n")
+            self.process.stdin.flush()
+            time.sleep(0.4)
+        time.sleep(0.6)  # let the target settle into a free run before we drop the link

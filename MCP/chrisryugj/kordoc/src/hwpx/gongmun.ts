@@ -1,0 +1,693 @@
+/**
+ * 공문서(公文書) 모드 — 한국 행정 공문서 표준 서식 렌더링 로직
+ *
+ * 근거: 「행정업무의 운영 및 혁신에 관한 규정」 및 동 시행규칙(제2조 항목 표시),
+ *       행정안전부 「2020 행정업무운영 편람」.
+ * 자세한 표준은 docs/gongmunseo-reference.md, 구현 매핑은 docs/gongmunseo-engine-spec.md 참조.
+ *
+ * 이 모듈은 **순수 로직**만 담는다(항목부호 시퀀스 생성, 단계별 들여쓰기 계산,
+ * 프리셋 해석). 실제 XML 조립은 generator.ts가 한다.
+ */
+
+import { charWidthEm1000, SPACE_EM_FIXED } from "./text-metrics.js"
+import { gaejosikMarker, gaejosikLevelIndent, type GaejosikSizeOverrides } from "./gaejosik.js"
+import { KordocError } from "../utils.js"
+import { applyAgency, agencyWarnings, type ResolvedAgency } from "./agency.js"
+import { CHECKLIST_ITEMS } from "./gen-frame-seoul-front.js"
+import { hangulOrdinal, circledNumber, circledHangul } from "../shared/numbering.js"
+
+// ─── 옵션 타입 ──────────────────────────────────────
+
+export type GongmunPreset = "official" | "report" | "plan" | "notice" | "minutes" | "gaejosik" | "press" | "ministry" | "bangchim"
+export type GongmunNumbering = "standard" | "report" | "gaejosik"
+/** 2단계 항목부호 */
+export type Bullet2 = "ㅇ" | "○" | "◦" | "❍"
+export type GongmunFont = "myeongjo" | "gothic"
+
+/** 프리셋 입력값 — 영문 키 또는 한글 별칭(기안문·보고서·계획서·통지·회의록 등) */
+export type GongmunPresetInput =
+  | GongmunPreset
+  | "기안문" | "시행문" | "공문" | "공문서"
+  | "보고서"
+  | "계획서" | "계획"
+  | "통지" | "알림" | "안내"
+  | "회의록"
+  | "개조식" | "개조식보고서" | "정부보고서" | "정부표준개조식보고서"
+  | "보도자료"
+  | "업무보고" | "부처업무보고" | "중앙부처보고서"
+  | "서울방침" | "방침서" | "방침"
+
+/** 항목부호 단계 하나의 타이포 — 셋 다 선택(미지정=본문 계열 유지) */
+export interface GongmunLevelStyle {
+  /** 글꼴명 (예: HY견고딕·한컴돋움·휴먼명조) */
+  font?: string
+  /** 글자 크기 pt (6~60) */
+  pt?: number
+  /** 굵게 */
+  bold?: boolean
+}
+
+/** 해석된 단계 타이포 — height = pt×100 (미지정 pt는 본문), font null = 본문 글꼴 */
+export interface ResolvedLevelStyle {
+  font: string | null
+  height: number
+  bold: boolean
+}
+
+/** 공문서 모드 옵션 (전부 선택 — 프리셋 기본값을 개별 override) */
+export interface GongmunOptions {
+  /** 문서 종류 프리셋(영문 키 또는 한글 별칭). 기본 'official'(일반 기안문) */
+  preset?: GongmunPresetInput
+  /** 본문 글꼴. 'myeongjo'=함초롬바탕(명조, 보고서·대외공문 관행) / 'gothic'=맑은 고딕(전자결재 기본) */
+  bodyFont?: GongmunFont
+  /** 본문 글자 크기(pt). 기본: 기안문 12, 보고서·계획서·통지 15 */
+  bodyPt?: number
+  /** 본문 줄간격(%). 기본 160 (회의록 130) */
+  lineSpacing?: number
+  /** 항목부호 체계. 'standard'=법정 8단계(1. 가. 1) …) / 'report'=보고서 불릿(□ ○ - ㆍ) / 'gaejosik'=개조식(□ ○ - ㆍ + 부호별 폰트) */
+  numbering?: GongmunNumbering
+  /**
+   * 표지 페이지(개조식·업무보고 프리셋 기본 켜짐) — 첫 h1을 제목으로, 파랑 장식 바 + 날짜 + 기관명.
+   * false로 끄거나 {date, org}로 날짜(기본 오늘, 'YYYY. M. D.')·기관명(기본 생략) 지정.
+   * label = 표지 우상단 취급 표시("대외주의"·"비공개" — 업무보고 프리셋, 빨간 테두리 박스).
+   */
+  cover?: boolean | { date?: string; org?: string; dept?: string; label?: string }
+  /** 목차 페이지(개조식 프리셋 기본 켜짐) — h2 목록을 Ⅰ Ⅱ Ⅲ…로 자동 생성. false로 끔 */
+  toc?: boolean
+  /** 용지 여백(mm). 기본 공식값 위20/아래10/좌20/우20 */
+  margins?: { top: number; bottom: number; left: number; right: number }
+  /** 문서 제목(첫 h1)을 가운데 정렬. 기본 true (행정기관명·보고서 제목) */
+  centerTitle?: boolean
+  /**
+   * 문단별 자동 장평 — 한두 글자(짧은 꼬리)만 다음 줄로 넘어가는 문단의 장평을
+   * 95→90%까지 자동 축소해 한 줄에 담는다(공무원 실무 관행의 자동화).
+   * false로 끄거나 minRatio(기본 90)로 하한 조정. 기본 켜짐.
+   * safety: "한 줄에 들어간다"고 볼 가용폭 비율의 상한(기본 실폭표 0.98). 한컴 밖의 조판기(rhwp 미리보기·PDF 등)로도
+   * 그리는 문서는 0.95 처럼 낮춰 꽉 찬 줄을 조금 더 줄여 둔다. 기본보다 느슨해지지는 않는다.
+   */
+  autoFit?: boolean | { minRatio?: number; safety?: number }
+  /**
+   * 요소별 글꼴 오버라이드 — 기관 표준 폰트 적용이나 미설치 폰트 대체용.
+   * body=본문(개조식 ○·-) / heading=제목 계열(□·장헤더·표지·목차) / ref=※ 참고 / table=표 셀.
+   * 실측 폰트 프리셋(개조식·보고서·계획서)은 네 역할 전부, 그 외 프리셋은 body만
+   * 적용된다 (bodyFont보다 우선).
+   */
+  fonts?: { body?: string; heading?: string; ref?: string; table?: string }
+  /** 개조식 요소별 글자 크기(pt) 오버라이드 — 미지정 요소는 bodyPt 비례 기본값 */
+  sizes?: GaejosikSizeOverrides
+  /**
+   * 항목부호 단계별 위계 타이포(v4.12.3) — depth(0~7)마다 글꼴·크기(pt)·굵기를 지정한다.
+   * 실측(실결재 기안문 206 + 보고서 337건): 법정 8단계(1. 가. 1))는 본문과 동일이 90%라 기본은
+   * 무변경, □/ㅇ/- 계열 전자결재 기안문은 □=HY견고딕 +2~3pt bold·ㅇ=한컴돋움 bold·-=휴먼명조가
+   * 지배 관행이다(docs/gongmunseo-reference.md 2.7). 지정한 단계만 바뀌고 나머지는 본문 계열.
+   * 개조식·보고서의 실측 □(HY헤드라인M)·보도자료 각주보다 우선한다(명시 옵션).
+   */
+  levels?: Record<number | string, GongmunLevelStyle>
+  /** 쪽번호(하단 중앙 "- 1 -", 표지·목차는 카운트 제외). 기본: 개조식·보고서·계획서 켜짐 */
+  pageNumbers?: boolean
+  /** 본문 끝 2타+"끝." 표시(행정업무규정). 기본: 기안문(official)만 켜짐 */
+  endMark?: boolean
+  /** 결재란 — 직위 라벨 배열(예: ["담당","팀장","과장"]). 문서 최상단 우측 배치 */
+  approval?: string[]
+  /** 본문 첫 페이지 제목 박스(개조식) — 목차 뒤 본문 시작에 제목 반복(실측 관행). 기본: 표지 있으면 켜짐 */
+  bodyTitleBox?: boolean
+  /** 개조식 장 헤더 제목 칸을 글자 폭에 맞춤. 기본: 꺼짐(제목 칸이 본문 폭까지) */
+  chapterFit?: boolean
+  /**
+   * h2 장 제목 표기 (v5): 'band'=로마자 채움 칸 + 제목 띠 표(보고서·계획서 기본 — 계획서 장르 실측 37~39%) /
+   * 'roman'=Ⅰ. Ⅱ. 텍스트 / 'number'=1. 2. (통지 기본) / 'box'=장 없이 □ 대항목으로 / 'none'=번호 없음 /
+   * 'square'=[Ⅰ] 테두리 번호 상자 + 위아래 괘선 제목(서울 방침서 기본).
+   * 기안문 본문의 h2는 항상 법정 1. 항목.
+   */
+  h2Marker?: "band" | "roman" | "box" | "number" | "none" | "square"
+  /**
+   * 띠 제목(h2Marker 'band') 번호칸 채움색 `#RRGGBB` — 기본 #003366(서울 plan 띠 표 실측 최다).
+   * 교육청형 밝은 띠는 `bandColor: "#DFE6F7", bandTextColor: "#000000"`.
+   */
+  bandColor?: string
+  /** 띠 제목 번호 글자색 `#RRGGBB` — 기본 #FFFFFF */
+  bandTextColor?: string
+  /**
+   * 2단계 항목부호 — 'ㅇ'(이응, 전자결재 기안문·공고문 실측 지배) / '○'(원, 보고서
+   * 양식 계열 실측) / '◦'·'❍'(일부 중앙부처 — agency 실측). 기본: notice·press 'ㅇ', 그 외 '○' (v4.1.0 실결재 60건 분포).
+   */
+  bullet2?: Bullet2
+  /**
+   * 단일 형제 항목 부호 생략(편람 규정: 항목이 하나면 부호 미부여). 기본 false —
+   * 부호 없는 계단 들여쓰기가 실무 눈에 더 어색하다(실무자 QA, v4.0.2).
+   * 규정 엄수가 필요하면 true. 법정 번호(standard) 전용 — 불릿 체계(report·gaejosik)엔
+   * 적용되지 않으므로, 기본 numbering이 report인 plan 프리셋은 numbering:'standard' 병기 필요.
+   */
+  suppressSingle?: boolean
+  /**
+   * 표 합계·총계·계 행 위치 — 'top'(머리행 바로 아래, 기본: 공문 실무 관행) / 'bottom'(맨 아래) / 'keep'(원고 그대로).
+   * GFM 표에만 적용, HTML 병합 표는 원고 그대로.
+   */
+  totalRow?: "top" | "bottom" | "keep"
+  /** 기안문 두문표 — 행정기관명·(원훈 slogan)·수신·경유·제목 (별지 제1호서식·서울 실결재 6행 표, official 전용) */
+  docHead?: { org?: string; slogan?: string; to?: string; via?: string; title?: string }
+  /**
+   * 기안문 결문표 — 발신명의·결재선(기안/검토/결재 또는 approvers 배열 "직위 성명")·협조자·수신자·
+   * 시행/접수·우편번호(zip)·주소·홈페이지·전화·전송·이메일·공개구분 (official 전용)
+   */
+  docFoot?: {
+    sender?: string; drafter?: string; reviewer?: string; approver?: string
+    approvers?: string[]; cooperator?: string; recipients?: string; docNum?: string; receive?: string
+    zip?: string; address?: string; site?: string; phone?: string; fax?: string; email?: string; disclosure?: string
+  }
+  /** 요약 박스(제목표·개조식 본문 첫 쪽 제목 상자 아래 #DFE6F7 상자, 서울 실결재) — 마크다운 제목 직후 인용문(>)으로도 지정 가능 */
+  summary?: string
+  /** 보고서 표지 문서정보표 — 문서번호·결재일자·공개여부·방침번호 (cover와 함께) */
+  docInfo?: { docNum?: string; date?: string; disclosure?: string; policyNo?: string }
+  /**
+   * 서울 사전 검토항목 점검표(표지 다음 쪽 — 서울 시장방침 16건 모두 실측) — 보고서·계획서·방침서 전용.
+   * true = 표시 없는 빈 서식. 객체면 na 에 적은 문항(1~14)은 해당없음 ■, 나머지는 검토완료 ■, notes = 문항 번호별 비고 글
+   */
+  checklist?: boolean | { na?: number[]; notes?: Record<number, string> }
+  /** 업무보고 우상단 보고정보 행 — "(보고일시, 보고자, 연락처)" (실측 t3: 휴먼명조 12pt RIGHT) */
+  reportInfo?: string
+  /** 공고문 두문·결문 — 공고번호(본문 위)·날짜·발신명의(본문 아래 우측, 실측 바이오헬스 공고) */
+  noticeHead?: { no?: string; date?: string; sender?: string }
+  /** 보도자료(press) 머리·담당 — 보도시점/배포 행·부제·담당 부서 표 */
+  press?: {
+    release?: string; distribute?: string; sub?: string[]
+    /** 담당 표 — people 를 주면 사람마다 한 행(구분 책임자·담당자 | 직급 | 이름 | 전화), 없으면 담당자·연락처 한 행 */
+    contact?: { dept?: string; manager?: string; phone?: string; people?: Array<{ role?: string; title?: string; name?: string; phone?: string }> }
+  }
+  /**
+   * 기관 서식 — 중앙행정기관 이름(예: "국세청") 또는 "공통". 정책브리핑 보도자료 2,670건 실측(UpstageAI/korean-report-hwpx)의
+   * 그 기관 단계별 글꼴·크기·2단계 부호·표 머리·기관 색을 기본값으로 깐다. 명시 옵션이 이긴다.
+   * 보고서·계획서·업무보고·개조식·보도자료 전용 (agency.ts)
+   */
+  agency?: string
+}
+
+export interface ResolvedGongmun {
+  preset: GongmunPreset
+  bodyFont: GongmunFont
+  bodyHeight: number // charPr height = pt × 100
+  lineSpacing: number
+  numbering: GongmunNumbering
+  margins: { top: number; bottom: number; left: number; right: number }
+  centerTitle: boolean
+  /** 자동 장평 하한(%) — null이면 끔 */
+  autoFitMinRatio: number | null
+  /** 한 줄 판정 가용폭 비율 상한 (autoFit.safety). 없으면 맞춤 함수 기본값 */
+  autoFitSafety?: number
+  /** 표지 설정 — null이면 표지 없음 (개조식 외 프리셋 기본) */
+  cover: { date: string | null; org: string; dept?: string; label?: string } | null
+  /** 옵션이 명시됐는지 — v5 스킴이 실측 기본값(굴림 12·한컴돋움 15·160/180%)을 쓸지 판단 */
+  bodyPtExplicit: boolean
+  lineSpacingExplicit: boolean
+  bodyFontExplicit: boolean
+  /** 보고서 요약 박스 텍스트 — null이면 마크다운 인용문 자동 */
+  summary: string | null
+  /** 보고서 표지 문서정보표 */
+  docInfo: NonNullable<GongmunOptions["docInfo"]> | null
+  /** 사전 검토항목 점검표 — 문항 번호(1부터)별 표시·비고, null 이면 없음 */
+  checklist: { marks: Map<number, "done" | "na">; notes: Map<number, string> } | null
+  /** 목차 자동 생성 여부 (개조식 프리셋 기본 true) */
+  toc: boolean
+  /** 요소별 글꼴 오버라이드 (GongmunOptions.fonts) */
+  fonts: { body?: string; heading?: string; ref?: string; table?: string }
+  /** 개조식 요소별 크기(pt) 오버라이드 (GongmunOptions.sizes) */
+  sizes: GaejosikSizeOverrides
+  /** 단계별 위계 타이포(depth → 스타일) — null이면 없음 (v4.12.3) */
+  levels: Record<number, ResolvedLevelStyle> | null
+  /** 쪽번호(하단 중앙 "- 1 -") — 개조식·보고서·계획서 기본 켜짐 */
+  pageNumbers: boolean
+  /** 머리말·꼬리말 영역(HWPUNIT) — 개조식 4251(15mm, 실측), 그 외 0(편람) */
+  headerFooter: number
+  /** 본문 끝 "끝." 표시 — 기안문(official) 기본 켜짐 (규정) */
+  endMark: boolean
+  /** 결재란 직위 라벨(좌→우) — null이면 결재란 없음 */
+  approval: string[] | null
+  /** 본문 첫 페이지 제목 박스(개조식, 실측 GT3 표④) — 표지 있을 때 기본 켜짐 */
+  bodyTitleBox: boolean
+  /** 개조식 장 헤더 제목 칸 글자 폭 맞춤 — 기본 꺼짐 */
+  chapterFit: boolean
+  /** h2 장 제목 표기 — 보고서·계획서 'roman', 통지·공고 'number' (v5) */
+  h2Marker: "band" | "roman" | "box" | "number" | "none" | "square"
+  /** 띠 제목 번호칸 채움색·글자색 (#RRGGBB, 대문자 정규화) */
+  bandColor: string
+  bandTextColor: string
+  /** 2단계 항목부호 — notice·press 기본 'ㅇ', 그 외 '○' (실결재 60건 분포, v4.1.0) */
+  bullet2: Bullet2
+  /** 단일 형제 부호 생략(규정) — 기본 false (실무 관행: 하나여도 부호, v4.0.2) */
+  suppressSingle: boolean
+  /** 표 합계 행 위치 — 지정 없으면 null(서식 프로필이 있으면 keep, 없으면 top — resolveTotalRow) */
+  totalRow: "top" | "bottom" | "keep" | null
+  /** 기안문 두문 — null이면 없음 */
+  docHead: NonNullable<GongmunOptions["docHead"]> | null
+  /** 기안문 결문 — null이면 없음 */
+  docFoot: NonNullable<GongmunOptions["docFoot"]> | null
+  /** 보고정보 행 — null이면 없음 */
+  reportInfo: string | null
+  /** 공고문 두문·결문 — null이면 없음 */
+  noticeHead: { no?: string; date?: string; sender?: string } | null
+  /** 보도자료 머리·담당 — press 프리셋이면 옵션 미지정이어도 빈 객체(머리박스는 항상) */
+  press: NonNullable<GongmunOptions["press"]> | null
+  /** 기관 서식 중 옵션으로 표현하지 않는 값(※·표 크기, 표 머리 음영, 보도자료 본문 방식) — agency 미지정이면 null */
+  agency: ResolvedAgency | null
+}
+
+/**
+ * 기안문 여백(mm) — 실결재 지배값 t20/b15/l20/r15 (서울 정보소통광장 60건 중 41건,
+ * v4.1.0 실측). 편람 공식값(위20/아래10/좌우20)보다 실무 관행 우선 — margins로 조정 가능.
+ */
+const OFFICIAL_MARGINS = { top: 20, bottom: 15, left: 20, right: 15 }
+
+/** 보고서 계열 여백(mm) — 실측: 「2_보고서 양식」·샘플양식1·공고문·보도자료 공통 상하 15mm */
+const GAEJOSIK_MARGINS = { top: 15, bottom: 15, left: 20, right: 20 }
+
+/** 서울 보고서형 기안(간이기안) 여백(mm) — 실결재 개조식 문서 지배값 13/13/18/18·머리꼬리 13 (v5) */
+const SEOUL_REPORT_MARGINS = { top: 13, bottom: 13, left: 18, right: 18 }
+const SEOUL_REPORT_HEADER_FOOTER = 3600
+
+/** 개조식 머리말·꼬리말 영역(HWPUNIT) — 실측 4251(15mm). 쪽번호가 이 영역에 렌더 */
+const GAEJOSIK_HEADER_FOOTER = 4251
+
+/**
+ * 중앙부처 업무보고 여백(mm) — 재경부 2차 업무보고(2026-07-15) 실측: 본문 x 56.5~538pt(좌우 20mm),
+ * 장 띠 상단 y56pt(위 20mm), 쪽번호 y803pt. 위·아래 10 + 머리말·꼬리말 10mm(2835)로 본문 시작 20mm를 맞춘다.
+ */
+const MINISTRY_MARGINS = { top: 10, bottom: 10, left: 20, right: 20 }
+const MINISTRY_HEADER_FOOTER = 2835
+
+const PRESET_DEFAULTS: Record<
+  GongmunPreset,
+  { bodyPt: number; lineSpacing: number; numbering: GongmunNumbering }
+> = {
+  // 서울시 실결재 104건 중 12pt 64건(13pt 30, 15pt 5) — 지배값을 기본으로 사용.
+  official: { bodyPt: 12, lineSpacing: 160, numbering: "standard" },
+  report: { bodyPt: 15, lineSpacing: 160, numbering: "report" },
+  // 실측 추진계획안: □ → ㅇ → * 계층.
+  plan: { bodyPt: 15, lineSpacing: 160, numbering: "report" },
+  notice: { bodyPt: 15, lineSpacing: 160, numbering: "standard" },
+  minutes: { bodyPt: 14, lineSpacing: 130, numbering: "standard" },
+  gaejosik: { bodyPt: 15, lineSpacing: 160, numbering: "gaejosik" },
+  // 보도자료 — 실측(국토부 실물): 본문 바탕 14pt 160%, □→ㅇ→*(각주) 부호
+  press: { bodyPt: 14, lineSpacing: 160, numbering: "report" },
+  // 중앙부처 업무보고 — 실측(재경부 2차 업무보고): 함초롬바탕 15pt, 줄피치 21.7pt(≈145%), □→ㅇ→-→*(각주)
+  ministry: { bodyPt: 15, lineSpacing: 145, numbering: "report" },
+  // 서울 방침서 — 실측(시장방침 「청년취업사관학교 2.0」 추진계획 외 4건): □ HY견고딕 17 · ㅇ 한컴돋움 15b · - 휴먼명조 14, 줄간격 200%
+  bangchim: { bodyPt: 15, lineSpacing: 190, numbering: "report" },
+}
+
+/** 프리셋 별칭(한글/영문) → 내부 preset 키. CLI·라이브러리 공용 */
+export const PRESET_ALIAS: Record<string, GongmunPreset> = {
+  official: "official", 기안문: "official", 시행문: "official", 공문: "official", 공문서: "official",
+  report: "report", 보고서: "report",
+  plan: "plan", 계획서: "plan", 계획: "plan",
+  notice: "notice", 통지: "notice", 알림: "notice", 안내: "notice",
+  minutes: "minutes", 회의록: "minutes",
+  gaejosik: "gaejosik", 개조식: "gaejosik", 개조식보고서: "gaejosik", 정부보고서: "gaejosik", 정부표준개조식보고서: "gaejosik",
+  press: "press", 보도자료: "press",
+  ministry: "ministry", 업무보고: "ministry", 부처업무보고: "ministry", 중앙부처보고서: "ministry",
+  bangchim: "bangchim", 서울방침: "bangchim", 방침서: "bangchim", 방침: "bangchim",
+}
+
+/** 프리셋 입력(영문 키 또는 한글 별칭)을 내부 GongmunPreset로 정규화. 미상은 'official' */
+export function normalizeGongmunPreset(preset?: string): GongmunPreset {
+  if (!preset) return "official"
+  return PRESET_ALIAS[preset.trim()] ?? "official"
+}
+
+/**
+ * 실측 보고서 폰트 세트(제목 HY헤드라인M·본문 휴먼명조·※ 한양중고딕·표 맑은 고딕)를
+ * 쓰는 프리셋 — 부처별 실측 양식 3종(업무보고·보고서×2) 공통 스펙 (v4.0.1 QA-1).
+ * 개조식만 받던 실측 폰트를 보고서·계획서로 확장. 기안문·통지·회의록은 함초롬 유지
+ * (전자결재·일반 공문 관행).
+ */
+export function usesReportFonts(preset: GongmunPreset): boolean {
+  return preset === "gaejosik" || preset === "report" || preset === "plan" || preset === "bangchim"
+}
+
+/** 3단계 부호로 *(참고)를 쓰는 프리셋인지 — 실측: 추진계획안·보도자료 공통 □→ㅇ→* 계층.
+ * levelIndent(내어쓰기 폭)와 GongmunNumberer(마커)가 같은 판정을 공유해야 정렬이 맞는다. */
+export function usesAsteriskThird(preset: GongmunPreset): boolean {
+  return preset === "plan" || preset === "press"
+}
+
+/** 개조식 표지·목차용 정적 font/char/border 자산이 필요한 문서인지.
+ * bodyTitleBox는 표지(cover) 없이는 렌더할 제목이 없어 단독으로는 자산을 요구하지 않는다. */
+export function needsGaejosikAssets(gongmun: ResolvedGongmun): boolean {
+  return usesReportFonts(gongmun.preset) || gongmun.cover !== null || gongmun.toc
+}
+
+function assertFiniteRange(name: string, value: number, min: number, max: number): void {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new KordocError(`${name} must be a finite number between ${min} and ${max}`)
+  }
+}
+
+/** 공개 API·CLI가 공유하는 공문서 수치 옵션 방어선 — 잘못된 값이 XML의 NaN/Infinity로 번지는 것을 막는다. */
+function validateGongmunOptions(opts: GongmunOptions): void {
+  if (opts.bodyPt !== undefined) assertFiniteRange("bodyPt", opts.bodyPt, 6, 40)
+  if (opts.lineSpacing !== undefined) assertFiniteRange("lineSpacing", opts.lineSpacing, 50, 300)
+  if (typeof opts.autoFit === "object" && opts.autoFit.minRatio !== undefined) {
+    assertFiniteRange("autoFit.minRatio", opts.autoFit.minRatio, 50, 99)
+  }
+  if (typeof opts.autoFit === "object" && opts.autoFit.safety !== undefined) {
+    assertFiniteRange("autoFit.safety", opts.autoFit.safety, 0.8, 1)
+  }
+  if (opts.margins) {
+    for (const side of ["top", "bottom", "left", "right"] as const) {
+      const value = opts.margins[side]
+      assertFiniteRange(`margins.${side}`, value, 0, 200)
+    }
+    if (opts.margins.left + opts.margins.right >= 210) {
+      throw new KordocError("margins.left + margins.right must be less than 210")
+    }
+    if (opts.margins.top + opts.margins.bottom >= 297) {
+      throw new KordocError("margins.top + margins.bottom must be less than 297")
+    }
+  }
+  if (opts.sizes) {
+    for (const [key, value] of Object.entries(opts.sizes)) {
+      if (value !== undefined) assertFiniteRange(`sizes.${key}`, value, 6, 60)
+    }
+  }
+  if (opts.approval && opts.approval.length > 6) {
+    throw new KordocError("approval must contain at most 6 labels")
+  }
+  if (opts.checklist && typeof opts.checklist === "object") {
+    const nums = [...(opts.checklist.na ?? []), ...Object.keys(opts.checklist.notes ?? {}).map(Number)]
+    for (const n of nums) {
+      if (!Number.isInteger(n) || n < 1 || n > CHECKLIST_ITEMS) throw new KordocError(`checklist: item number must be an integer between 1 and ${CHECKLIST_ITEMS} (got ${n})`)
+    }
+  }
+  if (opts.levels) {
+    for (const [key, st] of Object.entries(opts.levels)) {
+      const depth = Number(key)
+      if (!Number.isInteger(depth) || depth < 0 || depth >= GONGMUN_LEVEL_COUNT) {
+        throw new KordocError(`levels: depth must be an integer between 0 and ${GONGMUN_LEVEL_COUNT - 1} (got "${key}")`)
+      }
+      if (!st || typeof st !== "object") throw new KordocError(`levels.${key} must be an object {font, pt, bold}`)
+      if (st.pt !== undefined) assertFiniteRange(`levels.${key}.pt`, st.pt, 6, 60)
+      if (st.font !== undefined && (typeof st.font !== "string" || !st.font.trim())) {
+        throw new KordocError(`levels.${key}.font must be a non-empty string`)
+      }
+    }
+  }
+}
+
+/** 항목부호 단계 수 — gen-ids GONGMUN_LIST_LEVELS(8)와 동일 값(순환 import 회피용 사본) */
+const GONGMUN_LEVEL_COUNT = 8
+
+/** levels 옵션 해석 — 셋 다 비어 있는 항목은 버린다(무의미한 charPr 방출 방지) */
+function resolveLevels(levels: GongmunOptions["levels"], bodyHeight: number): Record<number, ResolvedLevelStyle> | null {
+  if (!levels) return null
+  const out: Record<number, ResolvedLevelStyle> = {}
+  for (const [key, st] of Object.entries(levels)) {
+    if (st.font === undefined && st.pt === undefined && st.bold === undefined) continue
+    out[Number(key)] = {
+      font: st.font?.trim() || null,
+      height: st.pt !== undefined ? Math.round(st.pt * 100) : bodyHeight,
+      bold: !!st.bold,
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/** depth 단계 부호의 글자 높이 — levels 오버라이드가 있으면 그 크기, 없으면 본문 */
+export function levelMarkerHeight(g: Pick<ResolvedGongmun, "levels" | "bodyHeight">, depth: number): number {
+  return g.levels?.[depth]?.height ?? g.bodyHeight
+}
+
+/**
+ * 프리셋과 비호환이라 resolveGongmun이 조용히 폐기/무시하는 옵션의 경고 목록 (v4.0.6).
+ * 순수 함수 — 배선은 호출자 몫 (CLI stderr / MCP 응답 병기, unknownFontWarnings 관례).
+ * 게이팅 조건은 resolveGongmun 본문과 1:1 — 여기 조건을 바꾸면 본문도 함께.
+ */
+export function incompatibleGongmunWarnings(opts: GongmunOptions): string[] {
+  const warns: string[] = []
+  const preset = normalizeGongmunPreset(opts.preset)
+  if (opts.docHead && preset !== "official") warns.push(`doc_head(두문)는 기안문(official) 전용 — '${preset}' 프리셋에서 무시됨`)
+  if (opts.docFoot && preset !== "official") warns.push(`doc_foot(결문)는 기안문(official) 전용 — '${preset}' 프리셋에서 무시됨`)
+  if (opts.noticeHead && preset !== "notice") warns.push(`notice_head(공고번호·발신명의)는 통지(notice) 전용 — '${preset}' 프리셋에서 무시됨`)
+  if (opts.press && preset !== "press") warns.push(`press(머리박스·부제·담당)는 보도자료(press) 전용 — '${preset}' 프리셋에서 무시됨`)
+  if (opts.checklist && !SEOUL_REPORT_PRESETS.has(preset)) warns.push(`checklist(사전 검토항목 점검표)는 보고서·계획서·방침서 전용 — '${preset}' 프리셋에서 무시됨`)
+  warns.push(...agencyWarnings(opts, preset))
+  const contact = opts.press?.contact
+  if (contact?.people?.length && (contact.manager || contact.phone)) warns.push("press.contact: people(사람별 행)를 주면 manager·phone(한 행 꼴)은 무시됨")
+  if (preset === "press" && (opts.cover === true || typeof opts.cover === "object" || opts.toc === true)) {
+    warns.push("보도자료는 머리박스 서식과 양립 불가라 표지·목차가 무시됨")
+  }
+  if (opts.sizes && Object.keys(opts.sizes).length > 0 && !usesReportFonts(preset)) {
+    warns.push(`sizes(개조식 요소 크기)는 개조식·보고서·계획서 전용 — '${preset}' 프리셋에서 무시됨`)
+  }
+  if (opts.suppressSingle && (opts.numbering ?? PRESET_DEFAULTS[preset].numbering) !== "standard") {
+    warns.push(`suppress_single(단일 형제 부호 생략)은 법정 번호(standard) 전용 — '${preset}' 프리셋(불릿 체계)에서 무동작`)
+  }
+  return warns
+}
+
+/** 서울 보고서형 골격(제목표·간이기안 표지·사전 검토 점검표)을 쓰는 프리셋 */
+const SEOUL_REPORT_PRESETS = new Set<GongmunPreset>(["report", "plan", "bangchim"])
+
+function resolveChecklist(c: GongmunOptions["checklist"], preset: GongmunPreset): ResolvedGongmun["checklist"] {
+  if (!c || !SEOUL_REPORT_PRESETS.has(preset)) return null
+  const marks = new Map<number, "done" | "na">(), notes = new Map<number, string>()
+  if (typeof c === "object") {
+    const na = new Set(c.na ?? [])
+    for (let i = 1; i <= CHECKLIST_ITEMS; i++) marks.set(i, na.has(i) ? "na" : "done")
+    for (const [k, v] of Object.entries(c.notes ?? {})) notes.set(Number(k), String(v))
+  }
+  return { marks, notes }
+}
+
+/** `#RRGGBB` 색 옵션 검증·대문자 정규화 — 미지정은 undefined(기본값은 호출부) */
+function hexColorOption(name: string, value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const v = value.trim()
+  if (!/^#[0-9a-fA-F]{6}$/.test(v)) throw new KordocError(`${name} must be a #RRGGBB color (got "${value}")`)
+  return v.toUpperCase()
+}
+
+export function resolveGongmun(input: GongmunOptions): ResolvedGongmun {
+  validateGongmunOptions(input)
+  const preset = normalizeGongmunPreset(input.preset)
+  // 기관 서식은 명시 옵션이 비운 자리만 채운다 — 이 아래는 깔린 옵션으로 해석
+  const { opts, agency } = applyAgency(input, preset)
+  const d = PRESET_DEFAULTS[preset]
+  const bodyPt = opts.bodyPt ?? d.bodyPt
+  const autoFitMinRatio =
+    opts.autoFit === false ? null
+    : typeof opts.autoFit === "object" ? Math.min(Math.max(opts.autoFit.minRatio ?? 90, 50), 99)
+    : 90
+  // 표지·목차 — 개조식 프리셋만 기본 켜짐. cover.date null이면 렌더 시점의 오늘 날짜
+  const ministry = preset === "ministry"
+  const coverOn = opts.cover !== undefined ? opts.cover !== false : preset === "gaejosik" || ministry
+  const coverOpts = typeof opts.cover === "object" ? opts.cover : {}
+  const gaejosik = preset === "gaejosik"
+  // 여백 — 보고서 계열(개조식·보고서·계획서·공고문·보도자료)은 실측 상하 15mm,
+  // 기안문·회의록은 실결재 지배값(20/15/20/15)
+  const reportFamily = gaejosik || preset === "report" || preset === "plan" || preset === "notice" || preset === "press"
+  return {
+    preset,
+    bodyFont: opts.bodyFont ?? "myeongjo",
+    bodyHeight: Math.round(bodyPt * 100),
+    lineSpacing: opts.lineSpacing ?? d.lineSpacing,
+    numbering: opts.numbering ?? d.numbering,
+    margins: opts.margins ?? (ministry ? MINISTRY_MARGINS : preset === "report" || preset === "plan" || preset === "bangchim" ? SEOUL_REPORT_MARGINS : reportFamily ? GAEJOSIK_MARGINS : OFFICIAL_MARGINS),
+    centerTitle: opts.centerTitle ?? true,
+    autoFitMinRatio,
+    ...(typeof opts.autoFit === "object" && opts.autoFit.safety !== undefined ? { autoFitSafety: opts.autoFit.safety } : {}),
+    // 보도자료는 머리박스가 1페이지 최상단을 차지하는 서식이라 표지·목차와 양립 불가 —
+    // 켜면 머리박스가 표지에 얹히고 25pt 제목·부제가 유실된다 (docHead 프리셋 게이팅과 동일 관례)
+    cover: coverOn && preset !== "press" ? { date: coverOpts.date ?? null, org: coverOpts.org ?? "", ...(coverOpts.dept ? { dept: coverOpts.dept } : {}), ...(coverOpts.label ? { label: coverOpts.label } : {}) } : null,
+    bodyPtExplicit: opts.bodyPt !== undefined,
+    lineSpacingExplicit: opts.lineSpacing !== undefined,
+    bodyFontExplicit: opts.bodyFont !== undefined,
+    summary: opts.summary?.trim() || null,
+    docInfo: opts.docInfo ?? null,
+    checklist: resolveChecklist(opts.checklist, preset),
+    toc: preset !== "press" && (opts.toc ?? (gaejosik || ministry)),
+    fonts: opts.fonts ?? {},
+    sizes: opts.sizes ?? {},
+    levels: resolveLevels(opts.levels, Math.round(bodyPt * 100)),
+    // 쪽번호 — 보고서 계열 관행(실측: 2_보고서 양식·추진계획·공고문 전부 하단 중앙)
+    pageNumbers: opts.pageNumbers ?? (gaejosik || ministry || preset === "report" || preset === "plan" || preset === "bangchim"),
+    // 머리말·꼬리말 — 실측: 보고서 계열 15mm(GT3·t2·춘천·브라더), 공고·보도 10mm,
+    // 기안문 0(실결재 41/60건 h0/f0)
+    headerFooter: ministry ? MINISTRY_HEADER_FOOTER
+      : preset === "report" || preset === "plan" || preset === "bangchim" ? SEOUL_REPORT_HEADER_FOOTER
+      : usesReportFonts(preset) ? GAEJOSIK_HEADER_FOOTER
+      : preset === "notice" || preset === "press" ? 2835 : 0,
+    // "끝." — 기안문 규정(본문 끝 2타+"끝."). 그 외는 opt-in
+    endMark: opts.endMark ?? preset === "official",
+    approval: opts.approval && opts.approval.length > 0 ? opts.approval : null,
+    // 본문 제목박스 — 실측(GT3·GT12): 목차 뒤 본문 시작에 제목 반복. 표지 켜진 개조식 기본
+    bodyTitleBox: opts.bodyTitleBox ?? (gaejosik && coverOn),
+    chapterFit: opts.chapterFit ?? false,
+    // h2 말머리 — 실측: 보고서 양식 □ 대항목(QA-2), 공고문 아라비아("1. 사업개요", 바이오헬스 실측)
+    // v5 라운드 3: 보고서·계획서 기본 band(띠 표) — 서울 plan 7/19·교육청 7/18 실측, 실무자 요청
+    h2Marker: opts.h2Marker ?? (preset === "report" || preset === "plan" ? "band" : preset === "bangchim" ? "square" : preset === "notice" ? "number" : "none"),
+    // 띠 제목 색 — 실측 최다 #003366/흰 글자(계획서 띠 표 14개). 교육청형 밝은 띠는 옵션으로
+    bandColor: hexColorOption("bandColor", opts.bandColor) ?? "#003366",
+    bandTextColor: hexColorOption("bandTextColor", opts.bandTextColor) ?? "#FFFFFF",
+    // 2단계 부호 — 실결재 기안문·공고문 ㅇ 지배(60건 중 ㅇ134:○5), 보고서 양식 계열 ○
+    // v5: 서울 실결재 ㅇ(이응) 지배 — 보고서·계획서·통지·보도자료 ㅇ, 중앙부처 개조식 양식만 ○
+    bullet2: opts.bullet2 ?? (preset === "gaejosik" ? "○" : "ㅇ"),
+    // 단일 형제 부호 생략 — 규정이지만 부호 없는 계단이 실무 눈에 어색 (실무자 QA)
+    suppressSingle: opts.suppressSingle ?? false,
+    // 합계 행 — 공문 표는 머리행 바로 아래가 실무 관행(구청 실무자 확인 2026-10-21, gongmunseo-reference §7.4)
+    totalRow: opts.totalRow ?? null,
+    docHead: preset === "official" && opts.docHead ? opts.docHead : null,
+    docFoot: preset === "official" && opts.docFoot ? opts.docFoot : null,
+    reportInfo: opts.reportInfo?.trim() || null,
+    noticeHead: preset === "notice" && opts.noticeHead ? opts.noticeHead : null,
+    // 보도자료 머리박스는 프리셋 자체가 요구 — 옵션 미지정이어도 빈 객체
+    press: preset === "press" ? (opts.press ?? {}) : null,
+    agency,
+  }
+}
+
+// ─── 항목부호 시퀀스 생성 ────────────────────────────
+
+// 시퀀스 포맷터 정본은 src/shared/numbering.ts — 여기서는 재수출로 하위호환 유지
+// (gen-gongmun-fit, section-walker, parser, tests가 이 모듈에서 import)
+export { hangulOrdinal, circledNumber, circledHangul }
+
+/** 보고서 모드 단계별 불릿(정부 보고서 관행: □ 대 / ○·ㅇ 중 / - 소 / ㆍ 세) */
+const REPORT_BULLETS = ["□", "○", "-", "ㆍ"]
+/** 계획서·보도자료 불릿 — 실측: □ → ㅇ → *(참고) */
+const ASTERISK_BULLETS = ["□", "○", "*", "ㆍ"]
+
+/**
+ * 'standard'(법정 8단계) 마커. depth 0~7, n은 해당 단계 형제 중 0-based 순번.
+ * 5·6단계는 반드시 괄호 3글자 조합, 7·8단계는 단일 유니코드 문자.
+ */
+export function standardMarker(depth: number, n: number): string {
+  switch (depth) {
+    case 0: return `${n + 1}.`
+    case 1: return `${hangulOrdinal(n)}.`
+    case 2: return `${n + 1})`
+    case 3: return `${hangulOrdinal(n)})`
+    case 4: return `(${n + 1})`
+    case 5: return `(${hangulOrdinal(n)})`
+    case 6: return circledNumber(n)
+    case 7: return circledHangul(n)
+    default: return circledHangul(n) // 8단계 초과(실무상 없음)
+  }
+}
+
+/** 'report' 모드 마커(불릿, 순번 무관). bullet2로 2단계 ㅇ/○ 전환. */
+export function reportMarker(depth: number, bullet2: Bullet2 = "○", asteriskThird = false): string {
+  const bullets = asteriskThird ? ASTERISK_BULLETS : REPORT_BULLETS
+  const m = bullets[Math.min(depth, bullets.length - 1)]
+  return depth === 1 ? bullet2 : m
+}
+
+/**
+ * 항목부호 문자열의 실제 렌더 폭(HWPUNIT) + 부호와 내용 사이 1타(공백 0.5em).
+ * 내어쓰기(둘째 줄 정렬)의 기준값이다 — 실제 한컴 공문서를 디코드해 보면 |intent|가
+ * 부호의 실제 폭과 같아야 둘째 줄이 첫 줄 내용 첫 글자에 맞는다. 부호마다 폭이 달라
+ * (예: '1.'은 좁고 '가.'는 넓음) 고정값으로는 정렬을 맞출 수 없다.
+ * 폭은 함초롬바탕 실측 advance 테이블(text-metrics)로 계산한다 — 한글·원문자 0.97em,
+ * 숫자 0.55em, 온점 0.32em, 괄호 0.32em (기존 근사치는 괄호를 0.45em으로 과대평가).
+ */
+export function markerWidth(marker: string, bodyHeight: number): number {
+  let em = SPACE_EM_FIXED // 1타(부호와 내용 사이 공백, 0.5em)
+  for (const c of marker) em += charWidthEm1000(c.codePointAt(0)!)
+  return Math.round((em / 1000) * bodyHeight)
+}
+
+// ─── 단계별 들여쓰기(left/내어쓰기 indent) 계산 ──────
+
+export interface LevelIndent {
+  /** 문단 왼쪽 여백(HWPUNIT) — 단계별 누적 들여쓰기. 첫 줄 부호가 여기서 시작 */
+  left: number
+  /**
+   * 첫 줄 들여쓰기(HWPUNIT, hc:intent). **음수 = 내어쓰기**: 첫 줄은 left에서 시작하고
+   * 둘째 줄부터 |intent| 만큼 오른쪽으로 들여쓴다(= 내용 첫 글자에 정렬). 한컴 실측 의미.
+   */
+  indent: number
+}
+
+/**
+ * depth(0~)별 들여쓰기 계산. (한컴 OWPML 실측 모델)
+ * - left = depth × bodyHeight (단계마다 한글 1자=2타씩 누적 — 첫 줄 부호 위치)
+ * - intent = -(단계 대표 부호의 실제 렌더폭) (음수 내어쓰기 → 둘째 줄이
+ *   left+|intent| = 첫 줄 내용 첫 글자에 정렬). 부호폭은 markerWidth로 산출하므로
+ *   '1.'(좁음)·'가.'(넓음)이 각각 자기 폭만큼만 내어써진다(실측 한컴 공문서와 동일).
+ */
+export function levelIndent(
+  depth: number,
+  bodyHeight: number,
+  numbering: GongmunNumbering,
+  sizes: GaejosikSizeOverrides = {},
+  bullet2: Bullet2 = "○",
+  asteriskThird = false,
+  markerHeight: number = bodyHeight,
+): LevelIndent {
+  // 개조식은 실측 양식의 들여쓰기 체계(□ 0 / ○ 1자 / - 1.5자 …)를 따른다.
+  if (numbering === "gaejosik") return gaejosikLevelIndent(depth, bodyHeight, sizes, bullet2)
+  // 같은 단계는 부호 종류가 일정하므로 대표 부호(순번 0)의 폭으로 내어쓰기를 정한다.
+  // 부호폭은 그 단계의 글자 크기(levels 오버라이드면 그 크기)로 — 둘째 줄이 내용 첫 글자에 정렬
+  const marker = numbering === "report" ? reportMarker(depth, bullet2, asteriskThird) : standardMarker(depth, 0)
+  return { left: Math.round(depth * bodyHeight), indent: -markerWidth(marker, markerHeight) }
+}
+
+// ─── 단일 형제 부호 생략(2-pass) ─────────────────────
+
+/**
+ * 리스트 항목들의 (depth) 시퀀스를 받아, 각 항목의 '형제 수'를 계산.
+ * 규정: 항목이 하나만 있으면 부호를 부여하지 않는다.
+ * 같은 부모 아래 같은 depth 형제가 1개뿐이면 true(=부호 생략) 반환 배열.
+ * (불릿 'report' 모드에는 적용하지 않는다 — 호출 측에서 분기.)
+ *
+ * 입력은 하나의 연속된 리스트(run)의 depth 배열.
+ */
+export function computeSuppression(depths: number[]): boolean[] {
+  // groupKey(부모 경로) → 형제 수
+  const counts = new Map<string, number>()
+  const keys: string[] = []
+  const path: number[] = [] // path[d] = depth d에서 현재까지 등장한 형제 순번
+  for (const depth of depths) {
+    path.length = depth + 1
+    path[depth] = (path[depth] ?? 0) + 1
+    const parentKey = path.slice(0, depth).join(".") + "|" + depth
+    keys.push(parentKey)
+    counts.set(parentKey, (counts.get(parentKey) ?? 0) + 1)
+  }
+  return keys.map((k) => (counts.get(k) ?? 0) <= 1)
+}
+
+// ─── 마커 카운터(렌더 시 형제 순번 추적) ──────────────
+
+/**
+ * 리스트 run을 순회하며 depth별 카운터를 유지, 각 항목의 마커 문자열을 산출.
+ * 상위 depth가 진행되면 하위 카운터는 리셋된다.
+ */
+export class GongmunNumberer {
+  private counts: number[] = []
+  constructor(
+    private numbering: GongmunNumbering,
+    private bullet2: Bullet2 = "○",
+    private asteriskThird = false,
+  ) {}
+
+  /** depth 항목 하나에 대한 마커. suppress=true면 빈 문자열(부호 없음) */
+  next(depth: number, suppress: boolean): string {
+    // 하위 depth 카운터 리셋
+    this.counts.length = depth + 1
+    const n = (this.counts[depth] ?? 0)
+    this.counts[depth] = n + 1
+    if (suppress) return ""
+    if (this.numbering === "gaejosik") return gaejosikMarker(depth, this.bullet2)
+    return this.numbering === "report"
+      ? reportMarker(depth, this.bullet2, this.asteriskThird)
+      : standardMarker(depth, n)
+  }
+
+  reset(): void {
+    this.counts = []
+  }
+}
+
+// ─── HWPUNIT 환산 ───────────────────────────────────
+
+// 정의는 geometry.ts SSOT로 이동 (v4.0.5 P0-3) — 기존 소비처 호환 재수출
+export { mmToHwpunit } from "./geometry.js"

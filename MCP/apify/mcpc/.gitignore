@@ -1,0 +1,44 @@
+# IDE
+.idea
+.vscode
+.claude
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test coverage
+test/coverage/e2e
+test/coverage/unit
+test/coverage/merged
+test/runs/
+
+# Conformance test output (written to CWD by @modelcontextprotocol/conformance)
+results/
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+.mcpc/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
+
+# Per-feature VHS recordings (docs/vhs/*.gif) are committed so they're easy to
+# find and reuse. Only the hero's raw output is ignored — it's committed at
+# docs/images/mcpc-demo.gif (the copy embedded in the README).
+docs/vhs/mcpc-demo.gif

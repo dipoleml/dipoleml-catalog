@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mcpware.cross-code-organizer",
+  "type": "mcp",
+  "name": "Cross Code Organizer",
+  "slug": "cross-code-organizer",
+  "vendor": "mcpware",
+  "description": "Cross-Code Organizer (formerly DipoleML Organizer): cross-harness config dashboard for DipoleML, Codex CLI, MCP servers, skills, memories, agents, sessions, security scanning, context budget, and backups.",
+  "version": "0.20.0",
+  "homepage": "https://github.com/mcpware/cross-code-organizer",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-coding-tools",
+    "ai-config-dashboard",
+    "claude-code-organizer",
+    "claude-code-plugin",
+    "claude-memory",
+    "claude-skills",
+    "codex-cli",
+    "context-budget"
+  ],
+  "tags": [
+    "ai-coding-tools",
+    "ai-config-dashboard",
+    "ai-tools",
+    "claude",
+    "claude-code",
+    "claude-code-organizer",
+    "claude-code-plugin",
+    "claude-memory",
+    "claude-skills",
+    "codex-cli",
+    "context-budget",
+    "cross-code-organizer",
+    "cross-harness",
+    "dashboard",
+    "mcp",
+    "mcp-security",
+    "mcp-server",
+    "model-context-protocol",
+    "security-scanner",
+    "tool-poisoning"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mcpware",
+    "brandName": "mcpware",
+    "source": "https://github.com/mcpware.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:17Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mcpware/cross-code-organizer",
+    "url": "https://github.com/mcpware/cross-code-organizer",
+    "commit": "39cf32f458a42350e566b66704d200a5b9d4d2aa",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 385,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:57Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Cross Code Organizer | Cross-Code Organizer (formerly Claude Code Organizer): cross-harness config dashboard for Claude Code, Codex CLI, MCP servers, skills, memories, agents, sessions, security scanning, context budget, and backups.",
+        "after": "Cross Code Organizer | Cross-Code Organizer (formerly DipoleML Organizer): cross-harness config dashboard for DipoleML, Codex CLI, MCP servers, skills, memories, agents, sessions, security scanning, context budget, and backups.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Inspect and organize Claude Code memories, skills, MCP servers, hooks, and project context from a local dashboard",
+        "after": "Inspect and organize DipoleML memories, skills, MCP servers, hooks, and project context from a local dashboard",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./bin/cli.mjs"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mcpware/cross-code-organizer"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "bin/cli.mjs"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "@mcpware/cross-code-organizer"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

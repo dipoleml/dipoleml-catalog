@@ -1,0 +1,50 @@
+#!/usr/bin/env sh
+
+set -eu
+
+echo "[pre-push] 린트 검사 시작"
+npm run lint
+
+echo "[pre-push] 마크다운 포맷 검사 시작"
+CHANGED_MARKDOWN_FILES=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ -z "$local_ref" ]; then
+    continue
+  fi
+
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    range="${local_sha}^!"
+  elif ! git rev-parse --verify "${remote_sha}^{commit}" >/dev/null 2>&1; then
+    range="${local_sha}^!"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  files="$(git diff --name-only --diff-filter=ACMRT "$range" -- '*.md' || true)"
+  if [ -n "$files" ]; then
+    CHANGED_MARKDOWN_FILES="${CHANGED_MARKDOWN_FILES}
+${files}"
+  fi
+done
+
+MARKDOWN_FILES="$(printf '%s\n' "$CHANGED_MARKDOWN_FILES" | sed '/^$/d' | sort -u)"
+if [ -n "$MARKDOWN_FILES" ]; then
+  CHECK_TARGETS=""
+  for file in $MARKDOWN_FILES; do
+    if [ -L "$file" ]; then
+      continue
+    fi
+    CHECK_TARGETS="${CHECK_TARGETS}
+${file}"
+  done
+
+  CHECK_TARGETS="$(printf '%s\n' "$CHECK_TARGETS" | sed '/^$/d')"
+  if [ -n "$CHECK_TARGETS" ]; then
+    echo "$CHECK_TARGETS" | xargs npx prettier --check
+  fi
+fi
+
+echo "[pre-push] 코드 커버리지 검사 시작"
+npm run test:coverage
+
+echo "[pre-push] 모든 검사 통과"

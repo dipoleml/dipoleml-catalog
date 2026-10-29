@@ -1,0 +1,153 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.postman/postman-mcp-server",
+  "title": "Postman MCP Server",
+  "description": "Give your AI agents trusted access to the full Postman platform.",
+  "websiteUrl": "https://www.postman.com/product/mcp-server/",
+  "repository": {
+    "url": "https://github.com/postmanlabs/postman-mcp-server",
+    "source": "github"
+  },
+  "version": "2.14.0",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/postmanlabs/postman-mcp-server/main/icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "834x834"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@postman/postman-mcp-server",
+      "version": "2.14.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "A valid Postman API key.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "POSTMAN_API_KEY"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/postmanlabs/postman-mcp-server/releases/download/v2.14.0/postman-mcp-server-minimal.mcpb",
+      "fileSha256": "d21682282ab6655dccc80a8bf21f6e435e2e9f403a51b3c59d1d03293a4d1340",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "A valid Postman API key.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "POSTMAN_API_KEY"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/postmanlabs/postman-mcp-server/releases/download/v2.14.0/postman-mcp-server-full.mcpb",
+      "fileSha256": "98ee9c827e61172c86d701f371b27840b0dae79d31b09988a35ee2cfae4e4ccb",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "A valid Postman API key.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "POSTMAN_API_KEY"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/postmanlabs/postman-mcp-server/releases/download/v2.14.0/postman-mcp-server-code.mcpb",
+      "fileSha256": "3fca5cd3f09c1b3715af4251036f895bd5f8e96ddcb4916a70c0921d11344066",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "A valid Postman API key.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "POSTMAN_API_KEY"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/postmanlabs/postman-mcp-server/releases/download/v2.14.0/postman-mcp-server-learn.mcpb",
+      "fileSha256": "a7875cee7cedc59609bd10fb9a32fa156e51d0e79e663d00c204a5f4810c38b2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "A valid Postman API key.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "POSTMAN_API_KEY"
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.postman.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "A Bearer token and a valid Postman API key for authentication.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.postman.com/minimal",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "A Bearer token and a valid Postman API key for authentication.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.eu.postman.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "A Bearer token and a valid Postman API key for authentication.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    },
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.eu.postman.com/minimal",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "A Bearer token and a valid Postman API key for authentication.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

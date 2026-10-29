@@ -1,0 +1,391 @@
+# HTTP mode: run coolify-mcp as a container inside Coolify
+
+Deploy this server next to the Coolify instance it manages, then connect
+claude.ai, Claude Desktop or Claude Code to it over Streamable HTTP with
+OAuth 2.1. Nothing runs on your laptop, and your Coolify API token never
+leaves the container.
+
+This guide comes from a real deployment on a live estate, including the
+mistakes we made. Claude Desktop's OAuth connector completed the whole flow
+against it.
+
+stdio remains the default transport and is unchanged. HTTP mode is opt-in,
+and it is a bigger decision than it looks: you are putting a service on the
+internet that brokers control of your infrastructure. That is the same trust
+model as exposing the Coolify API itself, but say it out loud before you do
+it.
+
+## Install in five minutes
+
+Everything happens in the Coolify UI. One environment variable selects HTTP
+mode. There are no command overrides and no compose file to write.
+
+1. **+ New Resource → Public Repository**
+   - Repository: `https://github.com/StuMason/coolify-mcp`
+   - Branch: `main` (HTTP mode ships on `main` since 3.0.0).
+   - Build Pack: **Dockerfile**
+   - Ports Exposes: **`8080`**
+2. **Domain:** set one, **with the https scheme**: `https://mcp.example.com`.
+   Saved as `http://`, the proxy never gets a TLS router and the site 503s.
+   Do **not** put Cloudflare Access or another login wall in front of it.
+   MCP clients cannot log in through one, and the server carries its own
+   auth.
+3. **Environment tab**, four variables:
+
+   | Variable               | Value                                         |
+   | ---------------------- | --------------------------------------------- |
+   | `MCP_TRANSPORT`        | `http`                                        |
+   | `COOLIFY_BASE_URL`     | See reachability note below                   |
+   | `COOLIFY_ACCESS_TOKEN` | A **fresh** token, Keys & Tokens → API tokens |
+   | `MCP_PUBLIC_URL`       | The domain from step 2 (bare domain is fine)  |
+
+4. **Storages tab:** add a **volume** mounted at **`/data`**. Without it,
+   every redeploy wipes OAuth state and all your clients have to log in
+   again.
+5. **Health check:** path **`/healthz`**, port **`8080`**.
+6. **Deploy.** The log must end with `coolify-mcp http mode on :8080` and the
+   app goes `running:healthy`. If it prints `cannot start`, it lists every
+   missing setting with instructions. Fix them all in one pass and redeploy.
+
+Verify from anywhere:
+
+```bash
+curl https://mcp.example.com/healthz
+# {"status":"ok"}
+curl https://mcp.example.com/.well-known/oauth-authorization-server
+# JSON with "issuer": "https://mcp.example.com"
+```
+
+### `COOLIFY_BASE_URL` must be reachable from inside the container
+
+The container calls the Coolify API, and the authorize page validates tokens
+against it. If your Coolify dashboard sits behind Cloudflare Access or
+another auth proxy, those calls hit the proxy and fail. Enable **Connect To
+Predefined Network** on the resource and use the internal address:
+
+```text
+COOLIFY_BASE_URL=http://coolify:8080
+```
+
+A Coolify with no auth proxy in front can use its public URL.
+
+With an internal `COOLIFY_BASE_URL`, also set `COOLIFY_UI_URL` to the address
+you open the dashboard at (`https://coolify.example.com`). `coolify_url` builds
+dashboard links on it; without it they are built on the internal address and
+say so.
+
+### Coolify behind Cloudflare Access
+
+If the internal-network route is not available (the MCP container runs on a
+different host from Coolify) and your dashboard sits behind Cloudflare
+Access, use an Access **service token** — Cloudflare's machine-to-machine
+path. Without one, every API call 302s to the SSO page while `/healthz`
+stays green, which took down our own reference deployment before this
+existed.
+
+1. In Zero Trust → Access → Service Auth → **Create Service Token**. Note
+   the Client ID and Client Secret.
+2. In the Access application protecting your Coolify domain, add a policy
+   with action **Service Auth** that includes that token.
+3. Set both variables on the MCP container:
+
+   ```text
+   CF_ACCESS_CLIENT_ID=<the client id>
+   CF_ACCESS_CLIENT_SECRET=<the client secret>
+   ```
+
+The pair rides on every request to `COOLIFY_BASE_URL` — tool calls and the
+authorize page's token validation alike — and on nothing else. Setting one
+variable without the other is a startup error. The secret is treated as a
+credential: never logged, never echoed.
+
+Requests to Coolify never follow a redirect. If Access (or anything else in
+front of Coolify) answers with one, the tool call fails with an error naming
+the host it pointed at, rather than returning the login page as a result or
+sending the service token on to another host. An `http://` base URL that
+redirects to `https://` fails the same way; use the `https://` address.
+
+One more Cloudflare Access warning while you are here: Access in front of
+the Coolify **dashboard** breaks Coolify's own websockets unless you exempt
+them, and with Livewire down the UI's env-var Save can silently store
+nothing. If you "saved" a variable and the container disagrees, set it via
+the Coolify API instead.
+
+## Or: have your assistant install it
+
+Already running coolify-mcp over stdio? It can deploy its own HTTP mode.
+Paste this at your assistant:
+
+```text
+Deploy the coolify-mcp HTTP container on my Coolify:
+create an application from the public repo https://github.com/StuMason/coolify-mcp,
+branch main, dockerfile build pack, port 8080, domain https://mcp.MYDOMAIN.
+Env vars: MCP_TRANSPORT=http, MCP_PUBLIC_URL=mcp.MYDOMAIN,
+COOLIFY_BASE_URL and COOLIFY_ACCESS_TOKEN as I give them to you.
+Add a persistent volume at /data, enable a health check on /healthz port
+8080, deploy it, then curl /healthz and the oauth-authorization-server
+metadata to prove it's up.
+```
+
+The reference deployment this guide describes was configured that way: the
+domain fix, the health check, the volume and both deploys went through the
+`application`, `storages` and `deploy` tools. Upgrades take the same path.
+After a new release, tell it to redeploy the app.
+
+## Connect your clients
+
+Add `https://mcp.example.com/mcp` as a remote MCP server. The client
+discovers the OAuth endpoints itself and registers by whichever mechanism it
+speaks: a Client ID Metadata Document (the client's `client_id` is an https
+URL and the server fetches its registration from there, through the same
+SSRF guard as every other outbound fetch) or, for older clients, dynamic
+registration at `/register`. There is nothing to pre-configure. If you ship
+a client with a metadata document, its URL has to stay up: the server
+re-fetches it hourly, tolerates a day of the host being down by keeping the
+last good copy, and after that clients re-authorize.
+
+- **Claude Desktop / claude.ai:** Settings → Connectors → Add custom
+  connector → paste the `/mcp` URL. Your browser opens the authorize page.
+  Paste a Coolify API token, done.
+- **Claude Code:**
+
+  ```bash
+  claude mcp add --transport http coolify-remote https://mcp.example.com/mcp
+  ```
+
+  Then `/mcp` → authenticate.
+
+## How authentication works
+
+- **Your Coolify API token is container configuration**
+  (`COOLIFY_ACCESS_TOKEN`), exactly as in stdio mode. It stays server-side.
+  No client ever receives it.
+- **OAuth 2.1 authenticates the human.** The authorize page asks for your own
+  Coolify API token as proof that you have access to this Coolify instance.
+  The container validates it against `GET /teams/current`, then discards it.
+  It is never stored and never used to act. The page tells you to check the
+  address bar before pasting: only your own server should ever ask for a
+  Coolify token.
+- The client ends up holding a short-lived, revocable MCP token bound to this
+  server. Access tokens last 1 hour and refresh silently. Refresh tokens last
+  8 hours, so someone removed from Coolify loses MCP access within hours.
+- There is **no secrets database.** The `/data` volume holds dynamically
+  registered clients and token hashes, nothing else. Clients registered by
+  metadata document are cached in memory for an hour and never written to
+  disk, so the volume no longer grows by one client per fresh connection.
+
+Everyone who authorizes against a container gets that container's token
+privileges. For a privilege split, run two containers: one with a read-write
+token, one with `MCP_READONLY=true`.
+
+## Destructive operations require a human
+
+In HTTP mode the [elicitation guard](security.md#ask-before-it-hurts) fails closed. Destructive tools
+(`stop_all_apps`, deletes, key overwrites) refuse unless the client supports
+elicitation, so a human can confirm in client UI. Clients without elicitation
+(claude.ai and Claude Desktop today) get the read surface and routine
+operations like deploys, restarts and env vars, and a clear refusal on the
+dangerous ones. The refusal is deliberate. A model filling in `confirm: true`
+is the model confirming with itself, and that is not a control on an
+internet-facing service.
+
+## Configuration reference
+
+| Variable                  | Default                  | Purpose                                                                             |
+| ------------------------- | ------------------------ | ----------------------------------------------------------------------------------- |
+| `MCP_TRANSPORT`           | stdio                    | `http` selects HTTP mode                                                            |
+| `COOLIFY_BASE_URL`        | required                 | The Coolify instance to manage                                                      |
+| `COOLIFY_ACCESS_TOKEN`    | required                 | The token the container acts with                                                   |
+| `COOLIFY_UI_URL`          | `COOLIFY_BASE_URL`       | Dashboard address for `coolify_url` links, when the API URL is internal             |
+| `MCP_PUBLIC_URL`          | required                 | Public https URL of this container                                                  |
+| `MCP_PORT` (or `PORT`)    | `8080`                   | Listen port                                                                         |
+| `MCP_HOST`                | all interfaces           | Listen address; `127.0.0.1` keeps it on loopback                                    |
+| `MCP_READONLY`            | `false`                  | Register only read-only tools                                                       |
+| `MCP_ACCESS_TOKEN_TTL`    | `3600`                   | Access token lifetime, seconds                                                      |
+| `MCP_REFRESH_TOKEN_TTL`   | `28800`                  | Refresh token lifetime, seconds                                                     |
+| `MCP_OAUTH_STATE_FILE`    | `/data/oauth-state.json` | OAuth state persistence; set it [outside a container](#running-outside-a-container) |
+| `MCP_REQUEST_STATE_KEY`   | generated at startup     | HMAC key for confirmation state (>=32 bytes)                                        |
+| `MCP_ALLOW_INSECURE_HTTP` | unset                    | Local development only: allow a non-https public URL                                |
+| `MCP_REDIRECT_HOSTS`      | unset (any host)         | Comma-separated hosts clients may redirect to; [hardening](#hardening-registration) |
+| `MCP_CLIENT_IP_HEADER`    | `X-Forwarded-For`        | Header your proxy sets to the caller's IP, e.g. `cf-connecting-ip`                  |
+| `CF_ACCESS_CLIENT_ID`     | unset                    | Cloudflare Access service token id (pair required)                                  |
+| `CF_ACCESS_CLIENT_SECRET` | unset                    | Cloudflare Access service token secret (pair req.)                                  |
+| `COOLIFY_INSTANCES`       | unset                    | JSON array of extra instances ([fleet mode](fleet.md))                              |
+| `COOLIFY_MCP_AUDIT`       | `on` in HTTP mode        | `off` disables the [audit log](#audit-log)                                          |
+
+### Hardening registration
+
+Client registration (`POST /register`) is open by default, because MCP clients
+register themselves the first time they connect. Anyone can register a client
+with any https redirect, so the consent page shows where approving sends
+access, next to the name the client chose for itself.
+
+On a server only you use, set `MCP_REDIRECT_HOSTS` to the clients you
+actually connect from. For claude.ai and Claude Desktop that is
+`claude.ai,claude.com`. Loopback redirects (Claude Code and other local
+clients) are always allowed, because a code sent there lands on the machine of
+the person who approved it. The list is exact hostnames, and it also applies
+to clients registered before it was set.
+
+Registration is rate limited per caller and to 30 an hour in total. A
+registered client nobody approves within a day is removed. The per-caller
+limits on registration, authorization and token exchange key on the first
+`X-Forwarded-For` hop, which the caller controls unless your proxy overwrites
+it. Behind Cloudflare, set `MCP_CLIENT_IP_HEADER=cf-connecting-ip`, and only
+if the origin is not reachable except through Cloudflare.
+
+### Running outside a container
+
+Unset, `MCP_HOST` means every interface. In a container that is what you
+want: the platform's proxy reaches the server over the container network.
+Run `dist/http.js` directly on a workstation and the same default makes it
+reachable from every network the machine joins. `/mcp` still demands OAuth,
+but the authorize page, registration and health endpoints answer anyone who
+can reach the port, and a process holding a Coolify token has no reason to be
+listening on a shared network. Set `MCP_HOST=127.0.0.1` (or `::1`) and the
+startup line confirms the address, e.g. `coolify-mcp http mode on 127.0.0.1:8080`.
+
+The OAuth state file needs the same treatment. Its default,
+`/data/oauth-state.json`, is a directory the image creates and mounts as a
+volume; on a workstation it does not exist, or belongs to root. Set
+`MCP_OAUTH_STATE_FILE` to a path your user can write, e.g.
+`MCP_OAUTH_STATE_FILE=./oauth-state.json`. The server checks this at startup
+and refuses to start otherwise, naming the path, so the failure cannot wait
+for the first client to register. Should the directory become unwritable
+while the server is running, a failed write logs one line, `/healthz`
+reports `"persistence": "degraded"` until a write succeeds again, and the
+server keeps serving from memory; what is lost is state across the next
+restart, not the running server.
+
+### Running a fleet over HTTP
+
+`COOLIFY_INSTANCES` works in HTTP mode exactly as in stdio; the
+[fleet guide](fleet.md) covers the format and what changes. One rule matters
+more here: **a fleet is one trust domain.** Proof of access at authorize time
+is validated against the default instance only — proving you belong to the
+default proves you belong to the fleet. Every instance in the list must
+therefore belong to the same owner. An agency with a Coolify per client runs
+one container per client; the isolation is the deployment, not the OAuth
+layer.
+
+## Audit log
+
+Every tool call writes one JSON line to stderr, so `docker logs` on the
+container is the record of what the agent did. It is on by default in HTTP mode
+and off over stdio; `COOLIFY_MCP_AUDIT=off` or `=on` overrides either way.
+
+```json
+{
+  "audit": "tools/call",
+  "at": "2026-09-10T11:02:44.318Z",
+  "tool": "application",
+  "action": "delete",
+  "uuids": ["wrcooc9efp6gmp9z3r2foggo"],
+  "outcome": "refused",
+  "reason": "declined",
+  "duration_ms": 4211,
+  "client_id": "mcp_client_9f2c"
+}
+```
+
+`outcome` is `ok`, `error`, or `refused`. A refusal is a decision rather than a
+fault, and `reason` says which one:
+
+| `reason`         | What happened                                                      |
+| ---------------- | ------------------------------------------------------------------ |
+| `declined`       | A human saw the confirmation and said no, or cancelled it          |
+| `no_elicitation` | The client cannot be asked, so the destructive guard failed closed |
+| `validation`     | The arguments did not satisfy the handler (unknown instance, say)  |
+
+**Arguments and responses are never logged, and that is enforced rather than
+intended.** Identifiers are collected from a closed allowlist of key names and
+checked for identifier shape, so a future argument called `password` cannot
+reach a log line by being added somewhere else in the codebase. Adding a new
+argument to the log is a deliberate edit to that allowlist. This matters because
+`env_vars` carries secret values in its arguments and responses carry everything
+the secret masking exists to hide; an audit log that quietly became a second
+copy of those would be a worse leak than the one it was written to prevent.
+
+One limit worth knowing: a call whose arguments fail the tool's own schema is
+rejected by the MCP SDK before the server sees it, so it produces no line.
+Nothing ran and no credential was used, but the call is absent from the record.
+
+## Troubleshooting: every one of these happened to us
+
+**Container restart-loops, log shows nothing useful.** You are deploying a
+pre-3.0 ref with no HTTP mode: the container starts the stdio server, waits
+on stdin forever, fails the health check, and Coolify restarts it. Set the
+branch to `main` (3.0.0 or later) and redeploy.
+
+**`https://` 503s, `http://` 404s.** The domain was saved with the `http://`
+scheme, so the proxy created no TLS router. Change the Domains field to
+`https://` and redeploy. Labels only regenerate on deploy.
+
+**Status stuck on `unknown`.** The health check is off, or points at `/`.
+Set path `/healthz`, port `8080`.
+
+**Log says `cannot start` with a list.** Exactly what it says: every missing
+or malformed variable, with instructions. Fix the lot, redeploy once.
+
+**Authorize page rejects a token you know is good.** The container cannot
+reach Coolify. See the `COOLIFY_BASE_URL` reachability note. The token is
+validated by the container, not by your browser.
+
+**Every tool call fails while `/healthz` stays green.** The health check
+never touches Coolify, so a green check proves only that the container is
+up. If Coolify sits behind Cloudflare Access, see the service-token section
+above — the wire signature is a 302 to `<team>.cloudflareaccess.com`.
+
+**Clients ask to log in again after every deploy.** The `/data` volume is
+missing, so OAuth state dies with the container. Add it under Storages.
+
+## Security posture
+
+- PKCE (S256) required on every authorization; `plain` is rejected.
+- Tokens are opaque and bound to this server (RFC 8707). The state file
+  stores SHA-256 hashes, never tokens. Every redirect carries the RFC 9207
+  `iss` parameter.
+- Refresh tokens rotate on every use. A replayed refresh token revokes the
+  whole grant chain.
+- Rate limiting on `/token`, `/register` and the authorization form. 5MB
+  request-body cap. Receive timeouts.
+- Every tool call is logged to stdout as one JSON line (client id, tool,
+  time), readable in Coolify's log view.
+- Secrets masking is identical to stdio mode. `reveal: true` is no easier to
+  reach remotely than locally, and destructive operations are harder.
+- Refuses to boot with a plain-http public URL unless
+  `MCP_ALLOW_INSECURE_HTTP=true` is set explicitly.
+- The test suite logs in through the full OAuth flow with the official MCP
+  client SDK and runs an MCP session against this server. A change that
+  breaks a real client fails CI before it ships.
+
+## Cache hints on protocol revision 2026-07-28
+
+Clients on this revision are told how long they may reuse list results. The
+tool, prompt and resource-template lists say five minutes: they only change when
+the server is upgraded, and because the revision has no sessions, that TTL is
+also the longest a client keeps an old tool list after an in-place upgrade or
+while replicas run different versions. `resources/list` names your applications
+and says one minute; a listing taken while an instance was unreachable is kept
+for that minute too. Resource reads are never cached. Every hint is `private`.
+2025-era clients see none of this.
+
+## Confirmation state on protocol revision 2026-07-28
+
+Clients on this revision confirm destructive operations across two round trips
+(see [security.md](security.md)). The server seals what it showed you into a
+signed token that the client echoes back, so an approval cannot be detached from
+the question it answered.
+
+That token is signed with `MCP_REQUEST_STATE_KEY`. Leave it unset and a key is
+generated when the process starts, which is fine for a single container: the
+only cost is that a confirmation in flight across a restart is refused and has
+to be asked again. Set it, to at least 32 bytes, if you run more than one
+replica or you would rather a redeploy did not interrupt someone mid-answer.
+
+```bash
+openssl rand -hex 32
+```
+
+It is not a Coolify credential and grants no access on its own. Rotating it
+invalidates confirmations in flight and nothing else.

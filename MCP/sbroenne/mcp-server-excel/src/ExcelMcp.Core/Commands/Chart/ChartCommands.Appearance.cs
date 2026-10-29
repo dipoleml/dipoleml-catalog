@@ -1,0 +1,1289 @@
+using Excel = Microsoft.Office.Interop.Excel;
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Models;
+
+namespace Sbroenne.ExcelMcp.Core.Commands.Chart;
+
+/// <summary>
+/// Chart appearance operations - type, title, axes, legend, style.
+/// </summary>
+public partial class ChartCommands
+{
+    /// <inheritdoc />
+    public OperationResult SetChartType(IExcelBatch batch, string chartName, ChartType chartType)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            try
+            {
+                // Set chart type (works for both Regular and PivotCharts)
+                findResult.Chart.ChartType = (Excel.XlChartType)chartType;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetTitle(IExcelBatch batch, string chartName, string title)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.ChartTitle? chartTitle = null;
+            try
+            {
+                // Set title (empty string hides title)
+                if (string.IsNullOrEmpty(title))
+                {
+                    findResult.Chart.HasTitle = false;
+                }
+                else
+                {
+                    findResult.Chart.HasTitle = true;
+                    chartTitle = findResult.Chart.ChartTitle;
+                    chartTitle.Text = title;
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                ComUtilities.Release(ref chartTitle);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetAxisTitle(
+        IExcelBatch batch,
+        string chartName,
+        ChartAxisType axis,
+        string title)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? targetAxis = null;
+            Excel.AxisTitle? axisTitle = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+                var (axisType, axisGroup) = MapAxisType(axis);
+                targetAxis = axes.Item(axisType, axisGroup);
+
+                // Set axis title (empty string hides title)
+                if (string.IsNullOrEmpty(title))
+                {
+                    targetAxis.HasTitle = false;
+                }
+                else
+                {
+                    targetAxis.HasTitle = true;
+                    axisTitle = ((Excel.Axis)targetAxis).AxisTitle;
+                    axisTitle.Text = title;
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                ComUtilities.Release(ref axisTitle);
+                ComUtilities.Release(ref targetAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public string GetAxisNumberFormat(
+        IExcelBatch batch,
+        string chartName,
+        ChartAxisType axis)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? targetAxis = null;
+            Excel.TickLabels? tickLabels = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+
+                var (axisType, axisGroup) = MapAxisType(axis);
+                targetAxis = axes.Item(axisType, axisGroup);
+                tickLabels = targetAxis.TickLabels;
+
+                var labels = (Excel.TickLabels)tickLabels;
+                var invariantKeywords = labels.NumberFormat ?? "General";
+                var storedFormat = Sbroenne.ExcelMcp.ComInterop.Formatting.NumberFormatTranslator.ContainsNamedColor(invariantKeywords)
+                    ? invariantKeywords
+                    : (string?)(object?)labels.NumberFormatLocal ?? "General";
+                return ctx.FormatTranslator.TranslateFromLocale(storedFormat);
+            }
+            finally
+            {
+                ComUtilities.Release(ref tickLabels!);
+                ComUtilities.Release(ref targetAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetAxisNumberFormat(
+        IExcelBatch batch,
+        string chartName,
+        ChartAxisType axis,
+        string numberFormat)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? targetAxis = null;
+            Excel.TickLabels? tickLabels = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+
+                var (axisType, axisGroup) = MapAxisType(axis);
+                targetAxis = axes.Item(axisType, axisGroup);
+                tickLabels = targetAxis.TickLabels;
+
+                // Set the number format for axis tick labels
+                if (Sbroenne.ExcelMcp.ComInterop.Formatting.NumberFormatTranslator.ContainsNamedColor(numberFormat))
+                {
+                    ((Excel.TickLabels)tickLabels).NumberFormat = ctx.FormatTranslator.TranslateForChart(
+                        NumberFormatLiterals.PreserveCurrencyLiterals(numberFormat));
+                }
+                else
+                {
+                    ((Excel.TickLabels)tickLabels).NumberFormatLocal = ctx.FormatTranslator.TranslateToLocale(numberFormat);
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                ComUtilities.Release(ref tickLabels!);
+                ComUtilities.Release(ref targetAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult ShowLegend(
+        IExcelBatch batch,
+        string chartName,
+        bool visible,
+        LegendPosition? legendPosition = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Legend? legend = null;
+
+            try
+            {
+                // Show/hide legend
+                findResult.Chart.HasLegend = visible;
+
+                // Set position if provided and legend is visible
+                if (visible && legendPosition.HasValue)
+                {
+                    legend = findResult.Chart.Legend;
+                    legend.Position = (Excel.XlLegendPosition)legendPosition.Value;
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                ComUtilities.Release(ref legend!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetStyle(IExcelBatch batch, string chartName, int styleId)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            try
+            {
+                // Validate range (Excel supports styles 1-48)
+                if (styleId < 1 || styleId > 48)
+                {
+                    var hint = styleId == 0 ? " (was the 'style_id' parameter included?)" : "";
+                    throw new ArgumentException($"Chart style ID must be between 1 and 48. Provided: {styleId}{hint}", nameof(styleId));
+                }
+
+                // Set chart style
+                findResult.Chart.ChartStyle = styleId;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetPlacement(
+        IExcelBatch batch,
+        string chartName,
+        int placement,
+        bool? printObject = null,
+        bool? locked = null,
+        bool? roundedCorners = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.ChartObject? chartObject = null;
+            try
+            {
+                // Validate placement value (xlMoveAndSize=1, xlMove=2, xlFreeFloating=3)
+                if (placement < 1 || placement > 3)
+                {
+                    throw new ArgumentException(
+                        $"Placement must be 1 (move and size with cells), 2 (move only), or 3 (free floating). Provided: {placement}",
+                        nameof(placement));
+                }
+
+                chartObject = (Excel.ChartObject)findResult.Chart.Parent;
+                chartObject.Placement = placement;
+
+                if (printObject.HasValue)
+                    chartObject.PrintObject = printObject.Value;
+
+                if (locked.HasValue)
+                    chartObject.Locked = locked.Value;
+
+                if (roundedCorners.HasValue)
+                    chartObject.RoundedCorners = roundedCorners.Value;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath }; // Void operation completed
+            }
+            finally
+            {
+                ComUtilities.Release(ref chartObject);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    // === DATA LABELS ===
+
+    /// <inheritdoc />
+    public OperationResult SetDataLabels(
+        IExcelBatch batch,
+        string chartName,
+        bool? showValue = null,
+        bool? showPercentage = null,
+        bool? showSeriesName = null,
+        bool? showCategoryName = null,
+        bool? showBubbleSize = null,
+        string? separator = null,
+        DataLabelPosition? labelPosition = null,
+        int? seriesIndex = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.SeriesCollection? seriesCollection = null;
+            Excel.Series? series = null;
+            Excel.DataLabels? dataLabels = null;
+
+            try
+            {
+                seriesCollection = (Excel.SeriesCollection)findResult.Chart.SeriesCollection();
+                int seriesCount = seriesCollection.Count;
+
+                if (seriesCount == 0)
+                {
+                    throw new InvalidOperationException($"Chart '{chartName}' has no data series.");
+                }
+
+                // Treat 0 as "all series" (MCP clients may send 0 when parameter is omitted)
+                if (seriesIndex == 0) seriesIndex = null;
+
+                // Determine which series to configure
+                int startIndex = seriesIndex ?? 1;
+                int endIndex = seriesIndex ?? seriesCount;
+
+                if (seriesIndex.HasValue && (seriesIndex.Value < 1 || seriesIndex.Value > seriesCount))
+                {
+                    throw new ArgumentException($"Series index {seriesIndex.Value} is out of range. Chart has {seriesCount} series (1-based).");
+                }
+
+                // Validate every target before changing any series in a combination chart.
+                if (labelPosition is DataLabelPosition.InsideEnd or DataLabelPosition.InsideBase or DataLabelPosition.OutsideEnd)
+                {
+                    for (int i = startIndex; i <= endIndex; i++)
+                    {
+                        series = seriesCollection.Item(i);
+                        var chartType = series.ChartType;
+                        if (chartType is Excel.XlChartType.xlLine or Excel.XlChartType.xlLineMarkers
+                            or Excel.XlChartType.xlLineStacked or Excel.XlChartType.xlLineStacked100
+                            or Excel.XlChartType.xlLineMarkersStacked or Excel.XlChartType.xlLineMarkersStacked100
+                            or Excel.XlChartType.xl3DLine or Excel.XlChartType.xlXYScatter
+                            or Excel.XlChartType.xlXYScatterLines or Excel.XlChartType.xlXYScatterLinesNoMarkers
+                            or Excel.XlChartType.xlXYScatterSmooth or Excel.XlChartType.xlXYScatterSmoothNoMarkers)
+                        {
+                            throw new InvalidOperationException(
+                                $"Label position '{labelPosition.Value}' is not supported for series {i} ({chartType}). " +
+                                "Use Above, Below, Left, Right, or Center for line and scatter charts.");
+                        }
+                        ComUtilities.Release(ref series);
+                    }
+                }
+
+                for (int i = startIndex; i <= endIndex; i++)
+                {
+                    series = seriesCollection.Item(i);
+
+                    // First enable data labels if any property is being set
+                    if (showValue == true || showPercentage == true || showSeriesName == true ||
+                        showCategoryName == true || showBubbleSize == true)
+                    {
+                        series.HasDataLabels = true;
+                    }
+
+                    dataLabels = (Excel.DataLabels)series.DataLabels();
+
+                    // Apply each property if specified
+                    if (showValue.HasValue)
+                        dataLabels.ShowValue = showValue.Value;
+
+                    if (showPercentage.HasValue)
+                    {
+                        try
+                        {
+                            dataLabels.ShowPercentage = showPercentage.Value;
+                        }
+                        catch (System.Runtime.InteropServices.COMException ex)
+                            when (ex.HResult == unchecked((int)0x800A03EC))
+                        {
+                            throw new InvalidOperationException(
+                                "Excel rejected the percentage-label setting. " +
+                                "Use show_percentage only with pie or doughnut chart types.", ex);
+                        }
+                    }
+
+                    if (showSeriesName.HasValue)
+                        dataLabels.ShowSeriesName = showSeriesName.Value;
+
+                    if (showCategoryName.HasValue)
+                        dataLabels.ShowCategoryName = showCategoryName.Value;
+
+                    if (showBubbleSize.HasValue)
+                        dataLabels.ShowBubbleSize = showBubbleSize.Value;
+
+                    if (!string.IsNullOrEmpty(separator))
+                        dataLabels.Separator = separator;
+
+                    if (labelPosition.HasValue)
+                    {
+                        try
+                        {
+                            dataLabels.Position = (Excel.XlDataLabelPosition)labelPosition.Value;
+                        }
+                        catch (System.Runtime.InteropServices.COMException ex)
+                        {
+                            throw new InvalidOperationException(
+                                $"Label position '{labelPosition.Value}' is not supported for this chart type. " +
+                                "Bar, column, and area charts support InsideEnd, InsideBase, and OutsideEnd. " +
+                                "Line, scatter, and other chart types support Above, Below, Left, Right, and Center.", ex);
+                        }
+                    }
+
+                    // Disable data labels entirely if all show properties are false
+                    if (showValue == false && showPercentage == false && showSeriesName == false &&
+                        showCategoryName == false && showBubbleSize == false)
+                    {
+                        series.HasDataLabels = false;
+                    }
+
+                    ComUtilities.Release(ref dataLabels!);
+                    dataLabels = null;
+                    ComUtilities.Release(ref series!);
+                    series = null;
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref dataLabels!);
+                ComUtilities.Release(ref series!);
+                ComUtilities.Release(ref seriesCollection!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    // === AXIS SCALE ===
+
+    /// <inheritdoc />
+    public AxisScaleResult GetAxisScale(
+        IExcelBatch batch,
+        string chartName,
+        ChartAxisType axis)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? targetAxis = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+
+                // Map axis type to Excel constants
+                var (axisType, axisGroup) = MapAxisType(axis);
+                targetAxis = axes.Item(axisType, axisGroup);
+
+                var result = new AxisScaleResult
+                {
+                    Success = true,
+                    ChartName = chartName,
+                    AxisType = axis.ToString()
+                };
+
+                // Get scale properties with safe null handling
+                result.MinimumScaleIsAuto = targetAxis.MinimumScaleIsAuto;
+                result.MaximumScaleIsAuto = targetAxis.MaximumScaleIsAuto;
+                result.MajorUnitIsAuto = targetAxis.MajorUnitIsAuto;
+                result.MinorUnitIsAuto = targetAxis.MinorUnitIsAuto;
+
+                if (!result.MinimumScaleIsAuto)
+                    result.MinimumScale = targetAxis.MinimumScale;
+
+                if (!result.MaximumScaleIsAuto)
+                    result.MaximumScale = targetAxis.MaximumScale;
+
+                if (!result.MajorUnitIsAuto)
+                    result.MajorUnit = targetAxis.MajorUnit;
+
+                if (!result.MinorUnitIsAuto)
+                    result.MinorUnit = targetAxis.MinorUnit;
+
+                return result;
+            }
+            finally
+            {
+                ComUtilities.Release(ref targetAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetAxisScale(
+        IExcelBatch batch,
+        string chartName,
+        ChartAxisType axis,
+        double? minimumScale = null,
+        double? maximumScale = null,
+        double? majorUnit = null,
+        double? minorUnit = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? targetAxis = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+
+                // Map axis type to Excel constants
+                var (axisType, axisGroup) = MapAxisType(axis);
+                targetAxis = axes.Item(axisType, axisGroup);
+
+                // Set scale properties
+                // If value is provided, use it; otherwise, set to auto
+                if (minimumScale.HasValue)
+                {
+                    targetAxis.MinimumScaleIsAuto = false;
+                    targetAxis.MinimumScale = minimumScale.Value;
+                }
+
+                if (maximumScale.HasValue)
+                {
+                    targetAxis.MaximumScaleIsAuto = false;
+                    targetAxis.MaximumScale = maximumScale.Value;
+                }
+
+                if (majorUnit.HasValue)
+                {
+                    targetAxis.MajorUnitIsAuto = false;
+                    targetAxis.MajorUnit = majorUnit.Value;
+                }
+
+                if (minorUnit.HasValue)
+                {
+                    targetAxis.MinorUnitIsAuto = false;
+                    targetAxis.MinorUnit = minorUnit.Value;
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref targetAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    // === GRIDLINES ===
+
+    /// <inheritdoc />
+    public GridlinesResult GetGridlines(IExcelBatch batch, string chartName)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? valueAxis = null;
+            Excel.Axis? categoryAxis = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+
+                var result = new GridlinesResult
+                {
+                    Success = true,
+                    ChartName = chartName,
+                    Gridlines = new GridlinesInfo()
+                };
+
+                // Get value axis (type 2) gridlines
+                if (Convert.ToBoolean((object)findResult.Chart.HasAxis[2, 1], System.Globalization.CultureInfo.InvariantCulture))
+                {
+                    valueAxis = axes.Item(Excel.XlAxisType.xlValue);
+                    result.Gridlines.HasValueMajorGridlines = valueAxis.HasMajorGridlines;
+                    result.Gridlines.HasValueMinorGridlines = valueAxis.HasMinorGridlines;
+                }
+
+                // Get category axis (type 1) gridlines
+                if (Convert.ToBoolean((object)findResult.Chart.HasAxis[1, 1], System.Globalization.CultureInfo.InvariantCulture))
+                {
+                    categoryAxis = axes.Item(Excel.XlAxisType.xlCategory);
+                    result.Gridlines.HasCategoryMajorGridlines = categoryAxis.HasMajorGridlines;
+                    result.Gridlines.HasCategoryMinorGridlines = categoryAxis.HasMinorGridlines;
+                }
+
+                return result;
+            }
+            finally
+            {
+                ComUtilities.Release(ref categoryAxis!);
+                ComUtilities.Release(ref valueAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetGridlines(
+        IExcelBatch batch,
+        string chartName,
+        ChartAxisType axis,
+        bool? showMajor = null,
+        bool? showMinor = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Axes? axes = null;
+            Excel.Axis? targetAxis = null;
+
+            try
+            {
+                axes = (Excel.Axes)findResult.Chart.Axes();
+
+                // Map axis type to Excel constants
+                var (axisType, axisGroup) = MapAxisType(axis);
+                targetAxis = axes.Item(axisType, axisGroup);
+
+                if (showMajor.HasValue)
+                    targetAxis.HasMajorGridlines = showMajor.Value;
+
+                if (showMinor.HasValue)
+                    targetAxis.HasMinorGridlines = showMinor.Value;
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref targetAxis!);
+                ComUtilities.Release(ref axes!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    // === SERIES FORMATTING ===
+
+    /// <inheritdoc />
+    public OperationResult SetSeriesFormat(
+        IExcelBatch batch,
+        string chartName,
+        int seriesIndex,
+        MarkerStyle? markerStyle = null,
+        int? markerSize = null,
+        string? markerBackgroundColor = null,
+        string? markerForegroundColor = null,
+        bool? invertIfNegative = null,
+        string? fillColor = null,
+        double? fillTransparency = null,
+        string? lineColor = null,
+        double? lineWeight = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.SeriesCollection? seriesCollection = null;
+            Excel.Series? series = null;
+
+            try
+            {
+                seriesCollection = (Excel.SeriesCollection)findResult.Chart.SeriesCollection();
+                int seriesCount = seriesCollection.Count;
+
+                if (seriesIndex < 1 || seriesIndex > seriesCount)
+                {
+                    throw new ArgumentException($"Series index {seriesIndex} is out of range. Chart has {seriesCount} series (1-based indexing, use 1 for first series).");
+                }
+
+                series = seriesCollection.Item(seriesIndex);
+
+                // Set marker style
+                if (markerStyle.HasValue)
+                    series.MarkerStyle = (Excel.XlMarkerStyle)markerStyle.Value;
+
+                // Set marker size (valid range: 2-72)
+                if (markerSize.HasValue)
+                {
+                    if (markerSize.Value < 2 || markerSize.Value > 72)
+                    {
+                        throw new ArgumentException($"Marker size must be between 2 and 72. Provided: {markerSize.Value}");
+                    }
+                    series.MarkerSize = markerSize.Value;
+                }
+
+                // Set marker background color (fill)
+                if (!string.IsNullOrEmpty(markerBackgroundColor))
+                {
+                    int bgColor = ParseHexColor(markerBackgroundColor);
+                    series.MarkerBackgroundColor = bgColor;
+                }
+
+                // Set marker foreground color (border)
+                if (!string.IsNullOrEmpty(markerForegroundColor))
+                {
+                    int fgColor = ParseHexColor(markerForegroundColor);
+                    series.MarkerForegroundColor = fgColor;
+                }
+
+                // Set invert if negative
+                if (invertIfNegative.HasValue)
+                    series.InvertIfNegative = invertIfNegative.Value;
+
+                if (fillColor != null || fillTransparency.HasValue || lineColor != null || lineWeight.HasValue)
+                {
+                    Excel.ChartFormat? format = null;
+                    try
+                    {
+                        format = series.Format;
+                        ApplyMaterialFormat(format, fillColor, fillTransparency, lineColor, lineWeight);
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref format!);
+                    }
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref series!);
+                ComUtilities.Release(ref seriesCollection!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    // === HELPER METHODS ===
+
+    /// <summary>
+    /// Maps ChartAxisType to Excel axis type and axis group constants.
+    /// </summary>
+    private static (Excel.XlAxisType axisType, Excel.XlAxisGroup axisGroup) MapAxisType(ChartAxisType axis)
+    {
+        return axis switch
+        {
+            ChartAxisType.Category => (Excel.XlAxisType.xlCategory, Excel.XlAxisGroup.xlPrimary),
+            ChartAxisType.Value => (Excel.XlAxisType.xlValue, Excel.XlAxisGroup.xlPrimary),
+            ChartAxisType.Primary => (Excel.XlAxisType.xlCategory, Excel.XlAxisGroup.xlPrimary),
+            ChartAxisType.Secondary => (Excel.XlAxisType.xlValue, Excel.XlAxisGroup.xlPrimary),
+            ChartAxisType.CategorySecondary => (Excel.XlAxisType.xlCategory, Excel.XlAxisGroup.xlSecondary),
+            ChartAxisType.ValueSecondary => (Excel.XlAxisType.xlValue, Excel.XlAxisGroup.xlSecondary),
+            _ => throw new ArgumentOutOfRangeException(nameof(axis), axis, "Unsupported chart axis.")
+        };
+    }
+
+    /// <summary>
+    /// Parses a hex color string (#RRGGBB) to an Excel color integer (BGR format).
+    /// </summary>
+    private static int ParseHexColor(string hexColor)
+    {
+        // Remove # prefix if present
+        string colorValue = hexColor.TrimStart('#');
+
+        if (colorValue.Length != 6)
+        {
+            throw new ArgumentException($"Invalid hex color format: {hexColor}. Use #RRGGBB format.");
+        }
+
+        // Parse RGB components
+        int r = Convert.ToInt32(colorValue[..2], 16);
+        int g = Convert.ToInt32(colorValue.Substring(2, 2), 16);
+        int b = Convert.ToInt32(colorValue.Substring(4, 2), 16);
+
+        // Excel uses BGR format (Blue * 65536 + Green * 256 + Red)
+        return b * 65536 + g * 256 + r;
+    }
+
+    // === TRENDLINE OPERATIONS ===
+
+    /// <inheritdoc />
+    public TrendlineListResult ListTrendlines(IExcelBatch batch, string chartName, int seriesIndex)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.SeriesCollection? seriesCollection = null;
+            Excel.Series? series = null;
+            Excel.Trendlines? trendlines = null;
+
+            try
+            {
+                seriesCollection = (Excel.SeriesCollection)findResult.Chart.SeriesCollection();
+                int seriesCount = seriesCollection.Count;
+
+                if (seriesIndex < 1 || seriesIndex > seriesCount)
+                {
+                    throw new ArgumentException($"Series index {seriesIndex} is out of range. Chart has {seriesCount} series (1-based indexing, use 1 for first series).");
+                }
+
+                series = seriesCollection.Item(seriesIndex);
+                trendlines = (Excel.Trendlines)series.Trendlines();
+
+                var result = new TrendlineListResult
+                {
+                    Success = true,
+                    ChartName = chartName,
+                    SeriesIndex = seriesIndex,
+                    SeriesName = series.Name?.ToString() ?? $"Series {seriesIndex}"
+                };
+
+                int trendlineCount = trendlines.Count;
+                for (int i = 1; i <= trendlineCount; i++)
+                {
+                    Excel.Trendline? trendline = null;
+                    try
+                    {
+                        trendline = trendlines.Item(i);
+                        var info = new TrendlineInfo
+                        {
+                            Index = i,
+                            Type = (TrendlineType)Convert.ToInt32((object)trendline.Type, System.Globalization.CultureInfo.InvariantCulture),
+                            Name = trendline.Name?.ToString(),
+                            DisplayEquation = trendline.DisplayEquation,
+                            DisplayRSquared = trendline.DisplayRSquared
+                        };
+
+                        // Get forward/backward forecast periods
+                        if (info.Type != TrendlineType.MovingAverage)
+                        {
+                            info.Forward = trendline.Forward;
+                            info.Backward = trendline.Backward;
+                        }
+                        if (info.Type is TrendlineType.Linear or TrendlineType.Exponential or TrendlineType.Polynomial)
+                            info.Intercept = trendline.Intercept;
+
+                        // Get order for polynomial trendlines
+                        if (info.Type == TrendlineType.Polynomial)
+                        {
+                            info.Order = Convert.ToInt32(trendline.Order);
+                        }
+
+                        // Get period for moving average
+                        if (info.Type == TrendlineType.MovingAverage)
+                        {
+                            info.Period = Convert.ToInt32(trendline.Period);
+                        }
+
+                        result.Trendlines.Add(info);
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref trendline!);
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                ComUtilities.Release(ref trendlines!);
+                ComUtilities.Release(ref series!);
+                ComUtilities.Release(ref seriesCollection!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public TrendlineResult AddTrendline(
+        IExcelBatch batch,
+        string chartName,
+        int seriesIndex,
+        TrendlineType trendlineType,
+        int? order = null,
+        int? period = null,
+        double? forward = null,
+        double? backward = null,
+        double? intercept = null,
+        bool displayEquation = false,
+        bool displayRSquared = false,
+        string? name = null)
+    {
+        // Validate type-specific parameters
+        if (trendlineType == TrendlineType.Polynomial && (!order.HasValue || order.Value < 2 || order.Value > 6))
+        {
+            throw new ArgumentException("Polynomial trendline requires order parameter (2-6).");
+        }
+
+        if (trendlineType == TrendlineType.MovingAverage && (!period.HasValue || period.Value < 2))
+        {
+            throw new ArgumentException("Moving average trendline requires period parameter (2 or greater).");
+        }
+
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.SeriesCollection? seriesCollection = null;
+            Excel.Series? series = null;
+            Excel.Trendlines? trendlines = null;
+            Excel.Trendline? newTrendline = null;
+
+            try
+            {
+                seriesCollection = (Excel.SeriesCollection)findResult.Chart.SeriesCollection();
+                int seriesCount = seriesCollection.Count;
+
+                if (seriesIndex < 1 || seriesIndex > seriesCount)
+                {
+                    throw new ArgumentException($"Series index {seriesIndex} is out of range. Chart has {seriesCount} series (1-based indexing, use 1 for first series).");
+                }
+
+                series = seriesCollection.Item(seriesIndex);
+                trendlines = (Excel.Trendlines)series.Trendlines();
+
+                // Add trendline with type
+                newTrendline = trendlines.Add((Excel.XlTrendlineType)trendlineType);
+
+                // Set optional parameters
+                if (order.HasValue && trendlineType == TrendlineType.Polynomial)
+                {
+                    newTrendline.Order = order.Value;
+                }
+
+                if (period.HasValue && trendlineType == TrendlineType.MovingAverage)
+                {
+                    newTrendline.Period = period.Value;
+                }
+
+                if (forward.HasValue)
+                {
+                    newTrendline.Forward = Convert.ToInt32(forward.Value);
+                }
+
+                if (backward.HasValue)
+                {
+                    newTrendline.Backward = Convert.ToInt32(backward.Value);
+                }
+
+                if (intercept.HasValue)
+                {
+                    newTrendline.Intercept = intercept.Value;
+                }
+
+                newTrendline.DisplayEquation = displayEquation;
+                newTrendline.DisplayRSquared = displayRSquared;
+
+                if (!string.IsNullOrEmpty(name))
+                {
+                    newTrendline.Name = name;
+                }
+
+                // Get the index of the newly added trendline
+                int trendlineIndex = trendlines.Count;
+
+                return new TrendlineResult
+                {
+                    Success = true,
+                    ChartName = chartName,
+                    SeriesIndex = seriesIndex,
+                    TrendlineIndex = trendlineIndex,
+                    Type = trendlineType,
+                    Name = name
+                };
+            }
+            finally
+            {
+                ComUtilities.Release(ref newTrendline!);
+                ComUtilities.Release(ref trendlines!);
+                ComUtilities.Release(ref series!);
+                ComUtilities.Release(ref seriesCollection!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult DeleteTrendline(IExcelBatch batch, string chartName, int seriesIndex, int trendlineIndex)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.SeriesCollection? seriesCollection = null;
+            Excel.Series? series = null;
+            Excel.Trendlines? trendlines = null;
+            Excel.Trendline? trendline = null;
+
+            try
+            {
+                seriesCollection = (Excel.SeriesCollection)findResult.Chart.SeriesCollection();
+                int seriesCount = seriesCollection.Count;
+
+                if (seriesIndex < 1 || seriesIndex > seriesCount)
+                {
+                    throw new ArgumentException($"Series index {seriesIndex} is out of range. Chart has {seriesCount} series (1-based indexing, use 1 for first series).");
+                }
+
+                series = seriesCollection.Item(seriesIndex);
+                trendlines = (Excel.Trendlines)series.Trendlines();
+                int trendlineCount = trendlines.Count;
+
+                if (trendlineIndex < 1 || trendlineIndex > trendlineCount)
+                {
+                    throw new ArgumentException($"Trendline index {trendlineIndex} is out of range. Series has {trendlineCount} trendlines.");
+                }
+
+                trendline = trendlines.Item(trendlineIndex);
+                trendline.Delete();
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref trendline!);
+                ComUtilities.Release(ref trendlines!);
+                ComUtilities.Release(ref series!);
+                ComUtilities.Release(ref seriesCollection!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult SetTrendline(
+        IExcelBatch batch,
+        string chartName,
+        int seriesIndex,
+        int trendlineIndex,
+        double? forward = null,
+        double? backward = null,
+        double? intercept = null,
+        bool? displayEquation = null,
+        bool? displayRSquared = null,
+        string? name = null)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart == null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.SeriesCollection? seriesCollection = null;
+            Excel.Series? series = null;
+            Excel.Trendlines? trendlines = null;
+            Excel.Trendline? trendline = null;
+
+            try
+            {
+                seriesCollection = (Excel.SeriesCollection)findResult.Chart.SeriesCollection();
+                int seriesCount = seriesCollection.Count;
+
+                if (seriesIndex < 1 || seriesIndex > seriesCount)
+                {
+                    throw new ArgumentException($"Series index {seriesIndex} is out of range. Chart has {seriesCount} series (1-based indexing, use 1 for first series).");
+                }
+
+                series = seriesCollection.Item(seriesIndex);
+                trendlines = (Excel.Trendlines)series.Trendlines();
+                int trendlineCount = trendlines.Count;
+
+                if (trendlineIndex < 1 || trendlineIndex > trendlineCount)
+                {
+                    throw new ArgumentException($"Trendline index {trendlineIndex} is out of range. Series has {trendlineCount} trendlines.");
+                }
+
+                trendline = trendlines.Item(trendlineIndex);
+
+                // Update optional parameters
+                if (forward.HasValue)
+                {
+                    trendline.Forward = Convert.ToInt32(forward.Value);
+                }
+
+                if (backward.HasValue)
+                {
+                    trendline.Backward = Convert.ToInt32(backward.Value);
+                }
+
+                if (intercept.HasValue)
+                {
+                    trendline.Intercept = intercept.Value;
+                }
+
+                if (displayEquation.HasValue)
+                {
+                    trendline.DisplayEquation = displayEquation.Value;
+                }
+
+                if (displayRSquared.HasValue)
+                {
+                    trendline.DisplayRSquared = displayRSquared.Value;
+                }
+
+                if (!string.IsNullOrEmpty(name))
+                {
+                    trendline.Name = name;
+                }
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            finally
+            {
+                ComUtilities.Release(ref trendline!);
+                ComUtilities.Release(ref trendlines!);
+                ComUtilities.Release(ref series!);
+                ComUtilities.Release(ref seriesCollection!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult FitToRange(IExcelBatch batch, string chartName, string sheetName, string rangeAddress)
+    {
+        return batch.Execute((ctx, ct) =>
+        {
+            // Find chart by name
+            var findResult = FindChart(ctx.Book, chartName);
+            if (findResult.Chart is null || findResult.Shape is null)
+            {
+                throw new InvalidOperationException($"Chart '{chartName}' not found in workbook.");
+            }
+
+            Excel.Worksheet? worksheet = null;
+            Excel.Range? range = null;
+
+            try
+            {
+                // Get the target range
+                worksheet = Utilities.WorksheetLookup.Get(ctx.Book, sheetName);
+                range = worksheet.Range[rangeAddress];
+
+                // Get range geometry
+                double left = Convert.ToDouble((object)range.Left, System.Globalization.CultureInfo.InvariantCulture);
+                double top = Convert.ToDouble((object)range.Top, System.Globalization.CultureInfo.InvariantCulture);
+                double width = Convert.ToDouble((object)range.Width, System.Globalization.CultureInfo.InvariantCulture);
+                double height = Convert.ToDouble((object)range.Height, System.Globalization.CultureInfo.InvariantCulture);
+
+                // Apply to chart shape
+                findResult.Shape.Left = (float)left;
+                findResult.Shape.Top = (float)top;
+                findResult.Shape.Width = (float)width;
+                findResult.Shape.Height = (float)height;
+
+                // Collision detection after repositioning
+                var warnings = ChartPositionHelpers.DetectCollisions(
+                    worksheet, left, top, width, height, chartName);
+                int chartCount = ChartPositionHelpers.CountCharts(worksheet);
+
+                return new OperationResult
+                {
+                    Success = true,
+                    FilePath = batch.WorkbookPath,
+                    Message = ChartPositionHelpers.FormatCollisionWarnings(warnings, chartCount)
+                };
+            }
+            finally
+            {
+                ComUtilities.Release(ref range!);
+                ComUtilities.Release(ref worksheet!);
+                if (findResult.Shape != null) ComUtilities.Release(ref findResult.Shape!);
+                if (findResult.Chart != null) ComUtilities.Release(ref findResult.Chart!);
+            }
+        });
+    }
+}

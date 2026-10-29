@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cursortouch.windows-mcp",
+  "type": "mcp",
+  "name": "Windows MCP",
+  "slug": "windows-mcp",
+  "vendor": "cursortouch",
+  "description": "MCP Server for Computer Use in Windows",
+  "version": "0.0.0",
+  "homepage": "https://github.com/CursorTouch/Windows-MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "desktop",
+    "tools",
+    "windows",
+    "windows-automation"
+  ],
+  "tags": [
+    "ai",
+    "desktop",
+    "mcp",
+    "tools",
+    "windows",
+    "windows-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cursortouch",
+    "brandName": "cursortouch",
+    "source": "https://github.com/CursorTouch.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "CursorTouch/Windows-MCP",
+    "url": "https://github.com/CursorTouch/Windows-MCP",
+    "commit": "fbb2ac612831f0a42fa641f1cdd058c928c12b39",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 10638,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "windows-mcp"
+    ],
+    "env": [
+      "WINDOWS_MCP_AUTH_KEY",
+      "WINDOWS_MCP_SSL_KEYFILE",
+      "WINDOWS_MCP_OAUTH_CLIENT_SECRET",
+      "POSTHOG_API_KEY",
+      "POSTHOG_HOST"
+    ],
+    "credentials": [
+      "WINDOWS_MCP_AUTH_KEY",
+      "WINDOWS_MCP_SSL_KEYFILE",
+      "WINDOWS_MCP_OAUTH_CLIENT_SECRET",
+      "POSTHOG_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

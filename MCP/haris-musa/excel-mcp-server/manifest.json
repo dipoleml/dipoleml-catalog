@@ -1,0 +1,256 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "excel-mcp-server",
+  "display_name": "Excel MCP Server",
+  "version": "2.2.2",
+  "description": "Create, read and edit Excel workbooks without Microsoft Excel",
+  "long_description": "Work with .xlsx and .xlsm files: read and write cells, formulas and dates, format ranges, add tables, charts, conditional formats and data validation, and inspect VBA macro code. Access is limited to the folder you choose, and formulas that reach the network or other programs are blocked.",
+  "author": {
+    "name": "Haris Musa",
+    "url": "https://github.com/haris-musa"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/haris-musa/excel-mcp-server"
+  },
+  "homepage": "https://github.com/haris-musa/excel-mcp-server",
+  "documentation": "https://github.com/haris-musa/excel-mcp-server/blob/main/TOOLS.md",
+  "support": "https://github.com/haris-musa/excel-mcp-server/issues",
+  "icon": "icon.png",
+  "license": "MIT",
+  "keywords": [
+    "excel",
+    "xlsx",
+    "spreadsheet",
+    "openpyxl",
+    "charts",
+    "pivot-table",
+    "formulas",
+    "vba"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/excel_mcp/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "--frozen",
+        "--no-dev",
+        "excel-mcp-server",
+        "stdio",
+        "--allow-dir",
+        "${user_config.workbook_directory}"
+      ]
+    }
+  },
+  "user_config": {
+    "workbook_directory": {
+      "type": "directory",
+      "title": "Workbook folder",
+      "description": "The folder the server may read and write Excel files in, including its subfolders.",
+      "required": true,
+      "default": "${DOCUMENTS}"
+    }
+  },
+  "tools": [
+    {
+      "name": "create_workbook",
+      "description": "Create a new, empty Excel workbook."
+    },
+    {
+      "name": "describe_workbook",
+      "description": "List a workbook's sheets (visibility, used range, counts of tables, charts, PivotTables, slicers and images), plus its defined names, properties and calculation settings."
+    },
+    {
+      "name": "set_workbook_settings",
+      "description": "Set document properties, calculation options and workbook structure protection."
+    },
+    {
+      "name": "list_workbooks",
+      "description": "List Excel files in a directory."
+    },
+    {
+      "name": "export_workbook",
+      "description": "Return the workbook file itself as an embedded base64 resource."
+    },
+    {
+      "name": "import_workbook",
+      "description": "Save an uploaded workbook file on the server, e.g. to edit it remotely."
+    },
+    {
+      "name": "import_csv",
+      "description": "Import a CSV file into a sheet, with numbers and dates typed and never formulas."
+    },
+    {
+      "name": "export_csv",
+      "description": "Export a range as a CSV file, formula results included."
+    },
+    {
+      "name": "describe_sheet",
+      "description": "Describe a sheet's structure: used range, frozen panes, merged ranges, tables, charts, PivotTables, hyperlinks, data validation, conditional formats, notes, view settings and custom column widths."
+    },
+    {
+      "name": "create_sheet",
+      "description": "Add an empty worksheet."
+    },
+    {
+      "name": "rename_sheet",
+      "description": "Rename a worksheet, updating every reference to it like Excel."
+    },
+    {
+      "name": "copy_sheet",
+      "description": "Copy a worksheet to a new sheet at the end, as Excel's \"Create a copy\" does."
+    },
+    {
+      "name": "delete_sheet",
+      "description": "Delete a worksheet and everything on it."
+    },
+    {
+      "name": "insert_rows_or_columns",
+      "description": "Insert empty rows or columns before position `start`, updating every reference like Excel."
+    },
+    {
+      "name": "delete_rows_or_columns",
+      "description": "Delete rows or columns from position `start`, updating every reference like Excel."
+    },
+    {
+      "name": "read_range",
+      "description": "Read cell values as rows. Dates come back as ISO 8601 strings."
+    },
+    {
+      "name": "write_range",
+      "description": "Write values into cells, overwriting what is there, optionally as hyperlinks."
+    },
+    {
+      "name": "clear_range",
+      "description": "Clear the values, formatting and/or rules (conditional formats, data validation) of a range without shifting other cells."
+    },
+    {
+      "name": "copy_range",
+      "description": "Copy and paste a range to another place, with Paste Special options."
+    },
+    {
+      "name": "sort_range",
+      "description": "Sort a range's rows by one or more columns, like Data > Sort in Excel."
+    },
+    {
+      "name": "transform_range",
+      "description": "Remove duplicate rows, split text into columns, or fill down, right or with a series."
+    },
+    {
+      "name": "find_cells",
+      "description": "Find cells whose value contains (or equals) the query."
+    },
+    {
+      "name": "replace_cells",
+      "description": "Find and replace text in cells, including formulas, like Excel's Replace All."
+    },
+    {
+      "name": "trace_formula",
+      "description": "Trace precedents and dependents of formulas across the workbook, or evaluate a formula step by step, like Excel's Formulas auditing tools."
+    },
+    {
+      "name": "goal_seek",
+      "description": "Change an input cell until a formula reaches a value, like Excel's Goal Seek."
+    },
+    {
+      "name": "format_range",
+      "description": "Change fonts, fill, borders, alignment, number format or protection flags of a range."
+    },
+    {
+      "name": "merge_cells",
+      "description": "Merge a range into one cell, or split a merged range again."
+    },
+    {
+      "name": "set_sheet_layout",
+      "description": "Set column widths, row heights, hidden or grouped lines, frozen panes, the auto filter, the tab color, sheet visibility and position, view options, print setup and sheet protection."
+    },
+    {
+      "name": "add_conditional_format",
+      "description": "Add a conditional format rule to a range."
+    },
+    {
+      "name": "add_data_validation",
+      "description": "Restrict what can be entered in a range, e.g. a dropdown list."
+    },
+    {
+      "name": "set_table",
+      "description": "Create a table, or change one: totals row, calculated columns, banding, filter buttons, resizing."
+    },
+    {
+      "name": "create_chart",
+      "description": "Add a chart to `sheet`, or replace one by name."
+    },
+    {
+      "name": "delete_chart",
+      "description": "Remove a chart from a sheet by name. The data it plotted is left untouched."
+    },
+    {
+      "name": "add_sparklines",
+      "description": "Add a group of sparklines (Insert > Sparklines): a line, column or win/loss chart in each cell of `range`, one per row of `source` (or per column when the cell count matches the columns)."
+    },
+    {
+      "name": "delete_sparklines",
+      "description": "Remove the sparklines in a range (Clear Sparklines). The data is left untouched."
+    },
+    {
+      "name": "create_pivot_table",
+      "description": "Add a real Excel PivotTable that summarizes a block of data: number formats, show values as, sorting, grouping, calculated fields, layouts and filters."
+    },
+    {
+      "name": "delete_pivot_table",
+      "description": "Remove a PivotTable and clear the cells it fills. The source data is left untouched."
+    },
+    {
+      "name": "add_slicer",
+      "description": "Add a slicer (Insert > Slicer) or timeline to a sheet, to filter a PivotTable or table."
+    },
+    {
+      "name": "delete_slicer",
+      "description": "Remove a slicer or timeline."
+    },
+    {
+      "name": "set_defined_name",
+      "description": "Create a defined name for a range or constant, replacing a name of the same scope."
+    },
+    {
+      "name": "delete_defined_name",
+      "description": "Delete a defined name."
+    },
+    {
+      "name": "set_note",
+      "description": "Add a note to a cell, replacing the cell's existing note."
+    },
+    {
+      "name": "delete_note",
+      "description": "Remove the note from a cell."
+    },
+    {
+      "name": "insert_image",
+      "description": "Place a PNG or JPEG image with its top-left corner at a cell."
+    },
+    {
+      "name": "delete_image",
+      "description": "Remove an image from a sheet."
+    },
+    {
+      "name": "read_vba",
+      "description": "Show the VBA macro code in an .xlsm or .xltm workbook, module by module."
+    }
+  ],
+  "tools_generated": false,
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  }
+}

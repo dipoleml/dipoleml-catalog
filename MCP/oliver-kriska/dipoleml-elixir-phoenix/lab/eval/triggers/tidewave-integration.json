@@ -1,0 +1,15 @@
+{
+  "skill": "tidewave-integration",
+  "should_trigger": [
+    "Show me the socket assigns for the currently logged-in user",
+    "Query the dev database to verify the migration applied correctly",
+    "What's the current runtime state of the broadcast GenServer?",
+    "Look up the exact Phoenix version we're running and its docs",
+    "Smoke test the user registration flow against the live app"
+  ],
+  "should_not_trigger": [
+    "How do I structure changeset validations properly?",
+    "The test suite is failing, figure out why",
+    "Add validation logic to the product schema"
+  ]
+}

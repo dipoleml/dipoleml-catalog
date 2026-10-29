@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.hashicorp.terraform-mcp-server",
+  "type": "mcp",
+  "name": "Terraform MCP Server",
+  "slug": "terraform-mcp-server",
+  "vendor": "hashicorp",
+  "description": "The Terraform MCP Server provides seamless integration with Terraform ecosystem, enabling advanced automation and interaction capabilities for Infrastructure as Code (IaC) development.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/hashicorp/terraform-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "hashicorp",
+    "brandName": "hashicorp",
+    "source": "https://cdn.simpleicons.org/hashicorp",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:02Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "hashicorp/terraform-mcp-server",
+    "url": "https://github.com/hashicorp/terraform-mcp-server",
+    "commit": "062700de87bb73f29c4a03b244146d995f643e20",
+    "path": "",
+    "license": "MPL-2.0",
+    "licenseClass": "green",
+    "stars": 1554,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "TFE_TOKEN",
+      "TF_MCP_SHARED_SECRET",
+      "TRANSPORT_MODE",
+      "TRANSPORT_HOST",
+      "TRANSPORT_PORT",
+      "MCP_REDIRECT_ROOT_URL",
+      "MCP_TLS_KEY_FILE",
+      "OTEL_METRICS_EXPORT_INTERVAL",
+      "PASTE_TFE_TOKEN_HERE",
+      "TFE_TOKEN_HERE"
+    ],
+    "credentials": [
+      "TFE_TOKEN",
+      "TF_MCP_SHARED_SECRET",
+      "MCP_TLS_KEY_FILE",
+      "PASTE_TFE_TOKEN_HERE",
+      "TFE_TOKEN_HERE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MPL-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

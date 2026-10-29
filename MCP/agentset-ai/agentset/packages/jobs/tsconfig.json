@@ -1,0 +1,5 @@
+{
+  "extends": "@agentset/tsconfig/internal-package.json",
+  "include": ["src", "scripts"],
+  "exclude": ["node_modules"]
+}

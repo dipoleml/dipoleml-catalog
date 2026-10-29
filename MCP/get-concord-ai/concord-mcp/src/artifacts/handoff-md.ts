@@ -1,0 +1,67 @@
+import type { HandoffRecord, TaskRecord } from '../db/index.js';
+import { bulletList, codeBulletList } from './markdown.js';
+
+/** Render a human-readable HANDOFF.md for a task and its latest handoff. */
+export function renderHandoffMarkdown(task: TaskRecord, handoff: HandoffRecord): string {
+  const outcome = handoff.reportedOutcome;
+  return [
+    `# Handoff: ${task.taskId} — ${task.title}`,
+    '',
+    `**Status:** ${handoff.status}`,
+    `**Delivery:** ${handoff.deliveryStatus}`,
+    `**From agent:** ${handoff.fromAgentId ?? task.agentId ?? task.agent ?? 'unknown'}`,
+    `**To agent:** ${handoff.toAgentId ?? 'not offered'}`,
+    `**Task version:** ${String(handoff.taskVersion ?? task.version)}`,
+    `**Expires:** ${handoff.expiresAt ?? 'not set'}`,
+    `**Branch:** ${task.branch ?? 'unknown'}`,
+    '',
+    '## What changed',
+    '',
+    handoff.whatChanged,
+    '',
+    '## Reported outcome',
+    '',
+    outcome === null
+      ? '_Not reported_'
+      : [
+          `- Source: ${outcome.source}`,
+          `- Acceptance: ${outcome.acceptance}`,
+          `- Integration: ${outcome.integration}`,
+          `- Human intervention: ${String(outcome.human_intervention_ms ?? 0)} ms`,
+          `- Rework: ${String(outcome.rework_ms ?? 0)} ms`,
+        ].join('\n'),
+    '',
+    '## Changed files',
+    '',
+    codeBulletList(handoff.changedFiles),
+    '',
+    '## Tests run',
+    '',
+    codeBulletList(handoff.testsRun),
+    '',
+    '## Assumptions',
+    '',
+    bulletList(handoff.assumptions),
+    '',
+    '## Decisions',
+    '',
+    bulletList(handoff.decisions),
+    '',
+    '## Known risks',
+    '',
+    bulletList(handoff.knownRisks),
+    '',
+    '## Guardrails checked',
+    '',
+    bulletList(handoff.guardrailsChecked),
+    '',
+    '## Needs review from',
+    '',
+    bulletList(handoff.needsReviewFrom),
+    '',
+    '## Next steps',
+    '',
+    bulletList(handoff.nextSteps),
+    '',
+  ].join('\n');
+}

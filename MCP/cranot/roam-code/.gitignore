@@ -1,0 +1,133 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.history/
+*~
+*.bak
+*.orig
+
+# Local secrets / env
+.env
+.env.*
+!.env.example
+.python-version
+.tool-versions
+*.local
+
+# Editor/AI assistant artefacts that shouldn't ride into the public repo
+.aider*
+
+# Roam index
+.roam/
+.roam.db
+
+# Conductor
+.context/
+
+# Entire
+.entire/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark artifacts
+bench-*.json
+bench-repos/
+
+# Anti-leak private supplement (never commit real values) — see
+# scripts/internal_language_patterns.py "Optional private supplement".
+scripts/internal_language_literals.txt
+
+# Virtual environments
+venv/
+.venv/
+.venv_roam/
+env/
+
+# Node (benchmark workspaces)
+node_modules/
+
+# Windows artifacts
+NUL
+
+# Benchmark results (ephemeral)
+benchmarks/agent-eval/results/
+benchmarks/oss-eval/results/
+
+# Build artifacts in benchmark workspaces
+**/build-mingw/
+**/cmake-build-*/
+
+# Internal reports (not public)
+reports/
+
+# Internal docs (not public)
+internal/
+
+# Claude Code internal state (lockfiles, scheduled tasks, etc.)
+.claude/*
+!.claude/skills/
+
+# dev/ tooling scripts and docs are public. Session memos, handover notes,
+# wave-audit scratch, and strategy docs accumulate in dev/ during active
+# development and must not ride into the public repo. The naming conventions
+# below cover them; any file not matching these patterns is public by default.
+dev/*-2026-[0-9][0-9]-*.md
+dev/SESSION-SNAPSHOT-*.md
+dev/HANDOVER-*.md
+dev/WAVE*-*.md
+dev/W[0-9]*-*.md
+dev/_audit_*.py
+
+# Private service-report drafts (not public offers or contracts)
+templates/services-reports/
+
+# Recheck-agent per-session scratch
+.recheck/
+
+# Root-level conversation-output scratch
+_conv_out.json
+
+# Sibling-platform session profile (per-machine local state)
+
+# Recheck-agent scratch dirs
+.audit-tmp/
+
+# Scratch / temporary — surface inventory dumps + ad-hoc memcheck output
+.surface.json
+tmp_surface.json
+.tmp-memcheck/
+
+# Cloudflare Workers dev cache (landing-page deploy artifacts)
+.wrangler/
+
+# Working-copy config for an external scanning gate that resolves its
+# per-repo exemption file at the scanned repo's root. It is not part of this
+# package's published surface, so it stays out of the public tree; the tool
+# that consumes it owns its content.
+.tracked-path-gate-allow

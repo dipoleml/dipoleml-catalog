@@ -1,0 +1,18 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      outputDir:
+        type: string
+        default: ./design-extract-output
+        description: "Directory containing files produced by `designlang <url>` (must include *-mcp.json)."
+    required: []
+  commandFunction: |-
+    (config) => ({
+      command: 'npx',
+      args: ['-y', 'designlang', 'mcp', '--output-dir', config.outputDir || './design-extract-output'],
+    })
+
+build:
+  dockerfile: smithery.dockerfile

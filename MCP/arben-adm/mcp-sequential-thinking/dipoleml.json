@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.arben-adm.mcp-sequential-thinking",
+  "type": "mcp",
+  "name": "MCP Sequential Thinking",
+  "slug": "mcp-sequential-thinking",
+  "vendor": "arben-adm",
+  "description": "Local MCP work notes with persistent sessions, decisions, evidence and resumable tasks.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/arben-adm/mcp-sequential-thinking",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol",
+    "sqlite",
+    "working-notes"
+  ],
+  "tags": [
+    "mcp",
+    "model-context-protocol",
+    "python",
+    "sqlite",
+    "working-notes"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "arben-adm",
+    "brandName": "arben-adm",
+    "source": "https://github.com/arben-adm.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:41Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "arben-adm/mcp-sequential-thinking",
+    "url": "https://github.com/arben-adm/mcp-sequential-thinking",
+    "commit": "95fdc0ea977cd56abac3ffb147a359967acb955a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 959,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-sequential-thinking"
+    ],
+    "env": [
+      "PATH_OUTSIDE_EXPORTS"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

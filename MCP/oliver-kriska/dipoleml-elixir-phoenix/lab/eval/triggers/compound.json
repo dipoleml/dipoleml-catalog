@@ -1,0 +1,17 @@
+{
+  "skill": "compound",
+  "should_trigger": [
+    "we fixed the N+1 query bug, let's document the solution pattern",
+    "that worked! capture the race condition fix in the docs",
+    "save this liveview memory leak solution for future reference",
+    "the changeset validation issue is solved, document the pattern",
+    "spent hours debugging the presence update race\u2014now we have the fix, save it"
+  ],
+  "should_not_trigger": [
+    "why is my form submission failing? (investigate)",
+    "write integration tests for the new auth changes (testing)",
+    "review my code for potential security issues (review)",
+    "scan this code for N+1 query problems (n1-check)",
+    "what are the best practices for error handling? (ecto-patterns)"
+  ]
+}

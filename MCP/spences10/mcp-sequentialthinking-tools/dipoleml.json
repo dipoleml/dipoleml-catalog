@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.spences10.mcp-sequentialthinking-tools",
+  "type": "mcp",
+  "name": "MCP Sequentialthinking Tools",
+  "slug": "mcp-sequentialthinking-tools",
+  "vendor": "spences10",
+  "description": "🧠 An adaptation of the MCP Sequential Thinking Server to guide tool usage. This server provides recommendations for which MCP tools would be most effective at each stage.",
+  "version": "0.1.1",
+  "homepage": "https://github.com/spences10/mcp-sequentialthinking-tools",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol",
+    "modelcontextprotocol",
+    "tool"
+  ],
+  "tags": [
+    "mcp",
+    "model-context-protocol",
+    "modelcontextprotocol",
+    "tool"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "spences10",
+    "brandName": "spences10",
+    "source": "https://github.com/spences10.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "spences10/mcp-sequentialthinking-tools",
+    "url": "https://github.com/spences10/mcp-sequentialthinking-tools",
+    "commit": "1268e58fc478fade84f799fbb91ee6ea907d0fad",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 586,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-sequentialthinking-tools"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "mcp-sequentialthinking-tools"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

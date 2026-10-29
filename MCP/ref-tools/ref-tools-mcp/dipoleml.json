@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ref-tools.ref-tools-mcp",
+  "type": "mcp",
+  "name": "Ref Tools MCP",
+  "slug": "ref-tools-mcp",
+  "vendor": "ref-tools",
+  "description": "Helping coding agents never make mistakes working with public or private libraries without wasting the context window.",
+  "version": "3.0.3",
+  "homepage": "https://github.com/ref-tools/ref-tools-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "coding-agent",
+    "documentation-tool"
+  ],
+  "tags": [
+    "coding-agent",
+    "documentation-tool",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ref-tools",
+    "brandName": "ref-tools",
+    "source": "https://github.com/ref-tools.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:31Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ref-tools/ref-tools-mcp",
+    "url": "https://github.com/ref-tools/ref-tools-mcp",
+    "commit": "f5feb829cc7bdd18fb9b276c27e3f391b2c4132c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1185,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ref-tools-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "ref-tools-mcp"
+    ],
+    "env": [
+      "YOUR_API_KEY",
+      "REF_API_KEY"
+    ],
+    "credentials": [
+      "YOUR_API_KEY",
+      "REF_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

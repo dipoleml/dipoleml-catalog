@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.eliasoulkadi.shokunin",
+  "type": "mcp",
+  "name": "Shokunin",
+  "slug": "shokunin",
+  "vendor": "eliasoulkadi",
+  "description": "職人 Shokunin 62 AI agent skills for OpenCode, DipoleML, Cursor, Windsurf. ChromaDB memory, MCP servers, declarative self-updates. Multi-model, open source, zero cost.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/EliasOulkadi/shokunin",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-agent-skills",
+    "ai-engineering",
+    "ai-memory",
+    "chromadb",
+    "developer-tools",
+    "local-first",
+    "opencode",
+    "skill-md"
+  ],
+  "tags": [
+    "ai-agent-skills",
+    "ai-engineering",
+    "ai-memory",
+    "chromadb",
+    "claude-code",
+    "developer-tools",
+    "local-first",
+    "mcp-server",
+    "opencode",
+    "skill-md",
+    "skills-system",
+    "windows-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "eliasoulkadi",
+    "brandName": "eliasoulkadi",
+    "source": "https://github.com/EliasOulkadi.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "EliasOulkadi/shokunin",
+    "url": "https://github.com/EliasOulkadi/shokunin",
+    "commit": "4c68e5bcb49453053cebf3390939a0a2e8e9a5e8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 112,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Shokunin | 職人 Shokunin 62 AI agent skills for OpenCode, Claude Code, Cursor, Windsurf. ChromaDB memory, MCP servers, declarative self-updates. Multi-model, open source, zero cost.",
+        "after": "Shokunin | 職人 Shokunin 62 AI agent skills for OpenCode, DipoleML, Cursor, Windsurf. ChromaDB memory, MCP servers, declarative self-updates. Multi-model, open source, zero cost.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "shokunin-memory"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,88 @@
+.tabBar {
+  height: 32px;
+  display: flex;
+  align-items: stretch;
+  background: var(--color-sidebar);
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tabList {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  min-width: 0;
+  max-width: 180px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  border-right: 1px solid var(--color-border);
+  transition: background var(--transition-fast);
+  background: transparent;
+}
+
+.tab:hover {
+  background: var(--color-surface);
+}
+
+.tabActive {
+  background: var(--color-surface-hover);
+  border-bottom-color: var(--color-info);
+}
+
+.tabLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.tabActive .tabLabel {
+  color: var(--text-secondary);
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  color: var(--text-disabled);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  cursor: pointer;
+}
+
+.tab:hover .closeBtn,
+.tabActive .closeBtn {
+  opacity: 1;
+}
+
+.closeBtn:hover {
+  color: var(--text-secondary);
+}
+
+.newTabBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--text-disabled);
+  transition: color var(--transition-fast);
+}
+
+.newTabBtn:hover {
+  color: var(--text-secondary);
+}

@@ -1,0 +1,22 @@
+# Ignore all files by default
+*
+# Include specific files and directories
+!*.ts
+!mcp-server
+!masking
+!package-lock.json
+!package.json
+!server
+!stateless
+!tools
+!cli
+!cli/**
+!downloads
+!tsconfig.json
+!tsconfig.build.json
+!utils
+!.npmrc
+# Ignore test files
+test*.ts
+test
+mcp-server/test

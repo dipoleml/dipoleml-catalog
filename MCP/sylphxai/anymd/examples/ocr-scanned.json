@@ -1,0 +1,14 @@
+{
+  "tool": "inspect",
+  "description": "OCR scanned pages with word boxes. Needs a configured local OCR provider (tesseract).",
+  "arguments": {
+    "operation": "ocr_pages",
+    "sources": [{ "path": "/absolute/path/to/scanned-document.pdf" }],
+    "max_pages": 5,
+    "max_output_chars": 50000
+  },
+  "_provider_setup": {
+    "env": "MCP_PDF_OCR_PRESET=tesseract-tsv",
+    "note": "Set this before starting the MCP server. For plain Markdown from a scan, read with ocr: true uses a local tesseract directly."
+  }
+}

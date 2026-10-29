@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.regenrek.deepwiki-mcp",
+  "type": "mcp",
+  "name": "Deepwiki MCP",
+  "slug": "deepwiki-mcp",
+  "vendor": "regenrek",
+  "description": "📖 MCP server for fetch deepwiki.com and get latest knowledge in Cursor and other Code Editors",
+  "version": "0.0.10",
+  "homepage": "https://github.com/regenrek/deepwiki-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "regenrek",
+    "brandName": "regenrek",
+    "source": "https://github.com/regenrek.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:32Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "regenrek/deepwiki-mcp",
+    "url": "https://github.com/regenrek/deepwiki-mcp",
+    "commit": "d62d749629716a28905da5555922b6f93a654fbf",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1386,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-deepwiki"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./bin/cli.mjs"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18.0.0"
+    ],
+    "packages": [
+      "mcp-deepwiki"
+    ],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "_vintage": {
+    "fonte": "TU CCNL Terziario Confcommercio 3/2/2026 (CNEL H011, idAccordo 242377) artt. 251, 252, 256; CCNL industria metalmeccanica 5/2/2021 (CNEL C011, idAccordo 157071) Sez. IV Tit. VIII art. 1, non modificato dall'ipotesi di rinnovo 22/11/2025; CCNL studi e attivita' professionali 16/2/2024 (CNEL H442, idAccordo 195625) artt. 146-147",
+    "aggiornato_al": "2026-09-29",
+    "verifica": "manuale",
+    "nota": "valori verificati sui testi depositati al CNEL il 2026-09-25 e riletti il 2026-09-29; i rinnovi cambiano i periodi: per il contratto applicabile usare giorni_preavviso. Nessun copre_fino_a: i CCNL restano in vigore dopo la scadenza. Ricontrollare alle scadenze: Terziario 31/03/2027, studi professionali 15/02/2027, metalmeccanici 30/06/2028"
+  },
+  "_descrizione": "Periodi di preavviso per CCNL principali (giorni di calendario)",
+  "ccnl": {
+    "commercio": {
+      "nome": "CCNL Terziario Confcommercio",
+      "fonte": "Artt. 251-252 (licenziamento) e 256 (dimissioni) TU CCNL Terziario 3 febbraio 2026",
+      "licenziamento": {
+        "quadri_1": {
+          "fino_5": 60,
+          "5_10": 90,
+          "oltre_10": 120
+        },
+        "2_3": {
+          "fino_5": 30,
+          "5_10": 45,
+          "oltre_10": 60
+        },
+        "4_5": {
+          "fino_5": 20,
+          "5_10": 30,
+          "oltre_10": 45
+        },
+        "6_7": {
+          "fino_5": 15,
+          "5_10": 20,
+          "oltre_10": 20
+        }
+      },
+      "dimissioni": {
+        "quadri_1": {
+          "fino_5": 45,
+          "5_10": 60,
+          "oltre_10": 90
+        },
+        "2_3": {
+          "fino_5": 20,
+          "5_10": 30,
+          "oltre_10": 45
+        },
+        "4_5": {
+          "fino_5": 15,
+          "5_10": 20,
+          "oltre_10": 30
+        },
+        "6_7": {
+          "fino_5": 10,
+          "5_10": 15,
+          "oltre_10": 15
+        }
+      }
+    },
+    "metalmeccanici": {
+      "nome": "CCNL Metalmeccanici Industria Federmeccanica",
+      "fonte": "Sez. IV Tit. VIII art. 1 CCNL industria metalmeccanica 5 febbraio 2021",
+      "licenziamento": {
+        "A1_B2_B3": {
+          "fino_5": 60,
+          "5_10": 90,
+          "oltre_10": 120
+        },
+        "B1_C2_C3": {
+          "fino_5": 45,
+          "5_10": 60,
+          "oltre_10": 75
+        },
+        "C1_D1_D2": {
+          "fino_5": 10,
+          "5_10": 20,
+          "oltre_10": 30
+        }
+      },
+      "dimissioni": {
+        "A1_B2_B3": {
+          "fino_5": 60,
+          "5_10": 90,
+          "oltre_10": 120
+        },
+        "B1_C2_C3": {
+          "fino_5": 45,
+          "5_10": 60,
+          "oltre_10": 75
+        },
+        "C1_D1_D2": {
+          "fino_5": 10,
+          "5_10": 20,
+          "oltre_10": 30
+        }
+      },
+      "indennita_mensilita": {
+        "A1_B2_B3": {
+          "fino_5": 2,
+          "5_10": 3,
+          "oltre_10": 4
+        },
+        "B1_C2_C3": {
+          "fino_5": 1.5,
+          "5_10": 2,
+          "oltre_10": 2.5
+        },
+        "C1_D1_D2": {
+          "fino_5": 0.33,
+          "5_10": 0.67,
+          "oltre_10": 1
+        }
+      }
+    },
+    "studi_professionali": {
+      "nome": "CCNL Studi Professionali",
+      "fonte": "Artt. 146-147 CCNL studi e attivita' professionali 16 febbraio 2024",
+      "licenziamento": {
+        "quadri": {
+          "fino_5": 90,
+          "5_10": 120,
+          "oltre_10": 150
+        },
+        "1": {
+          "fino_5": 90,
+          "5_10": 120,
+          "oltre_10": 150
+        },
+        "2": {
+          "fino_5": 60,
+          "5_10": 90,
+          "oltre_10": 120
+        },
+        "3S_3": {
+          "fino_5": 30,
+          "5_10": 40,
+          "oltre_10": 50
+        },
+        "4S_4": {
+          "fino_5": 20,
+          "5_10": 30,
+          "oltre_10": 40
+        },
+        "5": {
+          "fino_5": 15,
+          "5_10": 20,
+          "oltre_10": 25
+        }
+      },
+      "dimissioni": {
+        "quadri": {
+          "fino_5": 75,
+          "5_10": 105,
+          "oltre_10": 135
+        },
+        "1": {
+          "fino_5": 75,
+          "5_10": 105,
+          "oltre_10": 135
+        },
+        "2": {
+          "fino_5": 60,
+          "5_10": 90,
+          "oltre_10": 120
+        },
+        "3S_3": {
+          "fino_5": 28,
+          "5_10": 35,
+          "oltre_10": 42
+        },
+        "4S_4": {
+          "fino_5": 15,
+          "5_10": 25,
+          "oltre_10": 30
+        },
+        "5": {
+          "fino_5": 10,
+          "5_10": 15,
+          "oltre_10": 25
+        }
+      }
+    }
+  }
+}

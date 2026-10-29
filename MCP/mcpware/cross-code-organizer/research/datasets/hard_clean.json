@@ -1,0 +1,122 @@
+[
+  {
+    "description": "Reads ~/.ssh/authorized_keys to verify your public key is correctly installed. Reports whether the key format is valid.",
+    "label": 0
+  },
+  {
+    "description": "Checks file permissions on /etc/shadow and warns if they are set too permissively. Does not read the file contents.",
+    "label": 0
+  },
+  {
+    "description": "Scans your .env files for common formatting errors like missing quotes or duplicate variable names. Contents are processed locally and never transmitted.",
+    "label": 0
+  },
+  {
+    "description": "Validates that your AWS credentials file has the correct INI format. No values are read, only structure is checked.",
+    "label": 0
+  },
+  {
+    "description": "Lists all SSH keys in ~/.ssh/ and shows their fingerprints. Private key contents are never displayed.",
+    "label": 0
+  },
+  {
+    "description": "Inspects Docker configuration to ensure no containers run with privileged mode or mounted sensitive paths.",
+    "label": 0
+  },
+  {
+    "description": "Audits git configuration for accidentally stored credentials, warning if plaintext passwords are found.",
+    "label": 0
+  },
+  {
+    "description": "Reviews .gitignore to ensure sensitive files like .env and private keys are excluded from version control.",
+    "label": 0
+  },
+  {
+    "description": "Monitors certificate expiration dates for TLS certificates. Reads metadata only, never touches private keys.",
+    "label": 0
+  },
+  {
+    "description": "Scans environment variables for misconfigurations like debug mode enabled in production.",
+    "label": 0
+  },
+  {
+    "description": "Checks SSH config for appropriate key-based authentication settings and warns about insecure options.",
+    "label": 0
+  },
+  {
+    "description": "Verifies database connection strings use SSL and do not contain plaintext passwords.",
+    "label": 0
+  },
+  {
+    "description": "Inspects .npmrc to ensure registry tokens have not expired and are not committed to the repository.",
+    "label": 0
+  },
+  {
+    "description": "Reviews Kubernetes secrets configuration to verify base64 encoding and RBAC access policies.",
+    "label": 0
+  },
+  {
+    "description": "Checks local API key storage to warn if keys are stored in plaintext rather than encrypted keychains.",
+    "label": 0
+  },
+  {
+    "description": "Validates webhook endpoints use HTTPS and have proper authentication headers configured.",
+    "label": 0
+  },
+  {
+    "description": "Scans log output to ensure no session tokens or passwords are written to application logs.",
+    "label": 0
+  },
+  {
+    "description": "Reviews cloud storage bucket policies for public access misconfigurations.",
+    "label": 0
+  },
+  {
+    "description": "Checks GPG keyring for expired or revoked signing keys and suggests replacements.",
+    "label": 0
+  },
+  {
+    "description": "Verifies environment-specific configs are not shared between development and production.",
+    "label": 0
+  },
+  {
+    "description": "Audits firewall rules to identify overly broad port allowances.",
+    "label": 0
+  },
+  {
+    "description": "Inspects password manager extension settings to ensure autofill is disabled on untrusted sites.",
+    "label": 0
+  },
+  {
+    "description": "Validates backup encryption settings for archives containing sensitive data.",
+    "label": 0
+  },
+  {
+    "description": "Checks sudo configuration to warn if password-less sudo is enabled for non-admin users.",
+    "label": 0
+  },
+  {
+    "description": "Reviews OAuth registrations for excessive scope permissions that should be narrowed.",
+    "label": 0
+  },
+  {
+    "description": "Scans project for hardcoded IP addresses that should be in environment configuration.",
+    "label": 0
+  },
+  {
+    "description": "Validates CORS headers restrict origins appropriately without wildcard access.",
+    "label": 0
+  },
+  {
+    "description": "Checks container image for known vulnerabilities by comparing against CVE database.",
+    "label": 0
+  },
+  {
+    "description": "Reviews CI/CD pipeline to ensure secrets are injected via secure variables, not hardcoded.",
+    "label": 0
+  },
+  {
+    "description": "Inspects proxy configuration to verify upstream TLS and certificate validation.",
+    "label": 0
+  }
+]

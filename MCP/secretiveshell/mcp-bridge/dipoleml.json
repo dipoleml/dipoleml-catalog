@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.secretiveshell.mcp-bridge",
+  "type": "mcp",
+  "name": "MCP Bridge",
+  "slug": "mcp-bridge",
+  "vendor": "secretiveshell",
+  "description": "A middleware to provide an openAI compatible endpoint that can call MCP tools",
+  "version": "0.0.0",
+  "homepage": "https://github.com/SecretiveShell/MCP-Bridge",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "model-context-protocol",
+    "openai",
+    "openai-api"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "mcp",
+    "mcp-server",
+    "mcp-servers",
+    "model-context-protocol",
+    "openai",
+    "openai-api"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "secretiveshell",
+    "brandName": "secretiveshell",
+    "source": "https://github.com/SecretiveShell.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "SecretiveShell/MCP-Bridge",
+    "url": "https://github.com/SecretiveShell/MCP-Bridge",
+    "commit": "df1dcc58cac7bf2a4ead5f5630eb970f42999c57",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 923,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-bridge"
+    ],
+    "env": [
+      "MCP_BRIDGE__CONFIG__HTTP_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

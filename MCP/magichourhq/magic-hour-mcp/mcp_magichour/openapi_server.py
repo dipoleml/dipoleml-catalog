@@ -1,0 +1,740 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import math
+import mimetypes
+import os
+import re
+from base64 import b64encode
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import urlparse
+
+import httpx
+from fastmcp import FastMCP
+from fastmcp.apps import AppConfig, ResourceCSP
+from fastmcp.server.providers.openapi import MCPType, RouteMap
+from fastmcp.tools.base import ToolResult
+from fastmcp.utilities.types import Audio, Image
+from mcp.types import BlobResourceContents, EmbeddedResource, TextContent, ToolAnnotations
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
+
+from .app_events import app_events
+from .openapi_auth import BearerPassthroughAuth, BearerPassthroughMiddleware, current_authorization_header
+from .mcp_errors import install_structured_tool_errors
+from .oauth_compat import MCPToolOAuthMiddleware, create_oauth_compatibility_app
+from .openapi_policies import GENERATION_ESTIMATE_PATHS, apply_magic_hour_policies, customize_openapi_component
+from .posthog_client import PostHogFlushMiddleware, analytics, api_key_distinct_id
+from .project_result_app import (
+    MCP_APP_ASSET_PATH,
+    MCP_APP_DIST_PATH,
+    MCP_APP_MEDIA_ORIGIN,
+    MCP_APP_MIME_TYPE,
+    MCP_APP_ORIGIN,
+    MCP_APP_SERVER_ORIGIN,
+    MCP_APP_VIEW_CSP,
+    MCP_APP_VIEW_PATH,
+    MCP_APP_VIEW_URI,
+    read_mcp_app_html,
+)
+from .tool_logging import ToolCallLoggingMiddleware
+from .workflow_guidance import register_workflow_guidance
+
+ProjectType = Literal["video", "image", "audio"]
+
+DEFAULT_API_BASE_URL = "https://api.magichour.ai"
+DEFAULT_OPENAPI_PATH = Path(__file__).resolve().parent.parent / "docs" / "openapi.json"
+FAVICON_PATH = Path(__file__).with_name("favicon.ico")
+API_TIMEOUT = httpx.Timeout(60.0, connect=10.0, read=60.0, write=60.0, pool=10.0)
+API_LIMITS = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+API_RETRIES = 2
+# Leave room for base64 expansion and metadata below client response limits.
+DEFAULT_MEDIA_FETCH_MAX_BYTES = 8 * 1024 * 1024
+MCP_SERVER_NAME = "magic-hour"
+MCP_SERVER_VERSION = "0.1.0"
+MCP_USER_AGENT = f"magic-hour-mcp/{MCP_SERVER_VERSION}"
+MCP_SERVER_INSTRUCTIONS = """
+Create and edit images and video, generate music, and retrieve existing audio projects.
+Tool calls require authentication.
+When exposed, use a matching estimate with the exact create body; resolve blocked/unavailable. Without one, report the unavailable quote and obtain an explicit credit budget before generating. Estimates never authorize spending.
+workflow_guide_retrieve gives static inputs/docs/review, not account eligibility.
+After creation, use matching wait_for_*_project with the returned id.
+Upload local bytes before using file_path; preserve exact signed download URLs.
+Omit unrequested options only when defaults are eligible. Image Editor defaults to paid-tier nano-banana.
+On Free, use Image Editor model=flux-2-klein, resolution=640px, image_count=1 only if suitable. Balance does not unlock restricted settings.
+On tier restrictions, explain the block; never retry unchanged or blindly remove fields. Ask before changing explicit model/resolution requirements.
+
+Choose video from inputs:
+
+- Approved image -> image_to_video_create_video directly; edit only for a requested visual change or a source problem that prevents the shot.
+- Still portrait + audio -> ai_talking_photo_create_talking_photo; text alone is not audio.
+- Existing video + replacement audio -> lip_sync_create_video.
+- Preserve an explicitly requested alternative provider.
+- For image model recommendations, prefer nano-banana-2-lite only with verified account support; otherwise check eligibility.
+- For Image-to-Video model recommendations, prefer ltx-2.5 when compatible with the task and account.
+- Include complete spoken sentences.
+- Use Text-to-Video when no supplied starting image is required.
+- Reuse references; preserve identity, style, color, lighting and aspect ratio across scenes.
+  """.strip()
+MCP_SERVER_CARD_PATH = "/.well-known/mcp/server-card.json"
+GLAMA_VERIFICATION_PATH = "/.well-known/glama.json"
+MCP_SERVER_DESCRIPTION = "Create and edit images and video, generate music, and retrieve existing audio projects."
+MCP_SERVER_URL = "https://mcp.magichour.ai/"
+TERMINAL_PROJECT_STATUSES = {"complete", "error", "canceled"}
+SIGNED_DOWNLOAD_GUIDANCE = (
+    "Returns sanitized download fields. Use `exact_download_urls[n]` or `downloads[n].url` exactly as returned; "
+    "do not shorten it, remove query parameters, or append expiration metadata. "
+    "Inline previews share an 8 MiB limit; all download URLs remain available."
+)
+
+
+def load_openapi_spec(path: str | os.PathLike[str] = DEFAULT_OPENAPI_PATH) -> dict[str, Any]:
+    with Path(path).open("r", encoding="utf-8") as spec_file:
+        return json.load(spec_file)
+
+
+def build_api_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=os.getenv("MAGIC_HOUR_API_BASE_URL", DEFAULT_API_BASE_URL),
+        auth=BearerPassthroughAuth(),
+        headers={"User-Agent": MCP_USER_AGENT},
+        timeout=API_TIMEOUT,
+        transport=httpx.AsyncHTTPTransport(retries=API_RETRIES, limits=API_LIMITS),
+    )
+
+
+def create_mcp() -> FastMCP:
+    """Create a server and API client for one application lifecycle."""
+    spec_path = os.getenv("MAGIC_HOUR_OPENAPI_PATH", str(DEFAULT_OPENAPI_PATH))
+    spec = apply_magic_hour_policies(load_openapi_spec(spec_path))
+    client = build_api_client()
+
+    @asynccontextmanager
+    async def api_client_lifespan(_: FastMCP) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            await client.aclose()
+
+    mcp = FastMCP.from_openapi(
+        openapi_spec=spec,
+        client=client,
+        lifespan=api_client_lifespan,
+        name=MCP_SERVER_NAME,
+        version=MCP_SERVER_VERSION,
+        instructions=MCP_SERVER_INSTRUCTIONS,
+        route_maps=[
+            *[
+                RouteMap(methods=["POST"], pattern=f"^{re.escape(path)}$", mcp_type=MCPType.TOOL, mcp_tags={"read-operation"})
+                for path in GENERATION_ESTIMATE_PATHS
+            ],
+            RouteMap(methods=["POST"], pattern=r".*", mcp_type=MCPType.TOOL, mcp_tags={"write-operation"}),
+            RouteMap(pattern=r".*", mcp_type=MCPType.TOOL),
+        ],
+        mcp_component_fn=customize_openapi_component,
+    )
+
+    register_custom_tools(mcp)
+    mcp.add_middleware(ToolCallLoggingMiddleware())
+    mcp.add_middleware(MCPToolOAuthMiddleware())
+    install_structured_tool_errors(mcp)
+    analytics.instrument_mcp(mcp)
+    return mcp
+
+
+def register_custom_tools(mcp: FastMCP) -> None:
+    register_workflow_guidance(mcp)
+
+    @mcp.resource(
+        MCP_APP_VIEW_URI,
+        name="Magic Hour project result",
+        description="Render completed or terminal Magic Hour project results in MCP Apps hosts.",
+        mime_type=MCP_APP_MIME_TYPE,
+        meta={
+            "openai/widgetDomain": MCP_APP_ORIGIN,
+            "openai/widgetDescription": (
+                "Displays Magic Hour project status, generated image, video, or audio previews, "
+                "and download links, including errors or canceled projects."
+            ),
+        },
+        app=AppConfig(
+            domain=MCP_APP_ORIGIN,
+            csp=ResourceCSP(
+                connect_domains=[MCP_APP_SERVER_ORIGIN, MCP_APP_ORIGIN],
+                resource_domains=[MCP_APP_ORIGIN, MCP_APP_MEDIA_ORIGIN],
+            ),
+            prefers_border=True,
+        ),
+    )
+    def mcp_app_view() -> str:
+        return read_mcp_app_html()
+
+    @mcp.tool(
+        name="ping",
+        title="Ping",
+        description="Check that the Magic Hour MCP server is reachable.",
+        annotations=ToolAnnotations(title="Ping", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    )
+    def ping() -> str:
+        return "pong"
+
+    @mcp.tool(
+        name="wait_for_video_project",
+        title="Wait for Video Project",
+        description=(
+            "Poll a video project until it completes, errors, is canceled, or times out. "
+            "After a timeout, resume with the same id; do not create another generation. "
+            f"{SIGNED_DOWNLOAD_GUIDANCE}"
+        ),
+        meta={
+            "openai/toolInvocation": {
+                "invoking": "Checking video project…",
+                "invoked": "Video project status retrieved",
+            },
+        },
+        app=AppConfig(resource_uri=MCP_APP_VIEW_URI),
+        annotations=ToolAnnotations(title="Wait for Video Project", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    )
+    async def wait_for_video_project(
+        id: str,
+        poll_interval_seconds: float = 2.0,
+        timeout_seconds: float = 300.0,
+        include_inline_downloads: bool = False,
+        max_inline_downloads: int = 0,
+    ) -> ToolResult:
+        return await _wait_for_project_result(
+            "video",
+            id,
+            poll_interval_seconds,
+            timeout_seconds,
+            include_inline_downloads=include_inline_downloads,
+            max_inline_downloads=max_inline_downloads,
+        )
+
+    @mcp.tool(
+        name="wait_for_image_project",
+        title="Wait for Image Project",
+        description=(
+            "Poll an image project until it completes, errors, is canceled, or times out. "
+            "After a timeout, resume with the same id; do not create another generation. Returns the final "
+            "project JSON and, when complete, attempts to inline image downloads for Inspector or compatible "
+            f"clients. {SIGNED_DOWNLOAD_GUIDANCE}"
+        ),
+        meta={
+            "openai/toolInvocation": {
+                "invoking": "Checking image project…",
+                "invoked": "Image project status retrieved",
+            },
+        },
+        app=AppConfig(resource_uri=MCP_APP_VIEW_URI),
+        annotations=ToolAnnotations(title="Wait for Image Project", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    )
+    async def wait_for_image_project(
+        id: str,
+        poll_interval_seconds: float = 2.0,
+        timeout_seconds: float = 180.0,
+        include_inline_downloads: bool = True,
+        max_inline_downloads: int = 4,
+        max_bytes_per_download: int = DEFAULT_MEDIA_FETCH_MAX_BYTES,
+    ) -> ToolResult:
+        return await _wait_for_project_result(
+            "image",
+            id,
+            poll_interval_seconds,
+            timeout_seconds,
+            include_inline_downloads=include_inline_downloads,
+            max_inline_downloads=max_inline_downloads,
+            max_bytes_per_download=max_bytes_per_download,
+        )
+
+    @mcp.tool(
+        name="wait_for_audio_project",
+        title="Wait for Audio Project",
+        description=(
+            "Poll an audio project until it completes, errors, is canceled, or times out. "
+            "After a timeout, resume with the same id; do not create another generation. Returns the final "
+            "project JSON and, when complete, attempts to inline audio downloads for Inspector or compatible "
+            f"clients. {SIGNED_DOWNLOAD_GUIDANCE}"
+        ),
+        meta={
+            "openai/toolInvocation": {
+                "invoking": "Checking audio project…",
+                "invoked": "Audio project status retrieved",
+            },
+        },
+        app=AppConfig(resource_uri=MCP_APP_VIEW_URI),
+        annotations=ToolAnnotations(title="Wait for Audio Project", readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    )
+    async def wait_for_audio_project(
+        id: str,
+        poll_interval_seconds: float = 2.0,
+        timeout_seconds: float = 180.0,
+        include_inline_downloads: bool = True,
+        max_inline_downloads: int = 4,
+        max_bytes_per_download: int = DEFAULT_MEDIA_FETCH_MAX_BYTES,
+    ) -> ToolResult:
+        return await _wait_for_project_result(
+            "audio",
+            id,
+            poll_interval_seconds,
+            timeout_seconds,
+            include_inline_downloads=include_inline_downloads,
+            max_inline_downloads=max_inline_downloads,
+            max_bytes_per_download=max_bytes_per_download,
+        )
+
+    _register_media_fetch_tool(mcp, "image")
+    _register_media_fetch_tool(mcp, "audio")
+    _register_media_fetch_tool(mcp, "video")
+
+
+def _register_media_fetch_tool(mcp: FastMCP, media_type: ProjectType) -> None:
+    tool_name = f"fetch_{media_type}_download"
+    title = f"Fetch {media_type.title()} Download"
+    content_kind = f"inline MCP {media_type} content" if media_type != "video" else "an embedded MCP binary resource"
+    description = (
+        f"Fetch a {media_type} `downloads[n].url` from a completed {media_type} project and return it as "
+        f"{content_kind} for compatible clients. Pass the exact full signed URL from "
+        "`downloads[n].url` without trimming query parameters; `expires_at` is separate metadata, not part of the URL. "
+        "Inline media is capped at 8 MiB; use the signed URL directly for larger downloads."
+    )
+
+    @mcp.tool(
+        name=tool_name,
+        title=title,
+        description=description,
+        annotations=ToolAnnotations(title=title, readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+    )
+    async def fetch_download(download_url: str, max_bytes: int = DEFAULT_MEDIA_FETCH_MAX_BYTES):
+        data, mime_type = await _fetch_media_bytes(download_url, expected_prefix=f"{media_type}/", max_bytes=max_bytes)
+        return _media_content(media_type, data, mime_type, source_uri=download_url)
+
+
+async def _wait_for_project(
+    project_type: ProjectType,
+    project_id: str,
+    poll_interval_seconds: float,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be finite and greater than 0.")
+    if not math.isfinite(poll_interval_seconds) or poll_interval_seconds < 0:
+        raise ValueError("poll_interval_seconds must be finite and nonnegative.")
+    path = f"/v1/{project_type}-projects/{project_id}"
+    last_project: dict[str, Any] | None = None
+
+    async def poll() -> dict[str, Any]:
+        nonlocal last_project
+        async with build_api_client() as client:
+            while True:
+                response = await client.get(path, headers={"Authorization": current_authorization_header()})
+                response.raise_for_status()
+                last_project = response.json()
+                if last_project.get("status") in TERMINAL_PROJECT_STATUSES:
+                    return last_project
+
+                await asyncio.sleep(max(poll_interval_seconds, 0.5))
+
+    try:
+        return await asyncio.wait_for(poll(), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        result: dict[str, Any] = {
+            "id": project_id,
+            "status": "timeout",
+            "message": (
+                f"Timed out waiting for {project_type} project {project_id}. "
+                "Resume waiting with this same id; do not create another generation."
+            ),
+        }
+        if last_project is not None:
+            result["last_project"] = last_project
+        return result
+
+
+async def _wait_for_project_result(
+    project_type: ProjectType,
+    project_id: str,
+    poll_interval_seconds: float,
+    timeout_seconds: float,
+    *,
+    include_inline_downloads: bool = False,
+    max_inline_downloads: int = 0,
+    max_bytes_per_download: int = DEFAULT_MEDIA_FETCH_MAX_BYTES,
+) -> ToolResult:
+    distinct_id = api_key_distinct_id(current_authorization_header().partition(" ")[2])
+    project = await _wait_for_project(project_type, project_id, poll_interval_seconds, timeout_seconds)
+    await analytics.capture_media_project_resolved(
+        distinct_id=distinct_id,
+        project_type=project_type,
+        status=str(project.get("status", "unknown")),
+        download_count=len(_project_download_urls(project)),
+    )
+    return await _project_to_tool_result(
+        project_type,
+        project,
+        include_inline_downloads=include_inline_downloads,
+        max_inline_downloads=max_inline_downloads,
+        max_bytes_per_download=max_bytes_per_download,
+        distinct_id=distinct_id,
+    )
+
+
+async def _fetch_media_bytes(download_url: str, expected_prefix: str, max_bytes: int) -> tuple[bytes, str]:
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be greater than 0.")
+    max_bytes = min(max_bytes, DEFAULT_MEDIA_FETCH_MAX_BYTES)
+    parsed_url = urlparse(download_url)
+    if parsed_url.scheme != "https" or parsed_url.hostname != urlparse(MCP_APP_MEDIA_ORIGIN).hostname:
+        raise ValueError(f"download_url must use {MCP_APP_MEDIA_ORIGIN}.")
+
+    async with httpx.AsyncClient(
+        timeout=API_TIMEOUT, follow_redirects=True, headers={"User-Agent": MCP_USER_AGENT}
+    ) as client:
+        async with client.stream("GET", download_url) as response:
+            response.raise_for_status()
+            mime_type = _resolve_media_mime_type(
+                download_url,
+                response.headers.get("Content-Type"),
+                expected_prefix,
+            )
+
+            media = bytearray()
+            async for chunk in response.aiter_bytes():
+                media.extend(chunk)
+                if len(media) > max_bytes:
+                    raise ValueError(
+                        f"Downloaded media is too large for inline MCP content ({len(media)} bytes > {max_bytes} bytes)."
+                    )
+
+    return bytes(media), mime_type
+
+
+async def _project_to_tool_result(
+    project_type: ProjectType,
+    project: dict[str, Any],
+    *,
+    include_inline_downloads: bool,
+    max_inline_downloads: int,
+    max_bytes_per_download: int,
+    distinct_id: str | None = None,
+) -> ToolResult:
+    content: list[Any] = [
+        TextContent(type="text", text=_project_status_text(project_type, project))
+    ]
+
+    download_urls = _project_download_urls(project)
+    status = str(project.get("status", "unknown"))
+
+    if status == "complete" and download_urls:
+        content.append(
+            TextContent(
+                type="text",
+                text=_project_download_guidance_text(project_type, project),
+            )
+        )
+
+    if status == "complete" and _can_inline_media(project_type, include_inline_downloads, max_inline_downloads):
+        media_project_type = project_type
+        assert media_project_type in {"image", "audio"}
+        remaining_inline_bytes = DEFAULT_MEDIA_FETCH_MAX_BYTES
+        for index, download_url in enumerate(download_urls[:max_inline_downloads], start=1):
+            if remaining_inline_bytes <= 0:
+                content.append(TextContent(
+                    type="text",
+                    text="Inline preview limit reached. Use exact_download_urls for the remaining outputs.",
+                ))
+                break
+            try:
+                data, mime_type = await _fetch_media_bytes(
+                    download_url,
+                    expected_prefix=f"{media_project_type}/",
+                    max_bytes=min(max_bytes_per_download, remaining_inline_bytes),
+                )
+            except Exception as exc:
+                if distinct_id is not None:
+                    await analytics.capture_mcp(
+                        "media_inline_download_failed",
+                        {
+                            "project_type": project_type,
+                            "error_type": type(exc).__name__,
+                            "http_status": exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None,
+                        },
+                        distinct_id=distinct_id,
+                    )
+                content.append(
+                    TextContent(
+                        type="text",
+                        text=f"Inline {project_type} download {index} could not be fetched: {exc}",
+                    )
+                )
+                continue
+
+            remaining_inline_bytes -= len(data)
+            if media_project_type == "image":
+                content.append(_media_content("image", data, mime_type))
+            else:
+                content.append(_media_content("audio", data, mime_type))
+
+        remaining_downloads = len(download_urls) - max_inline_downloads
+        if remaining_downloads > 0:
+            content.append(
+                TextContent(
+                    type="text",
+                    text=f"{remaining_downloads} additional {project_type} download(s) were not inlined.",
+                )
+            )
+    elif status == "complete" and not download_urls:
+        content.append(
+            TextContent(
+                type="text",
+                text=f"The completed {project_type} project did not include any download URLs.",
+            )
+        )
+
+    structured_content = _project_structured_content_for_agent(project)
+    structured_content["project_type"] = project_type
+    return ToolResult(content=content, structured_content=structured_content)
+
+
+def _can_inline_media(project_type: ProjectType, include_inline_downloads: bool, max_inline_downloads: int) -> bool:
+    return include_inline_downloads and max_inline_downloads > 0 and project_type in {"image", "audio"}
+
+
+def _media_content(media_type: ProjectType, data: bytes, mime_type: str, source_uri: str | None = None) -> Any:
+    if media_type == "image":
+        return Image(data=data).to_image_content(mime_type=mime_type)
+    if media_type == "audio":
+        return Audio(data=data).to_audio_content(mime_type=mime_type)
+    if source_uri is None:
+        raise ValueError("source_uri is required for video content.")
+    return EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=source_uri,
+            mimeType=mime_type,
+            blob=b64encode(data).decode("ascii"),
+        ),
+    )
+
+
+def _project_download_urls(project: dict[str, Any]) -> list[str]:
+    downloads = project.get("downloads")
+    if not isinstance(downloads, list):
+        return []
+
+    urls: list[str] = []
+    for item in downloads:
+        if isinstance(item, dict):
+            url = item.get("url")
+            if isinstance(url, str) and url:
+                urls.append(url)
+    return urls
+
+
+def _project_structured_content_for_agent(project: dict[str, Any]) -> dict[str, Any]:
+    structured_project = dict(project)
+    downloads = project.get("downloads")
+    if not isinstance(downloads, list):
+        return structured_project
+
+    exact_download_urls: list[str] = []
+    download_expiration_metadata: list[dict[str, str]] = []
+    normalized_downloads: list[dict[str, str]] = []
+
+    for index, item in enumerate(downloads):
+        if not isinstance(item, dict):
+            continue
+
+        url = item.get("url")
+        expires_at = item.get("expires_at")
+
+        if isinstance(url, str) and url:
+            exact_download_urls.append(url)
+            normalized_downloads.append({"url": url})
+
+        if isinstance(expires_at, str) and expires_at:
+            download_expiration_metadata.append(
+                {
+                    "download_index": str(index),
+                    "expires_at": expires_at,
+                    "note": "Metadata only. Do not append this value to the download URL.",
+                }
+            )
+
+    structured_project["downloads"] = normalized_downloads
+    structured_project["exact_download_urls"] = exact_download_urls
+    structured_project["download_expiration_metadata"] = download_expiration_metadata
+    return structured_project
+
+
+def _project_status_text(project_type: str, project: dict[str, Any]) -> str:
+    status = str(project.get("status", "unknown"))
+    project_id = str(project.get("id", "unknown"))
+    download_count = len(_project_download_urls(project))
+
+    if status == "complete":
+        return f"{project_type.title()} project {project_id} completed with {download_count} download(s)."
+    if status == "error":
+        error = project.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message:
+                return f"{project_type.title()} project {project_id} failed: {message}"
+        return f"{project_type.title()} project {project_id} failed."
+    if status == "canceled":
+        return f"{project_type.title()} project {project_id} was canceled."
+    if status == "timeout":
+        message = project.get("message")
+        if isinstance(message, str) and message:
+            return message
+        return f"Timed out waiting for {project_type} project {project_id}."
+
+    return f"{project_type.title()} project {project_id} is {status}."
+
+
+def _project_download_guidance_text(
+    project_type: str,
+    project: dict[str, Any],
+) -> str:
+    downloads = project.get("downloads")
+    lines = [
+        f"IMPORTANT: Use only `downloads[n].url` as the exact full signed {project_type} download URL.",
+        "Do not shorten the URL.",
+        "Do not remove query parameters.",
+        "Do not append `downloads[n].expires_at` to the URL.",
+        "`expires_at` is metadata only and is never part of the clickable/downloadable URL.",
+    ]
+
+    if isinstance(downloads, list):
+        for index, item in enumerate(downloads, start=1):
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            expires_at = item.get("expires_at")
+            if isinstance(url, str) and url:
+                lines.append(f"EXACT_DOWNLOAD_URL[{index - 1}] = {url}")
+            if isinstance(expires_at, str) and expires_at:
+                lines.append(
+                    f"EXPIRES_AT[{index - 1}] = {expires_at} (metadata only; do not append to the URL)"
+                )
+
+    return "\n".join(lines)
+
+
+def _resolve_media_mime_type(download_url: str, header_value: str | None, expected_prefix: str) -> str:
+    header_type = header_value.partition(";")[0].strip().lower() if header_value else None
+    guessed_type, _ = mimetypes.guess_type(urlparse(download_url).path)
+    for mime_type in (header_type, guessed_type):
+        if mime_type and mime_type.startswith(("image/", "audio/", "video/")):
+            if not mime_type.startswith(expected_prefix):
+                actual_type = mime_type.partition("/")[0]
+                raise ValueError(
+                    f"Download is {mime_type}, not {expected_prefix} media. "
+                    f"Use fetch_{actual_type}_download with the same signed URL."
+                )
+            return mime_type
+
+    if expected_prefix == "image/":
+        return "image/png"
+    if expected_prefix == "audio/":
+        return "audio/wav"
+    if expected_prefix == "video/":
+        return "video/mp4"
+
+    return "application/octet-stream"
+
+
+mcp = create_mcp()
+
+middleware = [
+    Middleware(PostHogFlushMiddleware),
+    Middleware(BearerPassthroughMiddleware),
+    Middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["mcp-protocol-version", "mcp-session-id", "Authorization", "Content-Type"],
+        expose_headers=["mcp-session-id"],
+    ),
+]
+
+# Path "/" preserves the existing repo convention: standalone dev runs at root,
+# and a host app can mount this ASGI app at "/mcp" without producing "/mcp/mcp".
+mcp_app = mcp.http_app(path="/", middleware=middleware, stateless_http=True)
+
+
+async def favicon(_: Request) -> FileResponse:
+    return FileResponse(FAVICON_PATH, media_type="image/x-icon")
+
+
+async def mcp_app_http_view(_: Request) -> HTMLResponse:
+    return HTMLResponse(
+        read_mcp_app_html(),
+        media_type=MCP_APP_MIME_TYPE,
+        headers={"Content-Security-Policy": MCP_APP_VIEW_CSP},
+    )
+
+
+async def mcp_server_card(_: Request) -> JSONResponse:
+    return JSONResponse(
+        {
+            "name": MCP_SERVER_NAME,
+            "description": MCP_SERVER_DESCRIPTION,
+            "version": MCP_SERVER_VERSION,
+            "serverUrl": MCP_SERVER_URL,
+            "remotes": [
+                {
+                    "type": "streamable-http",
+                    "url": MCP_SERVER_URL,
+                }
+            ],
+            "tools": [
+                tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+                for tool in await mcp.list_tools()
+            ],
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Access-Control-Allow-Headers": "Content-Type",
+            "Cache-Control": "public, max-age=3600",
+        },
+    )
+
+
+async def glama_verification(_: Request) -> JSONResponse:
+    return JSONResponse(
+        {
+            "$schema": "https://glama.ai/mcp/schemas/connector.json",
+            "maintainers": [{"email": "support@magichour.ai"}],
+        }
+    )
+
+
+mcp_app_assets = CORSMiddleware(
+    StaticFiles(directory=MCP_APP_DIST_PATH, check_dir=False),
+    allow_origins=["*"],
+    allow_methods=["GET"],
+)
+
+app = create_oauth_compatibility_app(
+    mcp_app,
+    public_routes=[
+        Route("/app/events", app_events, methods=["POST", "OPTIONS"]),
+        Route("/favicon.ico", favicon, methods=["GET"]),
+        Route(MCP_APP_VIEW_PATH, mcp_app_http_view, methods=["GET"]),
+        Mount(MCP_APP_ASSET_PATH, app=mcp_app_assets),
+        Route(MCP_SERVER_CARD_PATH, mcp_server_card, methods=["GET"]),
+        Route(GLAMA_VERIFICATION_PATH, glama_verification, methods=["GET"]),
+        Route("/.well-known/openai-apps-challenge", lambda _: PlainTextResponse("DjJ2bzf2N6jgiX7_RSHQitVfWJD6AMQL6_-5B_QHKz0"), methods=["GET"]),
+    ],
+)
+lifespan = app.router.lifespan_context

@@ -1,0 +1,443 @@
+# Deliberation
+
+Get a second opinion from GPT, Gemini, and Grok in Claude Code, Codex, Cursor, Kiro, Antigravity, OpenCode, or any other MCP host - plus local models (Ollama, LM Studio) and 400+ more models through OpenRouter, including Qwen, Kimi, and DeepSeek. Eight domain experts (Architect, Code Reviewer, Security Analyst, and five more) review your plans, find bugs, and debate edge cases until they agree.
+
+![Four chairs at the table: Claude, GPT, Gemini, Grok - one verdict you can ship](assets/agents.png)<br>Recent blog post: [Meet Deliberation: 400+ models is easy, knowing which ones earn a place is hard.](https://builder.aws.com/content/3Eaq94hQW8HywInrVaQm9qNih1P/meet-deliberation-400-models-is-easy-knowing-which-ones-earn-a-place-is-hard)
+
+<details>
+<summary>📸 See a full <code>/consensus</code> run: round 1 disagreement to round 5 convergence</summary>
+
+![Round 1: reviewers disagree](assets/round1.png)
+
+<details>
+<summary>... a few moments later ...</summary>
+
+![A Few Moments Later](assets/afewmomentslater.png)
+
+</details>
+
+![Round 5: convergence reached](assets/round5.png)
+
+</details>
+
+<details>
+<summary>📸 See <code>/ask-all</code> stage a 2-round architect debate: three models, three verdicts, then each critiques the others - disagreement matrix included</summary>
+
+![/ask-all: three architects walk into a repo, two ship bugs walk out](assets/ask-all.png)
+
+When three models argue, the real bug reveals itself. Round 1 = independent top findings. Round 2 = each model dunks on the others' picks. The disagreement matrix shows where they diverge; the conclusion shows what to actually fix first.
+
+</details>
+
+<details>
+<summary>📸 See the local dashboard draw a <code>/consensus</code> run as a timeline: one lane per voice, verdicts on each, final report alongside</summary>
+
+![Dashboard: a converged 3-round /consensus run with the arbiter and six panel voices on one timeline](assets/dashboard.png)
+
+The dashboard (`/deliberation:dashboard`, opt-in with `"dashboard": { "enabled": true }`) is a read-only page on `127.0.0.1`. **Live** follows runs as they happen, **Runs** keeps the history (with the repo and workspace each run came from, grouped by git remote `org/repo`, and a project filter that picks a whole repo or one workspace), **Config** shows the effective config, **Stats** shows usage and provider health, and **Analyzer** shows which models agree more than they add (drop candidates), which projects fail or run slow, and whether request size predicts latency and timeouts, with a suggested timeout. For a run you get:
+
+- the header: tool, elapsed time, status, round, tokens, errors, and expert
+- the phase strip: blind, peers, adjudicate, converged or revise, each with its time offset
+- the timeline: rounds across the top, then one lane for the arbiter and one for each panel voice, with each call drawn as a pulse and labelled with its verdict. Drag across the plot to place two cursors and measure the time between them
+- the event table: every journal event with its sequence number, time, kind, and round
+- the side panel: the final report and the prompt
+
+The `CAPTURE` and `PII` badges show what was recorded. The default capture is metadata only, and PII is redacted unless `dashboard.showPII` is on.
+
+</details>
+
+## What is Deliberation?
+
+Your coding agent can ask GPT, Gemini, Grok, local models (Ollama, LM Studio), or any
+OpenAI-compatible model (via OpenRouter) for help through MCP. Deliberation handles the wiring
+for each provider so you just write the prompt. Each expert has a distinct specialty and can
+advise or implement.
+
+It is not tied to Claude Code. The same MCP server runs on any MCP host, and Codex, Cursor,
+Kiro, Antigravity, and OpenCode also get native plugins with the experts and delegation
+guidance built in (see [Install](#install)). Claude Code gets the most complete version: slash
+commands and auto-routing rules on top of the same server.
+
+You can use any subset of the providers. Deliberation detects which are configured and routes
+accordingly. OpenRouter is advisory-only and config-driven: models are declared in
+`~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override
+with `DELIBERATION_CONFIG`) and hot-reload without restarting your host.
+
+| What you get | Why it matters |
+|--------------|----------------|
+| 8 domain experts | The right specialist for each problem type |
+| GPT, Gemini, Grok, local, or OpenRouter models | Use your preferred provider(s) |
+| Dual mode | Experts analyze (read-only) or implement (write) |
+| Auto-routing | Your agent detects when to delegate from your request |
+| Synthesized responses | Your agent interprets expert output, never raw passthrough |
+| Local dashboard (opt-in) | Watch each run as a live state graph in your browser, plus history per project, health, usage stats, and an analyzer for drop candidates and timeout tuning |
+
+## Install
+
+Pick the path for your host:
+
+- **Claude Code** - the plugin below (recommended there).
+- **Codex, Cursor, Kiro, Antigravity, OpenCode** - the [native plugins per host](#native-plugins-per-host-antigravity--cursor--codex--kiro--opencode).
+- **Any other MCP host** (Claude Desktop, Windsurf, Zed, VS Code, ...) - the [standalone MCP server](#alternative-use-deliberation-mcp-server-standalone-works-with-any-agents).
+
+### Claude Code plugin (recommended):
+
+**1. Add the marketplace - [antonbabenko/agent-plugins](https://github.com/antonbabenko/agent-plugins)**
+```
+/plugin marketplace add antonbabenko/agent-plugins
+```
+
+**2. Install the plugin**
+```
+/plugin install deliberation@antonbabenko
+```
+
+**3. Run setup**
+```
+/deliberation:setup
+```
+
+Claude now routes complex tasks to your GPT, Gemini, Grok, local (Ollama, LM Studio), and OpenRouter experts (every provider advises; only Gemini can also implement).
+
+> **Setup is a one-time step.** The MCP servers are registered by the plugin manifest, so they load
+> automatically and stay current across updates.
+
+### Updating (Claude Code)
+
+```
+/plugin marketplace update antonbabenko  # pull the new version from the marketplace
+/deliberation:reload-mcp                 # audit processes & recycle dashboard daemon
+/reload-plugins                          # reconnect the MCP servers (or restart Claude Code)
+```
+
+**Updating on non-Claude hosts:** hosts that run the standalone server via `npx -y
+@antonbabenko/deliberation-mcp` get the latest published version on each fresh resolve. `npx`
+caches resolved packages, so if a host serves an old build, clear the npx cache
+(`rm -rf ~/.npm/_npx`) or pin/refresh the version. Run `bash scripts/commands/reload-mcp.sh`
+(or trigger the `reload-mcp` skill / command on Codex, Antigravity, OpenCode) to audit
+running worker processes and recycle the background dashboard daemon safely.
+
+### Alternative: Use `deliberation` MCP server (standalone, works with any agents)
+
+The orchestration server is also published on its own - npm [`@antonbabenko/deliberation-mcp`](https://www.npmjs.com/package/@antonbabenko/deliberation-mcp), Official MCP Registry name `io.github.antonbabenko/deliberation`.
+
+**One-click install:**
+
+[![Install in Cursor](https://img.shields.io/badge/Install-Cursor-blue?style=flat-square&logo=cursor)](https://cursor.com/en-US/install-mcp?name=deliberation&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBhbnRvbmJhYmVua28vZGVsaWJlcmF0aW9uLW1jcCJdfQ==) [![Install in VS Code](https://img.shields.io/badge/Install-VS_Code-FF9900?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=deliberation&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40antonbabenko%2Fdeliberation-mcp%22%5D%7D) [![Install in Kiro](https://img.shields.io/badge/Install-Kiro-9046FF?style=flat-square&logo=kiro)](https://kiro.dev/launch/mcp/add?name=deliberation&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40antonbabenko%2Fdeliberation-mcp%22%5D%7D)
+
+<details>
+<summary>Manual config for any MCP clients</summary>
+
+Add this to your host's MCP config (most hosts use the `mcpServers` key):
+
+```json
+{
+  "mcpServers": {
+    "deliberation": {
+      "command": "npx",
+      "args": ["-y", "@antonbabenko/deliberation-mcp"],
+      "env": {
+        "XAI_API_KEY": "xai-...",
+        "OPENROUTER_API_KEY": "sk-or-v1-..."
+      }
+    }
+  }
+}
+```
+
+The `env` block is how you set provider keys outside Claude Code. GPT and Gemini do not read keys here - they use the `codex` and `agy` CLIs (logged in separately), so drop those lines if you only use GPT/Gemini. `XAI_API_KEY` enables Grok; `OPENROUTER_API_KEY` enables OpenRouter (which also needs models declared in `~/.config/deliberation/config.json` - the canonical XDG path, Windows `%APPDATA%\deliberation\config.json` - or point elsewhere with `DELIBERATION_CONFIG`). The one-click buttons above cannot carry secrets - add the `env` block by hand after installing.
+
+Per-host config location and the key it expects:
+
+| Host | Config | Key |
+|------|--------|-----|
+| Claude Code | `claude mcp add deliberation -- npx -y @antonbabenko/deliberation-mcp` (or project `.mcp.json`) | `mcpServers` |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\claude_desktop_config.json` (Windows) | `mcpServers` |
+| Cursor | `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project) | `mcpServers` |
+| VS Code | `.vscode/mcp.json` - note: each entry needs `"type": "stdio"` | `servers` |
+| Codex CLI | `~/.codex/config.toml` - TOML, e.g. `[mcp_servers.deliberation]` | `mcp_servers` |
+| Gemini CLI | `~/.gemini/settings.json` | `mcpServers` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
+| Zed | `settings.json` | `context_servers` |
+| Cline | the extension's MCP settings (Cline panel -> MCP Servers) | `mcpServers` |
+
+Provider prerequisites are the same as the plugin (see [Requirements](#requirements)): the Codex CLI for GPT, `agy` for Gemini, `XAI_API_KEY` for Grok, and `OPENROUTER_API_KEY` plus `~/.config/deliberation/config.json` for OpenRouter (Windows: `%APPDATA%\deliberation\config.json`; override the config path with `DELIBERATION_CONFIG`).
+
+Tools exposed: `ask-all`, `consensus` (the full convergence loop in one call, or a single synthesis pass with `synthesizeAlways:true`), `consensus-step` (drive the loop yourself, one action per call), `ask-gpt` / `ask-gemini` / `ask-grok` / `ask-openrouter`, `panel` + `ask-one` (discover the active provider set, then call providers individually - issue them in parallel for visible per-provider progress), `analyze` (read-only run analytics over the debug log + sessions: per-model latency / tokens + verdict agreement, with advisory tuning suggestions; `configuredOnly` and `since` keep the report to models you still run and a period you choose), the eight experts (`architect`, `plan-reviewer`, `scope-analyst`, `code-reviewer`, `security-analyst`, `researcher`, `debugger`, `writing-editor`), and the session tools (`session-get` / `session-revisit` / `session-annotate`). Every result carries `ms` + the effective `reasoningEffort` (HTTP providers add token `usage`). An optional debug log (`"debug": { "enabled": true }`) records latency / tokens / votes - never prompts or responses. An optional local dashboard (`"dashboard": { "enabled": true }`, then `deliberation-mcp dashboard`) draws every run as a live state graph in your browser; `panel` returns a `runId` that `ask-one` accepts, so a parallel fan-out shows as one run. These are server-side, so they work on every MCP host, not just Claude Code (see the [tool guide](docs/tool-guide.md)).
+
+The package also ships a `deliberation-setup` bin. Run it once with `npx -y --package @antonbabenko/deliberation-mcp deliberation-setup` to write a starter `~/.config/deliberation/config.json` (it never overwrites an existing one). The plain `npx -y @antonbabenko/deliberation-mcp` form runs the default bin (the server), which is what your MCP host launches. For host rule wiring, see the [tool guide](docs/tool-guide.md) and the per-host snippets in [`examples/`](examples/).
+
+</details>
+
+### Run in Docker
+
+The repo ships a `Dockerfile` for running the standalone server in a container. It wraps the stdio server in `mcp-proxy`, the same shape MCP hosting providers expect:
+
+```bash
+docker build -t deliberation-mcp .
+docker run -i --rm \
+  -e XAI_API_KEY -e OPENROUTER_API_KEY \
+  -v ~/.config/deliberation:/home/node/.config/deliberation:ro \
+  deliberation-mcp
+```
+
+Grok and OpenRouter work from the keys alone. GPT and Gemini do not - they shell out to the `codex` and `agy` CLIs, which are not in the image, so those two providers report `not-found` / `missing-cli` inside the container.
+
+### Native plugins per host (Antigravity / Cursor / Codex / Kiro / OpenCode)
+
+Beyond the raw MCP config above, deliberation ships **native plugin artifacts** for five hosts so the experience matches the Claude Code plugin (persona-bearing experts + when-to-delegate guidance, not just bare tools). All of these are **generated from the canonical sources** by `node scripts/sync-hosts.js` and committed, so they never drift (a CI drift test enforces it). Each host scans the repo for its own files:
+
+| Host | Native artifacts (in this repo) | Install |
+|------|----------------------------------|---------|
+| **Antigravity & Gemini** | `.agents/skills/`, `.gemini/skills/`, and `.agents/mcp.json` | Automatically discovered in project root, or copy `.agents/skills/` and `.gemini/skills/` into your workspace. |
+| **Cursor** | `.cursor/rules/deliberation.mdc` | Use the one-click MCP button above, then copy the `.mdc` into your project's `.cursor/rules/`. |
+| **Codex CLI** | `plugins/deliberation/` (`.codex-plugin/plugin.json` + `.mcp.json` + `skills/`) and a repo-scoped `.agents/plugins/marketplace.json` | `codex plugin marketplace add antonbabenko/deliberation`, then install **deliberation** from `/plugins`. |
+| **Kiro** | `POWER.md` + `mcp.json` + `steering/` (a "Kiro Power") | In Kiro, "Add power from GitHub" -> this repo URL. Submit to the registry at [kiro.dev/powers/submit](https://kiro.dev/powers/submit/). |
+| **OpenCode** | `.opencode/commands/*.md` + `.opencode/agents/*.md` | Add the MCP server to `opencode.json` (`mcp` key, `type: "local"`, `command: ["npx","-y","@antonbabenko/deliberation-mcp"]`), then copy `.opencode/commands/` and `.opencode/agents/` into your project. |
+
+Provider credentials work the same as the standalone server (GPT via the Codex CLI, Gemini via `agy`, `XAI_API_KEY` for Grok, `OPENROUTER_API_KEY` for OpenRouter) - set only the providers you use. The MCP server already injects each expert persona server-side, so these native files add the host's command/steering surface, not duplicated logic.
+
+**Full per-host install guides:** [`docs/hosts/`](docs/hosts/) - [Antigravity & Gemini](docs/hosts/antigravity.md), [Cursor](docs/hosts/cursor.md), [Codex CLI](docs/hosts/codex.md), [Kiro](docs/hosts/kiro.md), [OpenCode](docs/hosts/opencode.md).
+
+## Requirements
+
+You need at least one provider:
+
+- **Codex CLI** (GPT): `npm install -g @openai/codex`, then `codex login` (ChatGPT subscription; `codex login --device-auth` on a remote machine, one login per machine). A ChatGPT Business/Enterprise workspace can set `CODEX_ACCESS_TOKEN` instead. With neither, codex uses `CODEX_API_KEY`; `OPENAI_API_KEY` is never used.
+- **Antigravity CLI**: [Getting Started with Antigravity CLI](https://antigravity.google/docs/cli-getting-started) and [Migrating from Gemini CLI](https://antigravity.google/docs/gcli-migration), then run `agy` and login.
+- **Grok (xAI)**: no CLI to install; the bridge ships with the plugin (needs Node 18+). Set `XAI_API_KEY` (get a key at https://console.x.ai).
+- **OpenRouter**: no CLI; the bridge ships with the plugin (needs Node 18+). Set `OPENROUTER_API_KEY` (get a key at https://openrouter.ai/keys), then declare models in `~/.config/deliberation/config.json` (Windows: `%APPDATA%\deliberation\config.json`; override with `DELIBERATION_CONFIG`). Works with any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, HuggingFace Inference) - auth is skipped automatically when the key env var is empty. Supports custom OpenRouter presets (e.g. `cheapest-first`) to optimize inference cost and provider routing.
+
+**Windows note (CLI providers).** `npm install -g` on Windows installs a `codex.cmd` shim, not an
+executable, and Node cannot launch a `.cmd` directly - so GPT calls used to fail with nothing but a
+spawn error. deliberation now resolves the CLI itself (PATHEXT, falling back to the package's own
+entry point) and keeps it out of a shell. If resolution ever misses on your machine, point
+`CODEX_BIN` (GPT) or `AGY_BIN` (Gemini) at the real executable. Grok and OpenRouter are unaffected -
+they are HTTP bridges and spawn nothing.
+
+**Claude Code on the web note.** The web host caps every MCP tool call at 60s
+(`MCP_TOOL_TIMEOUT=60000`). The plugin manifest overrides that per server: each deliberation
+server declares `"timeout": 1800000` (30 min, which Claude Code applies ahead of
+`MCP_TOOL_TIMEOUT`) and mirrors it into the server's env so the plugin's own clamp tracks
+the real cap. Nothing to set in the environment. A `timeout` result whose message still names
+`MCP_TOOL_TIMEOUT=60000` means an older plugin install: `claude plugin update
+deliberation@antonbabenko` and start a new session. `/deliberation:doctor` reports the cap,
+the codex credential, and a missing `agy`; the panel skips providers that cannot answer
+(`panel.unavailable`) instead of waiting on them. For GPT, do not copy your laptop's
+`~/.codex/auth.json` into the container: a ChatGPT login's refresh token works once, so both
+the other copy stops working as soon as one of them refreshes. On Plus/Pro, the first GPT call
+in a session starts `codex login --device-auth` and shows its link and code (a dialog when the
+host supports it, else in the result); approve it and GPT answers. On Business/Enterprise, set
+`CODEX_ACCESS_TOKEN`. See [SETUP.md](SETUP.md#claude-code-on-the-web-and-other-capped-hosts).
+
+## Commands
+
+Bundled with the Claude Code plugin (available once installed; OpenCode gets the `ask-*`, `consensus`, and `analyze` commands, and every other host calls the matching MCP tools directly):
+
+| Command | Purpose |
+|---------|---------|
+| `/deliberation:setup` | Configure Codex/Gemini/Grok/OpenRouter MCP servers + orchestration rules |
+| `/deliberation:help` | How to use deliberation on your host, with paste-ready example prompts |
+| `/deliberation:doctor` | Health check (config, provider CLIs, sessions/debug, path drift) with fixes; read-only |
+| `/deliberation:dashboard` | Start the local read-only dashboard (runs as live state graphs, history, config, health, stats, analyzer) and print its URL; `restart` stops it and prints a fresh URL. Needs `dashboard.enabled` and a browser on the same machine |
+| `/deliberation:codex-login` | Log GPT (Codex) in on this machine with a ChatGPT device login - shows a link + code; for web and headless sessions |
+| `/deliberation:consensus` | 🔥🔥🔥 Arbiter-mediated GPT + Gemini + Grok + Claude convergence loop |
+| `/deliberation:ask-all` | 🔥 GPT + Gemini + Grok (+ configured OpenRouter models) in parallel, synthesized |
+| `/deliberation:ask-gpt` | One-shot GPT (Codex) second opinion |
+| `/deliberation:ask-gemini` | One-shot Gemini second opinion |
+| `/deliberation:ask-grok` | One-shot Grok (xAI) second opinion (advisory-only) |
+| `/deliberation:ask-openrouter` | One-shot OpenRouter model second opinion (advisory-only) |
+| `/deliberation:analyze` | Analyze recent runs (latency, tokens, verdict agreement) and suggest model/reasoning/fanout tuning (advisory) |
+| `/deliberation:uninstall` | Remove MCP config, rules, and aliases |
+| `/deliberation:grok-files` | List, prune, or gc Grok-uploaded files (storage + local cache cleanup) |
+| `/deliberation:reload-mcp` | Gracefully cycle the dashboard daemon and audit MCP processes after an update |
+
+`/setup` can also install short aliases (`/ask-gpt`, `/ask-gemini`, `/ask-grok`, `/ask-openrouter`, `/ask-all`, `/consensus`) into `~/.claude/commands/`. This is opt-in. Existing same-named commands are kept by default; setup asks before overwriting any of them. `/deliberation:uninstall` removes an alias only if it is byte-identical to the bundled copy.
+
+`analyze` is deliberately excluded: `/analyze` is a common name and a bare copy collides with any other plugin that ships one. Use `/deliberation:analyze`, which is always available. If an earlier setup installed `~/.claude/commands/analyze.md`, setup now points out the path so you can delete it. `/deliberation:uninstall` also lists `analyze`, but its byte-identical guard only matches a copy of the *current* bundled file - an alias copied from an older release will differ and is deliberately left alone rather than deleted on a guess.
+
+## The Experts
+
+| Expert | What they do | Example triggers |
+|--------|--------------|------------------|
+| **Architect** | System design, tradeoffs, complex debugging | "How should I structure this?" / "What are the tradeoffs?" |
+| **Plan Reviewer** | Validate plans before you start | "Review this migration plan" / "Is this approach sound?" |
+| **Scope Analyst** | Catch ambiguities early | "What am I missing?" / "Clarify the scope" |
+| **Code Reviewer** | Find bugs, improve quality | "Review this PR" / "What's wrong with this?" |
+| **Security Analyst** | Vulnerabilities, threat modeling | "Is this secure?" / "Harden this endpoint" |
+| **Researcher** | External libraries, docs, best practices | "How do I use X?" / "Find examples of Y" |
+| **Debugger** | Root-cause analysis, minimal fixes | "Why does this crash?" / "Debug this failing test" |
+| **Writing Editor** | Prose that reads like you wrote it | "Edit this launch post" / "This README intro reads generic" |
+
+### When experts help most
+
+- **Architecture decisions** - "Should I use Redis or in-memory caching?"
+- **Stuck debugging** - after two or more failed attempts, get a fresh perspective
+- **Pre-implementation** - validate a plan before writing code
+- **Security concerns** - "Is this auth flow safe?"
+- **Code quality** - a second opinion on your implementation
+
+### When not to use experts
+
+- Simple file operations (Claude handles these directly)
+- First attempt at any fix (try yourself first)
+- Trivial questions (no need to delegate)
+
+### Writing in your own voice
+
+The Writing Editor runs whenever your agent writes, reviews, or updates text you publish under your name: posts, articles, newsletters, release notes, README intros, PR descriptions, bios, talk abstracts. Your agent drafts first, then the editor checks the draft before you see it. It returns line edits, questions about anything the text needs that only you know, and a rewrite that keeps every fact. For a piece that matters, run `/consensus` on the draft and the panel reviews it with the `writing-editor` persona.
+
+The editor needs evidence of how you write. Without it, it can only cut filler. A short voice file helps most. Keep it in your repo and point to it ("use my voice file at docs/voice.md"):
+
+```markdown
+# <Your name> - voice
+
+## How to use this file
+- These rules beat any default style rule.
+- Samples show rhythm only. Do not copy their phrases.
+- Never invent a fact, number, person, customer, or quote.
+
+## What I argue from
+- 3-7 beliefs you keep coming back to, in your words.
+
+## Mechanics
+- "I" or "we", contractions or full forms, sentence length mix.
+- Name the specific thing. A number beats an adjective, and every number needs a source.
+- Typography you use (dashes, quotes, heading case).
+
+## Moves
+| Move | Use only when | My own example |
+|------|---------------|----------------|
+| <a habit of yours> | <the condition> | "<a real line you wrote>" |
+
+At most one move per short post.
+
+## Would sound wrong
+| Wrong | Why |
+|-------|-----|
+| "Thrilled to share" | Launch voice. Say what shipped. |
+| "Here's the thing", "Sound familiar?" | Run-up. Start with the thing itself. |
+| A one-line quotable closer | End on the last concrete fact. |
+
+## Channels
+- LinkedIn: the hook fits before the "see more" cut, 1-3 sentence paragraphs, no closing question.
+- Blog: ...
+
+## Samples (rhythm only)
+- 5-10 short lines you wrote yourself: posts, replies, talk transcripts.
+```
+
+Two parts of the file do most of the work. Each move has a condition, so the editor does not paste your signature line into every post (overused habits read as machine-made too). The "would sound wrong" table lists phrases you would never write. When you edit a draft by hand, add the voice change you made to the file as a rule.
+
+Picking models:
+
+- Review with several model families. `/consensus` with the `writing-editor` persona sends the draft to every voice in your consensus panel. Reviewers from different families tend to flag different tells (one catches the arc of the piece, another a claim you never made).
+- Give rewrites their own model record. A record restricted to `writing-editor` joins only prose reviews, so its settings do not touch your code reviews. Use a higher temperature for writing than the 0.2 typical for review. Pick the model by reading what it writes on your own samples, not by its benchmark scores:
+
+  ```json
+  "models": {
+    "prose": {
+      "provider": "openrouter",
+      "model": "<provider/model whose prose you like>",
+      "experts": ["writing-editor"],
+      "consensus": true,
+      "temperature": 0.7
+    }
+  }
+  ```
+
+- Gemini is the only provider that can write the rewrite back to the file (implementation mode). The others return it as text.
+
+The editor does not score text for "AI likelihood" and does not promise any detector result. It also never adds typos or broken grammar to make text look human.
+
+## How to Use
+
+Describe your task. Your agent detects when an expert helps and delegates automatically (the examples show Claude Code):
+
+```
+You: "Is this authentication flow secure?"
+Claude: routes to the Security Analyst, then synthesizes the findings.
+```
+
+You can also ask explicitly: "Ask GPT to review this architecture", "Ask Gemini to...", or "Ask Grok to...". Each expert runs read-only for analysis; Gemini can also run with write access to apply fixes, and your agent picks the mode from your request.
+
+Or invoke the slash commands directly - see Commands above.
+
+## How /consensus and /ask-* keep models honest
+
+This section uses the Claude Code command names, and "Claude" means the host agent that orchestrates the run. On other hosts your own agent plays that role through the `consensus-step` tool (or the server plays it with `consensus`), under the same rules.
+
+`/ask-gpt`, `/ask-gemini`, `/ask-grok`, and `/ask-all` are the quick commands: each dispatches one or three external models, Claude reads the output, and you get one synthesized answer. Single shot, no loop, no peer round.
+
+`/consensus` is the heavy one. Same parallel dispatch, but with a peer-review round and a multi-round loop that stops only when the models agree. The cost: the orchestrator (Claude) writes the review prompt, casts a vote, decides which objections are real, and runs the loop. Left alone, that setup can quietly rubber-stamp its own plan. Four guards stop that.
+
+![/consensus 3-stage flow](assets/consensus-flow-simple.png)
+
+[See the detailed diagram with bias guards and per-model flow](assets/consensus-flow.png)
+
+The four guards:
+
+- **Blind verdict.** Claude posts its own verdict (APPROVE / REQUEST CHANGES / REJECT) in a message sent *before* the one that calls the panel. The pre-commitment sits in the transcript, so Claude cannot reshape its opinion after seeing the others. The engine enforces this: the panel is not revealed until the blind verdict is recorded.
+- **Peer review.** Each external model reviews the plan independently and returns a verdict plus categorized critical issues; Claude weighs them as the arbiter. The models vote, Claude adjudicates.
+- **No self-approval.** A round converges only when every responding external approves and at least one external actually answered. Claude's own approval never carries a round by itself. A provider that errors (an unconfigured Grok returning `missing-auth`, for example) drops out of the count instead of jamming the loop.
+- **No silent dismissal.** Every critical issue that gets dismissed or deferred ships with a one-line reason in the final report, including the times Claude walks back one of its own blind objections. The engine rejects an adjudication that dismisses an issue without a reason.
+
+The `/ask-*` commands carry a lighter version of the same rule. The external model only advises: Claude reads the output, applies its own judgment, and owns the synthesized answer. When the models agree, that is input, not a verdict.
+
+Every delegate prompt also carries today's UTC date and a rule against calling an unrecognized model, tool, or version non-existent from memory: a model trained months ago marks such a claim `[unverified]` instead of filing it as a critical issue. Looking up the actual facts stays with Claude, which has tools; Grok and OpenRouter have none. See [TECHNICAL.md](TECHNICAL.md#date-grounding).
+
+<details>
+<summary>Deep dive: how a single /consensus round actually runs</summary>
+
+`/consensus` is a thin driver over the core convergence engine (`core/consensus-loop.js`); the loop mechanics - round counting, the convergence rule, the configurable max-rounds cap, history, and the confidence label - live in the engine, not the command. Each round:
+
+1. **Blind verdict.** Claude commits its own verdict (transcript-visible) BEFORE the panel is revealed; the engine gates the reveal on it.
+2. **Panel review.** GPT, Gemini, Grok (and any configured OpenRouter delegates) review the plan in parallel and emit APPROVE / REQUEST CHANGES / REJECT plus categorized critical issues. The server parses each verdict.
+3. **Arbiter adjudication + revision.** Claude reconciles the panel verdicts and its own blind verdict; for each critical issue it picks accept, dismiss (reason required), or defer, then revises the plan for the next round.
+
+The loop converges when at least one responding external approves, none reject, zero critical issues remain accepted, and Claude adjudicates APPROVE - so Claude cannot self-approve. It otherwise stops at `consensus.maxRounds` (default 5, configurable) as `unresolved`. The confidence label reflects how fast it settled (round 1 = high, 2-3 = medium, 4-5 = low).
+
+A round only pays for voices that can still answer: a peer that fails 2 rounds running is dropped from the panel (reported once as `droppedProviders`, then never dispatched again), and the whole loop stops at `consensus.maxWallMs` (default 30 min) rather than starting another round. Both apply on every driver. See [TECHNICAL.md](TECHNICAL.md#circuit-breaker).
+
+The same engine backs the entry points other hosts use: the `consensus` tool (runs the whole loop server-side in one call with a provider arbiter, or a single synthesis pass with `synthesizeAlways:true`) and `consensus-step` (drive it yourself, one action per call). See [TECHNICAL.md](TECHNICAL.md#consensus-flow-details) for the taxonomy and the engine contract.
+
+> An earlier revision ran an extra "Stage 2" anonymized peer cross-review (each model scoring the others' answers blind, adapted from [karpathy/llm-council](https://github.com/karpathy/llm-council)). The engine-driven rewrite removed it to keep one source of truth; it may return as an engine feature.
+
+</details>
+
+## Configuration
+
+Full setup and configuration reference lives in **[SETUP.md](SETUP.md)**. It covers:
+
+- **Expert modes** - advisory (`read-only`) vs implementation (`workspace-write`), chosen automatically from your request
+- **Config file** - location (`~/.config/deliberation/config.json`), the `DELIBERATION_CONFIG` override, and hot-reload
+- **The config sections** - `providers`, `models`, `routing`, `consensus`, `sessions`, `debug`, `orientation`, `dashboard` - with a minimal example
+- **OpenRouter models** - declaring records, `askAll` / `consensus` eligibility, fan-out, `reasoningEffort`, and arbiter selection; `consensus` also configures the round cap (`maxRounds`) and wall-time budget (`maxWallMs`, default 30 min)
+- **GPT model and effort** - `providers.codex.model` and `providers.codex.reasoningEffort` pin what `codex exec` runs, winning over `~/.codex/config.toml`
+- **Timeouts** - `providers.defaults.timeout` raises the per-call ceiling for every provider at once; `providers.<name>.timeout` overrides one, and a pinned model's `models.<id>.timeout` still wins. A host cap (`MCP_TOOL_TIMEOUT`, set by Claude Code on the web) clamps all of them and is named in the timeout message. A rate-limited (HTTP 429) call is retried once, honoring the upstream's `Retry-After`
+- **Debug log** - opt-in latency / token / voting trace
+- **Session persistence** - opt-in on-disk run history (incl. the host-driven `/consensus` loop) and the `session-*` tools; `sessions.captureText` (default off) additionally stores provider response bodies (scrubbed)
+- **Dashboard** - opt-in local, read-only browser view of live and past runs as state graphs, with config, provider health, and usage stats. `dashboard.capture` picks metadata only (default) or full prompts and responses; secrets are scrubbed on write and PII is redacted on serve unless `dashboard.showPII` is on. Loopback only, token-protected. Every run records its project (grouped by git remote `org/repo`, with the checkout it was called from as the workspace), every provider call its request size and the timeout it actually got, which the Analyzer tab turns into drop candidates and timeout advice. Start it with `/deliberation:dashboard` or `deliberation-mcp dashboard`; restart it with `/deliberation:dashboard restart` or `npm run dashboard:restart`, stop it with `deliberation-mcp dashboard --stop`
+
+Config history records sanitized effective snapshots and run provenance when
+telemetry is enabled. Dashboard Stats shares analyze time/config filters; Config
+shows separate Ask/Consensus effort and observed runtime active/pending settings.
+Parallel peers share the longest selected timeout within host/consensus budgets
+(`routing.timeoutPolicy: "per-provider"` opts out). Pass the panel `fanoutId` to
+every progressive `ask-one` to pin settings and share a deadline, even without
+dashboard logging. Use `analyze {groupBy:"config", since:"24h"}` for historical
+cohorts, optionally narrowed by full `configId` or `activationId`.
+
+For provider internals, environment variables, and manual MCP setup, see **[TECHNICAL.md](TECHNICAL.md)**.
+
+## Author
+
+Maintained by Anton Babenko - [LinkedIn](https://linkedin.com/in/antonbabenko), [X/Twitter](https://x.com/antonbabenko).
+
+## Contributing
+
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, commit conventions, and the automated release process. 
+
+## License
+
+[MIT](LICENSE)

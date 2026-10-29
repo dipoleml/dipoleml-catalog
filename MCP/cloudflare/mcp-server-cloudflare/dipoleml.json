@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.cloudflare.mcp-server-cloudflare",
+  "type": "mcp",
+  "name": "MCP Server Cloudflare",
+  "slug": "mcp-server-cloudflare",
+  "vendor": "cloudflare",
+  "description": "Product specific Cloudflare MCP servers",
+  "version": "1.0.0",
+  "homepage": "https://github.com/cloudflare/mcp-server-cloudflare",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "cloudflare",
+    "brandName": "cloudflare",
+    "source": "https://cdn.simpleicons.org/cloudflare",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "cloudflare/mcp-server-cloudflare",
+    "url": "https://github.com/cloudflare/mcp-server-cloudflare",
+    "commit": "a21972e219289337731a066befb5c66886b9ce7b",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 4428,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@cloudflare/mcp-server-cloudflare"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,1512 @@
+# Changelog
+
+All notable changes to SEOMonster are documented here.
+
+This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Each release section lists what a validation pass should cover. Items
+marked with **(validate)** are the explicit acceptance checks for an
+external testing pass on that version.
+
+## [Unreleased]
+
+Nothing pending.
+
+## [0.9.3] - 2026-08-28 (hotfix: unbreak fresh installs)
+
+**If your client reported "server failed to start" or a closed connection
+after roughly 2026-07-28, this release fixes it.** No tool behaviour changed.
+
+The dependency on the MCP SDK was declared `mcp>=1.0.0` with no upper bound.
+The SDK shipped 2.0.0 on 2026-07-28, which removed the decorator registration
+API (`@server.list_tools()` and friends), so every fresh resolve produced a
+server that raised `AttributeError: 'Server' object has no attribute
+'list_tools'` before the MCP handshake. Hosts surfaced that only as a closed
+connection.
+
+**Scope:** this affected the PyPI resolve path — `uvx seo-monster`,
+`pip install seo-monster`, and the one-click Cursor / VS Code buttons.
+Claude Desktop `.mcpb` installs were **not** affected, because the bundle
+ships `uv.lock`, which pinned a working SDK version.
+
+### Fixed
+
+- Pin the MCP SDK to `>=1.0.0,<2`. Migration to the 2.x constructor API is
+  tracked separately and will land in a major release.
+- **OAuth scope guard now actually fires** (GH issue #2, reported by
+  @shridipavansaber). `Credentials.from_authorized_user_file(path, scopes)`
+  echoes the *requested* scopes back on the credentials object, so the
+  coverage check could never fail and its `MissingGoogleAuth` branch was
+  unreachable. The granted scopes are now read from the token file itself,
+  normalizing both the list and space-delimited-string forms google-auth
+  accepts, and the check runs before the credentials are constructed so a
+  malformed token file yields our remediation text rather than a bare
+  `AttributeError`. **You may need to re-run `seo-monster auth`** if your
+  cached token predates a scope you now need, or was minted by another tool
+  and records no scopes — previously that surfaced as an opaque
+  `ACCESS_TOKEN_SCOPE_INSUFFICIENT` 403 from Google.
+- Resync `manifest.json` from 63 to all 70 registered tools. The bundle
+  catalog and directory listings had been under-advertising
+  `cf_settings_audit`, `content_opportunities`, `crux_snapshot`,
+  `ga4_landing_page_conversions`, `ga4_setup_audit`, `ga4_site_search` and
+  `psi_opportunities` since the 0.7.x line.
+- Derive the crawler User-Agent from the package version instead of a
+  hardcoded literal, which had drifted behind the real version.
+
+### Changed
+
+- Pin `ruff` to `>=0.15,<0.16` (dev extra). Ruff 0.16 reports 162 findings on
+  the existing tree, which would have turned CI red independently of any code
+  change. Adopting 0.16 is tracked as separate work.
+
+### Added
+
+- Scheduled CI (weekly) plus an informational `mcp-canary` job that installs
+  the newest MCP SDK regardless of the pin. CI previously ran only on push, so
+  breakage originating upstream was invisible between commits — which is why
+  this took a month to surface.
+- Dependabot for `pip` and `github-actions`. This is the durable control:
+  GitHub disables scheduled workflows after 60 days of repository inactivity,
+  and the gap that hid this bug was 69 days.
+- Regression tests: six for the scope guard (including the
+  space-delimited-string form, absent `scopes` key, and malformed files), one
+  asserting `manifest.json` matches the tool registry, and one asserting every
+  version stamp agrees. **(validate)**
+- `server.json` is now covered by the release workflow's version-stamp gate,
+  so the MCP registry entry cannot silently drift from the released version.
+
+**(validate)** Fresh `uvx --refresh seo-monster` starts and completes the MCP
+handshake; `system_status` reports 0.9.3 and 70 tools. Note `--refresh`: a
+cached 0.9.2 will otherwise be re-run.
+
+## [0.9.2] - 2026-06-19 (closes the F1 release blocker; pending tester re-run)
+
+Round 3 of the tester pass signed off F6/F7/F5/F2 live (Open PageRank
+registrable-domain, Google-AIO answer-body detection + consistent SoV, SERP
+related/paa dedup, entity noise). Two residuals are closed here.
+
+### Fixed
+
+- **F1 (release blocker) — chrome filter now generalizes.** `is_chrome_heading`
+  was tuned to the specific reported strings and still leaked generic chrome on
+  fresh inputs (e.g. the newsletter CTA "Listen for weekly AI news & analysis"
+  reached the `onpage_serp_gap` actions list; "Similar Articles", "Products and
+  pricing", "Solutions", "Why Google", and product taglines leaked too).
+  Rewrote it as pattern CLASSES: subscribe/newsletter, related-content modules,
+  generic nav/footer labels, "Why <Brand>", marketing-CTA/tagline verbs (curated
+  to promotional verbs only — tutorial-step imperatives like Create/Build/Install/
+  Configure/Set up survive), sentence-period taglines, and the existing
+  listicle/length/comma rules. Real content sections (Pricing, How it works, FAQ,
+  Features) and tutorial headings are preserved.
+  **(validate, live)** re-run the IBM provided-URL + auto-fetch SERP cases; the
+  Round 3 leaks should be gone from `gaps.headings` / `actions` and from
+  `content_brief_data`'s heading union.
+- **F4 (polish) — plural-stem under-merge.** The keyword-gap stemmer split
+  `makes`/`make` (→ `mak` vs `make`) and `ads`/`ad`. Rewrote with sibilant-aware
+  plural handling (`makes`→`make`, `boxes`→`box`, `companies`→`company`,
+  `ads`→`ad`) so identical-after-plural pairs collapse to one representative.
+  Cross-stem synonyms (`ad`/`advertisement`, `dev`/`development`) are out of scope
+  for a morphological stemmer and remain as documented residual (non-gating).
+
+### Notes
+
+- **F3** was a question, not a defect: the `gsc_keyword_expand` covered/thin/none
+  caveat is unconditional in the success envelope. The Round 3 observation of a
+  caveat "not rendering" was on `serp_adjacency_expand`'s `net_new_terms` (a
+  different tool with its own caveats), not `gsc_keyword_expand`.
+
+### Validation
+
+- 567 mocked tests pass (the F1 test now asserts the Round 3 leak strings are
+  filtered AND tutorial-imperative headings survive; new F4 plural-collapse test),
+  ruff clean. Docs/manifest/server.json at 0.9.2 / 70 tools.
+
+## [0.9.1] - 2026-06-19 (post-validation fixes; superseded by 0.9.2)
+
+Fixes from the v0.9.0 tester pass (full free/GSC/GA4/HTTP surface passed Round 1;
+DataForSEO / Open PageRank / Gemini paid surface validated live Round 2 —
+`ai_citation_track` ran 42 queries, 0 failed samples). No new tools; 70 tools.
+
+### Fixed
+
+- **F1 (release blocker) — boilerplate headings leaked into the content tools.**
+  `onpage_serp_gap` turned nav/CTA/subscribe/footer headings into nonsense
+  actions ("Add a section covering: 'Table of contents' / 'Connect to 1,000+
+  apps'"), worse on the live SERP. Added a shared `is_chrome_heading` chrome
+  filter (`_html.py`) applied to `onpage_serp_gap` heading gaps + actions and
+  `content_brief_data`'s heading union. Conservative: real sections (Pricing,
+  How it works, FAQ, …) survive.
+  **(validate, live)** re-run the IBM/Google-Cloud + auto-fetch SERP cases; the
+  cited chrome strings should no longer appear in `gaps.headings` / `actions`.
+- **F6 (bug) — Open PageRank queried with the `www.` host → null scores.**
+  `onpage_serp_gap.competitor_authority` now strips to the registrable domain
+  (`_registrable`) before the lookup, so `www.`-prefixed competitors resolve.
+  **(validate, live)** `www.bcg.com` etc. now return a `page_rank`.
+- **F4 (quality) — `keyword_universe` gap flooded with morphological dupes.**
+  Added a stemmed token-set near-duplicate collapse before applying `limit`, so
+  one concept (advertisement/advertisements/advertising/ad/ads + ethos) keeps a
+  single highest-volume representative instead of eating the budget.
+  **(validate, live)** the `limit:25` gap should show distinct concepts, not
+  one-word variants of one.
+- **F7 (verify) — `ai_citation_track` Google-AIO competitor detection + null/zero.**
+  google_aio now scans the AI-Overview **answer body** (new
+  `dataforseo.serp().ai_overview_text`), not just citation domains, so named
+  competitors are detected as Gemini does. `share_of_voice` is now `null` only
+  when there is no data (n=0); with responses but zero brand mentions it is
+  `0.0`, consistent across engines.
+  **(validate, live)** on a brand-naming AIO query, google_aio competitor counts
+  should be non-zero and align with Gemini.
+- **F5 (cosmetic) — `serp_adjacency_expand` raw `per_seed.related`/`paa` duplicated.**
+  `dataforseo.serp()` now order-preserving de-dups PAA + related.
+- **F3 (clarification) — `gsc_keyword_expand` thin-vs-none boundary.** Strong-
+  sibling, zero-footprint `thin` terms (thin only via a substring coincidence)
+  now join `net_new` — they're the most promising net-new bets and were falling
+  out. Added a caveat documenting the footprint/net_new definitions.
+- **F2 (quality) — entity noise.** `gaps.entities` / `evidence.entities_to_cover`
+  used raw doc-frequency tokens (leaking "good / just / same / thank / main").
+  New `content_entities` applies a ≥4-char + broader-stopword filter.
+
+### Docs
+
+- Corrected the label on `content_opportunities`' full winnability SERP axis:
+  it is **deferred to Wave 3 by design** (unbuilt in 0.9.x), NOT "needs
+  DataForSEO" — setting a key does not change the output; the GSC-only winnability
+  block (striking-distance + topical-proximity) is the shipped Wave-2 tier, as
+  the tool's own caveat already states.
+
+### Validation
+
+- 566 mocked tests pass (8 new regression tests covering F1–F7), ruff clean.
+  The fixes are deterministic and unit-tested; the live re-confirmation of the
+  paid surfaces is a quick re-run for the tester.
+
+## [0.9.0] - 2026-06-19 (validated by tester 2026-06-19; fixes folded into 0.9.1)
+
+The discovery + AI/GEO roadmap: 11 new tools across four tracks taking
+SEOMonster from "diagnose my own data" to "discover what I don't, and prove it
+moved" — including the AI-answer surfaces. **70 tools / 13 prompts** (was 59).
+
+Design law for every new tool: the **host LLM does generation/semantic work**
+(tools stay deterministic + mockable); scores are **banded + evidence-tagged**
+(Tier A causal / B correlational / C informational), never a bare 0-100; free
+cores everywhere, with **one optional paid vendor (DataForSEO)** + free Open
+PageRank for the things Google has no API for. Three new optional clients
+(DataForSEO, Open PageRank, AI engines); no change to the lean default install.
+
+New `system_status` tool groups: `ai`, `content`, `discovery`. New (all
+optional) services: `dataforseo`, `openpagerank`, `google_ads`, `ai_engines`.
+
+### Added — Track A (AI / GEO)
+
+- `ai_citation_readiness(url)` — is a page structured to be extracted/cited by
+  LLM answer engines? Leads with a **render-blindness** check (AI crawlers do
+  not run JS), then scores Tier-A signals (statistics, quotations, cited
+  sources, no keyword-stuffing). schema.org / FAQ / llms.txt are reported as
+  **informational only** (2026 evidence: neutral-to-negative for AI citation) —
+  not scored. Free, HTTP-only.
+  **(validate, live)** real SPA → `rendered_blind=true`; a stats/quote/citation-
+  rich SSR page → moderate/high band; schema appears under `informational`, not
+  `readiness.components`.
+- `ai_referral_overview(property_id?, site_url?, days?)` — GA4 AI-referral
+  detection (native `ai-assistant` channel + configurable source-host regex) +
+  AI-crawler robots coverage (curated UA list run through the RFC-9309 verdict
+  engine). Surfaces the ~70% dark-traffic undercount and keeps AIO-clicks
+  (Organic) separate. Free (GA4 + HTTP).
+  **(validate, live)** AI sources classified into `by_source`; a robots.txt
+  blocking an AI search crawler raises the blocked-crawler caveat.
+- `ai_citation_track(prompts, brand, brand_domains?, competitors?, engines?,
+  samples?)` — **headline.** Sampled **share-of-voice with a 95% CI + run-to-run
+  volatility**, NOT an "AI rank" (single runs are statistically meaningless).
+  Queries the configured developer APIs (Perplexity / OpenAI / Anthropic /
+  Gemini) + Google AI Overviews via DataForSEO, N samples/prompt (default 7).
+  Honest bounds in every response (API ≠ logged-in UI; AIO has no API).
+  **(validate, live, paid)** confirm per-engine request shapes/model ids + auth
+  against real keys; verify visibility/CI/SoV/volatility on a frozen prompt set;
+  confirm DataForSEO `ai_overview_citations` parsing. Non-deterministic — mocks
+  cannot validate the live surface.
+
+### Added — Track B (net-new keyword discovery)
+
+- `gsc_keyword_expand(candidates, site_url?, days?, impressions_min?)` — the host
+  brainstorms candidate terms; this tool grounds them against your own GSC data
+  (footprint covered/thin/**none**) with a sibling-strength confidence band.
+  "none" = no *visible* footprint (GSC hides ~75% of impressions). Free.
+  `autocomplete_present` / `external_volume` are `null` placeholders (Wave-3
+  enrichment ships via the other tools).
+  **(validate)** mockable; live-confirm against a real property's query set.
+- `serp_adjacency_expand(seeds, include_paa?)` — FREE Google Autocomplete core
+  (public endpoint via HttpClient) + optional DataForSEO PAA/related. Degrades
+  gracefully (autocomplete-only without a key). Bing autosuggest dropped (API
+  retired 2025-08); SerpApi deliberately not the default (active DMCA suit).
+  **(validate, live)** autocomplete returns suggestions for real seeds; with a
+  DataForSEO key, PAA/related populate.
+- `keyword_universe(target_domain?, competitors?, keywords?, limit?)` — optional,
+  paid. Core value = **competitor keyword gap** (DataForSEO Domain Intersection;
+  no Google equivalent). Volume is a **provider chain**: DataForSEO → Google Ads
+  → none. With only Google Ads configured, volume returns `google_ads_pending`
+  (needs an adwords-scope OAuth re-consent — a tester live step), never faked.
+  **(validate, live)** with a DataForSEO key: gap = competitor-ranked keywords
+  minus yours; volume populates. No provider → `AUTH_MISSING`.
+
+### Added — Track C (content winnability)
+
+- `content_brief_data(target_query, topic?, competitor_urls?, site_url?, days?)` —
+  the data-wired backing for the `content_brief` prompt: fetches competitor (or
+  your own GSC-ranking) pages and returns heading union, median word-count
+  **floor**, schema types, entity coverage, + 2026 GEO directives. Host writes
+  the prose. Free (own-pages via GSC) / competitor_urls.
+  **(validate)** mockable; live-confirm heading/word-count extraction on real
+  competitor URLs.
+- `topic_cluster_map(cluster_path | pillar_url, site_url?, days?,
+  impressions_min?)` — four-quadrant gap (Defend / Optimize / Create / Monitor)
+  from owned GSC data; the **Create** quadrant = `missing_subtopics` for the host
+  to group into named subtopics. Flags cannibalization. Free, GSC-only.
+  **(validate, live)** quadrant split + missing-subtopic surfacing on a real
+  partly-owned cluster.
+
+### Added — Track D (rank loop)
+
+- `internal_link_recommend(start_url, site_url?, days?, position band,
+  relevance_floor?, limit?)` — recommends source→target internal links from
+  high-in-degree pages to GSC striking-distance pages (default position 8–20),
+  with anchor text, relevance floor, per-source cap, and anchor-dedupe guards;
+  never suggests nofollow. Free (crawl + GSC).
+  **(validate, live)** real crawl + striking-distance targets yield ranked,
+  relevant, not-already-linked recommendations.
+- `rank_change_attribution(url|urls, change_date, query?, site_url?, windows,
+  control_scope?)` — **difference-in-differences vs a matched control group**
+  (never a naked before/after): estimated clicks lift + 95% CI + a three-state
+  verdict (likely_positive / likely_negative / inconclusive) + a confounders
+  block that **auto-detects the 2025 GSC data-regime breaks** (impression bug →
+  ~2026-04, num=100 → 2025-09-11) and downgrades position reliability.
+  Observational, not causal. Free, GSC-only.
+  **(validate, live)** verdict + CI on a real change; data-regime flag fires when
+  a window overlaps the bug span.
+- `onpage_serp_gap(target_url, query?, competitor_urls?, max_competitors?)` —
+  headings / entities / schema the top results have that a target lacks → on-page
+  actions. FREE with caller `competitor_urls`, or DataForSEO SERP auto-fetch by
+  `query`. When auto-fetched, also returns winnability signals: `serp_composition`
+  (AI-Overview presence + UGC/forum dominance = zero-click risk) and, with Open
+  PageRank, competitor domain authority. Surfaces information-gain, not parity.
+  **(validate, live)** provided-URL gaps free; SERP auto-fetch + composition +
+  authority with DataForSEO/OPR keys.
+
+### Changed
+
+- `content_opportunities` — additive per-candidate **`winnability`** block
+  (banded: striking-distance + topical-proximity, GSC-personalization tier). The
+  existing `components` / `score` / `weights` contract is unchanged.
+- `clients/dataforseo.py` `serp()` — additive `ai_overview_citations` (for
+  `ai_citation_track`'s Google AIO path).
+- Version → `0.9.0`; branded HTTP User-Agent → `SEOMonster/0.9.0`.
+
+### Provider setup (all optional)
+
+- **DataForSEO** (the one paid vendor): `DATAFORSEO_LOGIN` + `DATAFORSEO_PASSWORD`
+  (TOML `[dataforseo]`). Unlocks SERP/PAA/related, keyword volume/difficulty/
+  intent, competitor gap, Google AIO citations.
+- **Open PageRank** (free backlink proxy): `OPENPAGERANK_API_KEY` (`[openpagerank]`).
+- **Google Ads** (volume alternative, recognized-but-pending): `GOOGLE_ADS_DEVELOPER_TOKEN`
+  + `GOOGLE_ADS_CUSTOMER_ID` (`[google_ads]`). Needs an adwords-scope OAuth
+  re-consent before live use.
+- **AI engines** (for `ai_citation_track`): `PERPLEXITY_API_KEY`, `OPENAI_API_KEY`,
+  `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (`[ai_engines]`). Any subset; the tool
+  uses whichever are set, plus Google AIO if DataForSEO is configured.
+
+### Validation notes
+
+- 558 mocked tests pass (102 new), ruff clean. Pure-GSC / HTTP / arithmetic
+  tools are fully unit-tested. The external/paid/non-deterministic surfaces
+  (`ai_citation_track`, `keyword_universe`, `serp_adjacency_expand` PAA,
+  `onpage_serp_gap` auto-fetch) are mocked at the client seam in dev and are
+  **live-probe-only** for this pass — confirm real request/response shapes,
+  auth, and field mappings against live keys.
+
+## [0.8.2] - 2026-06-02
+
+`cf_managed_robots` - the managed-robots / Content-Signals control tool, part 2
+of the robots feature line (built last because its write API had to be confirmed
+first). One new tool (59 tools / 13 prompts). The robots feature line is now
+complete: detection (0.8.0) + advisor (0.8.1) + control (0.8.2).
+
+### Added
+
+- `cf_managed_robots(action, zone?, ...)` - get / configure / disable
+  Cloudflare's managed robots.txt and Content-Signals policy on a zone. These
+  ride on the zone's Bot Management config (`PUT /zones/{id}/bot_management`);
+  the write verbs and field enums were confirmed against the public Cloudflare
+  OpenAPI schema, and all four Bot Management plan variants expose them (so the
+  feature is not Enterprise-only).
+  - `action="get"` - read-only, un-gated: returns `is_robots_txt_managed`,
+    `cf_robots_variant`, `ai_bots_protection`, `content_bots_protection`,
+    `crawler_protection`.
+  - `action="configure"` - set any of: `managed_robots` (bool),
+    `cf_robots_variant` (`off` / `policy_only`), `ai_bots_protection`
+    (`block` / `disabled` / `only_on_ad_pages`), `content_bots_protection`
+    (`block` / `disabled`), `crawler_protection` (`enabled` / `disabled`).
+  - `action="disable"` - turns the managed robots.txt and the Content-Signals
+    policy back off (`is_robots_txt_managed=false`, `cf_robots_variant=off`).
+  - Managed robots.txt and the Content-Signals policy are **mutually exclusive**
+    in Cloudflare (a server-side rule not in the schema): valid combinations are
+    `managed_robots=true` + `cf_robots_variant="off"` OR `managed_robots=false`
+    + `cf_robots_variant="policy_only"`. The tool validates this locally and
+    returns `INVALID_INPUT` (zero CF calls for a self-conflicting request; before
+    any PUT for a cross-state conflict) rather than surfacing a raw CF 400. A
+    custom Content-Signal line (e.g. from `robots_ai_posture`) is not a managed
+    option; it belongs in your origin robots.txt.
+  - Writes are gated behind `SEO_MCP_ALLOW_DESTRUCTIVE`, need `confirm=<zone>`,
+    and support `dry_run`. The write path is GET → overlay only the changed
+    fields → strip the read-only/derived fields → PUT, so the rest of the zone's
+    Bot Management config is never clobbered. Needs the Bot Management:Edit token
+    scope for writes (Read for `get`).
+  - Every response carries a `caveat` separating the stated-preference signals
+    (managed robots.txt + Content-Signals, honored only by adopting crawlers and
+    ignored by Googlebot, not a ranking factor) from the levers that actually
+    enforce at Cloudflare's edge (`ai_bots_protection` / `content_bots_protection`
+    block, `crawler_protection` link maze).
+  **(validate, live)** `get` returns current state with destructive mode off;
+  `configure` without the gate → `DESTRUCTIVE_DISABLED` (zero CF calls); with the
+  gate but no `confirm` → `CONFIRM_REQUIRED`; with `confirm=<zone>` and the valid
+  combo (`managed_robots=true` + `cf_robots_variant="off"`) enables managed
+  robots.txt and the re-read reflects it without clobbering other Bot Management
+  fields; `disable` reverts it; `managed_robots=true` + `cf_robots_variant="policy_only"`
+  → `INVALID_INPUT` (mutual exclusion); a bad enum or empty configure → `INVALID_INPUT`.
+
+## [0.8.1] - 2026-06-02
+
+`robots_ai_posture` - the Content-Signals advisor, part 3 of the robots feature
+line. One new tool (58 tools / 13 prompts). `cf_managed_robots` (the control
+tool, part 2) is deferred until the Cloudflare managed-robots write API is
+confirmed, so the advisor ships first under 0.8.1.
+
+### Added
+
+- `robots_ai_posture(goal?, sitemap_url?)` - a deterministic, offline advisor
+  for the Content-Signals levers (`search` / `ai-input` / `ai-train`). Takes a
+  business `goal` (`content_authority` default / `maximize_visibility` /
+  `protect_ip`), recommends a posture with a plain-language rationale, always
+  returns the full trade-off menu of `alternatives`, and emits a ready-to-apply
+  `artifact`: the `Content-Signal:` directive line plus a complete suggested
+  robots.txt (embedding `sitemap_url` when supplied, else a placeholder).
+  Read-only, no network, no writes; an unknown `goal` is rejected in-handler
+  with `INVALID_INPUT`. Every success carries a top-level `caveat` stating that
+  Content-Signal is honored only by adopting crawlers, is ignored by Googlebot,
+  and is not a ranking factor - the reliable levers remain a clean `Allow: /`
+  plus a `Sitemap:` line and not `Disallow`-ing the AI bots you want to reach
+  you. The artifact is designed to hand off to a future `cf_managed_robots`
+  step or to paste straight into robots.txt.
+  **(validate)** Default goal -> `content_authority` posture
+  (search=yes / ai-input=yes / ai-train=no) with `default_applied: true`;
+  `protect_ip` -> ai-input=no / ai-train=no; the `caveat` and the four-entry
+  `alternatives` menu are present on every success; an unknown goal ->
+  `INVALID_INPUT`.
+
+## [0.8.0] - 2026-06-02
+
+Managed-robots / Content-Signals detection - part 1 of the robots feature line.
+No new tools or prompts (57 tools / 13 prompts); `cf_managed_robots` (control)
+and `robots_ai_posture` (advisor) follow.
+
+### Changed
+
+- `robots_txt_validate` now detects the Cloudflare Managed robots.txt /
+  Content-Signals blind spot that produced a false-clean on a migrated zone
+  (FEEDBACK §27):
+  - **Stale edge cache.** A second cache-busted fetch (`?cb=<rand>`); when the
+    normal fetch is edge-cached (`cf-cache-status` HIT / large `age`) *and*
+    differs from the fresh content, it emits a `stale_edge_cache` finding **and
+    re-parses `groups`/`sitemaps` from the FRESH content**, so it no longer
+    reports stale sitemaps as live. The new `edge_cache` block returns both
+    fetches' cache status / age / last-modified.
+  - **`managed_robots_suspected`.** Fingerprints the Content-Signals boilerplate
+    + the absence of real directives (never `server: cloudflare` alone), with a
+    remediation pointing at the dashboard / `cf_managed_robots`.
+  - **`missing_sitemap`** finding (previously `findings:[]` even with zero sitemaps).
+  - **`content_signals`** parsing (`search` / `ai-input` / `ai-train`) into the output.
+  All advisory (`findings` + a new `advisories` list), no hard errors — a managed
+  robots is a legitimate config. No new scope (still a no-auth HTTP tool).
+  **(validate)** A managed-robots zone → `managed_robots_suspected` + `missing_sitemap`;
+  a stale edge HIT differing from the cache-busted body → `stale_edge_cache` with
+  groups/sitemaps parsed from the FRESH content; Content-Signal directives parsed.
+
+## [0.7.11] - 2026-06-02
+
+IndexNow multi-host fix + Cloudflare polish. No new tools or prompts (57 tools /
+13 prompts).
+
+### Fixed
+
+- **IndexNow `keyLocation` is now derived per submitted host.** `indexnow_submit`
+  / `indexnow_bulk_submit` previously sent the *configured* `keyLocation` for
+  every host, so a submission to any host other than the configured one failed
+  with IndexNow HTTP 422 ("Keylocation is not allowed ... must belong to the
+  site in the host parameter"). The key file location is now derived as
+  `https://<submitted-host>/<key>.txt`; an explicitly-configured
+  `SEO_MCP_INDEXNOW_KEY_LOCATION` is honored only when it is on the same host as
+  the submission (so a non-root key file on the configured site still works).
+  The v0.7.8 pre-flight (`_verify_key_file`) had the same bug — it validated the
+  configured host's file for a foreign submission, passed, and let the doomed
+  submit through — and is fixed to validate the per-host location too (FEEDBACK
+  §25). For the configured host the derived value equals the old one, so existing
+  behavior is unchanged.
+  **(validate)** Submit to a host other than the configured one: the payload
+  `keyLocation` is `https://<that-host>/<key>.txt` and the engine accepts it.
+
+### Changed
+
+- `cf_settings_update`: an unknown `settings` key now returns the tool's own
+  `INVALID_INPUT` (listing the allowed keys) instead of the host's generic
+  schema error; clarified that `post_update_findings` is a re-audit scoped to the
+  changed settings, not a full audit (FEEDBACK §24-FIND-1 / §24-OBS-3).
+- The Cloudflare `9109` remediation no longer asserts the token "is valid" (9109
+  also fires for a malformed/expired token); it now covers both the zone-scope
+  and bad-token cases (FEEDBACK §24-FIND-2).
+- `cf_bulk_redirect_upsert` success note now states that items appear in
+  `cf_list_redirects` immediately but take ~15-30s to serve at the edge, so an
+  immediate 404 on a source URL is not a failed redirect (FEEDBACK §25 #2; the
+  reported "scheme-less or it 404s" was edge-propagation lag, not a matching bug
+  — no scheme-stripping was applied).
+
+## [0.7.10] - 2026-06-02
+
+Cloudflare zone-settings write tool (closes the audit -> remediate loop), plus
+the queued CF low-severity polish. Adds 1 tool (56 -> 57 tools); 13 prompts
+unchanged.
+
+### Added
+
+- **`cf_settings_update(settings, zone?, confirm?, acknowledge_hsts_risk?, dry_run?)`**
+  - write the SEO/crawl/security zone settings `cf_settings_audit` grades: SSL
+  mode, Always-Use-HTTPS, Automatic HTTPS Rewrites, Brotli, browser cache TTL,
+  and HSTS. **Gated** behind `SEO_MCP_ALLOW_DESTRUCTIVE`. HSTS is treated as the
+  highest-risk setting: any change that *raises* protection needs both
+  `confirm=<zone>` and `acknowledge_hsts_risk=true`; an `ssl_mode` change needs
+  `confirm=<zone>`. Validates locally first (rejects the whole request on bad
+  input; `preload` requires `include_subdomains` + `max_age >= 1y`), supports
+  `dry_run` (before/after preview), and re-runs the audit so the caller sees the
+  finding clear. Needs the **Zone Settings:Edit** token scope (the audit only
+  needs Read).
+  **(validate)** Destructive off -> `DESTRUCTIVE_DISABLED`, zero calls. An HSTS
+  raise without confirm/ack -> `CONFIRM_REQUIRED`; `preload` without
+  `include_subdomains`/1y -> `INVALID_INPUT`. `dry_run` writes nothing. Happy
+  path: set HSTS `max_age=31536000` -> the `cf.hsts` finding clears in
+  `post_update_findings`.
+
+### Changed
+
+- `cf_settings_audit` findings now carry a machine-readable `fix` hint (the exact
+  `cf_settings_update` setting + recommended value, e.g.
+  `{"setting":"hsts","recommended":{...}}`), so a host can chain audit -> fix
+  (FEEDBACK §23g companion).
+- A CF `9109` (valid token, no access to this zone/account resource) now returns
+  a scope-specific remediation ("set the token's Zone Resources to 'All zones
+  from an account', or add this zone") instead of the generic "check the API key"
+  (FEEDBACK R19-FIND-2 #1).
+- `cf_create_redirect` success envelope now returns the new `rule_id` (no need to
+  re-list to delete; FEEDBACK §22 A-FIND-3).
+- `cf_bulk_redirect_upsert` reject reasons are now per-field (FEEDBACK §22 B-FIND-4).
+- Fixed the gated-write `DESTRUCTIVE_DISABLED` remediation (was hard-coded to
+  "cache purge"; now names the full gated-write set) and the `cf_list_redirects`
+  description (was "Bulk Redirects not yet exposed"; they are, since 0.7.9)
+  (FEEDBACK §22 A-FIND-2 / DOC-5).
+
+## [0.7.9] - 2026-06-01
+
+Cloudflare Bulk Redirects (account-level). Adds 1 tool (55 -> 56 tools); 13
+prompts unchanged. Completes CF redirect support (single redirects shipped in
+0.7.8).
+
+### Added
+
+- **`cf_bulk_redirect_upsert(items, list_name, confirm, description?, dry_run?)`**
+  - create or append many redirects at once via an account-level Bulk Redirect
+  List, then wire it into the account `http_request_redirect` ruleset (for site
+  migrations). **Gated** behind `SEO_MCP_ALLOW_DESTRUCTIVE` **and** a `confirm`
+  value equal to `list_name` (high blast radius: account scope, many URLs).
+  Pre-validates *every* item locally (absolute target URL, valid status code, no
+  self-loop, no duplicate source in the batch) and rejects the whole batch on any
+  bad item - never half-applies. Items are added asynchronously by Cloudflare;
+  `dry_run` previews without writing. `list_name` is validated against
+  Cloudflare's allowed charset (`[A-Za-z0-9_]`) so a hyphen returns a clear
+  `INVALID_INPUT` rather than a cryptic CF 10029 (FEEDBACK §22 B-FIND-1).
+  **(validate)** Destructive off -> `DESTRUCTIVE_DISABLED`, zero calls. A bad item
+  (non-absolute target, etc.) or a duplicate source rejects the whole batch with
+  `INVALID_INPUT` and writes nothing. `confirm != list_name` -> `CONFIRM_REQUIRED`.
+  With confirm: the list is created, items appended, and the account ruleset wired
+  to reference the list.
+
+### Changed
+
+- `cf_list_redirects` now also returns the account's Bulk Redirect lists
+  (`bulk_redirect_lists`; null when the token lacks account access), so reads
+  cover both single and bulk before any write.
+
+### Notes
+
+- New token scopes for the bulk tool: **Account > Account Rulesets:Edit** and
+  **Account > Account Filter Lists:Edit** (in addition to the single-redirect
+  `Zone > Single Redirect:Edit` from 0.7.8).
+- Reuses the existing CF client seam, `get_account_id`, the destructive-gate and
+  confirm-token patterns - no new dependency.
+
+## [0.7.8] - 2026-06-01
+
+Cloudflare single-redirect management. Adds 3 tools (52 -> 55 tools); 13 prompts
+unchanged. Phase 1 of CF redirect support; account-level Bulk Redirects follow
+in 0.7.9.
+
+### Added
+
+- **`cf_list_redirects(zone?)`** - list a zone's single (dynamic) redirect rules
+  (source, target, status code, rule id). Read-only. Call it before any redirect
+  write so nothing is clobbered. Pairs with `redirect_chain_audit` and the
+  `migration_check` prompt.
+- **`cf_create_redirect(source, target, status_code?, preserve_query_string?, dry_run?, skip_preflight?, zone?)`**
+  - create one edge redirect (default 301) in the zone's
+  `http_request_dynamic_redirect` phase. **Gated** behind
+  `SEO_MCP_ALLOW_DESTRUCTIVE`. Reuses the v0.7.7 pre-flight: refuses a target that
+  is non-2xx/unreachable (no redirecting to a dead URL), refuses self-loops and
+  duplicate sources, advises 301-over-302, and supports `dry_run` to preview the
+  rule. Appends a rule (never blind-replaces the phase entrypoint).
+  **(validate)** With destructive on: a redirect to a 200 target is created and
+  appears in `cf_list_redirects`; a 404 target, a self-loop, and a duplicate
+  source are each refused with `INVALID_INPUT`; `dry_run: true` writes nothing;
+  with destructive off, `DESTRUCTIVE_DISABLED` and zero CF calls.
+- **`cf_delete_redirect(rule_id, zone?)`** - delete a single-redirect rule by id
+  (rollback for `cf_create_redirect`). Gated.
+
+### Notes
+
+- New token scope for the writes: **Zone > Single Redirect > Edit** (the reads
+  use it too). Cache-purge and the rest are unchanged.
+- Reuses the existing CF client seam, zone/account resolution, destructive-gate
+  and confirm patterns, and the shared HTTP pre-flight - no new dependency, no
+  duplicated infrastructure.
+
+## [0.7.7] - 2026-06-01
+
+Pre-flight validation for the routine writes. No new tools or prompts
+(52 tools / 13 prompts).
+
+### Changed
+
+- `gsc_submit_sitemap` now pre-flights the sitemap URL with an HTTP GET before
+  submitting. Google's submit API accepts any URL without checking it, so a 404
+  or unreachable sitemap used to persist silently as a broken entry in the
+  property (`{"submitted": true}`). A non-2xx or unreachable URL now returns an
+  `INVALID_INPUT` envelope with remediation instead of a false success. Pass
+  `skip_preflight: true` to override (FEEDBACK §20 §1b).
+- `indexnow_submit` / `indexnow_bulk_submit` now pre-flight the IndexNow key
+  file (`SEO_MCP_INDEXNOW_KEY_LOCATION`, or the default
+  `https://<host>/<key>.txt`) before notifying. `api.indexnow.org` returns
+  200/202 for well-formed submissions without verifying the key file, so a
+  missing key file or a key/body mismatch used to report `{"accepted": true}`
+  while the engines silently dropped the URL. Both cases now return an
+  `INVALID_INPUT` envelope with remediation. Pass `skip_preflight: true` to
+  override (FEEDBACK §20 §3c/§3d).
+- The pre-flight uses the branded SEOMonster User-Agent, so a Cloudflare-fronted
+  sitemap or key file is not 403'd by the Browser Integrity Check (FEEDBACK
+  §12c.ii). It degrades to a no-op only when no HTTP client is available.
+  **(validate)** Re-run the §20 §1b / §3c / §3d cases: a 404 sitemap, a bad
+  `KEY_LOCATION`, and a wrong key value each now return `INVALID_INPUT` (not a
+  false success); the happy paths and `skip_preflight: true` still submit.
+
+## [0.7.6] - 2026-05-31
+
+Housekeeping batch: no new tools or prompts, no behavior change to existing
+tool outputs beyond two additive notes (52 tools / 13 prompts).
+
+### Changed
+
+- `psi_analyze` and `lighthouse_budget` responses now carry a `field_data_note`
+  documenting that PageSpeed Insights field (CrUX) data is being deprecated in
+  the PSI API and pointing to `crux_snapshot` / `crux_history` as the durable
+  source of field Core Web Vitals. `field_data_available` already degrades
+  honestly to `false` when PSI returns no `loadingExperience` (PLAN Part 6b A2).
+- Prompt-taxonomy coherence: `technical_seo_audit` (one page, deep) and
+  `structured_data_audit` (the Rich Results lane) descriptions now name their
+  axis and cross-reference the other audit prompts, so the four audit-ish
+  prompts (page / Rich-Results / deploy-gate / stack-config) no longer read as
+  overlapping.
+
+### Internal
+
+- New `ci.yml` workflow: runs the offline test suite + ruff on every push / PR
+  (there was previously no pre-tag gate; only the tag-driven release workflow).
+- Cleared the pre-existing ruff debt across `src/` and `tests/` (unused imports
+  and `;`-joined statements); `ruff check src/ tests/` is now clean. `ruff` is
+  pinned in the `dev` extra so local and CI lint match.
+- `release.yml`: opt the pinned JS actions onto Node 24
+  (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`) ahead of the 2026-06-16 runner cutover
+  that removes the deprecated Node 20 runtime; refreshed the stale header
+  comment (PyPI Trusted Publishing has been active since v0.6.0).
+
+## [0.7.5] - 2026-05-31
+
+`content_opportunities` soft-fallback disambiguation. No new tools or prompts
+(52 tools / 13 prompts).
+
+### Changed
+
+- `content_opportunities` now reports a discrete `filters_applied.ga4_value_status`
+  (`applied` / `no_ga4_property` / `ga4_unreachable` / `no_conversions`) and a
+  cause-specific note, so the response distinguishes "no GA4 property configured"
+  from "GA4 configured but no organic conversions in the window" from "GA4
+  configured but unreachable". Previously a single note collapsed all not-applied
+  causes (FEEDBACK v0.7.3 §17e.i). `filters_applied.ga4_value_weighted` is
+  retained (now `true` only when status is `applied`) for back-compatibility.
+  **(validate)** With a GA4 property but no organic conversions, status is
+  `no_conversions` and every `value_multiplier` is 1.0; with no GA4 property,
+  status is `no_ga4_property`; with conversions present, status is `applied` and
+  the best-converting candidate is boosted.
+
+## [0.7.4] - 2026-05-31
+
+Completes `ga4_setup_audit` with its v1alpha checks. No new tools or prompts
+(52 tools / 13 prompts).
+
+### Added
+
+- `ga4_setup_audit` now runs the three GA4 Admin v1alpha checks that were
+  previously deferred (RULESETS §2): enhanced measurement on/off (medium),
+  site-search measurement when enhanced measurement is on (medium), and the
+  Google Signals state (info). They use the GA4 Admin v1alpha API and are
+  skipped silently when v1alpha is unreachable, so the audit never fails on
+  them; `deferred_checks` is now empty.
+  **(validate)** On a real property: a web stream with enhanced measurement off
+  is flagged medium; site search off (with enhanced measurement on) is flagged
+  medium; the Google Signals state appears as an info finding. When v1alpha is
+  unreachable those checks simply do not appear.
+
+## [0.7.3] - 2026-05-31
+
+`content_opportunities` GA4 value-weighting. No new tools or prompts
+(52 tools / 13 prompts).
+
+### Added
+
+- `content_opportunities` now applies an optional GA4 value multiplier
+  (RULESETS §1.3): when a GA4 property is configured, each candidate is boosted
+  by up to +50% by the organic conversions of its top ranking page (the GSC
+  page path is matched to GA4's `landingPage`). Each candidate's `components`
+  gains a `value_multiplier`, and `filters_applied.ga4_value_weighted` reports
+  whether weighting ran. Soft: no GA4 property, or no organic conversion data,
+  leaves every multiplier at 1.0 (the tool stays GSC-only and never fails on a
+  missing or unreachable GA4).
+  **(validate)** With GA4 configured + organic conversions, the candidate whose
+  top page converts best is boosted (`value_multiplier` > 1.0) and can outrank
+  an otherwise-equal candidate. GSC-only returns `ga4_value_weighted: false`
+  and all multipliers at 1.0.
+
+## [0.7.2] - 2026-05-31
+
+Documentation + polish patch. No new tools or prompts (52 tools / 13 prompts).
+
+### Changed
+
+- README "Tools" and "Workflow prompts" sections now list the full v0.7.x
+  surface and correct the stale tool counts (was showing 45 / 41 / 22).
+- `ga4_site_search` treats rows whose `searchTerm` is empty or "(not set)" as
+  no-data and emits a configuration-specific note (search events firing without
+  the term parameter captured), instead of reporting `has_site_search_data:
+  true` on empty terms (FEEDBACK Round 11 §15e.1).
+
+### Docs
+
+- Documented the `crux_snapshot` response shape: `overall_category` for the
+  rolled-up rating; `p75_ms` for time metrics and `p75` for the unitless CLS
+  (FEEDBACK Round 11 §15e.2).
+
+## [0.7.1] - 2026-05-31
+
+Audit-coverage + content-pipeline release: 5 read-only tools and 6 workflow
+prompts. 52 tools / 13 prompts. No new dependency.
+
+### Added (tools)
+
+- **`psi_opportunities`** - the actionable Lighthouse "opportunity" audits (with
+  estimated savings) plus the SEO-category audits (severity-graded per the
+  Lighthouse SEO checklist), extracted from a PageSpeed Insights run. Read-only,
+  lab data only (no CrUX field data). It is an on-page-basics checklist, not a
+  ranking predictor.
+  **(validate)** Run on a real URL: `opportunities` sorted by savings, and
+  `seo_audits` with severities (is-crawlable / http-status / viewport critical;
+  title / meta-description / hreflang / canonical high).
+- **`crux_snapshot`** - current Chrome UX Report p75 Core Web Vitals (LCP, INP,
+  CLS, FCP, TTFB) for a URL or origin, distinct from `crux_history`.
+  **(validate)** A high-traffic origin returns p75 metrics + categories; a small
+  origin returns the `no_data` envelope.
+- **`cf_settings_audit`** - Cloudflare SEO-settings audit (SSL mode, Always-Use-
+  HTTPS, HSTS, Automatic HTTPS Rewrites, Brotli, browser cache TTL),
+  severity-graded with a "verify, not fail" discipline because Cloudflare cannot
+  see the origin; HSTS is never a hard failure.
+  **(validate)** On a real zone: findings + verdict; SSL=Flexible is flagged
+  "verify"; HSTS off is at most medium, never critical.
+- **`ga4_site_search`** - internal site-search query report (a direct content-gap
+  signal); returns an honest envelope when the property has no site-search data.
+- **`ga4_landing_page_conversions`** - organic landing pages ranked by conversions.
+
+### Added (workflow prompts)
+
+- **`content_brief`**, **`content_outline`**, **`content_article`** - the
+  data-grounded brief, outline, and article pipeline. Each carries its
+  validation rules as instructions; the host LLM writes the content, SEOMonster
+  supplies the rules. No ranking guarantees.
+- **`content_workflow`** - orchestrates opportunity, brief, outline, article,
+  pre-deploy check, indexing, then a scheduled performance check.
+- **`content_performance`** - Layer-5 measurement: compares periods 4 to 8 weeks
+  after publish to show ranking and click lift. Measures the outcome, does not
+  guarantee it.
+- **`seo_setup_audit`** - chains `ga4_setup_audit`, `cf_settings_audit`,
+  `psi_opportunities`, and `robots_txt_validate` into a consolidated, severity-
+  ranked "is your whole stack configured for SEO?" report.
+
+### Changed
+
+- Clarified the `content_opportunities` top-candidate expectation: usually a
+  striking-distance query, but sometimes a cannibalization-driven CTR-gap when a
+  query has several ranking pages (correct, given the scoring weights).
+
+## [0.7.0] - 2026-05-31
+
+Content-intelligence + GA4-audit release. Adds the first content-workflow tool
+and a GA4 measurement-readiness audit. 47 tools / 7 prompts. No new dependency.
+
+### Added
+
+- **`content_opportunities`** - ranks data-grounded content/blog topics from
+  your own Search Console data. Fuses CTR-vs-expected gap, striking-distance
+  position, demand, and momentum into a transparent opportunity score, flags
+  cannibalization, and reports click upside plus the score's components. The
+  expected-CTR curve self-calibrates from your own per-position CTR (GSC has no
+  position dimension, so it buckets query rows by rounded average position;
+  a reference curve fills sparse buckets). It prioritizes demand you already
+  have: it does not do cold-start keyword research, and it does not write the
+  content or guarantee a ranking.
+  **(validate)** Run against a property with real impressions: the top
+  candidate is a high-impression, low-CTR, striking-distance query; each
+  candidate shows expected vs actual CTR, click upside, and its component
+  scores; the calibrated CTR curve is echoed in the response.
+- **`ga4_setup_audit`** - read-only audit of a GA4 property's SEO-measurement
+  readiness: is a web data stream present, are key events / conversions
+  defined, is data retention long enough for year-over-year analysis, are
+  content-group custom dimensions set. Severity-graded findings, each with the
+  reason and a benign exception. Reuses the existing `google-api-python-client`
+  over REST (analyticsadmin v1beta), so there is no new dependency. v1alpha
+  checks (enhanced measurement, site search, Google Signals) are deferred and
+  listed in the response.
+  **(validate)** Run against a real GA4 property: one missing key events
+  returns verdict "issues"; a 2-month data-retention setting is flagged; a
+  well-configured property returns verdict "clean".
+
+### Internal
+
+- New `tools/content_tools.py` and `clients/ga4_admin.py` (REST discovery); a
+  `ga4_admin` client builder registered in the lazy client provider.
+
+## [0.6.0] - 2026-05-30
+
+Setup-CLI release. Adds an interactive `seo-monster setup` so MCP host configs
+need no secrets, and repoints error-envelope `docs_url` links to the GitHub
+README (which carries the anchors those links target). 45 tools / 7 prompts
+unchanged.
+
+### Added
+
+- **`seo-monster setup`** - interactive subcommand that collects the Cloudflare
+  token, PageSpeed Insights key, IndexNow key, and the default GSC / GA4
+  properties, validates what it can against the upstream APIs, and writes them
+  to `~/.config/seo-mcp/config.toml` with `0600` permissions (parent dir
+  `0700`). A rejected credential is not written; an unreachable (offline) one
+  is saved with a note. Re-runnable: blank answers keep existing values.
+  Environment variables still override the file. Google OAuth stays on the
+  separate `seo-monster auth` flow.
+  **(validate)** Run `seo-monster setup`; enter a clearly-bad Cloudflare token:
+  it is reported rejected and not persisted to the file. Re-run and skip a
+  field: the prior value survives. With the file written, an env var set in the
+  host (e.g. `CF_API_TOKEN`) still wins at runtime. Piping no input (non-TTY)
+  exits cleanly with code 1, not a traceback.
+
+### Changed
+
+- README documents `seo-monster setup` as the recommended credential path;
+  per-service environment variables are framed as the manual / CI alternative.
+- `config.py` exposes `resolve_config_path` as the single source of truth for
+  the config-file location, shared by the loader and the setup writer.
+
+### Fixed
+
+- Error-envelope `docs_url` links pointed at `seomonster.avansaber.com#<anchor>`,
+  but the live site has none of those anchor targets, so every remediation link
+  landed at the page top (FEEDBACK Round-5 §10c.iv). `docs_url` now points at
+  the GitHub README, which carries an explicit `<a name>` anchor for each value.
+  **(validate)** Trigger any `INVALID_INPUT` (e.g. `psi_analyze` with no `url`):
+  the `docs_url` resolves to the matching README section.
+
+### Internal
+
+- Removed an unused `__version__` import in `server.py`.
+- `.gitignore` / `.mcpbignore` / sdist exclude now drop dated conversation-export
+  `.txt` files, preventing accidental transcript or secret leaks.
+
+## [0.5.1] - 2026-05-28
+
+Patch release closing the two ship-blockers and one partial-fix
+identified by the external Round-6 validator (`FEEDBACK.md` §11i pre-tag
+checklist). No new features, no surface change. 45 tools / 7 prompts
+unchanged.
+
+### Fixed
+
+- **`gsc_coverage_audit` was unusable on real properties (Round 6
+  §11b.i).** The handler called `client.inspect_url(site, url)` with
+  the positional arguments swapped; the underlying
+  `GscClient.inspect_url(url, site_url)` interpreted the property URL
+  as the inspection URL, returning `NOT_FOUND` for every URL. Mocked
+  tests in `test_gsc_tools.py` could not catch this because positional
+  mock signatures accept anything.
+  **Fix:** call site corrected to use keywords. To prevent this bug
+  class from recurring, `GscClient.inspect_url` is now **keyword-only**
+  (`def inspect_url(self, *, url, site_url)`). All three handlers
+  (`gsc_inspect_url`, `gsc_batch_inspect_urls`, `gsc_coverage_audit`)
+  updated to the kwargs form.
+  **Test:** `test_gsc_client_inspect_url_is_kwargs_only` pins the
+  keyword-only contract via `inspect.signature` so a future refactor
+  cannot silently remove the `*,`. `test_coverage_audit_passes_url_not_site_to_inspect`
+  asserts the per-URL call body's `inspectionUrl` field carries the
+  URL, not the property.
+  **(validate)** Call `gsc_coverage_audit` with a real `site_url` and
+  5-10 URLs you know are indexed; confirm `verdict_counts` and
+  `coverage_state_counts` populate and `audited_count == len(urls)`
+  with empty `failed`.
+
+- **`.mcpbignore` was missing `.private/` (Round 6 §11b.ii).** Local
+  `npx @anthropic-ai/mcpb pack` runs against the working tree, which
+  has access to `.private/cursor-submission/*` (gitignored but
+  present). The shipped v0.5.0 `.mcpb` on GitHub was clean because CI
+  checks out from git (never sees `.private/`), but a developer's
+  local pack would have leaked 7 files including draft submission
+  bodies and the email template. **Fix:** `.private/` added to
+  `.mcpbignore`, alongside the existing `marketing/` entry.
+  **(validate)** Run `npx @anthropic-ai/mcpb pack` against the
+  working tree at this commit; verify the produced bundle contains
+  no `.private/`, `marketing/`, or `*.md` planning paths.
+
+- **Round 5 §10a.v IndexNow doc partial close (Round 6 §11d.i).** The
+  v0.4.0 fix added Claude Desktop install-form labels and the full
+  Auth section setup steps. The Tools-section blurb for
+  `indexnow_submit` / `indexnow_bulk_submit` still didn't mention
+  `SEO_MCP_INDEXNOW_KEY_LOCATION` or cross-reference the setup
+  section. **Fix:** Tools section now links into the Auth IndexNow
+  section for the full setup story, and calls out
+  `SEO_MCP_INDEXNOW_KEY_LOCATION` as the env var to set when a CDN
+  rewrites `/key.txt` paths. The Auth section already had key
+  generation, file format rules, same-host constraint, and a
+  common-errors triage table from v0.4.0; no changes there.
+
+### Changed
+
+- **CI release workflow** (`release.yml`) now has a defense-in-depth
+  scan that rejects any unpacked artifact containing `.private/`,
+  `marketing/`, `PLAN.md`, `RESEARCH-AND-PROPOSAL.md`,
+  `LISTINGS-PLAN.md`, `EMAIL_DRAFT.md`, or `SUBMISSION_GUIDE.md`
+  paths. The existing credential-pattern scan stays in place. This
+  catches the bug class behind §11b.ii even if `.mcpbignore` or the
+  `pyproject.toml` sdist-exclude block drift again in the future.
+- HTTP client User-Agent bumped from `SEOMonster/0.5.0` to
+  `SEOMonster/0.5.1`.
+
+### Tests
+
+- 316 passing (up from 314 in `0.5.0`; +2 new tests:
+  `test_gsc_client_inspect_url_is_kwargs_only` and
+  `test_coverage_audit_passes_url_not_site_to_inspect`).
+
+### Not changed
+
+- Tool count: **45** (unchanged from v0.5.0).
+- Prompt count: **7** (unchanged from v0.5.0).
+- No tools renamed or removed.
+- API stability: existing handlers still accept the same arguments;
+  this is a pure-internal client refactor invisible to MCP callers.
+
+## [0.5.0] - 2026-05-28
+
+The multi-property + lifecycle sprint. Surface grows to 45 tools and 7
+named workflow prompts. No new auth surface; the four new tools reuse
+the existing `GscClient`, the new prompt chains tools we already
+shipped. No breaking changes for v0.4.x consumers; everything is
+additive.
+
+### Added
+
+- **Four new GSC tools (multi-property + lifecycle theme):**
+  - **`gsc_portfolio_summary(days, include?, exclude?)`** — multi-property
+    fleet view. Lists every property the credentials can see, runs one
+    aggregated query per property (clicks, impressions, CTR, position
+    over the last N days), and returns per-property rows plus a
+    portfolio-level rollup. Honors optional `include` and `exclude`
+    allow/deny lists.
+    **(validate)** Pass `days=14` against a real account with multiple
+    GSC properties; confirm `portfolio_totals.property_count` matches
+    the visible count and each row has the expected metrics.
+  - **`gsc_trending_pages(days, limit)`** — pages whose impressions grew
+    most over the last N days vs the prior N days. Wrapper on
+    `gsc_compare_periods` with `dimensions=["page"]`,
+    `sort_by="delta_impressions"`, `sort_dir="desc"`.
+    **(validate)** Pass `days=14, limit=10` against a real property;
+    confirm `filters_applied.sort_dir == "desc"` and rows are ordered by
+    descending `delta_impressions`.
+  - **`gsc_decaying_pages(days, limit)`** — same wrapper, ascending
+    sort. Pages whose impressions fell most.
+    **(validate)** Pass `days=14, limit=10`; confirm
+    `filters_applied.sort_dir == "asc"`.
+  - **`gsc_coverage_audit(urls, site_url?)`** — heuristic coverage
+    audit. The GSC Index Coverage report is not exposed in the public
+    API, so this tool takes a user-supplied URL list (typically from a
+    sitemap), bulk-inspects each, and rolls up `verdict_counts` and
+    `coverage_state_counts`. Cap 200 URLs per call.
+    **(validate)** Pass a list of 5-10 URLs from a real site; confirm
+    `verdict_counts` and `coverage_state_counts` populate and per-URL
+    failures (e.g. URLs outside the property's scope) land in
+    `.failed` instead of poisoning the call.
+- **One new prompt:** **`pre_deploy_check(urls)`** — recognizable
+  deploy-gate label. Runs `robots_txt_validate` against the host root,
+  then for each URL: `inspect_meta`, `check_canonical`, `validate_schema`,
+  `redirect_chain_audit`, `mixed_content_check`. Output is a deploy-gate
+  verdict (block on critical issues, approve otherwise) plus a per-URL
+  table. Complements `technical_seo_audit` (one URL deep) and
+  `structured_data_audit` (Rich Results focus) by covering the broad
+  batch case.
+  **(validate)** In Claude Desktop, invoke `/pre_deploy_check` with two
+  staging URLs and confirm all 6 tool calls fire in order followed by
+  the deploy-gate verdict.
+- **`llms-install.md`** at the repo root. Short-form install for AI
+  coding agents (Cline, Cursor, Codex) per the `llms-install.md`
+  convention. Lists env vars, OAuth pre-flight CLI, and the
+  `system_status` discovery convention.
+
+### Changed
+
+- **`DOCS_BASE` flips back to the brand subdomain.** Every error
+  envelope's `docs_url` now points at `https://seomonster.avansaber.com#anchor`
+  (was: GitHub README anchors as a v0.4.0 interim per Round-5
+  §10c.iv). The subdomain is now provisioned at the DNS layer; the
+  full marketing site content lands in parallel with this release.
+- **HTTP client User-Agent** bumped from `SEOMonster/0.4.0 (+...)` to
+  `SEOMonster/0.5.0 (+...)`.
+- **`manifest.json`** `tools[]` array extended with the 4 new GSC tools.
+
+### Tests
+
+- 314 passing (up from 306 in `0.4.0`). 8 new offline tests in
+  `test_gsc_tools.py` covering the 4 new tools: portfolio aggregation,
+  include filter, per-property error collection, trending sort
+  direction, decaying sort direction, coverage rollup, coverage
+  per-URL failures, coverage empty-URLs guard. All offline; mock at
+  the client seam.
+
+## [0.4.0] - 2026-05-28
+
+The structured-data + cross-site-consistency sprint. Surface grows to 41
+tools and 6 named workflow prompts. No new auth surface; all five new
+tools reuse either the existing `HttpClient` (4 of 5) or `PsiClient`
+(1 of 5). No breaking changes for v0.3.x consumers; everything is
+additive.
+
+### Added
+
+- **`inspect_schema(url)`** extracts every JSON-LD block from a page
+  (script type=application/ld+json), flattens `@graph` wrappers and
+  arrays, and reports the schema.org `@type` counts plus a sample
+  entity per type. Discovery tool: tells you what structured data
+  exists before you validate it.
+  **(validate)** Pass a real product page and confirm at least
+  `Product` (or `BreadcrumbList`) appears in `type_counts` with the
+  expected sample entity.
+- **`validate_schema(url, types?)`** verdicts every JSON-LD entity
+  against the Google Rich Results required-field set for Article,
+  NewsArticle, BlogPosting, Product, FAQPage, BreadcrumbList,
+  Organization, LocalBusiness, Event, Review, Recipe. Per-entity
+  verdict (`pass` / `fail` / `unknown_type` / `parse_error`) plus
+  `missing_required` and `missing_recommended` lists. Optional
+  `types` filter limits the check to a subset of `@types`.
+  **(validate)** Pass a Product page missing the `offers` field;
+  confirm verdict is still `pass` (offers is recommended only) but
+  `missing_recommended` contains `offers`.
+- **`hreflang_consistency_check(urls)`** runs cross-page hreflang
+  validation on a user-supplied URL set (max 50). Builds the full
+  reciprocity matrix, flags missing reciprocal links, broken
+  hreflang targets (non-2xx), duplicate hreflang values on one page,
+  missing self-link, and missing `x-default` when there are three or
+  more language variants.
+  **(validate)** Pass three URLs representing en / fr / de of the
+  same page where the de version has no `x-default`; confirm
+  `missing_x_default` appears in that page's `flags`.
+- **`internal_link_graph(start_url, max_depth=2, max_pages=50)`**
+  does a small BFS crawl within the same host. Returns per-page
+  in-degree + out-degree, orphan pages (zero in-degree among
+  fetched pages), broken internal links (4xx/5xx), and a depth
+  histogram. Hard ceilings: `max_depth` <= 4 and `max_pages` <= 200.
+  Skips `mailto:`, `tel:`, `javascript:`, and pure-fragment links.
+  **(validate)** Pass a documentation site root with
+  `max_depth=2, max_pages=30`; confirm `pages_fetched` >= 5,
+  `depth_distribution` shows at least one entry at depth 1 and one
+  at depth 2.
+- **`lighthouse_budget(url, budget)`** wraps `psi_analyze` and
+  verdicts the result against a budget dict, e.g.
+  `{performance: 80, LCP_ms: 2500, CLS: 0.1}`. Higher-is-better
+  category scores must meet or exceed the budget; lower-is-better
+  metrics (LCP_ms, FCP_ms, TBT_ms, TTI_ms, speed_index_ms, CLS)
+  must be at or below. Returns per-metric verdict and an overall
+  pass/fail. Unknown budget keys are collected separately so a typo
+  is surfaced rather than silently ignored. Reuses `PSI_API_KEY`.
+  **(validate)** Run against a known-fast URL with a tight budget
+  (e.g. `{performance: 90, LCP_ms: 2500}`); flip the budget to
+  `{performance: 99}` and confirm overall_verdict flips to `fail`
+  with the per-metric verdict explaining why.
+- **New MCP prompt: `structured_data_audit(urls)`** chains
+  `inspect_schema` and `validate_schema` per URL, then (when 2+
+  URLs are supplied) `hreflang_consistency_check` across the set.
+  Output is a per-URL findings list plus a global hreflang report.
+  **(validate)** In Claude Desktop, invoke `/structured_data_audit`
+  with two URLs and confirm both per-URL tool calls run in order
+  followed by the cross-URL hreflang call.
+
+### Changed
+
+- `system_status` catalog groups the four prefix-free v0.4.0 tools
+  (`inspect_schema`, `validate_schema`, `hreflang_consistency_check`,
+  `internal_link_graph`) plus `lighthouse_budget` under the existing
+  `technical` group. `lighthouse_budget` internally calls `PsiClient`
+  but is grouped with technical-SEO tools because that is when SEO
+  triage actually reaches for it (CI / pre-deploy gate). Grouping is
+  for catalog UX, not for service routing.
+- HTTP client User-Agent bumped from `SEOMonster/0.3.1 (+...)` to
+  `SEOMonster/0.4.0 (+...)`.
+
+### Round-5 validation fixes (folded in)
+
+Tester report at `Round 5` (post-v0.3.1) surfaced 9 findings + 5
+documentation gaps. All landed before tagging v0.4.0:
+
+- **CrUX `API_KEY_SERVICE_BLOCKED` remap (Round-5 §10a.iv).** Previously
+  surfaced as `AUTH_INVALID` ("check your API key"), which sent users on
+  the wrong debugging path. Now correctly classified as
+  `SERVICE_DISABLED` with the activation URL extracted into
+  `details.activation_url`. Same UX as the GA4 `SERVICE_DISABLED` path.
+  Marker list at `clients/errors.py` pinned to the verbatim upstream
+  text the validator captured.
+  **(validate)** Call `crux_history` with a `PSI_API_KEY` whose project
+  hasn't enabled the CrUX API; confirm the envelope is `SERVICE_DISABLED`
+  and `details.activation_url` is populated.
+- **`sitemap_validate` emits `missing_lastmod` finding for sitemap-index
+  too (Round-5 §10a.ii).** Previously only emitted for `urlset`. Sitemaps.org
+  spec says sitemap-index `<lastmod>` tells crawlers when the underlying
+  sub-sitemap last changed (more useful than per-URL lastmod). AI hosts
+  triaging by `findings` length now see the issue.
+- **`system_status.openWorldHint` flipped to `false` (Round-5 §10a.i).**
+  Server-internal state, not external data; hosts that cache by
+  `openWorldHint` can now cache it. Pinned to RESEARCH §5.1 matrix; new
+  regression test in `test_smoke.py` guards specific annotation overrides.
+- **`lighthouse_budget` unknown budget keys now surface as findings**
+  (Round-5 §10b.U). Previous behaviour silently stashed typos in
+  `unknown_budget_keys: ["LCP"]` and returned `overall_verdict: "pass"`
+  even though the LCP budget was never applied. New shape is structured
+  with a "did you mean LCP_ms?" hint, and the tool's schema description
+  enumerates all valid budget keys + their units + their 0-100 scale.
+  Same change documented in README.
+- **`DOCS_BASE` repointed to GitHub README (Round-5 §10c.iv).**
+  `seomonster.avansaber.com` is not live yet (LISTINGS §9 Q1 STILL
+  OPEN); every error envelope's `docs_url` was pointing at a
+  connection-refused page. Now points at
+  `https://github.com/avansaber/seo-monster/blob/main/README.md#anchor`
+  with explicit `<a name="...">` markers in README (11 anchors:
+  `#auth`, `#errors`, `#configuration`, `#destructive-mode`, `#gsc`,
+  `#ga4`, `#psi`, `#cf`, `#indexnow`, `#technical`, `#crux`).
+  Reversible when the brand subdomain stands up.
+- **IndexNow README setup section expanded (Round-5 §10a.v).** Now
+  covers key-generation rules (8-128 alphanumeric or hyphen, with a
+  `secrets.token_hex(16)` example), verification-file format
+  requirements (plain text, no trailing newline / BOM / whitespace,
+  Content-Type `text/plain`), the same-host constraint between key file
+  and submitted URLs, and a common-errors triage table.
+- **`gsc_compare_periods` `sigma_used` field documented (Round-5 §10a.iii).**
+  Tool description now explains: when `anomalies_only=true`, `sigma_used`
+  reports the population-stdev computed from the matched rows' `sort_by`
+  metric distribution; the effective z-score cutoff applied is
+  `sigma_threshold * sigma_used`.
+- **Canonical service labels across listings (Round-5 §10c.iii).**
+  Standardized on "PageSpeed Insights (PSI)" and "Chrome UX Report
+  (CrUX)" with the full form on first mention per document. Updated
+  `manifest.json`, `server.json`, and README. `server.json` description
+  now 96 chars (under the 100-char cap).
+- **PyPI Trusted Publishing step un-commented behind a feature flag
+  (Round-5 §10e.i).** `.github/workflows/release.yml` now contains a
+  ready-to-fire `Publish to PyPI` step gated by the repo variable
+  `PYPI_PUBLISH_ENABLED`. To activate: (1) set up the trusted publisher
+  in PyPI's publishing settings, (2) set the repo variable to `true`,
+  (3) push the next tag. Until then the step is skipped and the
+  pipeline behaves identically to today's manual-publish flow.
+- **mcp.so submission comment (`chatmcp/mcpso#1`) edited to remove
+  em-dash (Round-5 §10c.ii).** External-surface hygiene; the project's
+  in-repo docs were already clean.
+
+### Tests
+
+- 306 passing (up from 260 in `0.3.1`; +4 net-new tests from the Round-5
+  fixes: CrUX `API_KEY_SERVICE_BLOCKED` mapping, generic 403 fallthrough,
+  `lighthouse_budget` LCP-typo did-you-mean, and the §5.1 annotation-matrix
+  regression in `test_smoke.py`; one existing test renamed for the new
+  did-you-mean shape). Total new tests across the v0.4.0 sprint: 46 (42
+  from the new tool modules + 4 from Round-5 fixes). All offline; mock
+  at the client seam.
+
+## [0.3.1] - 2026-05-28
+
+Discoverability release. No behaviour change.
+
+### Added
+
+- README carries the `<!-- mcp-name: io.github.avansaber/seo-monster -->`
+  ownership-verification marker required by the official MCP Registry
+  (`registry.modelcontextprotocol.io`) for PyPI-registry-type entries.
+  The marker is HTML-commented so it does not render in user-facing
+  views of the README, only in the raw markdown that PyPI exposes as
+  the package description.
+
+### Changed
+
+- HTTP client User-Agent bumped from `SEOMonster/0.3.0 (+...)` to
+  `SEOMonster/0.3.1 (+...)` so server-side analytics that key on the
+  UA reflect the running version.
+
+### Tests
+
+- 260 passing (no change from `0.3.0`; the marker is content-only).
+
+## [0.3.0] - 2026-05-28
+
+The technical-SEO sprint. Surface grows to 36 tools and 5 named workflow
+prompts. No breaking changes for v0.2.x consumers; everything is additive.
+
+### Added
+
+- **Seven technical-SEO HTTP tools** (no new auth surface; the built-in
+  HTTP client needs no configuration):
+  - `inspect_meta(url)` returns the page's on-page SEO surface in one
+    call: title, meta description, meta robots, canonical, Open Graph +
+    Twitter Card tags, hreflang list, and H1 count.
+    **(validate)** Pass a real product page and confirm title, meta
+    description, canonical, and at least one OG tag come back populated.
+  - `check_canonical(url)` follows the page's canonical link and reports
+    whether it is self-referential, cross-host, protocol-mismatched, or
+    has trailing-slash drift; flags missing canonical and unreachable
+    canonical target.
+    **(validate)** Pass a URL whose canonical points to a different
+    hostname; confirm `cross_url` and `cross_host` are listed in
+    `findings`.
+  - `mixed_content_check(url)` parses an HTTPS page and reports any
+    `http://` references (img / script / iframe / form action / srcset).
+    No-op for `http://` pages.
+    **(validate)** Pass an HTTPS URL with at least one known mixed-content
+    issue; confirm `verdict=mixed_content_found` and the violation appears
+    in the right category bucket.
+  - `redirect_chain_audit(url, max_redirects=10)` walks the chain hop by
+    hop without auto-following. Flags `long_chain`, `protocol_downgrade`,
+    `non_2xx_terminus`; surfaces redirect loops as `UPSTREAM_ERROR`.
+    **(validate)** Pass a URL with a known multi-hop redirect; confirm
+    `hop_count > 1` and `long_chain` is in `findings`.
+  - `robots_txt_validate(site_url, probes=[{user_agent, url}])` parses
+    `/robots.txt`, returns the per-group rules + sitemaps, and verdicts
+    optional probes using RFC 9309 longest-match semantics (which is what
+    Google and Bing actually do, not what the stdlib `robotparser` does).
+    **(validate)** Pass a robots.txt containing
+    `Disallow: /admin/` + `Allow: /admin/public` and probe
+    `/admin/public/page`; confirm `allowed=true` and
+    `matched_rule.path == "/admin/public"`.
+  - `sitemap_validate(sitemap_url)` validates a sitemap or sitemap-index
+    XML, counts entries, flags oversize (>50k URLs or >50 MiB),
+    cross-host entries, and missing `<lastmod>`. Handles `.gz`
+    transparently.
+    **(validate)** Pass a real sitemap URL; confirm `entry_count` is
+    non-zero and `findings` is empty for a well-formed one.
+  - `sitemap_health(sitemap_url, sample_size=25)` samples N URLs from a
+    sitemap (descending one level for an index), HEAD-checks each, and
+    returns a status histogram plus the first non-2xx examples.
+    **(validate)** Pass a sitemap with known 404s; confirm the histogram
+    has a `"404"` bucket and `non_2xx_examples` lists them.
+- **`crux_history(url? | origin?, form_factor?, metrics?)`** wraps the
+  Chrome UX Report History API to return the last 25 weekly collection
+  periods of Core Web Vitals at p75 (LCP, INP, CLS, etc.). Reuses
+  `PSI_API_KEY`; works anonymously at a tighter rate limit when no key
+  is configured.
+  **(validate)** Pass a high-traffic origin (e.g. an e-commerce
+  homepage); confirm `periods` returns 25 entries and at least
+  `largest_contentful_paint` has 25 p75 values.
+- **One new MCP prompt: `technical_seo_audit(url)`** chains
+  `inspect_meta` + `check_canonical` + `redirect_chain_audit` +
+  `mixed_content_check` + `robots_txt_validate` for the URL, then
+  `sitemap_health` for its host root, and produces a triage list ranked
+  by severity (Critical / High / Medium / Low).
+  **(validate)** In Claude Desktop, invoke `/technical_seo_audit` with a
+  real URL and confirm all six tool calls fire in order.
+
+### Changed
+
+- `system_status` now surfaces the new `technical` and `crux` service
+  rows alongside the existing five, and groups the new tools under those
+  keys in the catalog so a host can filter by service.
+- `manifest.json` `description` + `long_description` updated to mention
+  the technical-SEO and CrUX additions.
+- Console scripts unchanged: `seo-monster` (primary) and `seo-mcp`
+  (deprecated alias) both run the same `main()`.
+
+### Tests
+
+- 260 passing (up from 211 in v0.2.1). New test modules:
+  `test_http_client.py`, `test_onpage_tools.py`,
+  `test_redirect_robots_tools.py`, `test_sitemap_tools.py`,
+  `test_crux_tools.py`. All offline; mock at the client seam.
+
+## [0.2.1] - 2026-05-28
+
+Housekeeping release. No new tools, no behaviour changes. The previously
+public planning + strategy + marketing files have been scrubbed from git
+history, removed from the published sdist, and guarded against
+reintroduction. **`0.2.0` was yanked on PyPI as part of this cleanup** so
+the default resolver picks `0.2.1`.
+
+### Changed
+
+- `pyproject.toml` declares `[tool.hatch.build.targets.sdist] exclude`
+  covering the internal planning patterns (`RESEARCH-AND-PROPOSAL.md`,
+  `LISTINGS-PLAN.md`, `PLAN.md`, `marketing/`, `.private/`, `.env*`). Any
+  future accidental tracking of these names will not reach a published
+  sdist.
+- `.github/workflows/release.yml` now runs a "reject internal planning
+  docs" pre-build check on every tag push. Any tag with one of those
+  patterns tracked fails the release before anything is built or uploaded.
+- New `CONTRIBUTING.md` documenting the convention so the next maintainer
+  knows where internal docs go.
+
+### Security
+
+- `.gitignore` adds explicit entries for the planning-doc filenames and
+  `.private/`. `git add` of any of these is silently dropped.
+- Git history rewritten with `git filter-repo --invert-paths` to remove the
+  planning docs from every commit they ever appeared in. Force-pushed
+  `main` and all tags (`v0.1.0` through `v0.2.0`). Anyone with a clone
+  from before this release needs to re-clone or rebase.
+- **(validate)** `curl -s -o /dev/null -w "%{http_code}\n"
+  https://raw.githubusercontent.com/avansaber/seo-monster/main/PLAN.md`
+  should return `404`. Same for `LISTINGS-PLAN.md`,
+  `RESEARCH-AND-PROPOSAL.md`, and any path under `marketing/`.
+
+### Tests
+
+- 211 passing (no change from `0.2.0`; no code changed).
+
+## [0.2.0] - 2026-05-28
+
+The intelligence sprint. Surface grows to 28 tools and 4 named workflow
+prompts. No breaking changes for existing v0.1.x consumers; everything is
+additive.
+
+### Added
+
+- **Four GSC query intelligence tools** (parity with Suganthan's MCP for
+  the common SEO triage flows):
+  - `gsc_query_opportunities(site_url?, days=28, position_max=10, ctr_max=0.03, impressions_min=100, limit=50)`
+    finds queries already ranking in the top N with below-target CTR.
+    Title and meta optimization candidates. Sorted by impressions desc.
+    **(validate)** Pass with a real GSC property and confirm rows return
+    sorted; pass `position_max=5` and confirm the row set shrinks.
+  - `gsc_query_gaps(site_url?, days=28, impressions_min=50, clicks_max=2, limit=50)`
+    finds queries that draw impressions but barely any clicks.
+    **(validate)** Pass with a real property; confirm zero-click queries
+    appear at the top.
+  - `gsc_new_queries(site_url?, days=7, prior_days=28, impressions_min=5, limit=50)`
+    set-difference between current and prior windows; queries appearing
+    only in the current window are returned. Makes two GSC calls.
+    **(validate)** Pass with `days=7, prior_days=28`; confirm only newly
+    appearing queries are surfaced.
+  - `gsc_top_pages_by_query(query, site_url?, days=28, limit=20)` returns
+    pages ranking for an exact query. Cannibalization audit input.
+    **(validate)** Pass a query you know has multiple ranking pages; the
+    response should list them with their positions.
+- **Two IndexNow tools** (complementing the Google-only
+  `gsc_request_indexing` for Bing, Yandex, Naver, Seznam, Yep):
+  - `indexnow_submit(url)` and `indexnow_bulk_submit(urls)`. Bulk submit
+    enforces single-host precondition client-side and surfaces
+    `INVALID_INPUT` before any HTTP call when mixed hosts are passed.
+    **(validate)** Set `SEO_MCP_INDEXNOW_KEY`, host the verification file
+    at `https://<your-host>/<key>.txt`, then submit a real URL and
+    confirm `accepted: true`. Try mixed-host bulk submit; expect
+    `INVALID_INPUT` with the message naming the second host.
+- **MCP tool annotations on every tool** (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`). Required by the Anthropic Connectors
+  Directory; about 30% of submissions are rejected for missing them.
+  **(validate)** `system_status` is no help here. Inspect any tool entry
+  in the `tools/list` MCP response and confirm an `annotations` block is
+  present with all four fields. The `test_every_tool_carries_mcp_annotations`
+  test in CI pins this.
+- **MCP `prompts/` capability** with four named workflow recipes:
+  - `post_deploy_verify(urls, zone?, skip_psi?)` chains CF cache purge,
+    GSC indexing request, IndexNow notification, PSI baseline.
+  - `weekly_review(days?, site_url?)` chains gainers, losers,
+    opportunities, gaps, GA4 organic context.
+  - `content_audit(site_url?, days?, top_n_queries?)` chains top queries,
+    per-query top pages, cannibalization recommendation.
+  - `migration_check(urls, site_url?)` chains batch URL inspection,
+    sitemap list, canonical agreement table.
+  **(validate)** Confirm `prompts/list` returns the four prompts named
+  above (`post_deploy_verify`, `weekly_review`, `content_audit`,
+  `migration_check`) with their arguments. Note: v0.3.0 ships a fifth
+  prompt (`technical_seo_audit`), so the actual `prompts/list` length
+  will be 5 on current builds, but these four must all be present.
+  Invoke `prompts/get` for `weekly_review` with `days=14`, confirm the
+  returned message body templates `"days": 14` into the
+  `gsc_compare_periods` call shape.
+- **`gsc_compare_periods` enhancements** (absorbs the originally proposed
+  `gsc_rank_drops` and `traffic_anomaly_detector`; defaults preserve
+  v0.1.x behaviour):
+  - `sort_by` (`delta_clicks` default), `sort_dir` (`desc` default).
+  - `min_delta_clicks`, `min_delta_impressions`, `min_delta_position`
+    (absolute-value floors, AND-combined).
+  - `anomalies_only` + `sigma_threshold` (default 2.0) for z-score
+    filtering against the sort_by metric.
+  - `top` to cap returned rows.
+  - Output adds `total_matched` (pre-filter) and `filters_applied`
+    (including `sigma_used` when anomaly mode fires).
+  **(validate)** With `sort_dir=asc` confirm losers surface first. With
+  `anomalies_only=true, sigma_threshold=2.0` confirm only statistical
+  outliers remain and `filters_applied.sigma_used` is populated.
+- **Configuration:** new `SEO_MCP_INDEXNOW_KEY` (sensitive) and
+  `SEO_MCP_INDEXNOW_KEY_LOCATION` env vars; matching `[indexnow]` TOML
+  block; matching MCPB `user_config` entries.
+- **`system_status` envelope** gains a new `services.indexnow` block (with
+  `key_location`) and a top-level `prompts` array listing the four prompt
+  names.
+
+### Changed
+
+- `Tool` advertisement in `server.py` now uses `Tool.model_validate(d)`
+  instead of `Tool(**d)` so the nested annotations sub-dict is parsed
+  into the SDK's `ToolAnnotations` type.
+- Smoke test renamed `test_full_v1_surface_registered` ->
+  `test_full_v02_surface_registered`; it now asserts the 22 v0.1.x tools
+  are a subset of the registered set (so future additions don't trip it)
+  and that GA4 + Cloudflare + IndexNow categories are all populated.
+- Tool count: 22 -> 28. Prompt count: 0 -> 4.
+
+### Deprecated
+
+- `seo-mcp` console alias still works (no breaking change). The canonical
+  console name is `seo-monster`. Invoking via `seo-mcp` now emits a single
+  line on stderr explaining the deprecation; stdout (the MCP protocol
+  channel) is untouched. The alias will be removed in a future major
+  release; current installs need do nothing.
+
+### Tests
+
+- 159 -> 211 offline tests passing.
+- `test_every_tool_carries_mcp_annotations` regression guard pins the
+  annotation requirement; future tools cannot ship without them.
+
+### Manifest
+
+- `version` bumped to 0.2.0.
+- `user_config` gains `indexnow_key` (sensitive) and
+  `indexnow_key_location`.
+- `tools` array now lists all 28 tools and four prompts get listed via
+  the runtime `prompts/list` call (no static manifest entry needed for
+  prompts).
+
+## [0.1.2] - 2026-05-28
+
+### Fixed
+
+- GSC property-scope 403 markers now match Google's verbatim upstream text
+  (`"You do not own this site, or the inspected URL is not part of this
+  property."`). The v0.1.1 markers were hypothetical and missed this exact
+  phrasing, sending the error through to `AUTH_INVALID` instead of the
+  intended `NOT_FOUND`. **(validate)** Inspect any URL outside the
+  property's verified scope; the envelope should now read `NOT_FOUND` with
+  a remediation pointing at `site_url` scope, not at credentials.
+
+## [0.1.1] - 2026-05-28
+
+The Round-2 validation-pass response. Critical fix for Claude Desktop
+users; broad DX improvements.
+
+### Added
+
+- **`seo-monster auth` CLI subcommand.** The server no longer opens a
+  browser from inside an MCP subprocess (the GUI flow was timing out under
+  Claude Desktop). Run the consent once from a terminal; subsequent server
+  runs read the cached token. **(validate)** Run `uvx seo-monster auth`
+  in a terminal, complete consent, then confirm GSC tools work from Claude
+  Desktop.
+- **Schema aliases** so AI hosts get the parameter names right on the first try:
+  - `gsc_search_analytics` accepts `days` and `limit`.
+  - `gsc_compare_periods` accepts `days` and `limit`.
+  - `gsc_submit_sitemap` accepts `sitemap_url` (the friendly form).
+  - `gsc_request_indexing` accepts singular `url` in addition to `urls`.
+  - `ga4_run_report` accepts `days` and `limit`.
+  All backwards-compatible. **(validate)** Confirm each old-name call
+  still works and each new-name call returns equivalent results.
+- **Diagnostic polish in `system_status`**: new `config_source` field
+  (`"env"` or the TOML path) and new `services.ga4.reason` field
+  explaining why GA4 `reachable` is null when it is.
+- **`gsc_list_properties`** rows now carry a derived `writable: bool`
+  (true for `siteOwner` / `siteFullUser`).
+- **PSI 429** now carries an actionable remediation pointing at
+  `PSI_API_KEY` (anonymous quota is often exhausted).
+
+### Changed
+
+- GSC property-scope 403 routes to `NOT_FOUND` with a property-scope
+  remediation rather than `AUTH_INVALID` (regression: see v0.1.2 for the
+  marker-text completeness fix).
+- OAuth token file written with `0600` permissions; parent directory
+  created with `0700`.
+
+### Security
+
+- `.gitignore` covers `.env.*` variants in addition to `.env`.
+- `.mcpbignore` excludes `.claude/` (Claude Code's local settings) in
+  addition to `.cursor/`.
+
+### Manifest
+
+- `version` bumped to 0.1.1.
+- `user_config` gains `gsc_default_site` so Claude Desktop users can
+  pre-set their GSC property via the install form.
+
+## [0.1.0] - 2026-05-27
+
+Initial public release.
+
+### Added
+
+- **22 tools across four services**: GSC (10), GA4 (4), PSI (1),
+  Cloudflare (6), plus the cross-service `system_status` discovery tool.
+- **OAuth-first auth**, with service-account as the advanced headless
+  alternative. User-credential-driven; no auth baked into the package.
+- **Read-first design**: only Cloudflare cache-purge tools are gated
+  behind `SEO_MCP_ALLOW_DESTRUCTIVE=true`. The GSC writes (sitemap
+  submit, indexing request) are available by default.
+- **`.mcpb` bundle** for one-click Claude Desktop install.
+- **Stable result envelope** (`{ok, data, error}`) with a closed set of
+  error codes (`AUTH_MISSING`, `AUTH_INVALID`, `SCOPE_INSUFFICIENT`,
+  `DESTRUCTIVE_DISABLED`, `CONFIRM_REQUIRED`, `NOT_FOUND`,
+  `INVALID_INPUT`, `RATE_LIMITED`, `SERVICE_DISABLED`, `UPSTREAM_ERROR`).
+- **123 offline tests**, no network in CI.
+
+[Unreleased]: https://github.com/avansaber/seo-monster/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/avansaber/seo-monster/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/avansaber/seo-monster/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/avansaber/seo-monster/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/avansaber/seo-monster/releases/tag/v0.1.0

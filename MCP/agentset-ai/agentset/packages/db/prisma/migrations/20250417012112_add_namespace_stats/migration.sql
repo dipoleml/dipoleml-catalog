@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "namespace" ADD COLUMN     "totalDocuments" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "totalIngestJobs" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "totalPages" INTEGER NOT NULL DEFAULT 0;

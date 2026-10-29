@@ -1,0 +1,100 @@
+import { TaskRegistry, ShellTask } from "@db-lyon/flowkit";
+import type { TaskConstructor, TaskContextInput } from "@db-lyon/flowkit";
+import type { ToolDef } from "../core/types.js";
+import type { FlowContext } from "./context.js";
+import { BridgeTask } from "./bridge-task.js";
+import { editorOperationTask } from "./editor-op-task.js";
+import { bridgeTaskClass, handlerTaskClass } from "./task-factory.js";
+import { actionPreparation } from "./run-action.js";
+import { MICRO_GATEWAY_TOOL, MICRO_GATEWAY_CALL, microGatewayTargets, resolveMicroCall } from "../surface/context/micro-context.js";
+import { McpError, ErrorCode } from "../core/errors.js";
+import { paramMapperOf } from "../surface/epic-input.js";
+import { AGENT_TASK_CLASSES } from "./agent-step.js";
+import { PLAYTEST_TASK_CLASSES } from "./playtest.js";
+
+/** A gateway call is an alias for the target task, not a handler that executes
+ *  another action and repackages its result. Both MCP and FlowRunner create
+ *  tasks here, so plugin dispatch, failures and rollback keep the same path. */
+class MicroTaskRegistry extends TaskRegistry {
+  /** `targets` is what the gateway itself reaches: the enabled categories. */
+  constructor(private readonly targets: ToolDef[], baseDir?: string) {
+    super({ baseDir });
+  }
+
+  override async create(name: string, ctx: TaskContextInput, options: Record<string, unknown>) {
+    if (name === `${MICRO_GATEWAY_TOOL}.${MICRO_GATEWAY_CALL}`) {
+      const graph = (ctx as FlowContext).getToolGraph?.() ?? this.targets;
+      const call = resolveMicroCall(graph, options);
+      if (!this.listRegistered().includes(call.taskName)) {
+        throw new McpError(ErrorCode.NO_HANDLER, `Action ${call.taskName} has no registered task.`);
+      }
+      return super.create(call.taskName, ctx, call.params);
+    }
+    return super.create(name, ctx, options);
+  }
+}
+
+/**
+ * Walk all category tools and register every action as a flowkit task.
+ *
+ * - Bridge actions → factory classes with method + mapParams in closure
+ * - Handler actions → factory classes wrapping the existing handler function
+ *
+ * Also registers `ue-mcp.bridge` as a class_path for YAML-defined bridge tasks.
+ *
+ * `baseDir` is the folder holding the ue-mcp.yml whose class paths this
+ * registry resolves; without it they resolve from the cwd (#1590).
+ */
+export function buildFlowRegistry(tools: ToolDef[], baseDir?: string): TaskRegistry {
+  // The registry keeps disabled categories so flows can name them directly;
+  // the gateway resolves only the categories it was built from.
+  const gateway = tools.find((tool) => tool.name === MICRO_GATEWAY_TOOL);
+  const registry = gateway
+    ? new MicroTaskRegistry(microGatewayTargets(gateway) ?? tools, baseDir)
+    : new TaskRegistry({ baseDir });
+
+  // Register built-in task class paths
+  registry.registerClassPath("ue-mcp.bridge", BridgeTask as unknown as TaskConstructor);
+  registry.register("shell", ShellTask as unknown as TaskConstructor);
+  registry.register("editor.restart", editorOperationTask("restart"));
+  registry.register("editor.rebuild", editorOperationTask("rebuild"));
+  // Model steps (agent, agent_prompt) and the playtest flow's own tasks.
+  for (const [classPath, ctor] of Object.entries(AGENT_TASK_CLASSES)) registry.registerClassPath(classPath, ctor);
+  for (const [name, ctor] of Object.entries(PLAYTEST_TASK_CLASSES)) registry.register(name, ctor);
+
+  for (const tool of tools) {
+    for (const [actionName, spec] of Object.entries(tool.actions)) {
+      const taskName = `${tool.name}.${actionName}`;
+
+      // The same preparation a category tool's own handler builds, so the
+      // live route and every other route fold, repair and check alike.
+      const prep = actionPreparation(tool.options, actionName, spec);
+
+      if (spec.handler) {
+        // FlowContext is a structural superset of ToolContext (see
+        // context.ts), so we pass ctx straight through. Rebuilding it
+        // field-by-field used to silently drop new accessors at this
+        // boundary - never reintroduce that pattern.
+        const originalHandler = spec.handler;
+        registry.register(
+          taskName,
+          handlerTaskClass(taskName, (ctx: FlowContext, params: Record<string, unknown>) => {
+            return originalHandler(ctx, params);
+          }, prep),
+        );
+      } else if (spec.bridge) {
+        registry.register(
+          taskName,
+          // The action's authored budget travels with it. Three actions
+          // (blueprint.flush_component_templates, widget.add_widget,
+          // widget.remove_widget) declare 120s because their method has no
+          // entry in the editor's own timeout table, and dropping it here gave
+          // them the 30s default on every live call.
+          bridgeTaskClass(taskName, spec.bridge, paramMapperOf(spec), spec.timeoutMs, prep, spec.followUp),
+        );
+      }
+    }
+  }
+
+  return registry;
+}

@@ -1,0 +1,323 @@
+"""Build or rebuild the codebase index.
+
+Output formats: text (default), ``--json``. SARIF is deliberately NOT
+emitted because ``roam index`` is a setup/state command — its output is
+human-facing index-build status (files discovered, symbols extracted,
+edges resolved, elapsed seconds), not analysis findings with file:line
+coordinates. SARIF is reserved for scanning results. See action.yml
+_SUPPORTED_SARIF allowlist + W1175-RESEARCH propagation plan +
+W1224-audit memo.
+"""
+
+from __future__ import annotations
+
+import time
+
+import click
+
+from roam.capability import roam_capability
+from roam.output.formatter import json_envelope, to_json
+
+
+@roam_capability(
+    name="index",
+    category="getting-started",
+    summary="Build or rebuild the codebase index",
+    maturity="stable",
+    mcp_expose=True,
+    mcp_preset=("core",),
+    side_effect=True,
+    task_required=False,
+    destructive=False,
+    stale_sensitive=True,
+    ai_safe=True,
+    requires_index=False,
+)
+@click.command(name="index")
+@click.option("--force", is_flag=True, help="Force full reindex")
+# Forgiving alias: several older docs, hints, and sibling commands say
+# `roam index --rebuild`. There is only one real flag (--force), so a bare
+# `--rebuild` used to fail with "No such option: --rebuild". Accept it as a
+# hidden, identical-behaviour alias for --force so a recommendation can never
+# mislead into an unusable command. Kept ``hidden`` so --help still shows the
+# single canonical flag.
+@click.option(
+    "--rebuild",
+    "rebuild",
+    is_flag=True,
+    hidden=True,
+    help="Alias for --force (full reindex). Accepted for forgiveness; --force is canonical.",
+)
+@click.option("--verbose", is_flag=True, help="Show detailed warnings during indexing")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress progress output")
+@click.pass_context
+def run_index_command(ctx, force, verbose, quiet, rebuild):
+    """Build or rebuild the codebase index.
+
+    Unlike ``init`` (which bootstraps the project with config files and
+    workflows), this command only rebuilds the codebase index and metrics
+    database.
+
+    \b
+    Examples:
+      roam index
+      roam index --force
+      roam index --verbose
+      roam index -q
+
+    See also ``init`` (first-run bootstrap), ``watch`` (auto-reindex
+    on file changes), and ``index-stats`` (DB size + symbol counts).
+    """
+    t0 = time.monotonic()
+
+    # ``--rebuild`` is a forgiving alias for ``--force`` — collapse it here so
+    # the rest of the body only reasons about ``force``.
+    force = force or rebuild
+    json_mode = ctx.obj.get("json") if ctx.obj else False
+    include_excluded = ctx.obj.get("include_excluded") if ctx.obj else False
+    from roam.db.connection import db_exists, open_db
+    from roam.index.indexer import Indexer
+
+    # Suppress progress in JSON mode (consumers don't want progress text)
+    suppress_progress = quiet or json_mode
+
+    indexer = Indexer()
+    index_completed = indexer.run(
+        force=force,
+        verbose=verbose,
+        include_excluded=include_excluded,
+        quiet=suppress_progress,
+    )
+    elapsed = time.monotonic() - t0
+
+    # ``Indexer.run`` returns False when it cannot safely claim the writer
+    # lock. Do not inspect and summarize the old database in that case: those
+    # rows describe the previous successful run, not the refresh the user just
+    # requested. In particular, a held, replaced, or hard-linked lock fails
+    # the indexer's ownership proof and must stay a refusal at the CLI boundary.
+    if not index_completed:
+        verdict = "indexing refused: the index lock is unavailable or has an unsafe ownership/identity state"
+        if json_mode:
+            click.echo(
+                to_json(
+                    json_envelope(
+                        "index",
+                        summary={
+                            "verdict": verdict,
+                            "state": "write_refused",
+                            "reason": "index_lock_unavailable",
+                            "partial_success": True,
+                            "resolution": "unresolved",
+                        },
+                        elapsed_s=round(elapsed, 1),
+                    )
+                )
+            )
+        else:
+            # Failure disclosure is never hidden by --quiet.
+            click.echo(f"VERDICT: {verdict}")
+            click.echo("  Hint: wait for the active writer or run `roam doctor` to inspect the index lock state.")
+        from roam.exit_codes import EXIT_ERROR
+
+        ctx.exit(EXIT_ERROR)
+
+    # Show summary stats. ``index_failed`` carries the W1502 refusal past the
+    # reporting branches so there is exactly one non-zero exit at the bottom.
+    index_failed = False
+    if db_exists():
+        with open_db(readonly=True) as conn:
+            file_count = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            sym_count = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
+            edge_count = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+
+            lang_rows = conn.execute(
+                "SELECT language, COUNT(*) as cnt FROM files WHERE language IS NOT NULL GROUP BY language ORDER BY cnt DESC"
+            ).fetchall()
+
+            avg_sym = sym_count / file_count if file_count else 0
+
+            # Parse coverage: only count files with a parseable language
+            from roam.languages.registry import _SUPPORTED_LANGUAGES
+
+            parseable_langs = ",".join(f"'{l}'" for l in _SUPPORTED_LANGUAGES)
+            parseable_count = conn.execute(
+                f"SELECT COUNT(*) FROM files WHERE language IN ({parseable_langs})"
+            ).fetchone()[0]
+            parsed_ok = conn.execute(
+                f"SELECT COUNT(DISTINCT f.id) FROM files f "
+                f"JOIN symbols s ON s.file_id = f.id "
+                f"WHERE f.language IN ({parseable_langs})"
+            ).fetchone()[0]
+            coverage = (parsed_ok * 100 / parseable_count) if parseable_count else 0
+
+            # W1502 — the three-valued corpus verdict, shared with ``init``
+            # and ``doctor``. ``index`` already computed ``coverage`` here and
+            # then threw it away, printing "Parse coverage: 0%" as a line of
+            # decoration under a success verdict. The classifier turns that
+            # same measurement into an exit code.
+            from roam.db.connection import find_project_root
+            from roam.index.corpus_state import (
+                STATE_FAILED,
+                STATE_INDEXED,
+                CorpusVerdict,
+                classify,
+            )
+
+            try:
+                # This process just did the indexing, so the parser's error
+                # counters are a real measurement rather than an assumption.
+                # Without it a package of import-only modules — which parses
+                # perfectly and declares nothing — is indistinguishable from
+                # a missing grammar, and gets refused as a failed index.
+                #
+                # ...unless the run parsed nothing. On an unchanged corpus the
+                # indexer returns before phase 1 and the counters stay at 0,
+                # which is a measurement of NO files, not a clean bill of
+                # health for the corpus. Measured 2026-08-12 on a repo whose
+                # only .py is unparseable: `roam index` exited 0 saying the
+                # file "parsed without error" while `roam index --force`
+                # refused the same index. Hand the classifier None there so it
+                # re-measures instead of inheriting a zero nobody took.
+                from roam.index.parser import get_parse_error_count
+
+                # No summary at all means the run never reached its own
+                # bookkeeping (e.g. another process held the index lock) —
+                # also "nobody parsed", also None.
+                _parsed_this_run = bool(indexer.summary) and not indexer.summary.get("up_to_date")
+                corpus = classify(
+                    conn,
+                    find_project_root("."),
+                    parse_errors=get_parse_error_count() if _parsed_this_run else None,
+                )
+            except Exception as _exc:  # noqa: BLE001 — unknown state is a refusal
+                from roam.observability import log_swallowed
+
+                log_swallowed("cmd_index:corpus_state", _exc)
+                corpus = CorpusVerdict(
+                    state=STATE_FAILED,
+                    reason="index_unreadable",
+                    detail=(
+                        "indexing failed: the index could not be inspected after the "
+                        f"build ({type(_exc).__name__}: {_exc})"
+                    ),
+                    remediation="Run `roam doctor` to diagnose the install.",
+                )
+
+            index_failed = corpus.state == STATE_FAILED
+            if corpus.state == STATE_INDEXED:
+                _index_verdict = f"indexed {file_count} files, {sym_count} symbols, {edge_count} edges"
+            else:
+                _index_verdict = corpus.detail
+
+            # Snapshot work is part of this command, so finish it before
+            # reporting completion or stopping the elapsed timer.
+            snapshot_message = None
+            snapshot_started = time.monotonic()
+            try:
+                from roam.commands.metrics_history import append_snapshot
+
+                with open_db() as wconn:
+                    snap = append_snapshot(wconn, source="index")
+                if not json_mode and not quiet:
+                    # W1461 — never print "snapshot saved" for a snapshot
+                    # ``append_snapshot`` refused to write, and never print a
+                    # health score that is a floor rather than a measurement.
+                    if snap.get("stored", True):
+                        snapshot_message = f"  Health: {snap['health_score']}/100 (snapshot saved)"
+                    else:
+                        snapshot_message = (
+                            "  Health: UNKNOWN (symbol graph unavailable; no snapshot saved — "
+                            f"unmeasured: {', '.join(snap.get('degraded_metrics') or ())})"
+                        )
+            except Exception as _exc:  # noqa: BLE001 — defensive
+                # Don't fail indexing if snapshot fails
+                from roam.observability import log_swallowed
+
+                log_swallowed("cmd_index:auto_snapshot", _exc)
+            snapshot_elapsed = time.monotonic() - snapshot_started
+            indexing_elapsed = elapsed
+            elapsed = time.monotonic() - t0
+
+            if json_mode:
+                _summary = {
+                    "verdict": _index_verdict,
+                    "files": file_count,
+                    "symbols": sym_count,
+                    "edges": edge_count,
+                    "state": corpus.state,
+                }
+                if corpus.state != STATE_INDEXED:
+                    _summary["reason"] = corpus.reason
+                    _summary["partial_success"] = True
+                if corpus.state == STATE_FAILED:
+                    _summary["resolution"] = "unresolved"
+                click.echo(
+                    to_json(
+                        json_envelope(
+                            "index",
+                            summary=_summary,
+                            elapsed_s=round(elapsed, 1),
+                            indexing_elapsed_s=round(indexing_elapsed, 1),
+                            snapshot_elapsed_s=round(snapshot_elapsed, 1),
+                            files=file_count,
+                            symbols=sym_count,
+                            edges=edge_count,
+                            languages={r["language"]: r["cnt"] for r in lang_rows[:8]},
+                            avg_symbols_per_file=round(avg_sym, 1),
+                            parse_coverage_pct=round(coverage, 0),
+                            corpus=corpus.as_dict(),
+                        )
+                    )
+                )
+            elif not quiet:
+                lang_str = ", ".join(f"{r['language']}={r['cnt']}" for r in lang_rows[:8])
+                click.echo(f"VERDICT: {_index_verdict}")
+                click.echo()
+                click.echo(f"  Completed in {elapsed:.1f}s")
+                click.echo(f"  Files: {file_count}  Symbols: {sym_count}  Edges: {edge_count}")
+                click.echo(f"  Languages: {lang_str}")
+                click.echo(f"  Avg symbols/file: {avg_sym:.1f}  Parse coverage: {coverage:.0f}%")
+                if snapshot_message:
+                    click.echo(snapshot_message)
+                for line in corpus.text_lines()[1:]:
+                    click.echo(line)
+
+    else:
+        # Pattern 1C (CLAUDE.md): never emit empty stdout. If the indexer ran
+        # but the DB isn't visible (race with cloud-sync, write to a different
+        # location, etc.) emit a structured envelope so MCP wrappers and
+        # piped consumers don't crash on json.loads("").
+        #
+        # W1502 — this is a refusal, not a partial success with exit 0: the
+        # index does not exist, so every downstream command would read an
+        # absent measurement as a clean result.
+        index_failed = True
+        _index_verdict = "indexing failed: the indexer ran but no index database is visible"
+        if json_mode:
+            click.echo(
+                to_json(
+                    json_envelope(
+                        "index",
+                        summary={
+                            "verdict": _index_verdict,
+                            "state": "no_db_after_index",
+                            "partial_success": True,
+                        },
+                        elapsed_s=round(elapsed, 1),
+                        partial_success=True,
+                        resolution="unresolved",
+                    )
+                )
+            )
+        elif not quiet:
+            click.echo(f"VERDICT: {_index_verdict}")
+            click.echo(f"  Completed in {elapsed:.1f}s")
+            click.echo("  Hint: check ROAM_DB_DIR / cloud-sync; run `roam doctor` for a diagnostic dump.")
+
+    if index_failed:
+        from roam.exit_codes import EXIT_ERROR
+
+        ctx.exit(EXIT_ERROR)
+
+
+index = run_index_command

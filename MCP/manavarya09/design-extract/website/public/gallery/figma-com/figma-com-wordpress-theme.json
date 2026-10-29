@@ -1,0 +1,188 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "color": {
+      "palette": [
+        {
+          "slug": "primary",
+          "color": "#e4ff97",
+          "name": "Primary"
+        },
+        {
+          "slug": "secondary",
+          "color": "#00b6ff",
+          "name": "Secondary"
+        },
+        {
+          "slug": "accent",
+          "color": "#c4baff",
+          "name": "Accent"
+        },
+        {
+          "slug": "neutral-1",
+          "color": "#000000",
+          "name": "Neutral 1"
+        },
+        {
+          "slug": "neutral-2",
+          "color": "#ffffff",
+          "name": "Neutral 2"
+        },
+        {
+          "slug": "neutral-3",
+          "color": "#697485",
+          "name": "Neutral 3"
+        },
+        {
+          "slug": "neutral-4",
+          "color": "#e6e6e6",
+          "name": "Neutral 4"
+        },
+        {
+          "slug": "neutral-5",
+          "color": "#f3ffe3",
+          "name": "Neutral 5"
+        },
+        {
+          "slug": "bg-ffffff",
+          "color": "#ffffff",
+          "name": "Background #ffffff"
+        },
+        {
+          "slug": "bg-24cb71",
+          "color": "#24cb71",
+          "name": "Background #24cb71"
+        },
+        {
+          "slug": "bg-e6e6e6",
+          "color": "#e6e6e6",
+          "name": "Background #e6e6e6"
+        }
+      ],
+      "gradients": [
+        {
+          "slug": "gradient-1",
+          "gradient": "repeating-conic-gradient(rgb(51, 223, 223) 0deg, rgb(51, 223, 223) 18deg, rgba(0, 0, 0, 0) 18deg, rgba(0, 0, 0, 0) 30deg)",
+          "name": "Gradient 1"
+        },
+        {
+          "slug": "gradient-2",
+          "gradient": "repeating-conic-gradient(rgb(185, 142, 1) 0deg, rgb(185, 142, 1) 18deg, rgba(0, 0, 0, 0) 18deg, rgba(0, 0, 0, 0) 30deg)",
+          "name": "Gradient 2"
+        }
+      ]
+    },
+    "typography": {
+      "fontFamilies": [
+        {
+          "fontFamily": "figmaSans",
+          "slug": "figmasans",
+          "name": "figmaSans"
+        },
+        {
+          "fontFamily": "figmaMono",
+          "slug": "figmamono",
+          "name": "figmaMono"
+        }
+      ],
+      "fontSizes": [
+        {
+          "size": "64px",
+          "slug": "size-64",
+          "name": "64px"
+        },
+        {
+          "size": "44px",
+          "slug": "size-44",
+          "name": "44px"
+        },
+        {
+          "size": "24px",
+          "slug": "size-24",
+          "name": "24px"
+        },
+        {
+          "size": "18px",
+          "slug": "size-18",
+          "name": "18px"
+        },
+        {
+          "size": "16px",
+          "slug": "size-16",
+          "name": "16px"
+        },
+        {
+          "size": "12px",
+          "slug": "size-12",
+          "name": "12px"
+        },
+        {
+          "size": "0px",
+          "slug": "size-0",
+          "name": "0px"
+        }
+      ]
+    },
+    "spacing": {
+      "spacingSizes": [
+        {
+          "size": "1px",
+          "slug": "spacing-1",
+          "name": "1px"
+        },
+        {
+          "size": "16px",
+          "slug": "spacing-16",
+          "name": "16px"
+        },
+        {
+          "size": "24px",
+          "slug": "spacing-24",
+          "name": "24px"
+        },
+        {
+          "size": "27px",
+          "slug": "spacing-27",
+          "name": "27px"
+        },
+        {
+          "size": "40px",
+          "slug": "spacing-40",
+          "name": "40px"
+        },
+        {
+          "size": "44px",
+          "slug": "spacing-44",
+          "name": "44px"
+        },
+        {
+          "size": "53px",
+          "slug": "spacing-53",
+          "name": "53px"
+        },
+        {
+          "size": "60px",
+          "slug": "spacing-60",
+          "name": "60px"
+        }
+      ]
+    },
+    "layout": {
+      "contentSize": "2200px",
+      "wideSize": "1400px"
+    }
+  },
+  "styles": {
+    "color": {
+      "background": "#ffffff",
+      "text": "#000000"
+    },
+    "typography": {
+      "fontSize": "18px",
+      "lineHeight": "25.2px",
+      "fontFamily": "figmaSans"
+    },
+    "spacing": {}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "clawdcursor",
+  "displayName": "Clawdcursor",
+  "version": "1.5.24",
+  "description": "Safe cross-OS desktop & browser control for DipoleML — the fallback execution layer for when APIs, CLIs, and direct integrations aren't available. Registers the clawdcursor MCP server in compact mode and bundles its usage skill (the SKILL.md at the repo root). Requires Node.js 20+; the MCP server launches via npx, which fetches clawdcursor on demand (or uses your global install if present) — no separate install step.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Amrdab"
+  },
+  "license": "MIT",
+  "homepage": "https://clawdcursor.com",
+  "repository": "https://github.com/AmrDab/clawdcursor",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

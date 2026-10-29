@@ -1,0 +1,16 @@
+services:
+  next-ai-draw-io:
+    build:
+      context: .
+      # draw.io is bundled into the image (public/drawio), no separate container needed
+      # Uncomment below for subdirectory deployment
+      # args:
+      #   - NEXT_PUBLIC_BASE_PATH=/nextaidrawio
+    ports: ["3000:3000"]
+    env_file: .env
+    volumes:
+      # Persists admin panel settings (data/settings.json)
+      - ./data:/app/data
+    # environment:
+    #   # For subdirectory deployment, uncomment and set your path:
+    #   NEXT_PUBLIC_BASE_PATH: /nextaidrawio

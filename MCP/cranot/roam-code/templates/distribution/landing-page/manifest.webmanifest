@@ -1,0 +1,21 @@
+{
+  "name": "Roam Code — Local code analysis for coding agents",
+  "short_name": "Roam",
+  "description": "Local code analysis and checks for coding agents. Query code relationships, explore implementation choices, and check changes with free CLI and MCP tools.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#fafaf6",
+  "theme_color": "#0049b7",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["developer", "productivity", "utilities"]
+}

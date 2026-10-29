@@ -1,0 +1,15 @@
+{
+  "skill": "techdebt",
+  "should_trigger": [
+    "What technical debt should we tackle before Q2 launch?",
+    "Run credo and flag areas needing refactoring",
+    "Find duplicate code patterns in our LiveView components",
+    "Which parts of the codebase are the messiest?",
+    "Before we implement payments, what needs refactoring?"
+  ],
+  "should_not_trigger": [
+    "Run the full project health audit for me",
+    "Why is this query so slow?",
+    "Scan the codebase for N+1 query problems"
+  ]
+}

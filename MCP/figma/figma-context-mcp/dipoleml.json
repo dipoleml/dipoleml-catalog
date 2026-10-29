@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.figma.figma-context-mcp",
+  "type": "mcp",
+  "name": "Figma Context MCP",
+  "slug": "figma-context-mcp",
+  "vendor": "figma",
+  "description": "MCP server to provide Figma layout information to AI coding agents like Cursor",
+  "version": "0.13.2",
+  "homepage": "https://github.com/GLips/Figma-Context-MCP",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "cursor",
+    "figma"
+  ],
+  "tags": [
+    "ai",
+    "cursor",
+    "figma",
+    "mcp",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "figma",
+    "brandName": "figma",
+    "source": "https://cdn.simpleicons.org/figma",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-28T23:04:24Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "GLips/Figma-Context-MCP",
+    "url": "https://github.com/GLips/Figma-Context-MCP",
+    "commit": "c083d65c7e002923e7cb98f4e3bdafb105e90f6d",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 16097,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "figma-developer-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.20.0"
+    ],
+    "packages": [
+      "figma-developer-mcp"
+    ],
+    "env": [
+      "FIGMA_API_KEY"
+    ],
+    "credentials": [
+      "FIGMA_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

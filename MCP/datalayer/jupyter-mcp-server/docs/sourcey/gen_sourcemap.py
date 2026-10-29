@@ -1,0 +1,154 @@
+"""Map every MCP-registered name in the checkout to the file that defines it.
+
+Reads each module and takes the name of every function actually decorated
+with @mcp.tool / @mcp.prompt (MCPServer registers under the function
+name when no name= override is given; this repo uses none). Output feeds
+build_pages.mjs so each generated page carries a source link.
+
+Deliberately records the file but not the line number: line numbers move on
+every unrelated edit, and .github/workflows/docs.yml fails the build on any
+difference between the checked-in generation and a fresh one.
+
+    python gen_sourcemap.py <src-root> <out.json>
+"""
+import ast
+import json
+import os
+import sys
+
+SRC, OUT = sys.argv[1], sys.argv[2]
+
+# Directories that never hold canonical sources. "build" and "dist" matter in
+# particular: `pip install ./extensions/sandboxes` leaves a setuptools copy of the
+# extension at extensions/sandboxes/build/lib/..., and scanning it would map the
+# sandbox tools to a build artifact instead of the real file.
+#: Extensions whose tools are registered conditionally, and so are absent from
+#: a default snapshot.
+#:
+#: The reference documents the server as it runs out of the box: a Jupyter
+#: backend, with the tools that implies. An extension that only registers when
+#: the server is pointed somewhere else — the Datalayer spaces extension does,
+#: and *hides* `list_files`, `list_kernels` and `connect_to_jupyter` when it
+#: does — cannot share a snapshot with the default set, and including its tools
+#: here would make the reference permanently stale against itself. They are
+#: documented with the extension that provides them. Empty now that the one
+#: such extension lives in the Datalayer gateway; kept because the next one
+#: will need it, and because the scanner would otherwise silently start
+#: demanding pages for tools this server does not register.
+CONDITIONAL_EXTENSIONS: set[str] = set()
+
+SKIP_DIRS = {
+    ".git", ".tox", ".venv", ".eggs", "__pycache__", "build", "dist",
+    "docs", "node_modules", "site-packages", "tests", "venv",
+}
+
+
+def decorated_functions(source: str):
+    """Every function this module registers as a tool or a prompt.
+
+    Three spellings, and each yields how it was written: `@mcp.tool` /
+    `@mcp.prompt`, where an extension is handed a server; `@tool` from
+    `reactor_mcp_server`, where a method is marked and the host collects it;
+    and a `ToolSpec(name=…)` built at run time. A generator that knew only the
+    first would leave every declared tool out of the reference, and
+    `build_pages.mjs` would fail on the first page that names one — and one
+    that recorded only *where* would have the page claim a decorator that a
+    declared tool does not have.
+
+    Parsed rather than matched. A regex for the decorator finds it in prose
+    too — a docstring saying "applied under `@mcp.tool`" reads as a
+    registration, and the next `def` after it gets indexed as a tool that does
+    not exist. That is not hypothetical: `results.py` describes the decorator
+    it wraps, and the scanner indexed its inner `decorate` function.
+
+    Reading the syntax tree also means a decorator split across lines, or one
+    inside an `if`, is found without a window to scan forward through.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            call = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if (
+                isinstance(call, ast.Attribute)
+                and isinstance(call.value, ast.Name)
+                and call.value.id == "mcp"
+                and call.attr in ("tool", "prompt")
+            ):
+                yield call.attr, node.name, f"@mcp.{call.attr}"
+                break
+            # `@tool()` / `@tool(title=…)` from reactor_mcp_server. A bare
+            # name, so the check is the name itself — and `tool` is not a
+            # decorator anything else in this tree uses.
+            if isinstance(call, ast.Name) and call.id == "tool":
+                yield "tool", node.name, "@tool"
+                break
+
+    # `ToolSpec(name="launch_sandbox", handler=launch_sandbox, …)`, the other
+    # way a tool is offered. The name is written down here rather than taken
+    # from a function's `__name__`, which is the point of it — so this reads
+    # the name it was given rather than guessing from the handler.
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        called = node.func
+        if not (isinstance(called, ast.Name) and called.id == "ToolSpec"):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
+                if isinstance(keyword.value.value, str) and keyword.value.value:
+                    yield "tool", keyword.value.value, "ToolSpec"
+                break
+
+
+
+entries = {}
+for base, dirs, files in os.walk(SRC):
+    # Prune in place so os.walk never descends into them.
+    if os.path.basename(base) == "extensions":
+        dirs[:] = [d for d in dirs if d not in CONDITIONAL_EXTENSIONS]
+    dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.endswith(".egg-info"))
+    files = sorted(files)
+    for fn in files:
+        if not fn.endswith(".py"):
+            continue
+        path = os.path.join(base, fn)
+        rel = os.path.relpath(path, SRC).replace("\\", "/")
+        source = open(path, encoding="utf-8", errors="replace").read()
+        try:
+            found = list(decorated_functions(source))
+        except SyntaxError as error:
+            # A file this interpreter cannot parse is a file whose tools
+            # cannot be indexed. Saying so beats silently documenting fewer
+            # tools than the server has.
+            raise SystemExit(f"{rel} could not be parsed: {error}") from error
+        for kind, name, how in found:
+            prev = entries.get(name)
+            if prev and prev["file"] != rel:
+                # Fail loudly rather than let os.walk order pick a winner.
+                # Two causes: a stale build tree holding a second copy, or an
+                # extension registering a name the core server already uses.
+                # An extension that does that on purpose — replacing a tool
+                # rather than adding one — belongs in CONDITIONAL_EXTENSIONS,
+                # so the reference documents one of them and not a
+                # contradiction.
+                raise SystemExit(
+                    f"{name} is registered in two files: "
+                    f"{prev['file']} and {rel}. Remove the stray copy "
+                    "(a stale build/ tree?), or list the extension in "
+                    "CONDITIONAL_EXTENSIONS if it replaces the tool "
+                    "deliberately, and re-run."
+                )
+            # `how` is what the page says about it. A tool offered as a
+            # `ToolSpec` has no decorator, and a reference that claimed one
+            # sent a reader looking for something that is not there.
+            entries[name] = {"kind": kind, "file": rel, "how": how}
+
+# Sorted so the output is byte-stable whatever order os.walk yields.
+entries = dict(sorted(entries.items()))
+with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
+    json.dump(entries, fh, indent=1)
+    fh.write("\n")
+print(f"{len(entries)} entries -> {OUT}")
+for name, e in entries.items():
+    print(f"  {e['kind']:6} {name:28} {e['file']}")

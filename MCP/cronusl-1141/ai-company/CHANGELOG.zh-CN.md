@@ -1,0 +1,1617 @@
+# 变更日志
+
+AI Team OS 的所有重要变更均记录在此文件中。
+格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)
+
+## [1.16.0] - 2026-10-27
+
+一个 **minor** 版本。AI Team OS 不再假定 Claude Code 在 `~/.claude`、Codex 在 `~/.codex`：数据搬进它自己的目录 `~/.aiteam`，所有路径都跟随 `CLAUDE_CONFIG_DIR` 与 `CODEX_HOME`。由你发起的更新只在七道安全检查全部通过后才迁移已有数据，否则原地沿用并给出提示。Codex 计价新增 Ultrafast 档位，Claude Code 发起的 `codex exec` 会连同所请求的档位一起记录，项目页列出每个已记录的会话，以及能追溯到它的运行中任务。之所以定为 minor 而不是 patch，是因为这些都是新功能：独立的数据目录及其受保护的迁移、`aiteam paths`、五条数据目录提示（E25-E29）与 Ultrafast 计价。**部分行为有变化（见行为变化）。更新可能会迁移数据目录，所以更新前请先关掉其他 Claude Code 与 Codex 会话。Codex hook 授信没有变化；更新后请重启 API 和所有开着的 Claude Code 与 Codex 会话**（见升级说明）。
+
+### 新增
+
+- **OS 数据有了自己的目录**：数据库、API 端口文件、日志与安装记录放在 `~/.aiteam`，设置了 `AITEAM_DATA_DIR` 时放在它指向的目录，不再放在 Claude Code 配置目录里。旧位置的数据在被更新迁走之前照常在原处使用（见升级说明）。三类目录的说明见[数据与配置放在哪](README.zh-CN.md#数据与配置放在哪)。
+- **受保护的数据迁移**：`python3 install.py --update`、`python3 scripts/update.py` 与 `python3 scripts/codex_adapter.py update`（`upgrade` 会运行它）在刷新装机面之前，把数据从旧位置迁出。七道检查依次进行，任一不过数据就留在原处：(1) 旧目录正是在用的那个，且其数据库可读；(2) 拿到 `MIGRATING` 锁；(3) 将被重新拉起的 API 跑的是本 checkout 的代码，且按命令行认出的运行中 API 已经停下；(4) 没有进程打开着数据库；(5) 预写日志 checkpoint 到零字节；(6) 同一磁盘上直接改名，跨磁盘则复制并做 sha256 校验，复制后再查一次有没有进程持库；(7) API 在新目录上重启，报告的任务数与 `user_version` 必须一致，否则回滚。之后旧位置成为指向新目录的符号链接，别处仍在运行的旧版代码访问到的还是同一个数据库。迁移进行期间，会话暂不连 OS 服务，MCP 自启、`os_restart_api` 与 `aiteam up` 都不会拉起 API。`python3 -m aiteam.data_dir_migration`（在 checkout 里也可用 `python3 scripts/migrate_data_dir.py`）手动执行同样的检查：默认只预演，`--apply` 迁移，`--rollback` 迁回。
+- **`aiteam paths`**（也可写作 `python3 -m aiteam.paths`）以 JSON 打印当前 shell 解析到的位置：数据目录及其模式、Claude Code 配置目录及其中的 settings 与全局配置文件、hook 链由谁安装、安装记录与 Codex home。`--api` 另外询问运行中的 API 用的是哪个数据目录；`--locate` 另外查找留在别处的数据库，例如被整体搬走的配置目录里的那份。`/os-doctor` 现在调用它。`GET /api/health` 返回 `data_dir`、`data_dir_mode` 与 `cc_config_dir`，带 `?task_count=1` 时另外返回任务数。
+- **五条数据目录提示（E25-E29）**：`data_dir_missing`（没有数据目录，服务因此不启动；提示写明查过哪些位置，也不会新建空库）、`data_dir_conflict`（有两个数据库，或 `AITEAM_DATA_DIR` 指向的目录里没有数据库）、`data_dir_split`（本会话与运行中的 API 解析到不同的数据目录）、`data_dir_legacy`（数据仍在旧位置，附上没有迁移的原因与迁移方法）与 `data_dir_migrating`（正在迁移）。`data_dir_conflict` 与 `data_dir_split` 只在 Claude Code 中出现。
+- **安装到指定的 Claude Code 配置目录**：`install.py` 安装到运行它的 shell 所用的配置目录（设置了 `CLAUDE_CONFIG_DIR` 时用它），`--config-dir PATH` 可另选一个；目录不存在就拒绝，从不新建。有多套配置目录时，每套各运行一次。MCP 登记在该目录的会话实际读取的全局配置文件里。每次安装都在 hook 副本旁写一份归属记录 `.chain-owner.json`，并在数据目录的 `installs.json` 里登记一条。
+- **一个 API 服务多套配置目录**：会话把自己的配置目录告诉 API（MCP 发送 `X-CC-Config-Dir`，hook 上报它，每个 hook 事件的 `transcript_path` 也能推出它），API 到该会话自己的目录里读取它的 transcript、登记信息与插件状态。含 `..` 的路径一律拒绝。
+- **Codex Ultrafast 计价**：价格表升到 `openai-2026-10-22`（21 个模型、92 条记录）。新增 `gpt-6-astra` 与 `gpt-6.1-sol` 的 Ultrafast 短上下文与长上下文费率，并按官方价格表重新核对了这两款模型的 Standard、Fast、Flex 与 Batch 费率。价格表还记下了官方的套餐倍率：Fast（套餐内用量 2.5、购买额度 2）与 Ultrafast（8 与 6）；它们只用于说明套餐规则，不参与报价，也不参与额度预测。用量页与外部执行页都展示新档位。
+- **从 Codex 自己的设置识别首轮档位**：Codex 只在首轮开始后紧接着写下的设置初始化记录里给出该线程首轮档位时，用量读取器现在会把它绑定到这一轮。之后的设置、其他线程、显式 null 与未知模型一律不绑定。
+- **Codex 启动记录**：Claude Code 会话经 Bash 运行 `codex exec` 时，OS 把启动方式以及所请求的档位、模型与推理强度存进新表 `codex_exec_launches`，从不保存命令、prompt 或凭据。一条记录只在有确切证据时才绑定到它的原生 Codex 线程：JSON 事件流，或是输入取自 `/dev/null`、写入绝对路径输出文件的原生启动头。后台、重定向、动态参数与一条命令里多次启动的情形，以及只看到完成或失败、没有启动前记录的情形，都保持未绑定并显示原因。`aiteam codex-exec` 现在也从它包装的参数里记下所请求的档位、模型与推理强度。对已绑定的新建 `exec` 的首轮，若 Codex 日志里没有档位，套餐计价采用所请求的档位；这类样本标为 `launch_requested` 并算作不完整，因为请求的档位不能证明实际服务的档位。用量页列出这些记录（`GET /api/external-execs/launch-observations`）。
+- **项目页的会话**：「当前工作会话」列出有新鲜工作证据的会话，「其他会话记录」保留空闲、离线与状态未知的会话；每个会话都显示首次记录时间、最近活动，以及其状态的依据（宿主运行状态、已登记状态、活动记录、Codex 会话事件，或仅有会话身份记录）。忙碌状态没有新鲜活动佐证时显示「状态未确认」。一个会话的「已关联运行任务」只计入经负责 agent 的确切 id、或经任务所属团队的归属会话追溯到它的任务，会话没有记录当前任务时也照此计算；其余任务计为「未归属会话的运行任务」。摘要保留全部在线会话，另加最近活跃的 20 个其他会话，并给出 `session_count`（全部已记录会话）与 `sessions_truncated`。
+- **HTTP 接口支持任务短 ID**：任务路由（状态、更新、完成、子任务、memo、执行轨迹、回放、what-if、诊断、对比、watchdog 核验）接受至少 8 位的 UUID 前缀，只在请求所属的已注册项目内解析；前缀有歧义时返回 HTTP 409，并列出至多 20 个候选。完整 UUID 的行为不变。
+- **套餐用量面板显示价格核验情况**：在「价格版本与缺价明细」下，最新本机采样里的每个型号都显示实际采用的费率是 30 天内核验过、已经较久、没有可用的核验日期，还是缺价；任何一项需要关注时出现「需核对价格」标记。它只覆盖最新的本机采样，不改动任何金额。
+- **未读 hook 的调用审计**：两个宿主的未读消息 hook 把每次调用的白名单元数据（事件、原因代码、输出长度）写到 `~/.local/state/ai-team-os/<cc|codex>/unread-invocations.jsonl`（设置了 `$XDG_STATE_HOME` 时写在它下面），从而能把调用失败与「查过、没有未读」区分开。日志在写入时就地轮换，到 5 MB 换新，保留上一代；`scripts/uninstall.py --purge-data` 会删除它。
+- **`os_health_check` 报告 MCP 工具面**：新增的 `mcp_tool_surface` 一节，把本服务器的工具目录与它按工具组和只读设置应当注册的工具相比对，列出缺少与多出的名字。它看不到宿主实际暴露了哪些工具。
+- **清单**：118 个 MCP 工具、242 个 REST 端点（新增的是 `GET /api/external-execs/launch-observations`）、30 条仓库机检。I28 把 Codex 已安装的 hook 副本与仓库比对（只警告；严格版是 `scripts/check_codex_installed_hooks.py`，`/os-doctor` 在 checkout 里也会运行它），I29 保证 Dashboard 英文文案里没有 em dash，I30 保证宿主与数据目录的路径只在 `hook_core.py` 里拼写。
+
+### 行为变化
+
+- **运行期从不创建数据目录**：hook、MCP 与 API 只查找它。没有数据目录时，API 拒绝启动，会话启动时显示 `data_dir_missing` 并列出查过的位置，而不是让服务起在一个新的空库上。只有 `install.py`、`scripts/update.py`、`codex_adapter.py install` 与插件的首次运行会创建它，而且只在哪里都没有数据时才创建；显式给出的 `AITEAM_DATA_DIR` 或 `AITEAM_DB_PATH` 仍可被创建。读不了的旧库会被报告为不可读，绝不会被一个新目录遮住。
+- **不再从工作目录拷库**：过去 API 在启动目录里发现 `aiteam.db`、而数据目录里数据很少或没有时，会把它拷进数据目录。这一拷贝已移除。
+- **没有归属记录的 hook 链不再被当作插件安装**：主链残留提示（E06）、残留清理器、安装方式判定与已安装副本检查都读 `.chain-owner.json`。在有这份记录之前装的链，本版仍按数据目录里的旧标记判定（有 `install_path.txt` 即源码安装，否则看 `main-chain.json`）；什么都说明不了时，归属记为未知，E06 不出。
+- **`scripts/uninstall.py --purge-data` 先展示、再确认、必要时拒绝**：它先打印数据目录的路径、模式、总大小与 `user_version`，只有你输入 `delete` 才删除。目标里没有可读的 OS 数据库，或找到了两个数据库时，它拒绝执行。
+- **未知的 Codex 档位记为未计价**：价格表不认识的档位，无论出现在报价请求还是 Codex 日志里，都按原样保留并返回未计价；不再被拒绝或当作无效请求丢弃，也不套用其他档位的价格。`POST /api/pricing/quote` 接受不超过 256 个字符的任意档位文本。
+- **「等你处理」只认结构化等待**：横幅、侧栏角标与总览卡计入 `waiting_on` 类型为 `user` 的未完成任务（含子任务），不再计入带 `requires-user-decision` 标签的任务。
+- **REST 写入需要项目上下文**（见安全）：`POST /api/memories`（`scope=project`）与 `POST /api/ecosystem/profiles`。
+- **Agent 排行改为分页**：`GET /api/analytics/agent-productivity` 默认返回 20 行（`limit` 至多 100，另有 `offset`），并返回整个范围的 `total` 与 `total_activities`；过去它返回全部 agent。
+- **项目摘要**：MCP `project_summary` 不再包含会话历史列表。`GET /api/projects/{id}/summary` 中，`session_count` 统计的是已记录会话，不再是 transcript 文件数；会话的 `in_flight_tasks` 只计入追溯到该会话的任务（过去计入该会话所在各团队的全部运行中任务）。
+
+### 变更
+
+- **路径全面跟随 `CLAUDE_CONFIG_DIR` 与 `CODEX_HOME`**：hook、API、安装器、卸载器、Codex 适配器与斜杠命令都经同一个解析器得到 Claude Code 配置目录、Codex home 与数据目录。在 macOS 与 Linux 上，hook 命令写成 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/ai-team-os/...`，配置目录整体搬走、再用变量指过去之后，仍运行它自己的那份副本；Windows 上保持绝对路径。hook 按本会话的配置目录判断是否让位给插件。`/os-watcher` 不再把开关写进旧目录，压缩前保存的日志移入数据目录。
+- **宿主版本不一致提示（E15）覆盖源码安装**：过去只判断插件装法的 Claude Code 一侧；现在源码安装报告其登记的 checkout 的版本（项目版本与包版本必须一致），提示给出该装法的更新步骤。
+- **套餐估算面板只显示金额**：金额下只留一行「API 等值估算，非现金余额」，没有金额时这一行也不出。不再展示按假定档位或日志档位计价的请求数；API 仍照常返回这些数。
+- **待处理页**：只读的「最近拦截」分组已移除；即时防护与事件留档不变。
+- **Codex 用量回采**：现在能得出 `codex_parser_rejected:<原因码>`（解析器拒测了这份 rollout）与 `codex_rollout_not_found`（按线程 id 在 sessions 与归档里都找不到原件，行上也没有登记路径）两种结论。未归因抽屉把两者都列在「需要排查」下，并说明该查什么；两者都不表示零用量。`no_usage_lines` 结论还会登记实际读到的 rollout 路径，含归档。计划格式升为 4。
+- **报告使用本地日期**：生态周报与健康报告按本地日期命名，时间附带时区缩写与数字偏移；工具加载轮换按本地自然日计跨天数。
+- **安装器**：包检查在新起的解释器里逐个 import，收尾步骤不再要求手动启动 API（由 MCP 拉起），并写明 Dashboard 开发服务器的实际地址 `http://localhost:5174`，API 也已允许该地址的跨域请求。
+- **打包**：sdist 不再收入本地环境、缓存与构建产物，构建后端固定为 `hatchling>=1.32,<2`。
+- **`codex_adapter.py status`** 分开报告文件存在数与哈希一致数。
+
+### 修复
+
+- **自定义的 Claude Code 配置目录**：设置了 `CLAUDE_CONFIG_DIR` 时，hook 会新建空的数据目录，API 起在空库上；安装器把 MCP 登记到这些会话读不到的全局配置文件里；源码安装被报告为插件已卸载（E06）。三者都已修复；没有读取 `CODEX_HOME` 的几处 Codex 路径现在也遵从它。
+- **Codex Leader 的最后一轮会被测量**（v1.15.1 已知限制）：Codex Leader 与子 agent 的 Stop 事件不再受 30 秒采集节流的限制。每次 Stop 先存一份快照，等待一秒，若 rollout 在此期间有变化就再读一次。
+- **`gpt-6.1-sol` 没有价格**：它的请求在套餐可用量估算里按 0 计入。价格表现在收录了它的 Standard、Fast、Flex 与 Batch 费率；Ultrafast 是本版稍后加入的（见新增）。
+- **`aiteam codex-exec` 带 `--ephemeral` 时**现在会在 stderr 提示：Codex 不为这次执行留会话日志，它的用量只在回执里，进不了用量页和 `/usage`。示例去掉了 `--ephemeral`，后台运行改用 `< /dev/null`，后台运行只需要关闭 stdin。
+- **工作流 agent**：最终进度报告里没有 token 值时，不再抹掉实时的上下文读数（显式的 0 仍然计入）；状态为 `error` 或 `failed` 的 agent 显示为失败，`start` 或 `progress` 显示为工作中，不再退回显示为已完成或离线。
+- **压缩后的恢复说明**：在飞 agent 的上下文占比被放大了 100 倍显示（14.7% 显示为 1470%）。现在显示存下的百分比，上下文窗口未知时不显示。
+- **提示横幅**：「另有 N 项」不再把顶部那一条已经代表的事项算进去，例如一条待决汇总行背后的多条简报。
+- **插件已移除或停用、API 仍在运行**：会话启动时先显示 E06，再做任何 API 调用，不出 Leader 简报，也不再引导使用已经不在的工具；移除之前欠下的简报不会补发。另一个市场遗留的停用 `ai-team-os@*` 键，不再压过一份已安装且启用的副本；残留清理器不再把 `hook_delivery.py` 当作来路不明的文件。
+- **`/clear` 或压缩时 API 响应慢**：能确认 API 进程仍在监听时，会话启动显示「服务正在启动」，并享有与新会话相同的有限宽限期，而不是显示「服务未运行」。
+- **Leader 简报里的 `/loop` 指引**指向当前安装里实际存在的维护说明，不再一律指向 `~/.claude/loop.md`。
+- **未注册目录里的 HTTP MCP**：`project_create` 与 `dismiss_project_registration` 现在可以在那里使用；过去每个工具都要求目录已注册为项目。
+
+### 安全
+
+- **调试日志**：访问日志行保留方法、路径与状态码，去掉查询串，因为搜索文本与参数可能涉及隐私；格式不认识的行替换为占位文本。
+- **项目记忆的写入绑定到请求**：`scope=project` 的 `POST /api/memories` 只写进按请求的项目或目录上下文解析出的桶。显式给出别的项目的 `scope_id` 返回 HTTP 403，新增与 `supersedes` 置换都一样；两种上下文都没有的请求返回 422；`confirm_shared_scope` 也不授予跨项目写权限。MCP `memory_add` 从未暴露 `scope_id`。`POST /api/ecosystem/profiles` 现在要求 `X-Project-Id`（缺少时返回 HTTP 400）。
+- **HTTP MCP 的工作目录**：按真实路径解析，并且必须存在；项目根必须是绝对路径，按真实路径比较，符号链接或字面上的上级目录都不能认领无关的目录。
+- **API 启动环境**：`CODEX_SESSION_ID` 加入从 API 环境中移除的拉起方会话变量。
+
+### 升级说明
+
+- **产品内提示**：只要 API 能访问 GitHub API，v1.15.2 的会话就会显示新版提示和对应安装方式的命令。
+- **更新前先关掉其他会话**：更新可能会迁移数据目录，迁移要停掉 API，并要求数据库没有被打开。请先关掉其他 Claude Code 与 Codex 会话。
+- **数据去哪里**：`~/.claude/data/ai-team-os` 里的数据只在你运行 `python3 install.py --update`、`python3 scripts/update.py` 或 `python3 scripts/codex_adapter.py update`（或会运行它的 `upgrade`）时迁到 `~/.aiteam`，而且只在「新增」所列的七道检查全部通过之后。设置了 `AITEAM_DATA_DIR` 时使用该目录，什么都不迁移。任一检查不过就什么都不迁移：数据在原处照常可用，下次会话启动时显示 `data_dir_legacy`，附上原因代码与手动迁移的命令；下一次更新会再试。迁移之后，旧位置是指向新目录的符号链接。`--no-migrate-data` 让这一次更新保留数据原位。
+- **不要带 `--offline`**，除非本 checkout 的包已经装好：迁移会核对它重新拉起的 API 跑的是本 checkout 的代码，不是就以 `code_mismatch` 停下。
+- **插件装法从不自动迁移**：会话启动时不能停掉其他会话可能正在使用的服务。数据在旧位置照常可用，`data_dir_legacy` 提示给出两种迁移入口：对 Claude 说「迁移 OS 数据」（它会先预演各道检查，经你确认后才执行），或关掉其他会话后在终端运行 `python3 -m aiteam.data_dir_migration --apply`。
+- **自定义配置目录**：`install.py --update` 把已有的绝对路径 hook 条目改写为 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/...` 形式（macOS 与 Linux），并写入归属记录。要装到别的目录，传 `--config-dir PATH`；有多套目录时，每套各运行一次。`aiteam paths` 显示一个 shell 解析到的位置。
+- **Claude Code 源码安装**：在安装所在的 checkout 里，确认位于 `master`，运行 `git pull --ff-only`，再运行 `python3 install.py --update`。先拉取，才会运行本版的更新程序：v1.15.2 的更新程序不迁移数据。
+- **Claude Code 插件**：运行 `claude plugin marketplace update ai-team-os`，再运行 `claude plugin update ai-team-os@ai-team-os`，然后重启两次 Claude Code：第一次启动会升级 Python 包并提示「Upgraded to v1.16.0 (was v1.15.2). Restart Claude Code to apply」，第二次替换旧版 API。
+- **Codex 适配器**：在安装所在的 checkout 里，确认位于 `master`，运行 `python3 scripts/codex_adapter.py upgrade`（它会拉取代码、重装包并运行 `update`），然后按 `status` 对 API 的报告处理，做法见[方式 C](README.zh-CN.md#方式-ccodex-适配器生命周期)。两个宿主都用时，先更新 Claude Code；Codex 更新时会发现数据已经迁好。
+- **Codex hook 授信没有变化**：`hooks.json` 与 `hook-trust.lock` 与 v1.15.2 相同（I17b：保持授信 9 条，新增待授信 0 条，无槽位复用），不需要重新授信。变的只是脚本内容；重开 Codex 会话即可加载。
+- **重启 API 与所有开着的会话**：重启后的 Claude Code 会话连上时，MCP 自启会替换旧版 API；也可以让 Claude 调用 `os_restart_api`。重开所有 Claude Code 与 Codex 会话：更新前启动的 MCP 服务器仍持有旧代码与旧路径。
+- **API 首次启动**会建一张表 `codex_exec_launches`；已有的行不会被改写。已存的套餐统计摘要会在首次读取时按已保存的样本重建一次，期间套餐用量页可能提示正在重建。
+- **默认启动模型归属于 API 的配置目录**：设置页与 `model_config_set` 读写的是 API 自己的 Claude Code 配置目录里的 `settings.json`，编辑 agent 模板也写进它的 `agents/`。有多套配置目录时，每个会话看到的都是启动 API 的那套目录的默认模型。
+- **历史用量不重新计价**：已经按假定档位计价的请求保留原来存下的金额；Ultrafast 费率、首轮设置与启动证据只作用于新的样本。
+- **Codex 回采计划**：保存过的计划请重新生成；格式 3 的计划会被拒绝。
+
+### 已知限制
+
+- **Windows**：hook 命令保持绝对路径。迁移在 Windows 上无法核对运行中 API 的命令行，所以 API 运行时不会迁移；建不了符号链接时，旧位置变成一个放着 `MOVED-TO` 说明的目录。
+- **启动证据**只用于给精确绑定的新建 `exec` 的首轮计价。请求的档位从不证明实际服务的档位，所以这类样本保持不完整，未绑定的记录不参与计价。
+- **Codex Stop**：Stop 一秒后的第二次读取覆盖常见的延迟写入，覆盖不了任意延迟的写入；关停时被取消的最后一次 Stop 不保证被测量。
+- **会话状态**：transcript 是否新鲜只是活动的证据，不能证明宿主正在工作或已经结束，所以空闲、离线与状态未知的会话都留在「其他会话记录」里。
+
+## [1.15.2] - 2026-10-10
+
+一个 **patch** 版本。任务墙变得管得起来：任务有了真实的父子关系、完成后解锁下游的依赖、明确的等待、可清空的字段、版本检查与原子批量创建。需显式使用的 `aiteam codex-exec` 为外部的 `codex exec` 保留最小用量回执，包括不留 rollout 的 `--ephemeral`。v1.15.1 的两条已知限制都已修复：新库带上 UTC 时钟标记，Codex 用量回采因此能在新库上运行；`aiteam attribution repair` 让每种装法都能修正升级前存下的行。之所以定为 patch 而不是 minor，是一项裁定：任务墙的改动扩展的是既有的任务工具与端点，外部执行账本是一条不用就不产生任何变化的显式命令，其余是收掉 v1.15.1 的限制。**任务工具有部分行为变化（见行为变化）。hook 与 Codex hook 授信都没有变化；更新后请重启 API 和所有开着的 Claude Code 与 Codex 会话**（见升级说明）。
+
+### 新增
+
+- **日常入口支持任务关系与状态**：`task_create`、`task_run`、`task_update`（及对应的 HTTP 路由）接受同项目的 `parent_id`（子任务只有一层）、`depends_on`、明确的 `waiting_on`（等某个用户或某个 agent，并写明原因）、`status_note` 与 `expected_revision`。自指、成环、跨项目、孙任务、往已完成的父任务下新挂子任务，一律以 HTTP 400 拒绝，什么都不写入。阻塞的任务记下原因：`dependency`、`manual` 或 `waiting`；最后一个依赖完成时只解除依赖阻塞，任务转为 pending，从不被自动开始。每次有效更新都递增 revision；`expected_revision` 过期时返回 HTTP 409，并带上 `current_revision` 与 `current_task`。写工具接受 `fields="compact"`，返回精简回执，仍保留真实状态、关系、revision、警告与错误。管理字段存在 config 的独立键里，冻结的旧 `config.memo` 原样保留。
+- **任务墙与简报呈现结构**：父卡显示直属子任务进度（已完成 / 总数）、最近一条进展 memo、状态说明，以及正在等用户的子任务；简报列出这些子任务及其父任务。运行中任务的执行者全部停止时，卡片显示 `executor_stopped` 提示，任务状态不变。项目墙的统计只算顶层任务，团队墙的统计算本队全部任务，两者分开标注；状态筛选只作用于父卡，子任务不再被一起滤掉。
+- **Dashboard 编辑任务**：任务编辑器可改周期、负责人、状态说明、依赖与等待；父子完成流程（有未关子任务时完成父任务会被拒绝并列出它们）；冲突处理：遇到 409 时，弹窗显示另一会话的值，保留你的输入，只覆盖你改过的字段。写入警告在弹窗关闭后仍留在页面上。
+- **原子批量创建**：MCP `task_create_batch` 与 `POST /api/projects/{id}/tasks/batch` 在一个事务里创建 1 到 100 个任务。任务之间用本批的 `@key` 互相引用；同一个幂等键配同样的内容重放时返回原结果，内容不同返回 409。新表 `task_create_batches` 保存这些回执。
+- **外部 Codex 执行的回执**（需显式使用）：`aiteam codex-exec run -- <codex exec 的参数>` 在启动 Codex 之前先把这次执行记进私有的本地账本（默认 `$CODEX_HOME/data/ai-team-os/external-exec.db`，目录 700、文件 600），强制原生 `--json`，把 JSONL 流原样透传到 stdout，保留真实的退出码。它保存标识、显式给出的项目与任务、时间、状态与白名单内的 token 计数；从不保存 prompt、代码、工具输出、原始错误正文与完整 stdout，账号、provider、model 与 tier 没有观测到就保持未知。API 不可用时照常执行，之后由 `aiteam codex-exec replay` 幂等上传。项目或任务不对，在 Codex 启动前就拒绝（退出 64）；已经执行、但关联不成立的，隔离保存并留下原请求的 id；执行结束后封存回执集合。中断这条命令时，冻结并强停已识别的执行进程，同时保护共享的 OS API 与归属不明的进程；每次强制中断都标记 `process_cleanup_unverified`，拿不到原生结果时保持未知（CLI 退出 75）。服务端是新表 `external_exec_invocations` 与 `/api/external-execs` 下的 8 个路由；用量页列出各次执行，回执分页查看。已有的直接 `codex exec` 调用不会被拦截。详见 `src/aiteam/data/USAGE.external-exec.md`。
+- **只读的用量对账**：MCP `usage_reconciliation` 与 `GET /api/external-execs/reconciliation` 比对已保存的 journal、agent 登记与外部回执，分来源报告分母、采样范围、截断与缺口（MCP：每个来源至多 500 条、每桶至多 3 例、不超过 16 KB；HTTP 的桶每页至多 50 条）。Codex 子 agent 按自己的线程身份比对。外部回执从不计入套餐估值，也不与同线程的 rollout 用量相加。对账不调用任何模型。
+- **`aiteam attribution repair`**（也可写作 `python3 -m aiteam attribution repair`）：插件与源码装法都能用它修正升级前存下的用量行。它补上空着的 `harness`，把 resume 空壳与重复的 Leader 行标为排除，把已结束、没有一次计费调用的行标为无法测量，判据与归因页相同；只填四列里空着的格，从不删行。默认只预览；`--apply` 先核对时钟标记，在数据库旁边整库备份（`attribution-repair/` 目录下），写 journal，然后在一个事务里写入，读过的任何一行变了就整体回滚；`--undo <journal>` 撤回。库没有时钟标记时，每一行按 UTC 与本机时区两种读法各判一次，只写两种读法一致的结论。
+- **清单**：118 个 MCP 工具、18 个模块（新增 `task_create_batch`、`usage_reconciliation`），241 个 REST 端点，27 条仓库机检。新增的机检 I27 保证 `src/` 与 `plugin/` 里不出现指代仓库所有者的内部称谓。
+
+### 行为变化
+
+- **空值现在表示清空任务字段**：`task_update` 把省略的参数视为不改，把空字符串视为清空描述、结果、负责人与状态说明；`tags=[]` 与 `depends_on=[]` 清空列表，`parent_id=""` 解除父子，`waiting_on={}` 结束等待。空的标题、状态、优先级与周期一律拒绝（HTTP 路由过去会存下空标题）。过去用空字符串表示「不改」的调用方，升级后要改为省略这些参数；更新前就已启动的 Claude Code 或 Codex 会话，在重开之前看到的仍是旧的工具说明。
+- **完成可能被拒绝**：经 `task_update`、`PUT /api/tasks/{id}` 或 `PUT /api/tasks/{id}/complete` 完成任务时，只要还有未关的子任务（failed 的子任务也算未关）、未完成的依赖或未解除的明确等待，就返回 HTTP 409，并在响应里列出它们（`open_subtasks`、`blocked_by`、`waiting_on`）。子任务全部完成时，父任务也从不被自动完成。
+- **`PUT /api/tasks/{id}` 把状态改为 completed 时现在会发出 `task.completed`**，并在同一事务里解锁下游任务，与 complete 路由相同。重复完成时保留首次的完成时间，不再覆盖。
+- **显式的 `running` 可能被拒绝**：创建或更新任务时显式请求 running，只要依赖或明确等待还没解决，就返回 HTTP 409。没有显式状态的 `auto_start` 不再强行置为 running：带 `auto_start` 的 `task_create` 在依赖未完成时返回推导出的 blocked 状态（过去会无条件置为 running）。
+- **团队任务要用关系须先绑定项目**：团队没有绑定项目时，带 `parent_id` 或 `depends_on` 的 `task_run`（`POST /api/teams/{id}/tasks/run`）返回 HTTP 400（过去这里接受依赖）。
+- **显式的 `blocked` 现在表示人工阻塞**，依赖完成不再把它解开。
+- **MCP 任务写入的错误是结构化的**：`detail` 是解析后的对象，`current_revision`、`current_task`、`open_subtasks` 等冲突字段放在顶层，调用方不必再解析一段 JSON 字符串。
+
+### 变更
+
+- **新库带上 UTC 时钟标记**：`init_db` 从零建出的库，在建表的同一事务里写入 `PRAGMA user_version = 20260728`，并发首启只写一次，建到一半崩溃留下的是空文件。已有的库，不论 `user_version` 是多少，都不补标记。在 UTC 宿主上、或库里根本没有时间值时，`scripts/migrate_timestamps_utc.py --apply` 现在会写标记，不再停在「无需平移」；它会写明前提（值是由本机时钟写入的）与反证的盲区。已带标记的库，dry-run 不再提议任何位移。
+- **Codex 用量回采**：`scripts/backfill_codex_usage.py` 接受 `user_version` 为 0 或 20260728 的库，其余值拒绝；计划里记下实际的值与放行理由，计划格式升为 3，旧计划会被拒绝。计划被拒时只打印一行原因、以退出码 3 结束，不再抛 traceback。
+
+### 修复
+
+- **任务完成是一个事务**：每条完成路径上，子任务与依赖检查、下游解锁与审计事件一起提交。MCP 的普通 `completed` 更新现在会解锁下游任务；重复调用 `PUT /api/tasks/{id}/complete` 会补上下游解锁，不再提前返回。完成时间未知的历史已完成任务，完成时间仍保持未知。
+- **运行中的任务保持原状态**：无关的编辑不再把运行中的任务降成 blocked；启动失败的请求不再回报 running。给运行中的任务新增有冲突的依赖会被明确拒绝。
+- **周期可以编辑**；等用户的任务即便是子任务，也会出现在简报里。
+- **Codex 用量回采能在新装的库上运行**（v1.15.1 已知限制）：过去它拒绝一切没有 UTC 时钟标记的库，新装的库全在其中。
+- **升级前存下的行可以修正**（v1.15.1 已知限制）：`aiteam attribution repair` 取代了原本唯一能给它们打标的私有维护脚本。
+
+### 升级说明
+
+- **产品内提示**：只要 API 能访问 GitHub API，v1.15.1 的会话就会显示新版提示和对应安装方式的命令。
+- **Claude Code 源码安装**：在安装所在的 checkout 里，确认位于 `master`，运行 `git pull --ff-only`，再运行 `python3 install.py --update`，然后重启所有开着的 Claude Code 会话。MCP 自启会替换旧版 API；也可以在重启后的会话里让 Claude 调用 `os_restart_api`。
+- **Claude Code 插件**：运行 `claude plugin marketplace update ai-team-os`，再运行 `claude plugin update ai-team-os@ai-team-os`，然后重启两次 Claude Code：第一次启动会升级 Python 包并提示「Upgraded to v1.15.2 (was v1.15.1). Restart Claude Code to apply」，第二次替换旧版 API。
+- **Codex 适配器**：在安装所在的 checkout 里，确认位于 `master`，运行 `git pull --ff-only`，再运行 `python3 scripts/codex_runtime.py stop --api-url http://127.0.0.1:<端口> --runtime-dir "$HOME/.codex/ai-team-os/runtime"`，接着用同样两个参数运行 `python3 scripts/codex_runtime.py ensure` 拉起新版 API，然后运行 `python3 scripts/codex_adapter.py upgrade`，最后重开 Codex。按这个顺序每一步都返回 0。没有 API 在运行时执行 `upgrade`，更新照样完成，但它最后的检查连不上 API，会以非零状态退出。如果 API 与 Claude Code 共用，则通过 Claude Code 重启它。
+- **重开所有 Claude Code 与 Codex 会话**：新的任务参数、`task_create_batch` 与 `usage_reconciliation` 只出现在新的 MCP 会话里；也只有重开后的会话才知道空字符串现在表示清空。
+- **hook 没有变化**：`install.py --update` 写入的 hook 文件与原来相同；Codex 的 hook 副本、`hooks.json` 与 `hook-trust.lock` 与 v1.15.1 相同（新增待授信 0 条，无槽位复用）。不需要重新授信。
+- **须重启 API 才会加载新代码**。首次启动会建两张表：`task_create_batches` 与 `external_exec_invocations`；已有的行不会被改写，已有的库保持原来的 `user_version`。只有从零建出的库才带 UTC 时钟标记。
+- **需显式使用的工具**：`aiteam codex-exec` 只记录经它启动的执行；要留回执，就把调用方改为经它调用，并注意它往 stdout 写的是原生 JSONL，原来读纯文本的调用方要改为读取消息事件。`aiteam attribution repair` 不运行就什么都不做：先预览，再加 `--apply`；每次 apply 都会在数据库旁边留一份整库备份，不再需要时请自行删除。
+- **Codex 回采计划**：保存过的计划请重新生成；格式 2 的计划会被拒绝。
+
+### 已知限制
+
+- 本版不含：关键路径计算、派工时自动建子任务、交卷后自动进入待验收、有类型的引用、旧 `parent:` 与 `blocked-by:` 标签的迁移、MCP 侧的已完成任务分页、批量更新。子任务只有一层，父任务须显式完成，不做后台轮询。
+- **外部执行**：进程监督只在 macOS 上实测，Linux 与 Windows 未验证。监督进程自己被强杀，或适配器在监督进程退出之后、记下最终状态之前死掉，这次执行可能停在 `running`，已提交的回执保留；目前还没有持久化的终态确认。Codex 0.162.1 不报告 turn id，所以每次真实执行都会带一条 `missing_turn_id` 诊断。服务端采信客户端声明的用量证据。本版之前的 ephemeral 执行没有留下任何证据，无法恢复。
+- 用量回采脚本仍需源码安装（插件装法不带 `scripts/`）；`aiteam attribution repair` 每种装法都有。
+- v1.11.1 到 v1.15.1 之间建的库按 UTC 存，`user_version` 却是 0，代码分不出它与更早的本机墙钟库，所以不补标记；恢复脚本对 0 仍按本机墙钟换算。
+- v1.15.1 遗留、仍未解决的：会话变量名单按 Claude Code 2.1.285 核对；会话在 30 秒内结束时，Codex Leader 的最后一轮不会被强制测量；侧栏展开时，窗口较窄的情况下覆盖率矩阵会横向滚动。
+
+### 验证边界
+
+- 发版树在 macOS 上、按本机时区的检查：全量测试（单元与集成）**7,961 通过 / 8 跳过**，1 个失败：一条 hook 入库用例的时序竞争（它在所等的事件落账之前就读了计数），在本树与 v1.15.1 上单独运行都通过；另跑一轮串行集成测试，**576 通过 / 3 跳过**；**前端测试 148 个通过**。27 条仓库机检通过 26 条；I10 比对 ORM 与本机数据库，在本机 API 以本版重启、建出两张新表之前保持红色（I16 仍是占位警告）。两份 Dashboard 产物与重新构建的结果逐字节相同，wheel 与 sdist 都能构建。
+- **需求验收**：任务墙与外部执行由另一方经真实 MCP 工具、HTTP 与无头浏览器对着隔离 API 独立重做，29 项中 28 项通过、1 项部分通过（即上面 `task_list_project` 的说明），真实 Codex 请求共 3 次。直接跑 `codex exec --ephemeral` 不留 rollout，OS 里也查不到；同样的请求经 `aiteam codex-exec` 运行，被记账、能对账，API 宕机后补传恰好确认一次。
+- **生命周期验收**在隔离的用户目录里进行：Claude Code 源码装法与插件装法（Python 包由插件自己的启动 hook 从 Git 安装）的新装与从 v1.15.1 升级，以及 Codex 适配器从 v1.15.1 升级。新库的 `user_version` 为 20260728；升级的库保持 0，多出两张表，已有的行全部保留；按生产库 schema 建的库由 54 张表变为 56 张，标记不变。每种装法下 MCP 都列出 118 个工具，新的任务语义跨请求成立，`aiteam attribution repair` 能运行（在升级的库上补上、再撤回了一格空着的 harness），`aiteam codex-exec run --help` 可用，API 停机时用替身跑的 `codex exec` 在补传时确认一次、再补传不重复。hook、`hooks.json` 与 Codex 授信锁逐字节不变。
+- **未覆盖**：Windows 与 Linux；`claude plugin` 命令本身（安装与更新改为把插件放进 Claude Code 的缓存目录、运行它的启动 hook 来复现）；MCP 自启替换运行中的 API，本版没有改动这部分，v1.15.1 已验证；生命周期验收中的真实 Codex（由需求验收覆盖）。
+
+## [1.15.1] - 2026-10-09
+
+一个 **patch** 版本，内容是治理、观测与缺陷修复。用量归因页显示修正后的数字，Codex 的用量改从 Codex 自己的会话文件读取；`claude` 加 `/resume` 不再留下空壳 Leader 行；API 不再继承拉起它的会话的凭据与身份。之所以是 patch 而不是 minor，是因为这里没有用户能指认的新子系统：Codex 采集填的是归因页本来就有的列，补测挂在既有的 reaper 循环上，环境剔除加固的是既有的拉起路径。**hook 与 Codex hook 授信都没有变化；更新后请重启 API 和所有开着的 Claude Code 会话**（见升级说明）。
+
+### 新增
+
+- **Codex 用量改从 Codex 自己的会话文件读取**：Codex 的 Leader 行与子 agent 行现在和 Claude Code 行一样有四层用量，从 `$CODEX_HOME/sessions` 与 `archived_sessions`（默认 `~/.codex`）下的 rollout 文件逐次调用读出。每个请求只计一次；reasoning token 作为 output 的子集单独保存，从不与之相加；Codex 没有记录的字段存为空，不记成 0。解析在 Codex agent 开始或结束时放到子进程里进行（Leader 的结束事件最多每 30 秒一次），受大小、文件数与时间上限约束；过时的结果不会覆盖更新的测量，也不会覆盖期间被重新绑定的行。
+- **Codex 用量回采**：`scripts/backfill_codex_usage.py` 为未测的 Codex 行生成计划，不写任何东西；`--apply` 只写核对过的计划，要求新的备份与 journal，在一个事务里完成，计划之后有任何一行变化就整体回滚。见已知限制：它目前只在带 UTC 时钟标记的库上运行。
+- **Claude Code 子 agent 的第二次测量**：既有的 reaper 循环会给最近 30 天内已离线的子 agent 补测：结束事件一直没来的（workflow 被 kill、会话中断），或测量与宿主最后一次写入撞车的，在安静满 30 分钟后补测。解析放在子进程里分批进行，批次有上限，API 保持响应。没有新增定时器或守护进程。
+
+### 变更
+
+- **用量归因页显示修正后的数字**：
+  - 被标记为不是真实派工或会话的行（resume 留下的空壳、同一份 transcript 的重复 Leader 行）不计入本页的任何统计，也不计入 `os_health_check`，矩阵下方有一行说明排除了多少条。行永远不删。本版没有附带写这种标记的工具（见已知限制），所以大多数安装上不会出现这一行。
+  - 未归因的行按原因分开：仍在运行（busy，或 30 分钟内有活动；从不把中途值定为已测）、transcript 已归档（可救）、只有 API 错误、首个回复前就结束、宿主暂无用量解析器（现在只指 Claude Code 与 Codex 以外的宿主）。只有「尚未跑过采集」表示现在回采就能补上。
+  - 本地生成的 `<synthetic>` 行（限流、服务端错误）不再计为调用；只有这类行的 transcript 算作「未测」，从不算「测得 0」。
+  - agent -> workflow 这一跳只数 workflow 派工，每一跳都按宿主分开计算，Codex 行不再混进 Claude Code 的分母。
+  - 矩阵说明文字有中英两种语言，不再带内部编号；方法标注区分 Claude Code transcript、Codex rollout 与两者混合。
+  - 单次实测 Codex 行时改用 rollout 解析器，「没有用量事件」「找不到」「拒测」分别报告；Codex 没有记录的缓存写入值显示为一条短横，不显示为 0。
+- **Claude Code hook 建出的行标为 `harness=claude-code`**，覆盖率矩阵因此分成 Claude Code、Codex 与未标注三桶。升级前存下的 Claude Code 行 harness 仍为空。
+- **`ai-team-os-serve`（PyPI 入口）改为以子进程拉起 API**，与 `python -m aiteam.mcp.server` 的做法相同，不再在 MCP 进程里运行 API。
+- **README 截图**在演示库上重拍，每种语言 11 张，新增任务看板、统一检索、待处理页与 Codex 套餐用量。
+
+### 安全
+
+- **API 不再继承拉起它的会话的收件凭据与身份**：经 MCP 自启、`os_restart_api`、Codex runtime helper、`codex_adapter.py start`、`aiteam up` 或 PyPI 入口起的 API，原先都带着拉起它的那个 Claude Code 会话的收件 socket 与 token、会话 id 与会话标记、项目目录，从 Codex 起的还带着线程 id。持有这枚 token 的进程能以该会话子进程的身份往它的收件箱投递。现在每条拉起路径传的都是剔除了这些变量的环境，API 在导入时也会清掉自己环境里的这些变量；`PATH`、`HOME`、`AITEAM_*`、`CLAUDE_CONFIG_DIR`、`CLAUDE_PLUGIN_ROOT` 等配置保留。唤醒与 `fleet_dispatch` 拉起的 Claude Code 进程不再带拉起者的会话标记，项目目录总是设为目标目录。随之而来：API 的诊断记录不再标拉起者的会话 id；不带项目目录的 agent 模板核对不再读取拉起者项目里的 `.claude/agents`。新增仓库机检 I26，保证每条拉起路径都用剔除后的环境。
+
+### 修复
+
+- **`claude` 加 `/resume` 不再留下空壳 Leader 行与容器队**：打开空对话的会话（`startup` 或 `/clear`）改为在第一次有动作时才建 Leader 行，不再在 SessionStart 时建。resume、fork 与压缩照旧当场建；在任何工具 hook 之前就被打断的会话，如果有 transcript，会在 SessionEnd 时补建。
+- **MCP 调用跟随被续上的对话**：`claude --resume` 之后，MCP 一直发送启动时的一次性会话 id，于是 Leader 的 memo 与任务边落在空壳行上，子 agent 的边一条都建不出来，`context_resolve` 还可能挑中空壳容器队。MCP 现在从 Claude Code 自己的进程登记里读当前会话 id，登记不可用时才退回环境变量。
+- **会话容器清理保留带出边的成员行**：只要有一个成员行是 agent 边（如 `worked_on`）的起点，整支容器队就不清理，agent -> task 的归因不会悬空。成员行带排除标记的队同样保留。
+- **子 agent 用量采集**：读不出用量行时也照样记下 transcript 路径；上下文水位的尾窗按块向前扩，最多读到 4 MB，不再止于 64 KB；SubagentStop 会再次解析，直到文件安静满 1 秒，解析之后才落盘的最后一次写入不再漏掉。
+- **未归因抽屉**：点矩阵某一行的「N 未归因」，显示的就是那一条路径与宿主；之前点哪一行都显示 Codex 那一桶。`/api/usage/unattributed` 新增 `harness` 过滤。
+- **覆盖率矩阵的说明文字不再溢出、盖住数字列。**
+- **Dashboard 下拉框显示所选项的文字**，不再显示 `__all__` 或项目 id；workflow 的 agent 状态显示为失败、启动中、进行中，不再显示原始值 `error`、`start`、`progress`。
+- **容器队被关掉的 Codex Leader 会回到原行原队**：被心跳置为 offline、或被 API 重启置为 waiting 的 Codex Leader，一旦空闲的容器队被 reaper 关掉，就失去了恢复资格，之后原生线程再有活动，它仍停在 offline，容器队停在 completed，Dashboard 上看不到这个 Leader。现在 reaper 关这种队时会留下与 Leader 绑定的恢复标记，线程下一次有活动就在原行原队复活。人工关掉的队保持关闭，其 Leader 置为 offline；人工把 Leader 置为 busy，reaper 会重新打开它的队。升级前就已卡住的 Leader 不会被自动修复；用 `agent_update_status` 把它置为 busy，reaper 就会重新打开它的队。
+
+### 升级说明
+
+- **产品内提示**：只要 API 能访问 GitHub API，v1.15.0 的会话就会显示新版提示和对应安装方式的命令。
+- **Claude Code 源码安装**：在安装所在的 checkout 里，确认位于 `master`，运行 `git pull --ff-only`，再运行 `python3 install.py --update`，然后重启所有开着的 Claude Code 会话。MCP 自启会替换旧版 API（实测约 2 秒）；也可以在重启后的会话里让 Claude 调用 `os_restart_api`。
+- **重启所有开着的 Claude Code 会话，不只一个**：更新前就已启动的 MCP server 仍是旧的拉起代码，它拉起或重启的 API 在初始环境里仍带着该会话的凭据。
+- **Claude Code 插件**：运行 `claude plugin marketplace update ai-team-os`，再运行 `claude plugin update ai-team-os@ai-team-os`，然后重启两次 Claude Code：第一次启动会升级 Python 包并提示「Upgraded to v1.15.1 (was v1.15.0). Restart Claude Code to apply」，第二次替换旧版 API。
+- **Codex 适配器**：在安装所在的 checkout 里，确认位于 `master`，运行 `git pull --ff-only`，再运行 `python3 scripts/codex_runtime.py stop --api-url http://127.0.0.1:<端口> --runtime-dir "$HOME/.codex/ai-team-os/runtime"`，然后运行 `python3 scripts/codex_adapter.py upgrade`，最后重开 Codex；helper 会按需拉起新版 API。按新版提示直接先跑 `upgrade` 也能把所有东西更新好，但旧 API 还在运行时，它会在最后报告运行中的 API 源码已变化并以非零状态退出；按上面的命令停掉 runtime 后重开 Codex 即可。如果 API 与 Claude Code 共用，则通过 Claude Code 重启它。
+- **hook 没有变化**：`install.py --update` 写入的 hook 文件与原来相同；Codex 的 hook 副本、`hooks.json` 与 `hook-trust.lock` 与 v1.15.0 相同（新增待授信 0 条，无槽位复用）。不需要重新授信。
+- **须重启 API 才会加载新代码**。首次启动会给 `agents` 加三列（`attribution_exclusion`、`attribution_exclusion_of`、`usage_unmeasurable`）；没有新表或新索引，已有的行不会被改写。
+- **升级前的行不会被改写**（本版修正不了的那些见已知限制）。缺用量的 Claude Code 子 agent 在安静满 30 分钟后会被自动补测；源码安装可以用 `python3 scripts/backfill_token_usage.py`（默认只预览）回采 Claude Code 行。升级时仍在运行的 Codex 线程，会在下一次开始或结束时被测到。
+
+### 已知限制
+
+- **`scripts/backfill_codex_usage.py` 只在带 UTC 时钟标记的库上运行**：它目前要求 `PRAGMA user_version = 20260728`，只有经 1.11.1 的时间戳迁移脚本转换过的库才是这个值。其余的库，包括所有新装建出的库，都会以「未知时钟制式」被拒绝、不生成计划；下一个补丁版修复。Codex 行的实时采集不受影响。回采脚本需要源码安装：插件与 PyPI 安装不带 `scripts/`。
+- **升级前的行没有公开的修正途径**：本版不提供给升级前存下的行打标或重新标注的公开途径。早先 resume 留下的空壳 Leader 行、同一份 transcript 的重复 Leader 行、harness 为空的 Claude Code 行都保持原样，落在「未标注 harness」桶、「从未登记 transcript 路径」等分类里；其中带边的空壳行从本版起会被清理保留。
+- **会话变量名单按 Claude Code 2.1.285 核对**：之后的 Claude Code 新增的会话变量，在名单更新之前不会被剔除。
+- **Codex 用量**：会话在 30 秒窗口内结束时，Codex Leader 的最后一轮不会被强制测量；约 1% 的旧格式 Codex 线程会被整线程拒测；被解析器拒测的行仍显示为「尚未跑过采集」。
+- 侧栏展开时，视口窄于约 840 px（中文）或 950 px（英文），覆盖率矩阵仍会横向滚动，但不再叠压。
+
+### 验证边界
+
+- 发版树在 macOS 上、按本机时区的检查：**单元测试 6,957 通过 / 5 跳过**，**集成测试 475 通过 / 3 跳过**（跳过项是可选路径与需显式提供的原生 Codex 二进制），**前端测试 143 个通过**，26 条仓库机检全部通过（I16 仍是占位警告）。两份 Dashboard 产物与重新构建的结果逐字节相同，wheel 与 sdist 都能构建。
+- **生命周期验收**在隔离的用户目录里进行：Claude Code 源码、Claude Code 插件与 Codex 适配器三种装法的新装与从 v1.15.0 升级。每张表的行都保留，`agents` 的三列自动补齐；经 MCP 自启、插件、Codex helper 或 `codex_adapter.py start` 拉起的 API，13 个预置的会话变量一个都没有带上（v1.15.0 全部带着）。这次实测了 MCP 自启替换旧版 API 的路径，用的是沙箱端口。
+- **未覆盖**：Windows 与 Linux；需要登录的真实交互会话与 Codex 的 hook 审阅对话框；7 天的容器清理，改为在副本上用缩短的保留期跑。
+
+## [1.15.0] - 2026-09-30
+
+一个 **minor** 版本，围绕一个新子系统：统一用户提示出口。OS 需要你知道或动手的事，统一记在一本中英双语账本里，每个宿主只提示自己那一侧的安装。v1.14.0 之后的 35 个提交还让 hook 投递可观测、文本在写入时检查、记忆整理有了边界、三处计算不再冻住 API，任务墙也有了一份共用的摘要。**v1.14.0 没有新版检查，这份说明是本版唯一的通知；Codex 用户需手动更新一次适配器**（见升级说明）。
+
+### 新增
+
+- **统一用户提示**：24 条中英双语提示（服务挂了或正在启动、安装进度、新版可用、装机副本落后、待决事项、信道点名、拦截等）存在账本里，经 `/api/notices` 访问。hook 在会话开始、下一条消息和回合收尾时显示，每行以 `[AI Team OS]` 开头，每次最多 2 条再加一行「另有 N 项」，每个会话最多 5 条；Dashboard 与 `notice_list` 列出全部。同一行不会重复出现；在 Claude Code 上，宿主可能没显示的行（resume、`/clear`、压缩）会补发一次。
+- **每个宿主只听到自己那一侧的事**：安装问题只在对应宿主的会话里提示，新版提示给各宿主自己的更新命令，两侧版本不一致时只提示较旧的一侧，未授信的 Codex hook 只在主动查看时列出、不推送（Codex 自己会弹出审阅）。
+- **冷启动不再误报服务挂了**：会话在 API 就绪前启动时，会被告知服务正在启动，并在第一条连上 API 的消息里补上开场简报；60 秒后仍不可达才提示「服务未启动」。
+- **经对话授权的配置写入**：`os_config_change` 先预览确切的文件改动，只有带上确认令牌和用户原话才应用，应用前先备份，并记录一条决策事件；可用于重新同步落后的装机副本和更新 Codex 适配器。`uninstall_main_chain.py` 以同样方式清掉插件卸载后残留的 hook 副本。
+- **新增 MCP 工具** `notice_list`、`notice_dismiss` 与 `os_config_change`。同版删除了三个团队工具（见「删除」），总数仍为 116。
+- **Dashboard「待处理」页、横幅与角标**：`/briefings` 改名为「待处理」，分「提示」与「决策」两个页签，「决策」默认隐藏自动生成的权限拒绝记录；全局横幅显示最紧急的一条待办动作。`/os-doctor` 围绕 `os_health_check` 与提示列表重写。
+- **语言设置**：可在 Dashboard 或经 `GET/PUT /api/settings/language` 选择中文、英文，或跟随各宿主。
+- **会话开始时的新版提示**，附带你这种安装方式的更新命令（插件装法的提示行是「对 Claude 说「更新 OS」」，具体命令由 Claude 给出）。API 按需读取 GitHub 上公开的发布元数据（缓存 6 小时，网络耗时最多 1 秒），自己从不执行任何更新；Codex 安装新增一步到位的 `python3 scripts/codex_adapter.py upgrade`。
+- **任务墙摘要**：服务端的同一份摘要（未关条数、近 7 天动静、停滞任务、最近 5 条动静、最优先 5 条待办、卡住的任务）供开场简报、压缩检查点、`task_list_project`、`/loop` 和 Dashboard 任务页共用，任务页的已完成任务改为按需加载。新端点 `GET /api/projects/{id}/task-wall/digest`。
+- **hook 投递记账与补投**：投递失败的 hook 按原因记进本机账本，失败的工具事件由之后的 hook 补发；`os_health_check` 新增 `hook_delivery`、`hook_ingest` 与 `json_integrity`。
+- **Codex 核心工具目录**：Codex 会话与子 agent 启动时收到一份最多 32 条核心工具的中英双语短目录。它只是提示，不是权限边界。
+- **workflow 子 agent 的用量回采**：`scripts/backfill_token_usage.py` 可以回采 workflow 子 agent 的 token 用量，默认仍是 dry-run。
+
+### 变更
+
+- **写入侧文本安全（对 API 与 MCP 调用方的行为变更）**：给其他 agent 和人看的文本，在写入时就检查。
+  - **长正文含不可见字符会被拒收**，不再入库：除 TAB、LF、CR 以外的控制字符（含颜色码）、零宽空格、双向控制符（含 U+061C）、软连字符、字连接符与不可见运算符、蒙古文元音分隔符、BOM、行间注释控制符和 Tag 字符（英格兰、苏格兰、威尔士三面旗帜除外）；放行 U+200C、U+200D 与 U+2028/2029。返回形态与 `task_memo_add` 一直以来的相同（HTTP 200、`success: false`、`safety` 块），现在覆盖任务、问题、报告、消息、简报、项目、阶段、agent 提示词与定时任务的正文。`task_memo_add` 与 `memory_add` 也拒收控制字符；`memory_reconcile_apply` 里被拒的 `merge` 或 `promote` 作为该条操作的错误返回。
+  - **单行字段入库时清洗**（控制字符与格式字符换成空格，空白折叠）：标题、名字、role、标签、topic、参会人与会议发言人名、发送者、mentions、作者，以及活动流里工具的输入与输出摘要（多行摘要存为一行）。这些写入照常成功，但读回的值可能与发送时不同。
+  - **宿主给的名字在 hook 入口统一清洗一次**（SubagentStart、TeammateIdle 与 Codex 观测）；查找按清洗后的形式比较，宿主传来的原始名字仍能找到对应的行。
+- **生态档案遵循同样的规则**：从 GitHub 抓取的文本入库前清洗；生态写入工具与其余 API 一样拒收不可见字符，只有 worker 上报的失败文本改为清洗，确保失败一定登记、认领一定释放。
+- **记忆整理只作用于调用方所在的项目，且同一时刻只允许一个会话进行**：apply 只动当前项目的 memo；`memory_reconcile_candidates` 会取得本项目 30 分钟的整理权（`peek=true` 只看不占），apply 须持有它。经 REST 调用时 `lease_id` 放在请求头 `X-Aiteam-Reconcile-Lease` 里，URL 里带 `lease_id` 返回 400。改动 global 或 user 记忆，不论经 `memory_invalidate` 还是 `memory_add` 的 `supersedes`，都须带 `confirm_shared_scope=true`；不带时什么都不改，并交回原文供过目。按 id 失效不再能动到别的项目。
+- **拦截与收工守卫都只呈现一行**：PreToolUse 拦截只显示一行纯文字理由，不暴露 hook 的文件路径；收工守卫不再显示为 hook 报错。
+- **退役的提醒与拦截**：依赖旧团队模型或触发过于频繁的提醒已退役（依赖 `team_name` 的跨项目拦截、连续调用计数、模板推荐、任务墙计时、每轮的「watcher 未武装」提示）；对根目录或家目录执行 `rm -r` 的拦截交给 Claude Code 自带的保护（OS 仍给警告）；`git add` 的敏感文件检查只看路径参数，放行 `.example`、`.sample`、`.template`、`.dist` 与公钥。
+- **hook 注册**：删除 `cc_task_bridge`、`meeting_ecosystem_writeback` 与 `workflow_reminder` 在 PostToolUse 上的注册；新增 `PostToolUseFailure` 与 resume/fork 的 `resume-tick`。Claude Code 适配器现为 11 个 hook 脚本、16 个事件（原为 13 个脚本、15 个事件）。
+- **hook 事件 API 命中护栏时只标记**，不再拒收事件。
+- **权限被拒不再生成待决事项**；待决简报 14 天后转为过期（行保留）；用户刚刚活跃时，`briefing_add` 会告知，以便 agent 直接问。
+- **唤醒与 `fleet_dispatch` 沿用会话自己的权限**：OS 不再传入 `--allowedTools` 名单，唤醒配置里的 `allowed_tools` 与 `allowed_tools_level` 不再生效；`bare_mode` 需显式开启。
+- **任务墙分页**：`limit` 只作用于待办；进行中、阻塞与失败的任务总会全部返回，并附 `not_shown` 与 `has_more`；同分时先上墙的排前。
+- **开场简报与压缩检查点改为显示摘要**，不再显示 Top 5 与总数；检查点不再把最新的 10 条进行中任务称作「未完成任务」。
+- **账号用量 API 与监控**：`GET /api/account-usage/{account_key}` 返回摘要（从 5.7MB 降到 4.5KB），完整历史改走 `/snapshots` 分页；没有新的 Codex 活动时跳过采样轮次，但至少每 2 小时采样一次；账号列表每 60 秒刷新。
+- **Agent 模板**精简并重写了 description；工具限制只靠 frontmatter 里的 `disallowedTools`，已实测 Claude Code 2.1.281 会强制执行。
+- **约 55 处工具描述**按实际行为更正。
+- **`scripts/uninstall.py` 默认保留数据（行为变更）**：不带参数时保留 `~/.claude/data/ai-team-os`（含 `aiteam.db`），加 `--purge-data` 才删除，`--keep-data` 仍可用。pip 卸载改用正确的分发名 `ai-team-os` 并核实确已卸掉；停 API 时只停配置端口上经过校验的 OS API，先 SIGTERM、宽限后才 SIGKILL，不再对占用 8000 端口的所有进程执行 `kill -9`。
+
+### 删除
+
+- MCP 工具 `team_briefing`、`team_close` 与 `team_delete`（对应的 REST 路由保留）。
+- 「自动建队」与「常驻成员」设置、`/api/config/team-defaults`、建议规则 B2、「使用此模板」按钮，以及 `plugin/config/team-defaults.json`。
+- 默认模型自动回退及其环境变量 `AITEAM_MODEL_AUTOFALLBACK`：OS 不再改写 Claude Code 设置里的默认模型。
+- `intent.agent_working` 事件流。
+
+### 修复
+
+- **三处计算不再冻住 API**：hook 时的转录解析改在后台作业里跑（503MB 会话的 Stop 从 1.5 秒超时降到 0.4 秒以内），`memory_reconcile_candidates` 的打分放进子进程（CPU 从 30 秒降到 2.7 秒），Codex 账号监控改为维护增量摘要（每轮从 2.6 秒降到 8 毫秒，估算不变）。
+- **hook 事件排队时不再丢失、重投时不再重复入库**；Claude Code 的工具活动按 `tool_use_id` 配对开始与完成，乱序和重启后的完成都能配上。
+- **孤立代理项不再毒化读取、不再让 hook 请求丢失**：会让所有列出它的读取都失败的行，现在存不进去了；带着它的提示与授权请求也不再被静默丢掉。
+- **并发下不再丢失会议参会人**（此前 48 路并发加入会丢 41 人）。
+- **API 退出与重启有上界、更安全**：数据库被锁不再拖住退出，也不会误停被复用的 PID 或已被其他会话替换的 API。
+- **Dashboard 不再把被拒的写入当作成功**：对话框显示原因并保留输入；默认模型设置失败后不再显示「已保存」。
+- **`install.py --update` 之后 Dashboard 不再显示旧界面。**
+- **记忆整理的 `merge` 与 `task_memo_add` 执行同样的不可见字符检查。**
+- **任务墙截断**：待办一旦占满一页，进行中与阻塞的任务就会从所有分页视图里被截掉。
+- **开场简报的待决段重新显示。**
+- **审计提示文本时发现的缺陷**：`briefing_list` 默认只返回 1 条；`project_delete` 会连带删除 agent 行，而这些行承载着审计留痕与 token 归因；订阅登录用户的唤醒会失败；派单里写明 `task_id` 的子 agent 收不到该任务的 memo；失败分析写记忆时越过配额；orchestrator 写死了旧型号。
+- **Codex 计价证据**：没有记录服务档位的请求被静默按 Standard 计价；现在保留并展示这一假设。
+- **版本检查在 SOCKS 代理下不再出错**：API 进程环境里有 SOCKS 代理、又没装 `socksio` 时，`/api/releases/latest` 返回 500，每次启动都重试。现在任何取数失败都放行，15 分钟后再试。
+
+### 升级说明
+
+- **v1.14.0 没有新版检查**：老用户只能从这份说明得知 v1.15.0。从 v1.15.0 起，会话会显示新版提示和对应安装方式的命令。
+- **Claude Code 插件**：先运行 `claude plugin marketplace update ai-team-os`，再运行 `claude plugin update ai-team-os@ai-team-os`；只跑后一条会报「already at the latest version (1.14.0)」。之后要重启两次 Claude Code：第一次启动会升级 Python 包并提示再重启。
+- **Claude Code 源码安装**：在安装所在的 checkout 里，确认位于 `master`，运行 `git pull --ff-only`，再运行 `python3 install.py --update`，然后重启 Claude Code。这一步也会清掉退役的 hook 及其注册。
+- **Codex 适配器：手动更新一次**：v1.14.0 及更早的适配器从不取提示。在安装所在的 checkout 里，确认位于 `master` 且工作区干净，先运行 `git pull --ff-only`（v1.14.0 的脚本没有 `upgrade`，直接运行会报「invalid choice」），再运行 `python3 scripts/codex_adapter.py upgrade`。如果 `status` 报告运行中的 API 源码已变化，且这个 API 是 Codex runtime 拉起的，运行 `python3 scripts/codex_runtime.py stop --api-url http://127.0.0.1:<端口> --runtime-dir "$HOME/.codex/ai-team-os/runtime"` 后重开 Codex；与 Claude Code 共用的 API 则通过 Claude Code 重启。不需要重新授信。
+- **须重启 API 才会加载新代码**：重启 Claude Code 时会替换仍在运行旧版的 API；否则让 Claude 调用 `os_restart_api`（其他会话会短暂断开）。首次启动会建出 5 张新表及其索引；每个 Codex 账号第一次被读取时，会在子进程里重建用量摘要（生产数据上不到 2 秒）。
+- **Codex hook 授信不变**：`hooks.json` 与 `hook-trust.lock` 与 v1.14.0 相同（新增待授信 0 条，无槽位复用）；改动过的 handler `session_bootstrap_codex.py`、`inject_subagent_context_codex.py` 与 `channel_unread_codex.py` 都只观察：从不拒绝、不改写输入、不拦截。
+- **API 与 MCP 调用方**：请看上文「变更」与「删除」。升级前存下的行不会被改写。
+- **卸载默认不再删除数据库**：`python scripts/uninstall.py` 保留 `aiteam.db`；要删除须加 `--purge-data`。
+
+### 已知限制
+
+- **源码安装永远收不到「两侧版本不一致」提示**：源码安装的 Claude Code 一侧没有可比较的版本记录。v1.14.0 及更早的 Codex 适配器在更新之前同样没有。
+- Codex 每次会话启动只显示一条提示；第二条活动提示在前一条消除之前只计入「另有 N 项」。
+- 在 Claude Code 上，拦截行仍带宿主自己的「hook error」前缀；全屏渲染器下被拦截的 Bash 命令会折叠成「Ran 1 shell command」，展开才看得到。
+- 启用空闲门控后，其他设备上用掉的额度最多约晚 2 小时才显示。
+- 摘要把每条 memo 都算作动静，所以对很多任务做一轮核对会把它们的停滞计时清零。
+- Codex 核心工具目录不限制子 agent 能调用哪些工具。
+
+### 验证边界
+
+- 发版树上的检查（macOS）：全量测试 **7,384 通过 / 8 跳过**（跳过项是可选路径与需显式提供的原生 Codex 二进制），**135 个前端测试通过**，全部仓库不变量通过（I16 仍是占位警告）。两份 Dashboard 产物与重新构建的结果逐字节相同，wheel 与 sdist 构建成功。
+- **生命周期验收**（隔离的 HOME）：Claude Code 源码安装、Claude Code 插件与 Codex 适配器三种装法的新装、从 v1.14.0 升级与卸载都已实测跑通。12 张表逐行保留，新表与新索引自动建好，账号估算与全量历史算法逐字段相等。
+- **未覆盖**：Windows 与 Linux；需要登录的真实交互会话与 Codex 的 hook 审阅对话框；MCP 自启替换旧版 API 的那条路径（为了不碰生产 API，改为手动停起）。
+
+## [1.14.0] - 2026-09-20
+
+一个 **minor** 版本，新增 Codex 账号与套餐用量监控、API 等值工作量估算，以及独立适配器的完整安装更新路径。切换登录保留账号历史，MCP 启动恢复不再要求一直开着终端。本版不包含 HTTP/2。
+
+### 新增
+
+- **Codex 套餐用量 Dashboard**：独立页面 `/usage/accounts` 展示原生额度百分比、分开的五小时与周窗口、本机样本估算、账号别名及持久监控设置。用户可设置 30 秒至 30 分钟的采样间隔或暂停监控；关闭页面不会停止已开启的服务端监控。
+- **版本化 API 价格目录与本机用量保存**：逐请求估值保留模型、缓存、上下文档位和服务档位来源。记录为 Fast/priority 的请求使用目录 Fast 费率，已支持费率为 Standard 的两倍。估算表示本机工作负载的 API 等值，不是订阅实付、现金余额、跨设备完整账或官方套餐容量；缺价在原始记录中仍为未知。
+- **完整 Codex 适配器生命周期**：`scripts/codex_adapter.py install/update/status/uninstall` 管理独立 Hook 副本、MCP 字段与 header helper，支持备份、失败回滚，并保护用户修改和无关集成。没有 Git 元信息的源码包也能通过随包发布摘要识别与 v1.13.1 逐字节一致的旧 Hook；已有 stdio 用户可用 `--hooks-only` 更新 Hook，保持 MCP 配置不变。
+- **按需 HTTP MCP runtime**：连接需要服务而本机 API 不可用时，已安装的 helper 按需启动 API。API 独立于调用终端运行，并发冷连接共用一个所属实例；进程身份核验避免误停占用端口的外部进程或被复用的 PID。不增加开机服务、定时重启或模型轮询。
+- **版本迁移验收**：完整预检与 CI 纳入隔离的新安装、已发布版本升级、数据库保留、卸载及运行恢复回归。原生 Codex 验收通过显式二进制启用，不发送模型回合。
+
+### 修复
+
+- **登录变化恢复正确账号**：复用已核验账号及其历史、别名和间隔，新观测账号才创建记录；原账号暂停，用户明确关闭的监控保持关闭。登录发现失败后继续重试，不再永久停在失败状态。
+- **额度周期不再被时间戳抖动或重新登录重开**：只有实测账号已用百分比回落，才确认新额度周期。API 重启保留统计锚点和估算；主动重置按钮仅改变所选窗口的统计锚点，不删除历史或触发额外采样。
+- **Dashboard 断线恢复保留已有数据**：连接失败时继续展示缓存金额，包括 JSON 响应正文传输中断的情况；恢复读请求，不自动重放写操作。采样当前账号不再将旧账号固定，后续登录变化继续跟随当前账号；明确手选历史账号时仍保留选择。
+- **MCP 并发不再形成循环等待**：HTTP MCP 传输请求不占用其内部 REST 请求需要的数据库准入名额，同步 MCP 工具使用独立线程限流器。原有 REST 限额与 Hook 预留容量保持不变。回归覆盖 48 路并发调用及空闲 SSE 流，对 HTTP/1.1 同样有效。
+- **安装版本与运行版本分别核对**：runtime 状态对比启动时源码指纹和当前源码；代码变化后需显式重启所属进程，旧记录没有指纹时保持未知。启动早期的就绪检查警告不再断言最终 MCP 连接失败。
+
+### 升级说明
+
+- 使用系统 Python，并保留源码目录。新装 HTTP 路径执行 `python3 scripts/codex_adapter.py install --api-url http://127.0.0.1:8000`，将端口替换为实际目标；安装器不会悄悄改变已有 URL，也不会自动将 stdio 转换为 HTTP。
+- 更新源码和依赖后，执行 `python3 scripts/codex_adapter.py update` 及 `status`。更新文件不会替换 API 已加载的代码；需要重启时先协调共享后端使用，只停止 runtime 明确拥有的 API，再重新连接 Codex。外部管理的 API 仍由其所有者处理。
+- 新安装仍需在 Codex CLI/TUI 或 Desktop Hook 设置中正常授信。Hook 注册与授信锁声明相对 v1.13.1 没有变化，因此本版只更新脚本内容本身不要求重新授信。Codex 安装器不修改 Claude 设置和全局记忆。
+- 卸载只删除受管集成文件、恢复仍未被用户修改的 MCP 字段；保留账号数据、凭据、无关集成与用户修改。本版排除 HTTP/2，不改变已有 Dashboard 端口。
+
+### 验证边界
+
+- 最终本机候选检查：**4,110 个单测通过 / 4 跳过**、**28 个安装／运行／数据库／并发集成测试通过**、**114 个前端测试通过**，全部仓库不变量通过。跳过项为可选 LangGraph 路径及未采集的 Claude 原始 Hook 语料；既有 lint 与依赖警告如实保留。
+- **13 个浏览器场景**直接验证构建后的 Dashboard，API 和 WebSocket 使用经生产 schema 校验的模拟数据，另做真实响应正文 socket 中断。它们不代表真实用户账号切换；两份分发 Dashboard 产物一致。
+- 空目录原生 Codex 会话发现 **116 个工具**，对隔离持久数据实际调用健康检查和项目列表，更新后重新连接，卸载后不再加载该集成。真实 v1.13.1 数据库在升级与重复启动后保留项目、任务、memo 和时间戳；不含 `.git` 的完整源码包另外通过安装、更新和卸载验收。
+- 实测平台为 macOS。完整按需安装要求 POSIX，遇到不支持的平台会在写入前拒绝；Windows 未验收。不宣称覆盖首次宿主 Hook 授信及自动触发的 Hook→API→Dashboard 完整观测链。本版不增加完整 Codex token 归因或空闲会话唤醒。
+
+## [1.13.1] - 2026-09-18
+
+**补丁**版本：待命守卫变成用户能控的开关，修掉一个会静默丢失观测记录的并发缺陷，并移除两处让失败变得不可见的东西。定为补丁而非次版本，是因为本批没有用户可指认的新子系统——那两个看着像新增的 Codex hook 入口，在 1.13.0 就已注册、只是背后没有文件，补上它们属于修复；新增的基线对账属于治理类检查，而治理类工作走补丁序列。
+
+### 修复
+
+- **Codex 计数器在竞争下不再丢调用记录** —— `send_event_codex.py` 打开 SQLite 计数器时锁等待只给 250 毫秒，随后用 `BEGIN IMMEDIATE` 抢写锁。在争 CPU 的机器上进程等不到就放弃，失败被吞进 stderr 的一行 `counter_write_failed`，那一次调用的账就永久丢了。64 路并发实测：250 毫秒丢 98/256 次，5 秒丢 0 次。锁等待现在是一个具名常量、取 5 秒——事务本身仍是短事务，无竞争时一次都不会等到它。公开仓在 1.13.0 发版提交上 CI 变红、而同一个提交在私有仓通过，根因就是它。
+- **StateReaper 不再拖停 API** —— 水位回填每 60 秒对 2,351 行候选跑一遍；其中 443 行永远无法解析，每行要对 1,970 个项目目录做两次全树 glob，每个周期约 40 秒的阻塞工作压在事件循环上。转录寻址改为每周期构建一次共享索引，扫描那一半搬离事件循环，每个周期步骤单独计时并设上限。生产规模数据实测：172 毫秒取代约 40,000 毫秒；无法解析的行从 443 降到 96。
+- **指向空处的 Codex hook 注册** —— 1.13.0 发出的清单注册了 11 个 handler，其中 5 个指向不存在的文件。现补上两个（`session_bootstrap_codex.py`、`inject_subagent_context_codex.py`），撤下三个从未有过文件的注册。
+- **一个测试参数在截断每一次 CI 日志** —— 某个 `parametrize` 用例传入 64 KB 字节串，pytest 会把它整个渲染进 test ID，产生一行 65,627 字符的日志，撑断了 Actions 的日志流。每一次运行——无论成败——都被切断在 54%，之后的任何失败对 `gh run view --log` 都不可见。该用例现已带上显式短 id。
+
+### 新增
+
+- **`/os-watcher`** —— 待命守卫的单一开关：同时静默每轮那句「watcher 未武装」提醒，以及"有活在飞却没有 watcher"时的收工拦截。放行记在独立的 `hint_muted` 分支而不是混进普通放行，因为"用户选择静默"与"系统判定无风险"必须保持可区分。该开关不启停 watcher，管的是提醒本身。
+- **Codex hook 授信的跨版本对账（I17b）** —— 宿主把授信钉在位置（`事件:组序号:handler 序号`）加渲染后的命令上，而不是钉在它批准过的那条命令上，所以在中间摘除或插入一条，会让后面每一条滑进前任的槽位，静默地转移或丢失授信。现在用上一个发布版本的基线锁与当前锁对账，把每个槽位判成保持授信／新增待授信／已摘除／**槽位复用**四类，仅在复用时失败。
+
+### 变更
+
+- **分发面移除内部称谓** —— 注入每个会话的压缩检查点，此前用本项目对其负责人的内部称谓渲染一行标题，现改为「待用户裁决」。带同样称谓的源码注释与技能文本一并规范化。`meeting-facilitate` 的技能描述里还写着一条已被推翻的会议规则，而每个会话都在加载它。
+- **会议规则改回原意** —— 会议是决策的留痕方式，不是动手前的闸。减法类提案（回退既有设计决策、移除工具或表、削弱或删除自动检查）必须留下书面结论；加法类工作（新增检查、加严判据、新增工具）不设闸。
+- **主控派工提醒阈值** 由连续 8 次工具调用改为 30 次，重复间隔由 10 改为 30 —— 主控独自连续干活是常态，旧阈值几乎每轮都会触发。
+
+## [1.13.0] - 2026-09-14
+
+一个 **minor** 版本，主题是每个会话到底背了什么、MCP server 又是怎么注册上的。发给 Claude Code 的指令集逐行审过，只留下模型没有它就真会做错的内容；插件不再把全部 116 个工具 schema 硬塞进每个会话；源码安装器在插件已启用时不再并排注册第二个 `ai-team-os` server；新增一个只读脚本报告 Codex 侧已安装 hook 副本的漂移。定 minor 而非 patch，是因为新增了一个 REST 端点和一个安装器参数、删除了一条斜杠命令、并改变了插件的工具加载行为。测试 **3,008 -> 3,124**；REST 端点 **211 -> 212**。
+
+### 变更
+
+- **指令集审计与精简**：`CLAUDE.md`、25 份角色模板、5 个技能、7 条斜杠命令和 `loop.md` 按同一个问题过了一遍：没有这一行，模型会不会真的做错？通用教程、复述默认行为的话、过时事实和固定输出块被删除；偏好、仓库事实、环境陷阱和安全边界保留。模板正文从 167 KB 降到 17 KB。在参考安装上实测的常驻指令文本从约 21,900 字符降到 17,600 字符。
+- **`CLAUDE.md` 拆成共享段与宿主专属段**：`AGENTS.md` 只从共享段生成（`scripts/gen_agents_md.py`，由 I18 机检），Codex 不再收到只属于 Claude 的派工规则。
+- **模板拒绝清单收敛为三个毁灭性工具**：`project_delete`、`team_delete` 与 `os_restart_api`（技术写作模板另去掉 `task_run`）。原先 27 项的清单经实测在 Claude Code 2.1.268 上对子 agent 并不生效（已向上游报告 anthropics/claude-code#94202）；两份 README 现在把它们描述为声明级而非结构性拒绝。
+- **删除 `/os-init`**：它生成的 `aiteam.yaml` 在 API、MCP server 和 hook 里没有任何读取方。安装、更新与卸载现在会顺手删除 `~/.claude/commands/` 里的残留副本（`RETIRED_COMMAND_FILES`，`scripts/uninstall.py` 持同一份清单，测试断言两者一致）。
+- **插件不再设置 server 级 `alwaysLoad`**：`plugin/.mcp.json` 自四月起把全部 116 个工具 schema（约 150 KB）在每个会话启动时就装进上下文，绕过了 v1.9.0 的按工具轮换。插件安装现在与源码安装一样按需加载，基于用量的 `_meta` 常驻也对插件用户生效。
+- **源码安装器检测插件是否已启用**：`install.py` 识别 marketplace 插件的状态（已启用 / 存在未启用 / 不存在），插件已启用时跳过全局 MCP 注册，一台机器不再跑两个 `ai-team-os` server。`--force-mcp` 可强制注册；`verify_installation` 会显示注册由哪条路径持有。
+- **常驻轮换结果缓存并回报**：`GET /api/tools/always-load` 惰性缓存 600 秒并返回 `cached` 与 `computed_at`；MCP 客户端超时从 2.0 秒放宽到 3.5 秒（`AITEAM_ALWAYSLOAD_TIMEOUT` 可覆盖），并把实际挂上的工具回报到新增的 `POST /api/tools/always-load/applied`（事件 `tool.alwaysload.applied`）。在此之前，端点冷调实测 3.1 秒超过客户端超时，会话就静默地以零常驻启动，而台账照旧记着一次轮换。
+- **I3 提示修正**：机检原本让你把 `dashboard/dist` 拷过 `plugin/dashboard-dist`；当本地构建反而是旧的那份时，这会用旧包盖掉好包。提示与发版清单现在都写明先重建、再同步。
+
+### 新增
+
+- **`scripts/check_codex_installed_hooks.py`**：只读三方比对 Codex 侧已安装 hook 副本、仓内源码与 Codex 适配器。默认扫两个 OS 安装目录（`--installed` 可重复给），把每个文件归为同源、漂移、仅装侧或仅源侧，绝不修改任何东西。未接入 `check_invariants.sh`，手动运行。
+
+### 验证边界
+
+- 发布树全量预检：Ruff、Dashboard lint 与测试、全部 21 项不变量机检，以及 **3,124 个单测通过 / 4 跳过**。四个仍在断言已删模板样板与已删命令的测试在同批改写。
+- 常驻修复对着运行中的 API 验过：重算 1,657 毫秒、缓存读取 1.3 毫秒、一次冷 apply 3,115 毫秒（旧的 2 秒超时会把它丢掉）。hook 对账脚本有 69 个基于夹具的单测，不是对真实 Codex 目录的运行。
+- 模板拒绝清单在一台机器上探测了四次（Claude Code 2.1.268，auto 权限模式）；其他版本与权限模式未测。
+
+### 安装说明
+
+- 插件用户更新后下一个会话即得到按需加载。同时启用了插件的源码安装用户会看到 `install.py` 跳过全局 MCP 注册；要两者并存请传 `--force-mcp`。
+- 更新后重启共享 API；轮换缓存与 `applied` 端点都在 API 进程里。
+- Codex：本批只改了 `AGENTS.md` 的头部模板。`hooks.json` 与 `hook-trust.lock` 未变，不需要重新授信 hook。
+
+### 未包含
+
+- 模板 `disallowedTools` 的强制执行在上游；在 Claude Code 落实之前，这些清单只是声明。
+- Codex 侧 hook 副本的安装或更新路径。新脚本只报告漂移。
+
+## [1.12.4] - 2026-09-11
+
+本次 patch 版本让 Claude Code 与 Codex 的共享工作更清晰：根会话归属、原生成员身份、项目内 Dashboard 汇总与可靠的工具完成记录。
+
+### 新增与修复
+
+- **根会话与原生成员**：已登记会话补充 Claude 文件观测，不重复展示 Leader。已观测根会话标为 `Claude Leader` 或 `Codex Leader`；Codex 成员保留原生 nickname 与已核验的父队关系，角色和任务分列。子线程生命周期事件不会另建或关闭父 Leader。
+- **当前工作与探活**：当前区域只展示新鲜 `busy` 证据，等待、关闭和陈旧记录保留在历史中。自动恢复须有符合条件的原生活动，不会撤销明确关闭或人工停用。
+- **历史会话团队碰撞**：新鲜且精确归属的原生事件，可修复仍挂在另一会话旧八位短名容器中的活跃 Leader。条件比较事务将 Leader 与已确认归属的原生成员一起移入完整 ID 团队，保留成员状态，并持久绑定根原生 ID 以支持后续自动恢复。外来会话/项目、外来团队的已完成状态及历史事件保持不变；手动停止或原因不明的离线记录须显式恢复。
+- **重复启动诊断**：原生元数据缺失时，精确匹配的已人工停止成员再次启动，仍返回既有诊断字段并保持离线；元数据缺失不构成恢复许可。
+- **事件与 Analytics 项目隔离**：事件依据已持久化的任务/会话归属筛选，在原有精确类型过滤之外增加字面类型前缀过滤。Analytics 对项目、团队和请求头范围取交集，摘要卡与图表使用同一筛选。
+- **Dashboard 真实性**：项目卡聚合多支团队，不再只保留一队的汇总值。加载失败明确可见，不伪装成空结果；设置页读取运行中 API 的版本，将基础设施示例标为演示，并区分仅适用于 Claude 的模型设置与 Codex。
+- **工具完成配对**：稳定的原生调用 ID 跨持久化关联开始与完成，覆盖重复或乱序投递及 API 重启。迟到的开始事件不能重开已完成记录；缺少可靠 ID 的调用不按工具同名猜配。
+- **有界完成补投**：后续 Codex Hook 可在次数、容量和时间限制内重投完成元数据，不使用定时器或常驻重试进程。补投保留原始完成观测时刻；未确认记录仍为未确认，缺乏依据的时长仍为未知。
+- **适配器文件清单完整性**：两个导入型 Codex 配套模块与 Hook 入口分别登记，I1/I20 检查模块存在性与跨宿主隔离；未登记文件、混入任一 Claude Hook 目录仍报错。原有七个入口、十三个 handler 及注册/授信文件保持不变。
+- **运行时诊断与进程隔离**：排队写入、脱敏的 HTTP 与 API 生命周期记录保留请求关联和实际观测的进程事件。POSIX 上的 API 自启与重启将共享服务放入独立于 MCP 启动器的会话/进程组。
+- **共享 OS 文档**：两份 README 在产品概览、架构、协作、安装与常见问题中完整说明 Claude Code 与 Codex 接入。共享记录与原生执行分开描述；Codex 提供独立手动配置路径，Claude 专属的自动化、模型设置和模板明确标注适用范围。
+
+### 验证边界
+
+- 已记录的定向检查覆盖 API/持久化、身份/探活/回执、项目隔离和前端行为，并包含经受控采集器与浏览器观测的原生子 agent。这些是有界结果，不代表全套验收通过。
+- 最终完整 preflight 已通过，含 **单测 3,008 通过 / 4 跳过**、**前端测试 38 通过**；**身份/探活/回执组合 70 项**与 **注册检查 30 项**也全部通过，各集合有重叠，不可相加。TypeScript、生产构建与 Ruff 通过，ESLint 无错误、有两条依赖警告。这些结果证明代码经过测试，不代表本版已部署。
+- 已安装 Codex Hook 自动触发，经 API、数据库到 Dashboard 的完整链路仍待最终验收。复制脚本、登记 Hook 或批准授信，单独均不能证明整条链路已通过。
+- 配套模块清单修复已通过 I1/I20 和 30 项定向注册检查，包含不能仅靠“缺少孪生副本”拦住的双份同名污染反例。独立只读审查发现三项状态/身份回归，均已复现、修复并经复核关闭；审查覆盖本次清单与恢复增量，不代表全树历史改动都经过独审。
+
+### 安装注意
+
+- Codex 与 Claude Code 的脚本、注册和授信保持独立，OS API、数据库与 Dashboard 仍然共享。Codex 入口脚本须与同一版本中匹配的 `codex_observation.py`、`codex_completion_delivery.py` 和 `hook_core.py` helper 同批复制。不要只替换入口，也不要覆盖 Claude 设置。
+- API 代码、Dashboard 产物与已安装 Codex 脚本须配套应用；仅重载 MCP 不会替换这些层。Hook 注册变化应在 Codex 宿主内审阅并重新授信，再检查自动采集。
+- 切换共享 API 前，先统一各 MCP 启动器使用的源码版本。旧启动器的版本对账可能在其他会话启动时替换较新的 API；应安排 MCP/API 同批刷新，不让混合版本启动器轮流管理同一共享服务。
+- 缺乏已核验自动下线原因的历史离线记录，不会被静默复活。只通过正常 OS 控制显式恢复目标 Leader/成员，再核验后续原生事件及团队归属；不要直接改数据库刷状态。
+
+### 本版未包含
+
+- 本版不交付来信唤醒空闲 Codex 会话或完整 Codex token/费用归因。
+- 缺少身份、模型或可信时刻证据时仍保持未知。历史 `running` 记录缺少可靠调用 ID 时，不强行改成 `completed`。
+
+## [1.12.3] — 2026-09-09
+
+一个 **patch** 版本。Codex 现在真的能在回合开头看见未读提示；此前只存在于五棵未提交桌面 worktree 里的运行时工作进了 master；README 明说 OS 跑在 Codex 上。测试 **3,285 → 3,391**；`psutil` 成为显式声明的依赖。
+
+### Fixed
+
+- **Codex 看不见未读提示**（`c6c4cdb`，合入于 `14bfeba`）——hook 执行了，审计记下写出 376 字符，模型却回答没有未读上下文。Codex 的宿主不注入 hook 的纯文本 stdout，只接受标准的 `hookSpecificOutput.additionalContext` JSON。入口脚本现在对非空输出改用该形态；无未读路径保持静默，诊断路径仍走 stderr，原本就正常的情形一律不变，审计记录线上长度。由对端编写、本侧审查，合入后在 Codex CLI（首行为随机串的盲标记在任何工具调用之前进入模型上下文，模型的工具调用被拒后仍逐字返回它）与桌面端（用户只输入了一个词）各实测一次。实测的是开口时的送达；空闲的 Codex 会话仍不会被来信叫醒。
+- **`psutil` 承重却未声明**（`5d528fec`）——本版合入的运行时对账在 try/except 里导入 `psutil`，然后依赖它。模块缺席时：陈旧启动锁永远回收不了（旧代码按时效回收）、等 20 秒后 API 永不自启、PID 台账恒空、卡死 API 的恢复分支成了死代码，于是第二个 uvicorn 可能在随机端口上起来、共写同一个 SQLite 文件。开发机上全量测试全绿，只因 `psutil` 被一个无关的包传递带入。由归并分支的审查抓获（每维度一名审稿人、每条发现一名反驳者；两个维度独立命中）。`psutil` 现已在 `pyproject.toml`、`plugin/requirements.txt` 与安装器兜底列表三处声明，且缺失时降级而非瘫痪：存活判定退回 `kill(0)` 加 `ps`，陈旧锁只在持有者确认死亡且文件未在脚下被动过时回收，没有 `psutil` 时代码永不授权 kill、永不在被占端口上起第二个实例。
+- **健康检查从常量读端口**（`5d528fec`）——`os_health_check` 从导入期常量 `API_URL`（恒为 8000）推端口，而 API 把真实端口记在文件里；在文档记载的回退路径上（8000 被占、API 落到随机端口），PID 对账恒报 `not_managed`，回报的 URL 也是错的。两个新测试 patch 掉了该常量，把这条缝遮住了。现改用动态地址。
+- **单个悬挂请求让 Dashboard 某类刷新永久停更**（`5d528fec`）——合并刷新把键留在在途集合直到请求落定，而 `apiFetch` 没有超时，一个永不返回的请求就挡住了该前缀此后的每次刷新；改前行为（`cancelRefetch: true`）靠取消重发能自愈。现在 30 秒期限到即落定该键，且只取消当时捕获的那个请求；同键上的新请求不动。
+- **legacy WebSocket 的 close 吞掉取消**（`ad11886`）——在 `legacy` websockets 后端上，`close()` 捕获 `CancelledError` 并 shield TCP 拆连，于是一次超时的发送仍能挟持 HTTP 回执：真实回环握手实测 0.704 秒，预算 0.10 秒。现在 close 作为受追踪的任务运行，到期取消而不等待，迟到的结果由完成回调消费。0.704 秒 → 0.103 秒。
+
+### Added
+
+- **五棵桌面 worktree 的运行时归并**（`ad11886`、`5d528fec`，合入于 `a85b7f7`）——WebSocket 广播以有界并发发送隔离慢客户端，不再串行 await（正是那个串行 await 把 hook 投递推过了 1.5 秒预算）；HTTP 准入中间件给 hook 事件保留五个 SQLite 槽中的一个，普通 API 流量饿不死它们；PID 台账按需对账，只认领管理端口上身份已核验的监听者，`os_restart_api(source_root=..., dry_run=true)` 不停服务即可检查导入；Dashboard 在 200 毫秒窗口内合并查询刷新且不取消在途请求。新增 1,178 行测试，实时 hook 测试终于有了 runner（`npm test`），接入 `preflight.sh` 与 CI，CI 也改为按 `pyproject.toml` 安装而非手维护清单。归并本身由对端 harness 通过 OS 信道完成：它把五棵树并成一条分支，本侧审查（五个维度、九条成立发现、一条阻断），它修复，本侧复核合入。十二棵桌面 worktree 已全部移除；其中六棵持有未提交工作的先归档为本地提交，归并前的状态可以重建。
+- **`channel_wait` 报告消息是怎么到的**（`c360c9e`，合入于 `8ab3dd8`）——成功响应带 `delivery_source`：`replay` 为初始收件箱读取，`event` 为 WebSocket 事件触发的读取，`timeout_read` 为等待到期后的末次读取。此前一次等待返回的消息，与末次读取本来也会读到的消息无法区分，推送路径因此不可验证。错误响应不声明来源。
+- **README 明说 OS 跑在 Codex 上**——标语下方一段常驻说明，独立于逐版本的那一行，写明 Codex 会话得到什么（同一面任务墙、记忆、报告、Dashboard 与 MCP 工具，由它自己的原生 hook 供数；跨 harness 留言与开口时的未读提示）、仍属 Claude Code 独有的是什么（一键安装、会话启动简报、派给新子 agent 的方向层记忆、唤醒空闲会话），以及 Codex 侧目前需手动配置。`os-channel` 技能的分 harness 能力对照表按现已实测的事实重写。
+
+### Changed
+
+- **worktree 一律放在仓库内**（`1b68077`）——`.worktrees/` 已忽略，`CLAUDE.md` 的多会话纪律现在要求如此。桌面上曾堆起十二个同级目录，同级路径也落在 OS 按子目录归属项目的规则之外。
+- **发版清单第 11 步先重启本机 API**（`c55b696`）——`/api/health` 回的是运行中进程内存里的版本常量，文件改了之后常驻 API 仍报上一版。同一根因当天绊倒了对端 harness 与 Dashboard 各一次。
+
+### Upgrade notes
+
+- `psutil` 由 `python install.py --update` 安装，它会逐个 import 校验所有声明依赖。没有它时，POSIX 上仍能识别已有 API、回收已确认死亡的锁持有者；身份不明一律不授权 kill、不起重复服务。
+- Codex 用户：未读 hook 只改了脚本内容，`hooks.json` 与授信锁未动，无需重新授信；已安装脚本从下一次提示起生效。
+- 已推迟、在任务墙上：台账里的 PID 被无关的存活进程复用时会阻断自启（带警告）直到清理，因为身份判定尚不区分「不是我们的 API」与「判不出来」；guardrail 中间件仍会拒掉恰好含路径穿越或代码注入样式的 hook 载荷，这是既有的丢失路径，已记入静默丢事件任务。
+
+## [1.12.2] — 2026-09-08
+
+一个 **patch** 版本。未读徽章把**别人写的文本**注入模型上下文，而它没有清洗那些以「让一行字撒谎」为存在意义的字符。同批：对端 harness 的 hook 入口脚本终于进了仓库；武装中的 watcher 现在可以声明自己在等哪类信号。测试 **3,172 → 3,285**；Codex hook 注册面 **12 → 13** handler、**6 → 7** 入口脚本。
+
+### Fixed
+
+- **未读提示没有剥掉会让它撒谎的那些字符**（`a3eb968`）——清洗只折叠了空白，别的什么都没做，而那恰好放过了唯一一类以「让你看到的与实际读到的不一致」为存在意义的字符。在真实函数上实测：U+202E（让一行文本视觉反转）、U+200B（在两个可见字符之间藏东西）与 ASCII 控制字节全部原样穿过。更宽的一条路是：**只有摘要被清洗过**。`latest_sender` 是发送方自填的自由文本，塞进换行就能撑开提示块、伪造出一行看起来像 OS 自己输出的内容。现在两者都经过同一道过滤——整个 Unicode C 类一律替换——并各自限长，免得一个超长名字把 ACK 指引挤出视野。注入行的开头现在明说摘要与发送者名是**引用数据而不是指令**：OS 本来就把观测到的内容当数据而非命令，在这一行里写明只多一句话。这个洞是审另一侧 harness 的同名 hook 时审出来的——它那份做对了。
+
+### Added
+
+- **对端 harness 的 hook 入口脚本进了仓库**（`3cd0bf0`、`0312685`）——未读提示入口与生命周期事件采集器此前只以未跟踪文件的形式存在于本地工作树。只要这一点成立，对它们行为的任何观测就都不构成对本仓库任何代码的证据。两者由对端提交、经本侧独立审查后合入；其宿主配置里实际注册的文件已核验与合入的 blob 逐字节一致。未读入口用工作线程给整个 HTTP 预算封顶，而不是只靠 socket 超时——后者每次读都会重置，慢速滴流能拖过预算；扫描被截断时它拒绝报「无未读」，因为一个可能为假的零与真的零分不开；它验证摘要时间戳却不渲染它，与 ACK 指引强调的是同一条纪律。采集器在读 stdin **之前**就记下 `started`，这把「hook 压根没跑」与「跑了但失败了」分开了——只看输出时这两种完全同形。
+- **武装中的 watcher 可以声明自己在等哪类信号**（`50abf69`）——`/api/wake/actionable` 新增 `signals` 参数（取自 agents/runs/memos/mentions，缺省全要），`os-watch.sh` 转发 `OS_WATCH_SIGNALS`。两个 harness 共用一个项目之后，对端子 agent 的每条进展 memo 都会唤醒本会话；而 watcher 一退出就清掉武装心跳，于是每一次多余的唤醒同时让它卸岗：**对端越忙，本会话越可能在它真正找你的那一刻是聋的**。无论怎么过滤计数都照报，有效集合随响应返回——否则拼错一个名字看起来和过滤生效一模一样。无法解析时退回全集而不是空集：少醒一次是丢消息，多醒一次只是噪音。
+
+### Upgrade notes
+
+- hook 修复随仓库发布，但一台机器在安装器再次运行之前，跑的仍是 `~/.claude/hooks` 下已安装的旧副本。重新执行 `python install.py --update` 才会生效。
+
+## [1.12.1] — 2026-09-08
+
+一个 **patch** 版本，主要收掉 v1.12.0 交付的唤醒体系里的静默失效。模式是重复的：组件报告成功、继续运行，只是不再干活。watcher 会被它要唤醒的那个会话自己写的字轰下岗；更新可能让用户装不上新声明的依赖，却只印出一句唯一无法据此行动的人才收到的建议；本该抓住"忘记武装"的守卫自己从未被注册运行过。表面：MCP 工具 **115 → 116**，REST 端点 **210 → 211**。测试 **3,066 → 3,172**。
+
+### Added
+
+- **`channel_wait`**（`5a28256`，经 `63a1496` 合入）——由 Codex 侧编写并自行提交，本侧独立审查后合入。它先订阅、再补读按项目/收件人/发件人三重限定的收件箱，随后以 WebSocket 事件等待对端的下一条消息；纯读，绝不自动确认。超时仍会做最后一次库读，因此丢一帧不会让已提交的消息消失。分页按**插入序**而非 `created_at`：写事务串行化使 rowid 序等同提交序，而时间戳排序会漏掉翻页途中提交的行。游标绑定作用域，锚点行消失时返回 409 而不是静默跳页。新增 `GET /api/channels/{channel}/inbox`。客户端本地超时**并不会**释放服务端的等待，只有显式 MCP 取消才行——这条写进了工具 docstring，而不只是留在报告里。
+
+### Fixed
+
+- **watcher 被自己主人写的 memo 轰下岗**（`8977a74`）——`new_memos_since` 号称"子 agent 报进展"，实际统计项目里任何人写的 memo，包括唤醒者自己刚写的那条。真机复现：watcher 武装期间 Leader 写了一条 memo，下一轮轮询即返回 actionable，`new_mentions_since=0`，理由行却指名一个根本不存在的子 agent。烧掉一个唤醒周期只是较轻的一半——watcher 退出会清掉武装心跳，于是**写一条 memo 就等于自动卸岗，且全程静默**，那天两次"忘记武装"里至少有一次真因在此。现在排除与调用方自身身份相符的署名，且只在调用方显式传 `reader` 时排除：没自报身份就不替它猜谁是"自己"。
+- **更新可能让用户装不上新依赖**（`f168121`）——PEP 668 解释器（Homebrew、Debian/Ubuntu 系统 python）**直接拒绝** `pip install -e .`。更新脚本对此刻意容忍——中止会跳过它本就为之存在的 hook / skill / command / settings 刷新——代价是新声明的依赖从未被装上。它也无法告警，因为它并不知道这一版加没加依赖；能印的只有"依赖若有变动请手动重装"，把问题推给唯一不可能知道答案的人。失败要到后来才显形：工具在列表里，一调就炸。现在安装不再相信 pip 的返回码，而是逐条 import 校验 `pyproject.toml` 里声明的依赖，缺的补装，被 PEP 668 拒掉时自动改用 `--break-system-packages` 重试，事后复检。仍然缺的会点名报出并给出可直接复制的命令，规格带引号——否则 shell 会把 `>=` 读成重定向。
+- **watcher 把"忙"当成"死"**（`645ff04`）——`curl --max-time 3` 把超时与连接被拒压成同一种表现，于是跑一次全量测试或传一次发布正文，就足以让 watcher 判定 API 不可达并离岗，而机器忙的时候恰恰最需要它守着。实测发生三次。现在超时（rc 28）容忍 40 次，连接被拒（rc 7）3 次即退，单次请求预算与轮询间隔同量级。主存活判据改为按父进程被 PID 1 收养来判孤儿，比时间精确，会话作用域的 watcher 因此不再需要每小时重新武装。
+- **待命守卫从未运行过**（`b1fd1e4`）——`turn_end_guard` 的代码、24 条通过的测试、装好的运行时副本全都在，**却零注册面**，而 README 声称该能力在岗。本该抓住"忘记武装 watcher"的守卫，自己一次都没执行过。现在两种模式都已注册，并在完全未武装时由 `UserPromptSubmit` 带一句提醒——因为 `Stop` 的 allow 分支没有能进入模型上下文的通道。
+
+### Changed
+
+- **`httpx` 与 `websockets` 转为显式声明的依赖**，三个安装入口同步。二者本就是间接必需依赖；代码直接 import 就该显式声明，否则上游改 extras 会把安装打断。
+
+### Upgrade notes
+
+- 新增依赖**无需手动处理**。安装器与更新脚本现在会装上它们并验证可导入。PEP 668 解释器上会自动重试；若某个包仍装不上，会打印确切命令。
+- `channel_wait` 会占住一次 MCP 调用直到等待结束。请把客户端请求超时设到 `timeout_seconds + 4 * io_timeout_seconds + 5` 以上。
+
+## [1.12.0] — 2026-09-08
+
+一个 **minor** 版本，两条主线。第一条给 OS 接上了第二个可观测的 harness：Codex 适配层带着自己的 hook 面、授信锁与证据夹具落地，同时用一道差分门证明 CC 的行为在此期间零漂移。第二条让两个 AI 会话真的能互相够着——消息本来就能存能读，但没人告诉收信方有信来了：修这件事的那一批里，对端连发 8 条点名消息、其中一条明确在等回执，在库里躺了半小时无人读。表面：MCP 工具 **113 → 115**，REST 端点 **208 → 210**，机检 **I1-I14 → I1-I21**，hook 脚本 **11 → 12**。测试 **2,576 → 3,066**。
+
+### Added
+
+- **跨会话未读徽章**（`27b6860`、`20cfece`）——有人在信道里点名你时，`UserPromptSubmit` hook 注入一行提示；`channel_read_ack` 推进已读水位，下一轮重算为 0，那行提示自行消失，不需要任何"清除"机制。新增 `channel_read_cursors` 表，主键 `(reader, channel, project_id)`——这是本仓第一张复合主键表，刻意为之：水位的自然键就是这个三元组。`channel_messages` 增加可空 `project_id`，未读按项目隔离，谁也读不到别的项目的信。新增两个 MCP 工具（`channel_unread`、`channel_read_ack`）与两个 REST 操作。`reader` 是角色标识而非 session id：按会话记水位会让每开一个新会话就把全部历史消息重算成未读。发送侧刻意宽容——没有项目归属的消息照发照存、只是不进任何人的未读——因为改成拒收会当场打红 9 个既有用例，改由 MCP 层按 cwd 自动填项目。
+- **信道消息能把会话叫醒**（`20cfece`）——给会话作用域的 watcher 带上读者身份武装（`os-watch.sh <sid> <team> <reader>`），新消息可在约 8 秒内把会话叫醒，**全程无需用户输入**；端到端实测两次，其中一次是对端真发的信。判据数的是"新到达的点名"而非"当前未读"：后者会让读过但尚未确认的消息在每一轮轮询都触发，把 watcher 变成一个每 8 秒响一次、永不停歇的闹钟。
+- **`os-channel` 技能**（`e5bcc9c`）——用户问"两个 AI 能不能互相沟通"时 Claude 会命中它。开篇就是一张分 harness 的能力对照表，已验与未验分开写：本功能的开发过程中，把仓库里的**声明**当成**实测**连着误判过三次。它同时记下两侧都做不到的事——叫醒一个已经退出的会话——以及两侧失效模式不同类：CC 会整体停摆，Codex 会偶发跳轮，所以「对方没回」不能读成「对方没收到」。
+- **Codex 适配层骨架**（`fd00ae5`、`526ca67`、`ecd7f73`）——`plugin/harness/codex/surface.py` 以纯数据声明该适配器的事件集、hook 清单与 matcher 登记表，`render()` 把仓内清单逐字节钉死。随之落地六条机检：**I15** 清单与 surface 1:1、**I16** execpolicy 占位、**I17** 授信锁与清单逐条相符、**I18** `AGENTS.md` 恒等（标准头 + `CLAUDE.md`）、**I19** 夹具与生成器绑定、**I20** 安装隔离（单向依赖、取源集合不变、入口名与 CC hook 零重名）。
+- **CC 零漂移差分门**（`c1d0242`）——把 `send_event.py` 中与 harness 无关的部分逐字提取成两份逐字节一致的 `hook_core.py`，对 CC 入口做 sha256 冻结（`scripts/hook_entry_freeze.json`），配一个内建泄漏守卫的确定性脱敏器，以及覆盖全部 15 个 hook 事件、12 条 `send_event` 分支的 27 行合成语料与在 master 上算出的 golden。与 `send_event.py` 的重复是刻意的：CC 入口保持冻结，适配器复用共享核心。
+- **Codex 证据夹具**（`f38770c`、`1c2c505`、`1d8c417`、`e4fe147`、`369569e`）——28 份原生 / 2 份裁剪导入 / 20 份探针 rollout，外加 hook 载荷、state 与事件样本，全部过确定性脱敏器；G1-G15 golden 由原件复算入库；golden 与其生成器绑定，夹具无法悄悄漂离产出它的那套代码。
+- **harness 维度地基**（`0e4b824`）——`HarnessId`/`LayerState` 枚举、完整的 harness x 层可用性矩阵，以及五个可空观测列（`agents.harness`、`harness_version`、`dispatch_call_id`、`reasoning_output_tokens`、`agent_activities.turn_id`）。全部可空、无 UNIQUE、无 DATETIME；全 NULL 的库只产出一个桶，所以既有的 CC 覆盖率矩阵形状完全不变。
+- **会话 id 解析链与原始载荷采集**（`642edca`）——`resolve_session_id(ctx)` 以 CC 解析器为首，Codex 槽位留空但契约写明；`AITEAM_HOOK_RAW_DUMP` 指向 jsonl 路径时追加原始 hook 载荷，未设置时除一次环境变量读取外零行为差异。
+- **派工模型门禁（S6）**（`0c9b9a4`）——`PreToolUse` 断言：`Agent` 派工缺 `model` 或为空串即拦；用更便宜的模型档位而提示未以理由开头即拦。根因三层：方向层记忆把"额度溢出时的临时特例"写成了常规、留下逃生口；不写 model 即继承主会话模型，于是默认赢过规则；hook 对派工参数零检查。Workflow 脚本用保留偏移的遮罩扫描处理——注释与字符串（含跨行模板串与转义引号）刷成空格，model 键在遮罩视图里找、值回原文读。
+- **机检 I21：两侧信道读者身份不得重叠**（`20cfece`）——若两个 harness 注册了同一个 reader，一侧的已读确认会清掉另一侧的徽章，发给它的信永远不会被呈现，而两边的测试全都照常通过。12 条测试覆盖这条机检本身，包含全部反向场景：一条从未被证明能变红的机检是装饰。
+
+### Changed
+
+- **Agent 看板折叠沉寂成员**（`10f99bf`）——547 行 agent 平铺时，三个运行中的散落其间、实际上找不到。活跃成员按状态再按最后活跃排序并保持展开，静默超过 48 小时的收进一个带计数的折叠层，而运行中的 agent 永不折叠——即使它的时间戳缺失。
+- **watcher 存活时长与孤儿检测**（`20cfece`）——会话 watcher 原来那个 1 小时上限是拿时间当"孤儿"的代理指标，真实代价却是 Leader 必须记得重新武装、而且并不总能记得。实测占用：CPU 0.0%、常驻约 3MB、每小时 450 次环回请求。现在直接检测孤儿（父进程被 PID 1 收养），时间上限退居兜底并提到 12 小时。"随会话消亡"这个承诺现在由孤儿检测兑现而不再靠时钟，这让「无常驻守护件」的论证更硬而不是更软。
+- **memo 写入路径不再建议整理**（`3617963`）——`task_memo_add` 过去在数量过阈时附一条"建议整理"的提示。memo 数量与方向层压力无关（情景层不进任何注入面，堆多少都不花上下文）；方向层本就在写入那一刻拒绝超额并交回整桶条目；而那条提示推向的是一个有损操作：整理会把原 memo 置为失效，而默认读路径过滤失效行，摘要无法逆推回原文。测试改为反向断言而非删除，把提示加回去会让测试变红。
+
+### Fixed
+
+- **未读 hook 的四个静默失效缺陷**（`067bf41`、`20cfece`）——每一个都让所有门禁照绿、而用户那边什么都不发生。**端口文件名漏了 `.txt`**，于是查找形同虚设、静默回落到硬编码的 8000，而 8000 恰好是对的——单测、机检、真机验收全部从它上面走过去了。**ACK 指引把摘要里的"最新时间"预填成了 `last_read_at`**，而那个值意味着"你全读完了"：调用方分页只取回前 N 条时照填，剩下的会被一起标成已读、从此再不提示。**ACK 指引漏了 `project_id`**。以及 **`_render` 遇到畸形载荷会抛异常**，被 `main` 的兜底吞掉——与"没有未读"分不开。
+- **`watermark` 在扫描之后才取**（`20cfece`）——扫描结束到取时间戳之间落库的消息会被永久跳过：调用方拿这个 watermark 当下一轮的 `since`，而那条消息的 `created_at` 已经更早。由复审的那一侧在真库上复现。现在改到所有扫描之前取；代价是同一条消息可能被相邻两轮各报一次——重复唤醒是噪音，漏报是丢消息。
+- **点名匹配的 `LIMIT` 咬在超集上**（`20cfece`）——LIKE 粗筛加 Python 侧精确匹配，意味着较新的相似名会占满扫描窗口、把真匹配挤出去；实测 cap=2 时命中为 0，读起来就是"没人叫你"。精确匹配已下沉到 SQL（`json_each`），LIMIT 现在作用在真匹配上。
+- **唤醒体系的 `since` 一直在传输中被损坏**（`20cfece`）——query string 把 `+` 编码为空格，于是未编码的 `+00:00` 偏移到服务端变成空格、解析失败、退化成"不设下界"。一个"2 秒前"的 `since` 报出了 **1,513 条新 memo 与 50 个终态 run**；watcher 因此每次都在第一轮轮询就触发，**从未真正守望过**。已在服务端还原（偏移前的空格只可能来自 `+`）并在客户端编码。
+- **watcher 把一次超时当成服务已死**（`20cfece`）——实测触发条件是同机跑全量测试占满 CPU，让 3 秒的 curl 预算够不着一次正常响应。现在需要连续三次失败才判定，因为高负载恰恰是守望者最该待在岗位上的时候。
+- **`channel_mentions` 从未匹配到真实收件人**（`067bf41`）——它拼 `f"@{name}"`，而真实调用方写的是裸名，于是对活跃频道上的每一条消息都返回 0。该 MCP 工具还声称"留空则取当前 agent 名"，实现却是硬编码字面量 `"agent"`。现在裸名与 `@` 前缀两种形态都按整值匹配命中；子串匹配会让 `leader-cc` 吞掉发给 `leader-cc-2` 的信，而 SQLite 的 LIKE 对 ASCII 大小写不敏感且通配符仍然生效。
+- **workflow 派生 agent 可能永久没有 transcript 路径**（`7d1a5cf`）——未归因的 `no_transcript_path` 桶实测 618/645 行（95.8%）是 workflow 派生行且仍以每月 94 行增长，并非文案宣称的历史遗留行。两层原因：注册时不传路径、只靠 Stop 回执回填，回执一丢该行永久无路径；而 `create_agent` 即使调用方传了也会静默丢弃，只改调用方是空转。现在双守卫只认同时位于 `/subagents/` 之下且命中 run id 的文件——普通子 agent 在 Start 时带的是 Leader 的 transcript；只补空、绝不覆盖 Stop 侧实测过的路径。
+- **`context_tracker` 撞上 5 秒 hook 超时**（`c237770`）——改为尾部惰性反读，`UserPromptSubmit` 不再与它的预算相撞。
+- **任务详情弹窗渲染**（`bb46448`、`b349c45`）——三处渲染缺陷，外加 memo 元信息独占一行，正文不再被过长的作者名挤窄；未归因文案改成说真话。
+
+### Upgrade notes
+
+- 未读徽章需要 hook 注册：从 checkout 跑 `python3 install.py`。hook 注册是每轮读的，但 **MCP 工具在会话启动时加载一次**，所以 `channel_unread` 与 `channel_read_ack` 只在安装之后新开的会话里才出现。
+- `channel_messages` 新增可空 `project_id`，`channel_read_cursors` 表在启动时自动创建。既有行的 `project_id` 保持 NULL，意味着历史消息不计入任何人的未读——它们仍可用 `channel_read` 读到。
+- 「被信道消息叫醒」是选择性开启的：只有在启动 watcher 时把读者身份作为第三个参数传入，点名才会被当作唤醒信号。
+
+## [1.11.4] — 2026-08-26
+
+一次小补丁，两条都朝外。commit 期分支守卫认不出它自己推荐的逃生通道；而在第一次正式对外亮相之前，仓库补上了访客期望看到的社区门面。对外的面原地不动：MCP 工具 **113**、REST 端点 **208**、机检 **I1-I14**。测试 **2,556 → 2,576**。
+
+### 修复
+
+- **commit 期分支所有权守卫（S5）看不见 `cd`**（`971f60d`）——守卫劝你把工作隔离进 worktree，然后拦下你在那里做的提交：它的探测目录来自一个只认识 `git -C <dir> commit` 的正则，于是 `cd <worktree> && git commit` 被探测在会话的 cwd——主 checkout——并拿主 checkout 的 HEAD 来判定。若那条分支上挂着另一个 agent 的活跃认领，一次结构上安全的提交就被硬拦，而守卫自己的提示语（「先开 worktree 隔离」）恰好把人引回这道拦截。反方向则是无声的假放行：从别处 `cd` 回一个被认领的 checkout，探针照样打在错误的仓库上。探测目录现在改用 S4 拆除守卫同一套 segment/token/cd 链机制求解（`_commit_probe_cwd`），两个 commit 期守卫对同一条命令行只有一种读法；旧正则已删除。该函数此前零测试，本次补上 12 个回归用例：cd 前缀、`git -C`、子 shell 进 worktree 的提交静默放行；裸 commit 撞上他人活跃认领仍然 exit 2；过期认领仍降级为警告；引号里的 `"git commit"` 字面量仍然不算提交；首次提交仍会记下认领。
+
+### 新增
+
+- **社区门面**（`d3fb533`）——`SECURITY.md` 写明这个工具在你机器上实际触碰什么（SQLite 与日志只在 `~/.claude/data/ai-team-os/` 之下、hooks 是运行前就能读的明文 Python、API 只绑 localhost、零遥测），并把报告渠道指向 GitHub 私密漏洞报告（仓库侧已开启）。`CONTRIBUTING.md` 覆盖开发环境、三道本地门禁，并点名两条「看着像 bug 的刻意规则」以免被好心人「修好」：hook 双副本逐字节一致（I1）与 venv 禁令。bug/feature 两个 issue 模板（bug 表单要求附 `/os-doctor` 输出）与带 I1 双副本自查项的 PR 模板。
+- **「对第一个会话说的第一句话」**（`d3fb533`）——双语 README 与 `install.py` 的引导现在都以同一句话收尾：告诉新会话本项目运行在 AI Team OS 上，用 `/os-help` 了解工具，把任务墙、memo 和记忆用在每一件事上。真实会话上的观察：仅靠 hook 注入会被当成背景噪音；用户亲口说出来，OS 才成为工作协议。
+
+## [1.11.3] — 2026-08-14
+
+一次**误报补丁**。每一条都始于用户看着屏幕说「这不对」，而每一次查下去，出问题的都不是系统本身，是那个报告系统状态的工具：一道拆除守卫，硬拦着它结构上根本不可能弄丢的工作；一份名册，把正常收工的成员画成故障；一个观测页，把静态下限当成被超出的目标来呈现。唯一一个真缺陷，是追查上面这些时顺手抓到的。对外的面原地不动：MCP 工具 **113**、REST 端点 **208**、机检 **I1-I14**。测试 **2,493 → 2,556**。
+
+### 修复
+
+- **worktree 拆除守卫拦在了一个不可能丢工作的判据上**（`fde92f7`、`0568db3`）——在一个开发发生于长命 feature 分支的仓库里删 worktree，被硬拦并报「810 个 commit 内容不等价」。两处缺陷，动代码之前先用实验定案。**瞄错靶子**：`git worktree remove` **不删分支**，附着在分支上的已提交工作有 ref 兜底，丢不了（实测：移除后孤儿数为零）；只有 detached HEAD 才会真的孤儿化（实测：该 commit 从 `--all` 中消失）。守卫硬拦的恰恰是安全的那一种。**基准选错**：「主分支」被解析成 `master`，而该仓库的工作位于一条领先 master **1,090 个 commit** 的 feature 分支上，于是一个分支自有的 commit 被报成了 810 份风险。判据现已换成 git 可达性——执行这条命令之后，还有没有别的 ref 能到达这些 commit——做法是逐个 ref 排除掉这条命令自己会删掉的一切（走 `rev-list --stdin`，因为那个仓库有 210 个 ref）。旧代理判据背后的四个 patch-id 辅助函数被删除而非保留，旧判据没有回头路。fail-closed 语义不变且已被测试覆盖：探测不出答案就拦。三视角对抗审查（假放行猎捕、测试质量审计、工程完整性）产出 16 条发现，全部修复，其中一条是**相对上一版的回归**：新的提示语引导用户另行删除分支，而删分支当时只对 `worktree-` 前缀的名字设防。删除守卫现已覆盖全部 ref，提示语则当场计算可达性，并在某条分支是这些 commit 的唯一持有者时直接说明。另修：能整段跳过守卫的 flag 写法（`-ff`、`-f --`）、同一条命令里两个同 tip 分支互相充当不在场证明、refname 大小写与 Unicode 折叠导致排不掉目标自身、分支路径上的 fail-open 探测、托管目录之外的 `rm -rf` 形状、被 ignore 但不可再生的文件被当作 clean、以及只评估第一个操作数。已在报告者的真实仓库上只读复验：判定从拦截翻转为放行，工作区未被触碰。明确声明的射程之外：`git push origin --delete` 与批量 `update-ref --stdin`。
+- **迟绑定竞态丢失 hook 观测**（`cbe7735`）——`_resolve_agent` 的按名迟绑定会把 `cc_tool_use_id` 写到它挑中的行上；当并发请求已经把该 id 绑到别的行时，这次 UPDATE 撞上 UNIQUE 约束并一路抛成 ASGI 500，那次观测就此丢失（生产 stderr 日志中两次）。约束本身在做正确的事——正是它阻止了两次派工共用一份账目——所以败者现在改为重新查询并认领胜者行，而不是直接死掉，与 `get_or_create_team` 既有的惯例一致。仍然解析不出时依旧保持未解析：丢一次观测好过写错行。
+- **workflow 计划数被读成算错**（`7c1e3fe`）——`agent_count` 经常大于 `planned_agent_count`（某次运行是 8 比 2），而界面把它渲染成一个裸分数，于是一个正确的数字看起来像坏了。计划数是**静态下限**：它统计全部阶段里字面的 `agent()` 调用，但 `pipeline(items, ...)` 写下的一个调用会在运行时扇出成 `len(items)` 个，而这个宽度在运行前不可知。刻意**不做**事后棘轮改写——一个永远等于实际的计划不构成对照。改的是呈现的诚实度：含动态节点的运行显示 `≥ N` 并在 tooltip 里给出扇出节点数；计划从未被解析过的运行（7 条由文件对账收编的历史运行，此前被渲染成「75/0」）显示「计划未知」；运行进入终态后由实际数占据主位；`dynamic_nodes` 也进入 MCP 投影。静态计数同时不再统计注释与 prompt 正文里出现的 `agent(`——在 178 个真实工作流脚本上实测，18.5% 曾被这样抬高。只影响新运行，不改写历史。
+- **收工的团队成员被渲染成故障**（`6fd72ae`）——一个长命会话的容器队把全部 44 名成员平铺展开，`offline` 配红色 `destructive` 徽章，读起来像「40 个成员从没退出」，而实际上他们每一个都正常收工了。agent 行是刻意永不删除的（审计留痕，且 token 账就记在这些行上），所以折叠这件事属于视图层：活跃成员保持展开，收工的折叠成一行「历史成员 N」，点击展开；成员语境下的 `offline` 现在读作「已收工」，配中性徽章。全局的 `offline` 文案未动，因为在 Leader 行上它的含义是会话已结束。
+
+### 变更
+
+- **PyPI 分发线弃用并 yank**（`41292fd`）——自四月起 wheel 就停在 1.3.4，而仓库已走到 1.11.x，页面上却没有任何弃用标记：`pip install ai-team-os` 交给新访客的是一个四个月前的构建，它不含 `plugin/` 与配置资源，其安装后置步骤从来没有生效过，而且结构上也不可能生效（PEP 517 的 wheel 安装不执行任何代码）。全部 10 个版本现已 yank，理由指向 plugin 与源码两条安装路径，20 个文件全部确认。决定之前先做了测量：30 天内非镜像下载 46 次、最近 7 天 0 次，而同期 GitHub 仓库 14 天有 577 个独立克隆——pip 这条渠道并没有在承担分发。双语 README 一并勘误：roadmap 原先声称该线冻结于 1.2.0，实际上它一路发到了 1.3.4。
+
+## [1.11.2] — 2026-08-03
+
+一次**数据完整性补丁**。一场险情定下了主题：容器队清理器——比 token 账落到 agent 行上早发布两天——正在删除那些行上仅此一份的 token 归因账。本次发布把这条删除路径拦下（两道闸、两个不同的判据）、把已被一次清扫销毁的账逐字节复原、把派工身份钉死使同名派工无法互相覆写账目，并让名册工具回到 MCP 结果上限之内——至少让这类损伤变得看得见。对外的面原地不动：MCP 工具 **113**、REST 端点 **207**、机检 **I1-I14**。测试 **2,307 → 2,493**。
+
+### 新增
+
+- **清扫误删恢复工具**（`0faacd8`）— `scripts/restore_purged_container_team.py` 从三个独立源重建被清扫的容器队：身份快照、token 回采 journal、以及一份纯作复核的第三方备份（比对 8,557 个单元，零矛盾）。它的时钟制式闸对每个源读 `PRAGMA user_version`——取证推荐的那份备份实测取自 UTC 平移**之前**，原样恢复会往 UTC 库里塞进 **843 个墙钟时间戳**，且事后与真值不可分辨。行与账在同一个事务里落地，恢复出的队在任何瞬间都不会被清理器当成无账空壳。已在生产执行：复原 1 队 / 7 行 agents / 835 条活动与 **325,075,503 token** 的归因账（占全部已测量量的 4.74%），逐位验证；幂等重跑计划写入为零。
+- **提交期分支所有权断言**（`399c078`）— 2026-07-10 事故的形态是提交无声落到另一会话的分支上，所以这道闸放在伤害发生处而非准备动作处。每个 agent 在某 checkout 首次提交时把所在分支记进 hook 自身的本地状态（不依赖 API——agent 计数实测在两种口径下都不可靠）；落到另一 agent 24 小时内记录的分支上则以退出码 2 拦下；切换自己的分支响亮警告；探测失败一律出声,绝不静默放行。
+- **治理租约接管观测**（`9148423`）— 过期租约被新持有者认领时发出 `governance.lease_taken_over` 事件。刻意只做观测：租约表不留历史，接管到底发生没发生此前根本不可知。两周数据决定要不要上 fence epoch；零事件即不上。
+- **派工身份判据**（`0202f24`）— `services/agent_identity.py`：一行 agent 只有两种情形可被复用——同一次 CC 派工（`cc_tool_use_id` 相同），或从未绑过派工且不挂账。`SubagentStart` 去重的三级按名匹配、建行前竞态兜底与 `_resolve_agent` 迟绑定全部改走该判据；复用绝不清空既有绑定（payload 里的空 id 是「未知」不是「无」）。
+- **模板注册面 + 派工计划校验**（`fdecaa6`）— `services/agent_template_registry.py` 由两个 spawn 计划构造点共用。未知模板名**原样放行**,在计划顶层给出 `template_warnings`（含就近建议）——模板只是加速器不是白名单：合法集合是 CC 的实际注册面（模板 ∪ 内置类型，而内置类型不可枚举），所以校验只揭示、不拒绝、绝不悄悄偷换类型。一条 AST 级测试把现在与将来的每个 `launch_call` 构造点钉死在校验路径上——此前两次事故的形态恰恰都是「新增了一个没人想到要校验的构造点」。
+- **记忆 v2.1**（`7a75886`）— 方向层存储上限即注入预算（分桶：global 1200 / project 1500 / user 300 字）。超配额写入被拒并返回该桶完整清单与「当轮整理后重试」协议，预算在写入时执行而不是在注入时静默截断。写入侧威胁扫描（不可见 Unicode 区段、注入模式、凭据形态——凭据绝不回显）；`memory_invalidate` 支持 `content_match` 子串定位；会议结论停止自动写入团队记忆域。
+- **发布流程收口**（`b4b7fe2`）— `scripts/release_notes.py` 离线从 CHANGELOG 切片生成 Release 正文并与线上条目逐字节比对（`--check`）；`/os-release` 清单 skill 记明谁按哪个按钮；双语 README 补 CHANGELOG 入口。写于两次同型漏项之后——tag 推了数周,Release 条目才存在。
+
+### 修复
+
+- **清理器可能销毁不可重建的归因账**（`a6ccb67`、`6da695a`）— 容器队清扫随 v1.11.0（07-27）上线，token 列 v1.11.1（07-29）才落到 agent 行上，保留闸从未回头补：它问的是「还有谁引用这支队」（六张表），而账就挂在成员行自己身上。现在有两道闸：任何成员挂着 token 用量——或仅仅有 `tokens_measured_at`，因为测得零也是一次测量——即永不清理；任何成员还指着一份磁盘上未采集的 transcript 也不清理，因为该行是那份文件的唯一指针，删行等于静默关闭回采窗口。生产配对 dry-run 验证：拆闸会多删 9 支队，闸在恰好排除那 9 支。
+- **同名派工覆写 token 账**（`0202f24`）— `find_agent_by_session` 是无 `ORDER BY` 的 `limit(1)`,`SubagentStart` 按名去重会把新派工焊到旧 offline 行上，随后 `SubagentStop` 就地覆写该行四层 token 列。现在行身份即派工身份（见新增）；`find_agent_by_session` 返回最新行。历史上被折叠的派工无法反推，在覆盖率口径注中如实披露而非重算。
+- **名册工具在真实团队上事实失效**（`b2d1e21`、`57418c8`、`b543edf`）— 51 人团队上 `agent_list` 实测 67,766 字符、`team_status` 69,660，双双被 CC 的 MCP 结果上限（25,000 token；per-tool `maxResultSizeChars` 只管落盘阈值,解不了这个上限）拒绝。七个工具改走精简投影（51 人 `agent_list` → 1,982 字符；173 人 workflow 队 `team_status` 170,331 → 1,509；`workflow_get` 268,753 → 15,909）。offline 行折叠为计数加摘要,`include_offline=True` 是显式逃生舱；`fields` 管行宽、`include_offline` 管收行——契约上正交,因为一个自己就超限的逃生舱等于没有逃生舱。`event_list` 的 compact 窗口封顶 60 行。
+- **模板身份在文件名与 frontmatter name 之间分裂**（`fd177b5`、`fcf33ab`）— 25 个模板 15 个 stem ≠ name；去重与分组按 stem 而 CC 按 name 解析，于是跨源重复被列两遍、15 个模板「列得出、点不开」。身份现在按 frontmatter name（stem 兜底），`get_template` 同样按 name 解析，分组按共享 stem 前缀族（6 桶而非 21 桶）——分组与身份正交。
+- **Leader 用量采集不可证伪**（`f316f66`）— 五种结局塌缩成同一个 `None`,异常只落 debug 日志且几分钟内被轮转冲掉，「采集到底跑没跑」事后无从回答（链路本身实测端到端健康：53MB transcript 解析 0.209 秒、44 并发写零丢失）。现在每种结局带原因,强制采集失手以 WARNING 记录并发出 `LEADER_USAGE_CAPTURE_FAILED` 事件（红测试当场抓获 `EventType` 缺成员的潜伏 `ValueError`）,`cwd` 加入 `send_event` 必留字段——让 transcript-slug 兜底在它专为之而生的载荷剥离场景里真正生效。
+- **回采 Job D 幂等**（`6b01045`）— 已测量行现在预先占住其 transcript 的代表权。此前重跑会把共享已采主 transcript 的幽灵行升格为写入候选，二次 `--apply` 将把同一会话的用量重复计入——在生产复跑验收中当场抓获。
+- **fastmcp 供应链**（`0b34faf`）— 三处需求面统一钉 `>=3.4.5,<4`（`install.py` 此前完全未钉）；两处私有 API 触点换成公开 API；MCP `serverInfo` 报告 OS 版本而非库默认值。
+- preflight 的 eslint 步骤在 `node_modules` 缺失时跳过，与 ruff 步骤同一语义（`4af4169`）。
+
+### 变更
+
+- worktree 隔离从 12 个扩到 **25 个模板中的 20 个**（`1ad471f`、`1c7d771`）— 判据：模板自述的交付物是否落在仓内文件上。`code-reviewer` 刻意不进——隔离会把被评审分支从直接读文件退化成 `git show`。
+- 中文 CHANGELOG 按镜像全译契约回补 1.10.0 → 1.11.1（`fa4e61d`）— 六个版本,段落结构逐行对齐,数字与英文源机检比对。
+- CLAUDE.md 新增工程陷阱段（`7b33b68`），其后凭生产实录扩充两条：删除路径必须先问「删了能不能重建」（`5d17904`）,从旧备份恢复必须先查时钟制式（`8e42a73`）。workflow skill 补结构化输出体量纪律（`7b33b68`）。
+
+### 升级说明
+
+- 升级后运行 `python3 install.py --update`：分支所有权断言位于 `~/.claude/hooks/` 下的 hook 副本中，只有安装/更新才会刷新。
+- 无 schema 迁移。清理闸与接管事件随 API 重启生效。
+
+## [1.11.1] — 2026-07-29
+
+一次**不含新功能域的补丁发布**。三本台账一直在悄悄说错自己——时钟、token 口径、失败记录——本次发布让它们各自说出真实情况。对外的面几乎没动：MCP 工具 **112 → 113**（一个只读工具）、REST 端点 **202 → 207**、Dashboard 页面 **22 → 23**、hook 生命周期事件仍是 **15**（`WorktreeCreate` 退出，`TaskCreated` 进入）。增长发生在机检上——**I1-I8 → I1-I14**——因为下面每一条都属于会静默腐坏的那类断言。
+
+有一条规则贯穿全部：**无数据不等于零**。空列并不是一次「测得为零」的测量，所以这里没有任何数字脱离它的分母与口径标签，而每一处仍然存在的缺口都在界面上明确声明，而不是被抹平。
+
+### 新增
+
+- **Token 用量归因 v1**（设计 `16ea751`；阶段 `77c7517`、`344593b`、`e195ffa`、`d273911`、`41cc55c`、`1858277`）— 本次发布中最大的一块工作，而它的开场是先否掉自己的标题。「186M token 已经在数据库里，只差一个视图」是错的口径：`workflow_agents.tokens` 是**末次上下文水位**（单个快照），而把 transcript 的每次请求用量求和才是**实际消耗**。在同样六个 agent 上实测，两者相差 **5.4-25.5 倍**（在同时带两个口径的 11 行上聚合为 42 倍），若把它们相加，就会在 token 计数上重演本次发布正在时间戳上修掉的那起混合单位事故。因此 `metric` 被提升为一等维度——`TokenMetric`（`usage_sum` / `ctx_last`），任何地方的 token 数字都不得脱离它的口径标签——而类型层**完全不带 total 字段**：四层里 95.6% 是 cache-read，一个孤立的总数不过是 cache-read 计数的伪装。
+  - **采集**（`6ae5b98`、`41cc55c`）— transcript **按 requestId 解析：组内取末次快照，再跨组求和**。这是唯一容易搞错的一环。一次 API 调用会按 content block 逐块吐出 assistant 行（实测：79 行、17 个唯一 requestId），`output_tokens` 随流式推进不断攀升；朴素的逐行相加把 input 从 12,185 虚增到 72,556、cache-read 从 1,289,742 虚增到 5,105,773。子 agent 在 `SubagentStop` 处测量。Leader 自己的 session 是一个持续累积的活文件，因此按**快照覆盖写入、绝不累加**，在 `Stop` 上节流（45.1 MB 时一次全量解析耗 190 ms，且只会更大），并在 `SessionStart` / `SessionEnd` / `PostCompact` 强制写入。transcript 缺失时返回 `None`，绝不返回零。
+  - **链路**（`344593b`）— project → session → workflow → agent 这几跳完全不需要新增采集：它们早已编码在 transcript 路径里，在已记录的 **1,923 行中 1,923 行**都能解析出来。真正卡住它们的是 `agents.session_id` 在 2,567 行中有 2,566 行为空，而病因是活的——`_startup_reconciliation` 在**每次 API 启动**时都清空该列，依据是「OS 重启意味着那些 CC session 已经没了」。这个前提永远不成立：API 恰恰是*被*一个活着的 session 重启的。重复的 Leader 行也出自同一次擦除，因为 Leader 复用是按 session 查自己。
+  - **task 边**（`e195ffa`）— 一个 `task_id` 列根本不可能被填上（`SubagentStart` 不携带任务标识），而填不上就会被读成「没花 token」。绑定改为寄生在已经发生的记账动作上——`task_memo_add` / `task_update` / `report_save` 都同时携带任务 id 与作者——并落在既有的 `knowledge_links` 表上。作者解析**限定在当前 session 范围内**，因为 `agents.name` 可证明不唯一（同一个 Leader 名字在三周内横跨 79 个团队、共 117 行），全表匹配会静默地跨时间绑错。task 级覆盖率如实上报，它目前是链路上最窄的一跳。
+  - **回填**（`d273911`）— v1 里唯一只能在此刻做的一块：计费口径采集于 2026-07-28 上线，在它之前那约 1,900 次派发的 transcript 仍在磁盘上，且 `transcript_gone` 实测为 0 行。1,936 份 transcript / 958 MB 在 5.1 s 内解析完；子 agent 归因覆盖率 **0.7% → 78.5%**。三条硬约束，每条都由机检背书而不是口头承诺：绝不触碰 `ctx_last` 列（写白名单 + 一处 assert + 逐行 sha256 指纹配事务回滚）、覆盖率窗口绝不与实时采集合并、默认 dry-run 且强制留 journal 并保证结构性幂等。
+  - **界面**（`1858277`）— 一个 `/usage` 诊断页，五个板块按优先级排序：覆盖率矩阵置于首位且不可折叠，其次是未归因下钻抽屉（四个原因码，逐个标注可否恢复），然后是按 project → session → workflow run → agent 逐层下钻的已归因明细，一张标明为一次测量而非台账的单次实测卡，以及一份常驻的口径术语表。**刻意在任何地方都不设总计行**，而且页面用文字把这件事写出来——否则缺失的合计会被读成疏漏。三个只读端点（`/api/usage/scopes`、`/unattributed`、`/probe`）与阶段 2 的两个端点会合，另有一个新 MCP 工具 **`usage_attribution`**，把同样的数字连同同样的分母一起交给 agent。
+- **HTTP 请求级台账**（`b5015ed`）— 「没人调这个工具」这个判断此前恰好只有一个采集面：CC 侧的 MCP 工具调用观测。但每个 MCP 工具、Dashboard、hook 与脚本都是通过 HTTP 打到同一批端点，所以那一个面上的零，无法把「没被用过」和「在别处被测到」区分开。现在新增第二根轴，按 **method × route template × source** 计数，每小时写一条 `api.request_rollup` 事件。它的三条约束都是既有红线而非捷径：不加新表（I10 把「声明了但库里没有」判为致命，而生产不可能仅为建一张表就重启）、不写逐请求行（事件表已经 50K+）、不设定时器（本仓库不保留后台守护，所以桶是惰性滚动的——下一个请求发现小时变了才滚）。
+- **CC task 观测点**（`2e2fffc`）— task 桥自身没有遥测：它触发过多少次、过滤掉了多少行，都不可观测，于是「这座桥还活着吗」根本无法回答。`TaskCompleted` 现在同时发出 `cc.task_completed`，`TaskCreated` 注册为仅作分母（`observed_only`），而 `TaskStop`——实测 40 次调用且仍在日常使用中，因为停掉一个后台子 agent 用的*就是*这个工具——升格为 **PreToolUse** 上的一等 `cc.task_stopped` 事件，这是当调用可能连回执一起带走时唯一保证会触发的时点。记账仍只在完成时发生，沿用此前裁定。
+- **失败观测上状态机**（`e58a388`）— `EventType.TASK_FAILED` **自声明之日起就没有活的写入方**：它唯一的发出点待在一条已退役、零 importer 的编排路径里，而通知白名单与默认设置都还引用着它。于是失败只有在 agent 主动上报时才被知道——而 agent 被 kill、卡住、或静默翻成 failed 时，恰恰不会上报。`repository.update_task` 是任务状态机在存储层的唯一入口，所以事件就在那里发出，且仅在*转入*失败时发，并打上 `detected_by=state_machine`，以把观测与自述区分开。分析与诊断结果也一并记录，于是「这次失败到底有没有被诊断过」才成为一个可回答的问题。
+- **MCP 工具可发现性**（`e74aab9`）— 在 tool-search 时代，CC 靠文本检索加载 schema，因此一个没有描述的参数既搜不到也猜不出。338 个参数里有 10 个的描述从未抵达发布出去的 schema——不是漏写，而是 `limit / offset: Pagination.` 这类多参数合写行，在源码里看着完整，却被解析器整行丢弃。I9 用运行期反射而不是 AST 来查这件事，因为两种情况下源码看起来都没问题。server instructions 从 121 字节的名词清单重写为 1,923 字节，按能力 → 入口工具组织，由测试钉死在 ≤2KB，并禁止宣传不存在的工具。
+
+### 修复
+
+- **本机每一次 worktree 隔离派发都在失败**（`743db40`）— `WorktreeCreate` 是一个**接管型** hook：注册它就等于替换掉 CC 默认的 git worktree 创建，而一个不返回路径的 hook 意味着创建失败。它此前被当作观测点、与 `WorktreeRemove` 一起注册，而 `send_event` 只负责看。直到第一次真实使用才出事，因为在此之前没人用过这种形式——这同时也让「worktree 事件为零」这个曾被当成需求信号的读数退役。三个注册面全部移除；`WorktreeRemove`（真正的观测 hook）保留，创建改由探测 `git worktree list` 来观测。
+- **台账自身数据里的三处真实损坏**（`b4ed691`）— **(1)** 生产库 18 条 `session.compact_checkpoint` 行里有 14 条是测试残留：一个单测把真实 hook 当子进程跑，而 hook 找不到端口文件时会 fallback 到 `localhost:8000`——测试对 HOME 的覆盖恰好保证了它找不到。守卫放在唯一写入口 `repository.create_event` 上，对保留前缀身份（`test-` / `demo-`）采取丢弃并告警而不是抛异常，因为一本拒收假数据的台账不能把写入方一起搞挂。只修那个单测，等于放任每个脚本、每次 smoke 跑和每场 demo 继续重演。**(2)** `compact_summary` 被 payload 体量闸门剥掉，于是 checkpoint 落库成 `{trigger:"", summary_chars:0}`；现在长度改在 hook 侧算好，作为必要字段随行——正文按设计从来不存，如今也不再过网络。**(3)** `decision.user_asked` 读的是单数 `question`，而真实 payload 携带的是 `questions` 数组，于是六条生产裁定入库时 question 与 options 皆空，内容埋在 answer JSON 里。
+- **数据库里有两个时钟**（`7bfd355`，随后 `e5cb620` / `4e4bd65` / `dc30b71` / `09c50af`；设计 `8937c91`）— SQLite 写入时会静默丢掉 aware datetime 的时区偏移，于是库里存的是按**两个不同时钟**写下的 naive 字符串：核心域用本地墙上时间（45 列、320,866 个非空单元），生态域用 UTC（37 列）。每个域各自自洽；**跨域比较**返回的答案错八小时，且什么都不报。一次审计在同一批里就发现三处这样的比较点，而用户可见的症状是生态页显示的时间早八小时。修法不是把 `datetime.now()` 搜索替换掉——那只能治这一轮：在存储边界设唯一转换点（`UtcDateTime`），提供一个纯标准库 hook 也能用的时钟模块，前端设一层统一解析层，替换掉散落在 27 个组件里的 73 处裸 `new Date()` 调用。此后，任何残留的裸墙上时间调用一旦与存储值比较，就地抛 `TypeError`——原本静默的失败模式现在是响的——而 I11 负责挡住第二个时钟被手写回来。针对存量行的迁移脚本默认 dry-run，并针对混合库做了加固：它**逐行**识别并排除已经按 UTC 写入的行，而不是整列平移；要求提供 journal 且拒绝覆盖已有的 journal；打上 `PRAGMA user_version` 使第二次 apply 被拒；回滚由逐行指纹校验。
+- **生态打标吐出的派工方案跑不起来**（`cf5b78e`）— 生成的 `launch_call` 指名了一个 `researcher` 模板，而它既不在 plugin 的 25 个模板里、也不在 CC 内置里，并且还在传已弃用的 `team_name` 参数。两个默认值在 service、MCP 与 API 三层各自独立硬编码，所以只修一处会被下一处覆盖回去。这个参数是整条链路删除，而不只是从 payload 里删掉：一个看着可配、实际被忽略的旋钮，比没有旋钮更糟。
+- **三个 workflow 团队「活跃」了 22 天**（`344fa89`）— reaper 对 workflow 团队唯一的出口要求成员数为零，于是一个有成员（全部 offline）的团队根本走不到那个分支，而豁免又把最后一条出路堵死。豁免现在改为「有未完成的 run 时豁免」，而不是「有成员时豁免」，两条 run 关联路径都检查，任何查询失败都判定为*不关闭*。
+
+### 变更
+
+- **所有面向模型的 prompt 按一条规则审过一遍**（`607df71`）— 读者是同级模型，所以只陈述它无法知道、也无法推导的东西：用户裁定、项目事实、已弃用参数、事故生出的规则。其余全部删掉。由此派生出四条规则——不解释能力、不偏好任何派工方式、不讲历史叙事（那属于本文件）、不做常识提醒。建议类规则 35 → 23 条，每次派发的静态注入 1,083 → 491 字符，24 个 agent 模板末尾追加的行为绑定段落全部移除：它逐字重复了 `SubagentStart` 已经注入的内容，且其中 22 个还是字节乱码。此前钉死原文措辞的测试改为断言语义。一次跟进（`889c601`）移除了最后一处编排偏好：Agent 派发与 Workflow 派发并列呈现，由 Leader 决定。
+- **六项新增机检**（`e74aab9`、`e615e63`、`dc30b71`、`77c7517`、`d273911`）— I9（每个 MCP 参数在*发布出去的* schema 里都带描述）、I10（ORM 声明的表 vs. 真实数据库，刻意不对称：声明了但库里没有是致命，库里有但未声明只是警告，因为退役的表是冻结而不是删除）、I11（只有一个时钟）、I12（用量界面允许出现的单位白名单——token 分层、计数、毫秒、百分比——用白名单而不是禁用词表，因为禁用词表在它漏掉的第一个写法上就会失效）、I13（同一屏内没有不带口径与分母的 token 数字）、I14（回填安全性，按*行为*检查：一个真实临时库、一次真实 `--apply`、禁改列上真实的逐行指纹，因为文本扫描看不见运行期拼出来的 SQL）。每一项都用故障注入做过红测，不是假定它成立。
+
+### 升级须知
+
+- **部署顺序是承重的。**本次发布的代码按 UTC 读写；面对一个未迁移的数据库，核心域时间会**晚八小时，且没有任何可见症状**（实测：本地 10:24 创建的团队渲染成 18:24）。先备份，再在与部署同一个窗口内执行 `python3 scripts/migrate_timestamps_utc.py --apply --journal <path>`。脚本默认 dry-run，拒绝跑第二次，并可依据自己的 journal 回滚。
+- **可选的历史恢复**，两者均默认 dry-run：`scripts/backfill_token_usage.py`（早于采集上线的那批派发的计费口径用量——随着 transcript 老化淘汰，这个窗口会关闭）与 `scripts/backfill_agent_session_ids.py`（session 身份与 transcript 路径）。
+- 执行 `python3 install.py --update` 摘除 `WorktreeCreate` 注册——**如果你使用 worktree 隔离派发，这一步是必须的**，因为只要它还注册着，派发就会失败——并加上 `TaskCreated`。
+- 重启 API 以启用 `agents` 的新列（四个 token 分层、测量时间、`tokens_source`）。
+
+## [1.11.0] — 2026-07-27
+
+本版是一次**把 OS 重新对齐到 Claude Code 新能力面的次版本发布**。v1.10.3 一路收缩工具面，直到每个留下的工具都真有意义；这一版反向而行，把 OS 没盯着的这段时间里 CC 长出来的东西接回来。工具面不动（**112 个 MCP 工具，不变**）——这里的一切都发生在观测侧：hook 生命周期事件 **11 → 15**，REST 端点 **199 → 202**，以及一处刻意的减法（纯心跳彻底不再产生事件行）。
+
+打底工作是实测而非回忆：CC v2.1.219 的完整 hook 事件集是从二进制的 zod 字面量里提取出来的——**31 个事件**，其中 OS 现订阅 15 个——下文每一处 payload 形状都用同一方法核过。
+
+### 新增
+
+- **CC session registry 桥接**（`e2bb10f`）— `api/session_registry.py` 读 `~/.claude/sessions/<pid>.json`，也就是 CC 自己按进程维护的 session 记录。它比 OS 已有的两路信号都更直接：带真实 pid 和 CC 自己的 idle/busy 状态；且不同于团队目录的 `leadSessionId`——那个只在创建时盖一次、此后永不重写——它能跨 session 更替跟住同一个进程。三处陷阱是在代码里处理掉的，不是假设它们不存在：时间戳既可能是 epoch 毫秒也可能是 ISO 字符串（二进制里两条代码路径都在）；`procStart` 按 UTC 渲染，与 `ps` 比对会整整错开一个时区而假性不匹配，故刻意不做解析；`session_alive()` 把 `None`（「从未注册」）与 `False`（「进程已消失」）分开，于是缺席永不被读成死亡。**判活裁定不变**——registry 与 transcript-mtime 那一路并行运行，只在两者不一致处记 `session.liveness_divergence`，并节流到每 session 每 10 分钟一条，因为一项观测绝不能自己变成这一版正在移除的那种事件洪水。
+- **`TeammateIdle`**（`e2bb10f`）— 作为纯观测订阅（`cc.teammate_idle`），从不写 agent 状态。解析按会话内精确名匹配：通用解析器的末端是「无 CC agent id，故为主 session，故为 Leader」，这条对工具调用是对的，在这里是错的——它会把某个 worker 的空闲信号记到 Leader 名下。
+- **压缩检查点，这次真的实现了**（`928e290`）— `PreCompact` 冻结 OS 侧的作业全景，`SessionStart(source=compact)` 再把它交还回来。刻意的取舍：**不存 CC 的 `compact_summary` 正文**。那份摘要在压缩后本就已在模型上下文里；被压缩的 Leader 真正丢掉的是 OS 侧状态——哪些 agent 在途、任务墙上还开着什么、哪些决策正排队等用户——而这些早就在数据库里，只是没人去问。hook 只上报；快照在服务端从数据库组装，于是 hook 保持纯 stdlib，也不可能因为漏查一处而让检查点残缺。注入严格限定在 `source=compact`；另外四种 source（`startup` / `resume` / `clear` / `fork`，已对二进制核验）一个字都不给。`PostCompact` 作为回执订阅，因为 `PreCompact` 触发并不证明压缩真的发生了——用户可以中断——而没有回执，被取消的压缩与真实压缩无从分辨。只记摘要长度，绝不记正文。落成事件而不是新建一张表：压缩是低频动作（作者机器上 23 天 159 次），而一条 append-only 的带时间戳流，恰恰就是检查点本身。
+- **四处观测盲区闭合**（`1ddddeb`）— **Worktree**（`WorktreeCreate` / `WorktreeRemove`）：本仓自己的并行纪律要求第二个及之后的会话必须用 worktree 隔离，可 OS 连一个 worktree 的出现或消失都看不见。两个 payload **不对称**——Create 只带 `name`，Remove 只带 `worktree_path`——所以各按各的形状记录，不假装它们能配对。**后台任务**：`api/background_jobs.py` + `GET /api/hooks/background-jobs` 读 `~/.claude/jobs/<short>/state.json`，因为 CC 的 `--bg` 守护 session 根本不经过任何 hook 注册，而且前台窗口关掉后还在跑；没有这一路，守护进程正干活时项目摘要却报告没人在工作。「还在运行」由 `firstTerminalAt` 的*缺席*判定，而不是去匹配 `state` 字符串——二进制里没有任何一处把这些值枚举齐全，白名单迟早会把某个没见过的终态读成活着。**Plan 模式**：`ExitPlanMode` 的 plan 正文完整保留（`decision.plan_presented`）；此前一整份 plan 只以 200 字符的 `input_summary` 幸存。**Skill 与 AskUserQuestion**：`_extract_input_summary` 新增一张字段表，覆盖 13 个工具：它们的关键信息既不在 `description` 也不在 `command` 里，于是一路落到通用 fallback——横跨 48K 条工具事件的一整墙截断 JSON。`AskUserQuestion` 另外把问题、选项与所选答案完整留存（`decision.user_asked`）：30 天 27 次人类裁定，每一次都是后面一切的依据。（这种反差是刻意的——每天数万条的心跳在同一版里停止写入；而这些是低频高价值的，所以整份存下来。）
+- **CC teammate 消息只读镜像**（`621d099`）— `SendMessage` 的收件人与正文落成 `cc.message_sent`，正文截到 4,000 字符并同时记下真实长度。单靠 `cc.tool_use` 看不出一条消息是发给谁的。镜像就只是镜像：一条回归测试钉死它绝不写入 `channel_messages`。
+- **Dashboard 事件类型筛选覆盖新增族**（`1ddddeb`）— `decision.*`、`session.*` 与 `workflow.*` 此前只能在「全部」里滚动才能看到。
+
+### 修复
+
+- **SessionEnd 把 session 身份抹掉了**（`91e07ad`）— `_on_session_end` 写了 `session_id: None`——这是把一次状态变更施加到身份字段上。连带后果比这个 NULL 更糟：`SessionStart` 复用 Leader 靠的是 `find_agents_by_session()` 查回来，抹掉之后，恢复的 session 找不到自己的 Leader，于是**每次都在同一个团队里再造一行 Leader**。生产库累积了 120 行这种记录，其中 11 行出自同一天，3 行挤在同一个团队。session 结束只应带动 `status`。
+- **`Stop` 在把别的 session 的活 agent 下线**（`91e07ad`）— 模式 2 的全局 fallback 扫的是**数据库里的每一个团队**，把最近 10 分钟内活跃过的 busy agent 一律下线，而它的触发条件——「正在停止的 session 自己没有 busy agent」——恰恰就是一次普通 Leader 收尾的样子。抓了个现行：本会话自己的一个 agent 在 17:27:10 工具调用中途被下线（`trigger=stop_global`）。这与 `SessionEnd` 上已经修过的那次跨 session 误伤是同一个；`Stop` 被漏掉了。选择彻底删除而不是收窄条件，因为这条分支只可能*减少*下线判定，而落单者本就是 reaper 与 SessionEnd 的职责。
+- **CC 任务桥接一条任务都没镜像过**（`167d801`）— 数据库里没有任何一行带 `cc-task` 标签。字段名一直是对的；原因是 `TaskCreated` 直到 v1.10.3 的注册面统一才第一次被写进 `settings.json`，所以这个 hook 根本从未触发过。这重新定义了这项工作——不是修一座在役的桥，而是在它首次承载流量之前把设计改对。现在改为在**完成**时记账（`TaskCompleted`，payload 形状完全相同），且只镜像有负责人或有依赖链的任务；依赖信息不在 hook payload 里，因此从 CC 自己的 `~/.claude/tasks/<team>/<id>.json` 读。项目缓存从单个全局值改为按 cwd 分桶：多个项目的 session 同时在跑时，谁先解析出来就算谁的，接下来五分钟里其他人的任务全落进那个项目——这不是罕见竞态，是必然。服务端 `tasks` 新增 `cc_task_id` 并做幂等创建，`TaskCreateBody` 新增 `assigned_to`——桥接一直在往一个会静默丢弃它的模型里 POST 这个字段，等于保证了镜像出来的任务永远不可能有负责人。
+- **一个 CC 进程，两个容器团队**（`41bc433`）— 由于 CC 从不重写团队盖下的 session id，一个不断开新 session 的进程会每个 session 留下一个已完成的 `session-<sid8>` 空壳。按裁定，归属逻辑一律不动，也不重新引入 cwd 猜测。改由 reaper——搭它已有的 tick，不新增调度器——清理 7 天以上的空壳，且只清空壳：团队必须两个标记都判定为容器、已经完成、没有 busy 或近期活跃的成员，且不携带任何任务、会议、报告、定时任务、唤醒 session 或 workflow run。成员及其活动行随之一并清掉。团队页按两种精确信号把同一进程的容器归到一组（创建时从 registry 盖下的 pid，或实时读 registry），凡是证明不了的就各自独立摆着。cwd 加启动时间的匹配方案是被实测否决的，不是被原则否决的：同一目录下两个进程启动相隔 1.0 秒，而某个团队目录的创建时间戳正好落在两者之间。
+
+### 性能
+
+- **纯心跳不再写事件**（`b1e0f26`）— `agent.updated` 曾是 **112,349 行，占整张 events 表的 47.4%**；其中唯一变化只有 `last_active_at` 的那一部分占 94,029 行（39.7%）。动手之前每个消费方都核过：StateReaper、`wake_actionable`、`wake_manager` 与 watchdog 一个都不读它——心跳检测一直是走 `agents.last_active_at` 这一列的。这条路径还是经 `repository.create_event` 写入、绕过 EventBus，所以它也从未驱动过 WebSocket 刷新；UI 是靠 `cc.*` 事件刷新的，这让「Dashboard 会停止更新」成了一个被代码证伪的担忧。在隔离实例上回放同样的流量、前后连测：**改前 177 条事件，改后 86 条**，纯心跳 91 → 0，全程两个 agent 的 `last_active_at` 都正常推进。上下文水位更新刻意保留——那是可解释的状态变更，不是心跳。历史行不删除。
+
+### 变更
+
+- **机检追上了它本该数的东西**（`7fe0cb2`）— I6 新增第五条硬等式，钉住 REST 端点数，取数来自 `app.openapi()` 而不是 grep：静态 grep 数出 195，而路由表说是 199，多方法路由与被包装的装饰器全丢了，而钉住一个错数字比不钉更糟。I8 从「只查小节标题」扩展为扫描两份 README 里每一处带数字的生命周期事件表述，起因是同一个数字被发现在能力小节与目录树里各自独立烂掉。两条都是手工红测过的，不是假设过的。把这一步放在批次的**最前面**而不是最后，在同一批里就三次回本：八处 README 锚点漂移，接着 199 → 201，再接着 201 → 202，每一次都在它刚坏掉的那一刻被抓住。
+
+### 升级须知
+
+- 跑 `python3 install.py --update`，把四个新增生命周期事件（`TeammateIdle`、`PostCompact`、`WorktreeCreate`、`WorktreeRemove`）注册进 `~/.claude/settings.json`。同一文件里已有的第三方 hook 会保留。
+- 重启 API 以接上 `tasks.cc_task_id` migration 与新的事件面。
+
+## [1.10.3] — 2026-07-27
+
+一次工程治理发布：**无新功能域**。一轮完整的 OS 与 Claude Code 对齐审计（10 个并行取证 agent，随后 8.5 个整改批次）查明：相当大一部分工具面早已悄悄失去意义——有的子系统存储自诞生起整个生命周期为空，有的工具唯一效果就是写出无人读取的行，还有的 hook 在每一次工具调用上都启动一遍，只为判定自己无事可做。下面每一处移除都有生产实测背书，而不是「看着没人用」。全发布净效果：296 个文件，+11,331 / -22,002 行，MCP 工具面 **168 → 112**。
+
+两项用户可见的行为变更值得点名：权限询问回来了（此前 OS 在静默自动批准五类工具），以及经团队创建的任务现在会出现在该项目的任务墙上。
+
+### 移除 — 工具面 168 → 112（退役 57 个，合并新增 1 个）
+
+- **pipeline 域整体移除**（`792e8ef`）— `pipeline_create` / `pipeline_advance` / `pipeline_status`、`src/aiteam/pipeline/`（9 个文件）、`loop/pipeline.py`、pipeline 的 REST 路由、`autopilot` skill，以及 `pipeline_gate.py` / `autopilot_auto_stop.py` 两个 hook。`pipeline_gate` 注册在**无 matcher** 的 PreToolUse *与* PostToolUse 两组上：每次工具调用多起两个进程，守的却是一份冻结在 2026-06 的白名单——autopilot 一旦打开，它会当场拦掉 CC 现有的原生工具。唯一能给它上膛的 `/pipeline/v2/autopilot` 路由已先行移除。刻意保留：`pipeline_stage_history` 表与 ORM（append-only 历史，停止写入，不 `drop_table`）、`tasks.config['pipeline']`，以及软退役的 `task_type` 参数。
+- **loop 状态机、调度器与心跳**（`5849317`）— `loop_start` / `loop_pause` / `loop_resume` / `loop_advance` / `loop_next_task` / `loop_review` / `loop_status`、`scheduler_create` / `scheduler_list` / `scheduler_pause` / `scheduler_delete`、`agent_heartbeat` / `watchdog_check`。实测：14 个调度工具在 21 天里被碰过 6 次，全是 smoke 测试；loop 状态机每 60 秒对每个活跃团队做一次不可达的 DB 往返，只产出 191 个空闲空壳；心跳目录从未被创建，而且本来也不可能工作——CC 子 agent 是一次性进程，从不轮询。`WatchdogChecker` / `WatchdogRunner` / `completion_verifier` 保留——消失的只有基于文件的心跳。`loop_states` 与 `scheduled_tasks` 停止写入，但不删表。
+- **团队与 agent 陷阱工具**（`cb8e147`）— `team_create`（连同 `POST /api/teams`）、`agent_register`、`agent_trust_scores` / `agent_trust_update`、`team_setup_guide`（合并进 `agent_template_recommend(task_type=...)`）。`team_create` 造出的团队没有 `kind` 键，落在 reaper 的豁免之外，而 CC 又从不为它创建 `~/.claude/teams/<name>/` 目录——建一个，下一轮清扫就丢一个。`agent_register` 在 2,396 个 agent 中产出的行数恰好是 0。`agents.trust_score` 列保留，`auto_assign` 仍按它加权；消失的只是那条从未被调用的打分链路。
+- **base 域**（`6cef48f`）— `pattern_record` / `pattern_search`（存储在其整个生命周期里都是空的，于是「过往执行模式」注入块在每次派工时都是一次注定空白的 API 调用）、`phase_create` / `phase_list`、`os_report_issue` / `os_resolve_issue`（历史上 0 条 issue 被提交过）、`send_notification`（它的 webhook 配置文件从未被创建，调用只可能失败）、`cross_project_send` / `cross_project_inbox`、`team_knowledge`（仅 MCP 工具——repository、REST 端点与 Dashboard 全部保留）、`git_auto_commit` / `git_create_pr` / `git_status_check`（agent 本就有 Bash，三层 git 包装只会收窄 CC），以及 `ecosystem_recipes`（合并进 `find_skill(level=2, category="integration")`）。
+- **观测空壳**（`3faf81e`）— `prompt_version_list`（仓库里从没有任何地方调用过 `/track`，于是 `/versions` 永久为空，Dashboard 对每一行的三列都渲染成 "-"）、`error_budget_status` / `error_budget_update`（数据目录在其 17 天的生命周期里始终为空）、`guardrail_check` / `guardrail_check_payload`（**仅移除薄 MCP 包装层**——`api/guardrails.py` 与 `InputGuardrailMiddleware` 未动；真正的 guardrail 在 HTTP 层强制）、`file_lock_acquire` / `release` / `check` / `list`（锁文件实测每一次运行都是 `{}`）。hook 侧的编辑冲突检测与 `get_file_hotspots` 保留——它们读的是真实编辑事件，不是锁文件。
+- **task 域**（`a4f5e9c`）— `task_decompose` / `task_subtasks`（整个数据库里 0 条子任务）、`task_auto_match`（在 CC 的按需派工之下，根本不存在可供匹配的空闲 agent 池）、`what_if_analysis` / `task_compare`，另有两处合并：`task_replay` → `task_execution_trace(include_stats=True)`、`taskwall_view` → `task_list_project(team_id=...)`。四个 REST 端点保留。
+- **ecosystem**（`fa1a09a`）— `ecosystem_data_source_create` / `ecosystem_scan_profile_update`（空实现桩），以及 `ecosystem_pin_active` / `ecosystem_unpin` / `ecosystem_mark_no_value` / `ecosystem_clear_manual_status` 四者合并为单一的 **`ecosystem_repo_manual_status(repo_id, status, ...)`**。`ecosystem_mark_as_reference` 刻意*不*合并——它通过 `deep_review_id` 驱动 Stage-3 漏斗，与按仓的手工状态覆盖是两回事。
+- **第四个 hook 注册面**（`82479f7`）— `src/aiteam/hooks/install.py` 与 `aiteam hooks` CLI 组：它把注册写进**项目级**的 `.claude/settings.local.json`（7 个事件、只有 `send_event.py`、matcher 已过期），并整键覆盖该文件的 `hooks`。与全局链叠加后，`send_event` 每个事件触发两次。按独立职责复核：一项都没有。*若你曾运行过 `aiteam hooks install`，那个项目的 `.claude/settings.local.json` 至今仍在重复触发——清理提示见 `/os-hooks`。*
+- **`scripts/install.py`**（`a2893ed`）— 自 2026-07-22 起它就只是个空转重定向，但其中的 `HOOK_EVENTS` 仍是第二张、且在漂移的注册表。同批移除：`task_completed_gate`（结构性死代码——CC 的任务 id 是整数，OS 的 id 是 UUID，于是 `/api/tasks/<int>` 恒 404，又被一个兜底 `except` 放过去）、`CORE_TOOLS` / `ADVANCED_TOOLS` 两份死清单（85 行，点名了 6 个从不存在的工具），以及 `continuous-mode` skill 目录。
+- **仓内过期 agent 模板**（`906bcc3`）— `.claude/agents/` 下的 22 份副本；其中 16 份仍写着 `model: sonnet`，且无一携带 `disallowedTools`。CC 解析模板的顺序是 project > user > plugin，因此这个目录在本仓库内抢占了权威的 plugin 版本。移除它之后回退到完整的 25 份 opus 模板集。
+
+### 修复
+
+- **权限裁决交还 CC**（`6899f3c`）— `workflow_reminder` 此前在**每一次** PreToolUse 调用上都写 `permissionDecision=allow`。这个字段是可选的表态，优先级高于用户自己选定的权限模式，于是 `default` / `plan` / `acceptEdits` 全被覆盖，Agent / Bash / Edit / Write / Workflow 的权限询问被静音——30 天内 43,605 次调用。**本次发布起询问回来了。**
+- **hook 超时差了 1000 倍**（`6899f3c`）— CC 文档里 hook 的 `timeout` 单位是*秒*（command 默认 600）；而全仓一直按毫秒写，于是 `3000` / `300000` 实际意味着 50 分钟到 83 小时——超时保护形同虚设。现按实测运行时长重定基线（`session_bootstrap` 0.20s → 15、`send_event` 0.08s → 5、`workflow_reminder` 0.09s → 5、`auto_install` → 180），`hooks.json`、`install.py` 与示例三处同改。
+- **项目归属竞态**（`4ae1539`）— 在某个项目里干活的 agent 被记到了另一个项目名下，错误路径还被渲染进它的系统提示。根因不是 SubagentStart hook，而是 `deps._auto_create_projects`：它在**每次 API 启动**时，把所有无归属团队批量绑到与 *API 进程自身的* `os.getcwd()` 匹配上的那个项目，匹配不到就回退到 `existing_projects[0]`。API 进程的 cwd 是共享全局状态。两个症状同源——agent 行与提示里的 `{project_path}` 都继承自 `team.project_id`。现改为按团队、从该团队自己的成员（Leader 优先）解析，宁可让团队保持无归属也不猜。随附 `scripts/repair_team_project_attribution.py`（默认 dry-run）。
+- **经团队创建的任务没有项目**（`c0a2e82`）— `task_run` 与另外三个入口创建任务时 `project_id = None`，于是 `GET /api/projects/{id}/task-wall` 从来看不见它们。修复落在唯一咽喉点 `repository.create_task`（显式参数 > 所属团队的项目 > 请求 scope），而不是去补四个调用点。
+- **ecosystem 队列死锁 17 天**（`fa1a09a`）— 生产实测：74 行处于 `queued+claimed`，可认领的为 0。认领此前是没有过期的永久占位，于是一个死掉的子 agent 就能把一行对所有认领方永久藏起来。预写 `claimed_by` 是刻意设计（它防止 tick 派发与拉取式认领抢同一行），予以保留；改法是让它变成**租约**——`STALE_CLAIM_TTL_SECONDS=3600`，取值高于 600s 的 Stage-0 超时和 45 分钟的深扫 watchdog，因此绝不可能从活着的 worker 手里抢走活。同时修掉一处潜伏的格式 bug：裸 SQL 写的 `isoformat()` 时间戳与 ORM 写入的在字符串层面不可比较。
+- **浅扫审批什么也没派出去**（`fa1a09a`）— 批准端点自己手搓评审记录行，**不带派工 prompt**，随后 `tick()` 因为这些行已存在而跳过整批，返回值又被一个裸 `except` 吞掉。批准出来的是一批没人能跑的活。现统一走 `worker.dispatch_batch`；快照损坏时以 500 大声失败，而不是被静默当成空。
+- **`ecosystem_index_update` 被已清空的表卡住**（`fa1a09a`）— 针对 `data_sources` / `scan_profiles` 的硬校验把这个工具和它下游的四个 diff 工具一起挡死。配置现改为从 settings 读，步骤 3b（1000）与步骤 4（5000）互相矛盾的阈值也已对齐；失败的 `gh` 查询返回 `query_errors`，不再被吞掉。
+- **七个「认错对象」bug**（`2238315`）— 全是同一种病：用来自另一个非权威源的键去认对象。空参数的团队解析会静默选中 `active_teams[0]`，而它实际上是最新的那个 per-run `workflow-*` 团队，于是会议 / 知识 / 活动类工具全绑到了错的团队上；`inject_subagent_context` 在回退分支里把**父 session 的**第一条用户消息当成派工 prompt 来读；`send_event` 拿模板名去匹配自定义成员名；`project_create` 接受没有分隔符边界的裸前缀根路径（`/Users/cron` 能认领 `/Users/cronus/...`）；`delete_project` 漏了 `scope='team'` 的记忆，清理事件时用的惰性子查询在真正执行时永远已经是空的；`decision_log` 有两处分支拿带前缀的工具名去和裸字面值比较，其中一处比的还是一个从不存在的工具名。
+- **`team_briefing` 事件与按项目的事件过滤**（`cb8e147`）— 旧谓词 `entity_id IN team_ids` 在 229,110 行事件里匹配到的是 **0** 行，因此照字面加上过滤条件反而会把简报清空。新的 `_team_scope_clause` 覆盖了实际在用的全部四种归属形态，同时修好了 `GET /api/events?project_id=`——它此前一直静默返回空。
+- **两条安装路径装出两套系统**（`a2893ed`）— 源码安装器注册的事件比 plugin 的 `hooks.json` 少 4 个，matcher 也对不上。`install.py` 新增 `HOOK_SURFACE`（11 个事件 / 17 条注册项）作为唯一权威，并从 append-only 改为「先清掉自己的条目，再整体重建」——否则 matcher 与 timeout 的改动永远落不了地。自己的条目靠一份显式的脚本名白名单识别，绝不靠路径子串，因此同目录下的第三方 hook 得以存活（已验证）。`RETIRED_HOOK_SCRIPTS` 会主动清掉在装过早期版本的机器上仍在运行的已退役 hook。
+- **`scripts/update.py` 在新版 Python 上半途中止**（`a2893ed`）— `pip install -e .` 在 PEP 668 的外部托管解释器（例如 Homebrew python3.12）上会被拒绝，而 `check=True` 让更新在 7 步中的第 2 步就被打死，于是 hook、skill、命令与设置全都没被刷新。现在 pip 失败不再致命。
+- **治理租约在停机时从未被释放**（`3e7add0`）— `/api/system/shutdown` 是走 `os._exit(0)` 退出的，绕过了释放逻辑所在的 lifespan 收尾。现把释放挪进退出路径本身（best-effort，绝不阻塞退出）；TTL 仍是兜底。端到端实测：继任者立即接管，不再有 180 秒的治理真空。
+- **`permission_denied_recovery` 在非默认端口上失聪**（`a2893ed`）— 全库唯一硬编码 `:8000` 的 hook；现改为读 `api_port.txt`。
+- **十个测试自 `75dcb18` 起一直是红的**（`a9a2e5f`）— 那个文件放在 `tests/` 而不是 `tests/unit/`，而过去每一次「全量绿」的签收都只跑了 `tests/unit`。**验收标准现改为 `pytest tests`。**
+
+### 新增
+
+- **`GET /api/agents/whoami` 与 OS 身份注入**（`cb8e147`）— 子 agent 无需注册握手即可拿到自己的 OS agent id：`inject_subagent_context` 注入一个由 `cc_tool_use_id` 解析出的身份块，端点则提供三级服务端查找（cc id → session+name → name），以应对登记尚未落地的时刻。
+- **简报标签与过滤**（`56bce86`）— `leader_briefings` 新增 `tags` 列；`briefing_add` 接受标签，`briefing_list` 与 REST 端点支持按项目与标签过滤，Dashboard 显示标签徽章并配过滤条。`project_id` 刻意默认为*不设 = 全部显示*：决策收件箱默认不得隐藏任何东西，而 2026-07-27 之前创建的行本就没有项目印记。标签比较是整值比较，不是 `LIKE '%tag%'`，所以 `release` 绝不会匹配上 `release-candidate`。
+- **规则 B0.16b — 待决事项必须入队，不能留在报告里**（`56bce86`）— 加入 `/api/system/rules`；起因是批次 7+8 把自己的悬置问题写进了完成报告，而简报队列始终是空的，用户因此从未真正收到它们。
+- **不变量 I8**（`a2893ed`）— `scripts/check_hook_surface.py` 把 `install.py` ↔ `hooks.json` ↔ 双 README 钉在一起。I1 也改成了带显式白名单的双向集合比对；旧版只走 plugin 一侧，于是只在 `src` 侧新增的文件、以及缺失的副本，两类都静默不可见。
+- **修复脚本，默认 dry-run** — `scripts/reclaim_stale_shallow_claims.py` 与 `scripts/repair_team_project_attribution.py`。两者都必须加 `--apply` 才会写。
+- **`task_run` 新增 `priority` / `horizon` / `tags` / `assigned_to`**（`a4f5e9c`）— 它的 docstring 一直在指导调用方设置 priority 与 horizon，而函数签名并不接受这两个参数。
+- **`event_list` 新增 `type` / `source` / `entity_id` / `project_id` 过滤**（`a4f5e9c`）— 底层查询一直支持，工具却只暴露了 `limit`。
+
+### 变更
+
+- **hook 注册面统一为 11 个事件 / 17 条注册项**（`a2893ed`）— `send_event` 保留全量 `*` matcher（遥测必须完整），开销靠内部对惰性工具的提前返回来吃掉，而这个提前返回**在 Pre/Post 两侧对称**——只砍 Post 一侧会让每个已开始的 span 永远钉在 `running`。`workflow_reminder` 收窄为 `Agent|Bash|Edit|Write|Workflow`；`deep_review_link` 与 `meeting_ecosystem_writeback` 从 `*` 收窄为各自的工具名。
+- **`failure_analysis` 的记忆现归项目，不再归团队**（`a4f5e9c`）— 团队是 session 级或 workflow 级的、寿命很短，于是教训随团队一起死掉（此前已积下 125 条这样的孤儿）。历史行不迁移；`list_team_knowledge` 同时读两个 scope，因此 `/api/teams/{id}/knowledge` 跨过这道边界仍是完整的。
+- **`prompt_effectiveness` 不再做 N+1 查询**（`a4f5e9c`）— 它此前对每个团队循环三次查询（254 个团队共 762 次往返），还把多达 2,000 行活动记录拉进 Python 只为了数个数；现改为两条聚合 SQL。
+- **`state_reaper._check_team_liveness` 退役**（`cb8e147`）— 它当初存在是为了跟随 CC 的 `TeamDelete`，而后者已不存在。实测 254 个团队（workflow 168 / session 80 / 无 kind 6）中，前两类本就已被豁免，因此这条分支只可能落到遗留团队上：零收益，误关风险丝毫未减。改由 `_check_stale_teams` 接手，并给它的「空团队」路径补上了一直缺失的会议宽限期。
+- **文档对齐实测** — 双 README：工具分组 21 → **16**（表里还列着 `trust` / `error_budget` / `file_lock` / `git` / `guardrails`，它们已随各自模块一起消失）、工具模块 21 → 16、hook 生命周期事件 12 → 11、REST 端点 199、机检不变量 9。已退役子系统的条目是改写而非删除，好让路线图记录下退役了什么、又为什么退役。`docs/ecosystem-recipes.md` 的配方按退役后的工具名重写，`docs/architecture.md` 里 `loop/` 的描述与其实际内容对齐。
+
+### 文档 — README 截图生成（自本次刷新以来的首个发布）
+
+- **双 README 的截图小节全量重生成**（`845ddf0`、`21ea140`，合并于 `5c7c19c`）— **12 个页面 × zh/en = 24 张视口截图**，加上共用的自动唤醒演示，合计 25 张受跟踪图片、每种语言 13 处本地图片引用。有四个视图是 README 里的新面孔：`workflows`（运行卡片，含一条正在跑的工作流）、`workflow-detail`（相位泳道加逐 agent 遥测表，其中一次失败的契约检查以红色呈现）、`project-detail`（Leader 上下文水位与 worktree 未提交工作提示）、`agent-lanes`（跨团队 14 个 agent）。英文 README 现在用自己的 `-en` 图片集，不再共用中文截图。
+- **每张截图都按固定视口重拍**（`21ea140`）— 全程 `fullPage=false` @ 1440×900，取代此前的整页渲染；其中一张曾高达 10,963px，README 读者根本无法有效查看。
+- **截图从一个中立的种子数据库生成**（`845ddf0`）— `scripts/demo_seed.py` 构建自包含的演示数据集，`storage/connection.py` 新增 `AITEAM_DB_PATH` 覆盖开关（配 4 个单元测试），让截图运行指向那份种子而不是真实工作库。没有任何生产数据进入已发布的图片。
+- **新截图涉及的视图补齐 Dashboard i18n**（`845ddf0`）— 在设置页的模型治理卡、项目详情、团队、全局搜索与模型选择器这几处，双语各补 21 个键，让英文截图真的是英文，而不是半译状态。
+- **清除孤儿截图**（`4dde89f`、`d41d55e`）— 移除 7 张零引用图片，包括一张 2.5 MB 的移动端截图和一张自六月遗留下来的 42,859px 高整页渲染。`docs/screenshots/` 现在零孤儿：25 张受跟踪文件全部被引用，且每一处引用都能解析（发布时机检验证）。
+
+### 本次发布另含（v1.10.2 tag 之后落地、此前未发布）
+
+- **agent 自动登记，豁免盲区退役**（`75dcb18`）— 直接派 agent 彻底解封，团队系统从强制前置条件变成自动兜底：没有团队的 agent 不再被跳过，而是被登记进一个 `session-<sid8>` 容器团队，并在入队途中纠正 Leader 漂移。`_check_agent_team_name` 里那段无条件 `exit(2)` 拦截已消失；源自 2026-05-08 事故的跨项目派工守卫保留。
+- **「团队已死、人还活着」的三重误诊**（`6a5f63e`）— 四个 agent 在并行干活，OS 却什么都不显示。三层原因叠在一起：reaper 用 `owner_session_id` 探测判活，而 CC v2.1.219 的隐式团队名是一个没有 transcript 的内部 id，于是它回退到 `created_at` 并把团队关掉；在 Leader 注册之前创建的团队永远拿不到 `project_id`；前端又只过滤活跃团队。判活现在把成员的最近活动时间一并纳入，而矛盾状态（已完成的团队却有 busy 成员）会自愈。
+- **未注册目录的记忆隔离**（`29a366d`、`f48b808`）— 来自匹配不到任何 OS 项目的目录的 `scope=project` 写入，此前会静默回退到全局 `system` 桶，把一个目录的项目记忆广播给每一个 session。现改为在服务端派生按目录的桶（指纹算法刻意只存在于服务端，绝不复制进 hook 文件）；完全没有 cwd 时，请求被拒绝而不是被全局化。
+- **plugin 安装自愈**（`ce64d8a`、`8559348`、`ee9cf09`、`46c9bdc`、`96dc6f7`）— 用版本比较取代「import 成功就算装完了」，用首次运行的进度卡取代沉默，改用绝对 `sys.executable` 路径让整条链在 `python3` 这个 token 无法解析的 Windows 上也能跑通，独立安装路径补上 skill 与命令的分发，Python 版本闸门挪到模块顶层（一个 PEP 604 注解在 3.9 上于 def 时刻就抛错，反而让这道守卫本身不可达——由社区 PR #4 报告）。
+- **唠叨提醒治理**（`6de9695`）— 五处提醒改为低频且可静音，依据的原则是：被系统性忽略的提醒纯粹是 token 与注意力税。安全红线（S1-S3、rm、force push）未动。
+- **团队项目重新指派**（`c47cc70`）与**团队绑定禁用 cwd 回退**（`e812de4`）— 前者是纠正系统猜错的归属的唯一手段，后者是这处修复的 hook 侧一半，其启动侧对应项就是上文的 `4ae1539`。
+- **并发与 lint 加固** — 团队 find-or-create 竞态不再吞掉错误（`7595427`），reaper 会收割已认养但已进终态的 workflow session 空壳（`32a2ab7`），ruff 全库归零并在两次 CI 红灯之后升为不变量 I7（`d64c635`、`702f89f`）。
+- **Dashboard** — `SidebarInset` 新增 `min-w-0`，宽表格不再把整页撑出视口之外（`c72b921`）。与它同批交付的 README 截图重生成见上文的**文档**小节。
+
+## [1.10.2] — 2026-07-14
+
+### 修复
+
+- **服务端事件写入治理**（`4f508bd`）— 判定「首次转入 completed/终态」的逻辑移入 upsert 事务内部（原子 NamedTuple 返回），再加一把 per-wf_id 的进程内锁，workflow 完成事件由此不论连接拓扑如何都恰好一次；`agents.cc_tool_use_id` 上的部分唯一索引配合保留 leader 的去重 migration，关闭并发重复成员行的窗口；SessionEnd 不再把仍在运行的 workflow 子 agent 置为 offline（豁免现已与团队级那条对称）。
+- **Workflow 成员终态徽章**（`a74e6ae`）— 已完成的 workflow 成员由 workflow_agents 投影状态驱动、渲染为绿色的 "done"，而不再是灰色的 offline 状态；session 容器团队的真实 offline 历史保持原样不动。
+
+### 变更
+
+- **模型分层编排宪章**（`ef99f73`）— os-workflow skill 补上 §3 分层纪律：Fable 编排、Opus 执行（workflow `agent()` 默认显式 `model:'opus'`，只有最高难度的裁决阶段才继承 Fable）；CLAUDE.md 的模型默认值条款澄清（DB 观测字段 vs 模板 frontmatter）；观测读路径新增用量聚合。
+
+## [1.10.1] — 2026-07-14
+
+### 修复
+
+- **Dashboard 写操作治理**（`c1770f2`、`77028e3`）— 移除三个只写 DB 状态、实际毫无效果的幻觉来源控件：伪造出一个永久 busy agent 的添加 agent 按钮、配置文件零消费方的唤醒配置页、只会产生永久孤儿的手动建队（另附两个死掉的会议 hook）。保留下来的队列式操作现在如实呈现后端的「等待 agent 领取」提示，「执行」改为「加入任务墙」。
+- **会话容器团队展示**（`eb4365b`）— kind=session 团队不再借用 workflow 模板，改用自己的卡片语义：「活跃 N / 历史 M」成员计数、可解析时映射 CEO 名称、完成时间戳不再带假的泳道链接；`config.kind` 为空的历史团队按名称模式识别。
+- **hook 自动写入治理**（`d65cd9f`）— PostToolUse SendMessage 关键词匹配不再自动完成任务墙上的任务（改为仅作软提示；此前一句「完成后回报」指令就会把任务标记为已完成），TeamDelete 只关闭被删掉的那个团队而不是所有活跃团队，已退役 pipeline 的自动 running/completed/advance 写入降级为软提示，死代码 `_auto_advance` 移除。
+- **S4 收尾 guard 升级为 patch-id 判定**（`d65cd9f`）— merge-base 祖先关系检查现在会回退到 `git cherry` 的 patch 等价判定：squash/rebase 落地的 worktree 自动释放，混合情形仍然拦截并点名不等价的那些提交。
+
+### 变更
+
+- README（EN/zh）补充 v1.10.0 跨会话编排能力的说明与使用指引；ecosystem 工具数修正为 47（`568b01f`）。
+
+## [1.10.0] — 2026-07-14
+
+### 新增 — 跨会话编排（新能力）
+
+- **Fleet downlink 原语**（`f0b859c`）— headless `claude -p --resume <session_id>` 驱动目标兄弟会话执行一个操作回合，复用既有 wake 机制（信号量、熔断、白名单、按会话去重、全量审计轨迹）。一个会话从此可以观测并驱动兄弟会话，而不再局限于只能新起会话。
+- **Wake system v2**（`626e248`）— `/api/wake/actionable` 单一判定源端点（watcher 与 guard 查的是同一套判据），SessionStart 模板从固定 30min cron 改为动态 `/loop` 间隔，收尾 guard（Stop hook，`decision:block` 与用户停止关键词始终放行），会话级事件 watcher 带 1h 硬超时。无常驻守护进程。
+- **agent_reuse_recommend MCP 工具**（`e3ed728`）— 三选一复用决策（复用 / 精简后复用 / 新起），按领域匹配度、可达性（存活 / 可恢复 / 跨会话 / 已过期）和上下文水位打分。工具数 166→167。
+- **子 agent 上下文水位台账**（`aae63ff`）— agents 表新增列 + SubagentStop 事件采集 + reaper 回填；从 transcript 尾部读取精确 token 用量，先做低成本检查。
+- **观测卡片**（`88bbf06`、`f3f8c01`）— fleet 卡（逐会话 CEO / 模型 / 在制任务 / 上下文水位）、worktree 卡（分支归属 + 未落地工作状态，经按需 `worktree_probe` 探测）、agent 视图上的三色上下文水位条。
+
+### 新增 — worktree 隔离治理
+
+- **S4 收尾 guard**（`fa230da`）— 存在未落地工作（未提交，或只在本地的提交）时，拦截 `git worktree remove` / `branch -D` / `rm -rf .claude/worktrees`；已合并、只差推送的工作放行。
+- 写代码类 agent 模板默认 `isolation: worktree`（`7c9f3c2`）；工具 list 响应改为紧凑投影并留逃生口（`289a183`）。
+
+### 修复
+
+- **Fleet 身份 P1**（`5985f9e`）— `session_id` 升为一等身份键：每个 session 一行 leader、出生即绑定，跨会话 leader 漂移根除，SessionEnd 只关闭由该结束会话持有的团队（顺带结掉两项长期积压的待办）。
+- **注入层审计 P0-P3**（`ae54ebb`）— 死掉的 pipeline 块重新接线（复活从未触发过的 task-memo 与 pattern 注入），两处无节流的催办提醒补上冷却，报告格式样板文案去重。
+- S4 落地检查改为对比本地 main 分支，不再拿过期的 `origin/*` ref 作准（`ae43c86`）；wf_id 正则加上边界，worktree 实例后缀不再被吞进幽灵团队 id（`d95dfc6`）。
+
+## [1.9.0] — 2026-07-13
+
+### 新增 — 记忆系统 v2（双层台账 + 按需整理）
+
+- **情景层升表**（`573c0b8`）— task memo 从 tasks.config JSON 数组升为独立 `task_memos` 表（行级 ID/失效轴/质量分/scope_path），123 条历史零丢失回填，原 JSON 冻结为档案；`task_memo_add` 接口不变新增 `supersedes` 置换。
+- **方向层激活**（`c2ffd31`）— memories 表承载用户偏好/纠正/设计意图（kind 四类），MCP `memory_add`/`memory_invalidate`/`memory_list`；体量红线 ≤40条×400字；SessionStart+SubagentStart 双 hook 常驻注入（≤2000字，API 不可达静默）——派出的 agent 出生即继承团队偏好。
+- **按需整理**（`0666cdf`）— `memory_reconcile_candidates`（BM25 粗筛聚簇，零 LLM）+ `memory_reconcile_apply`（合并/失效/打分/蒸馏提升，幂等）；"agent 算、工具存"架构；量阈软提示。工具数 161→166。
+- 设计文档 `docs/memory-v2-design.md` 入仓：三路工业调研（逐路对抗核验）+ Kun Chen 案例内容标准。
+
+### 新增 — 工具渐进式加载（P1 alwaysLoad 轮换 + P2 分组开关/只读档 + P3 模板最小权限）
+
+- **P1 - 会话启动期 alwaysLoad 轮换**（`dc5d652`）— 极少数近期高频工具挂 `_meta {"anthropic/alwaysLoad": true}`，CC 据此对它们豁免 ToolSearch。白名单每会话启动从 `agent_activities` 重算一次（7 天频次 + 跨天数≥2 挡时段爆发 + 20% 迟滞防抖，硬顶 ≤5）。纯增益：统计查询失败静默降级为全 defer。后端 `GET /api/tools/always-load`。
+- **P2 - `AITEAM_TOOLSETS` 启动期分组开关** - 24 个能力域 toolset，启动时按环境变量决定注册哪些模块。`default` = task/team/memory/infra/reports（44 工具，硬顶 ≤50）；`default,ecosystem` 增量挂载；未知组名 stderr 警告并忽略（绝不因配置错拉不起 server）。无 env / `all` 保持全量 166 向后兼容。
+- **P2 - `AITEAM_READONLY=1` 只读档** - 与分组正交叠加，注册后按显式 `WRITE_TOOLS` 清单（不靠命名模式猜）剔除全部写工具、保留读工具。`os_restart_api` 虽走 GET 但重启进程，手工补入写清单；`diagnose_task_failure` 等纯分析 POST 留在读侧。
+- **P3 - agent 模板工具裁剪** - 首批保守圈定的 CC subagent `disallowedTools`（结构性 denylist）：会议主持/辩论正方/辩论反方裁掉 git 写 + 项目/团队删除 + os_restart_api + ecosystem 写族（各 34 个）；技术文档工程师另加 `task_run`；项目经理仅裁 git 写 + os_restart_api。全部读工具与会议/memo 记账工具保留，工程/测试类模板不动。ecosystem 写族取自 `toolsets.py::WRITE_TOOLS`。
+- 设计文档 `docs/tool-loading-design.md` 入仓（三路调研 + 开源多项目收敛）。工具总数仍为 166 - 分组是运行期环境开关，非注册表变更。
+
+### 修复
+
+- 双审查 4 项 major 全修（`ca50607`）：检索路径失效过滤/supersedes 红线绕过/回填双实例竞态（uuid5+INSERT OR IGNORE）/hook 注入单行化清洗（跨 agent 提示注入面关闭）。
+- delete_project 级联补 task_memos；Rule13/relevance_score 历史失败测试清零——全量 1710 passed / 0 failed（`40935fd`）。
+- 集成测试真实文件污染隔离：team-defaults.json 重定向 tmp（conftest）。
+
+### 变更 — 调度器退役
+
+- 周期 cron 改按需 `ecosystem_refresh`（`6bbdc58`，CC 非常驻裁定）：删启动自动注册与 4 条死 cron；`POST /api/ecosystem/refresh` 实测 81 仓 107s 全通。install.py 补注册 deep_review_link/meeting_ecosystem_writeback 两漏装 hook。
+
+## [1.8.1] — 2026-07-10
+
+### 新增 — 模型治理（用户作用域，零强制）
+
+- **可用模型文件真相源自动拉取**（`899217c`）— `model_discovery.py` 扫描本机全部 CC transcript 尾部，聚合你真实用过的模型（109 文件约 1s + 60s 缓存；过滤 `<synthetic>`；层级别名标注）。实扫发现 `deepreasoning-coding-max-4.7`——任何硬编码清单都不会收录的第三方模型。
+- **默认启动模型写入 `~/.claude/settings.json`** 的 `model` 键，新开 CC 会话生效。三层写保护：只动该键 / `.bak-aiteam` 备份 / tmp+rename 原子写；settings 损坏时拒写不破坏原文件。
+- **REST `/api/models/*` + MCP `model_config_get`/`model_config_set`**（工具数 158→160）；设置页新增「模型治理」卡（默认模型选择 + 自动发现清单表）。
+- **仅软提示、绝不拦截** — 注册 agent 时模型不在清单只在响应附提示、照常注册。ultracode/Workflow 完全豁免：模型选择归 CC 编排器（用户裁定 2026-07-10）。
+- **push 前预检脚本**（`a00973e`）— 把"提交后才发现 CI 红"提前到本地。
+
+### 修复
+
+- **ModelSelect 下拉退化**：当前值（如 `fable` 别名）不在清单时曾退化成纯输入框——现始终显示下拉、当前值置顶（`91180ab`）。
+- **「保存（演示）」按钮**：通用/端口两节的历史遗留未接线按钮——已禁用并附悬停说明。
+- **最后的硬编码模型默认清零**：`DefaultsConfig.model = "claude-opus-4-7"`（4-7 幽灵最后巢穴）与常驻成员默认 `claude-sonnet-4-6`——空串=继承默认启动模型，模型换代零维护。
+- **CI 三红转绿**（`25f85f9`）— ruff 全清、108 个失败单测归零、eslint 0 error。
+- 任务墙提醒在无活跃团队时改荐 `task_list_project`（`taskwall_view` 需团队）。
+
+### 变更
+
+- **模板灵活性明示**（`b27421e`）— `team_setup_guide` 提示与 SessionStart 简报注明三条自由通道：`general-purpose`+自定义 prompt（零模板组队）、编制按任务增删、`plugin/agents/*.md` 随时可改可增。模板是起点，绝非必须。
+
+## [1.8.0] — 2026-07-10
+
+> 自 v1.6.2 以来首个完整功能公开发布——整条 v1.7.0 线（此前仅私有）连同以下内容一并进入公开仓库。
+
+### 新增 — 知识层 P1：引用图谱 + 统一检索
+
+- **跨域引用图谱（P1a）**（`c0f49e8`）— 零 LLM 正则抽取器从任务 memo 和报告中挖出 OS 原生 ID 引用（`wf_` id / commit hash / 任务 uuid / `[[记忆]]`），落入 append-only 的 `knowledge_links` 表（UNIQUE 五元组去重）。图谱是派生视图——随时可从源文本重建；附历史数据回填脚本。
+- **统一检索（P1b）**（`6ba4a5f`）— `/api/search` 三臂 RRF 融合（k=60）：BM25 全文（中文 bigram 原生）、知识图谱扩散（查一个 ID 连带拉出所有关联物）、精确 ID 前缀/标题匹配。Dashboard 顶栏全局搜索框；MCP 工具 `unified_search` / `link_query` / `link_trace`。
+
+### 新增 — 治理
+
+- **红线不变量机检**（`fe0d843`）— `scripts/check_invariants.sh` 机检五项事故沉淀的不变量（hook 双副本同步、版本五处锁步、双 dist 一致、dist 时效、venv 禁令），配 CI 快速失败 job。
+
+### 安全
+
+- **堵住 InputGuardrail 大 payload 绕过**（`2a5fd46`，公开 issue #1）— 超 16 KB 的请求体曾完全跳过 L1 guardrail，恶意 payload 填充过 16 KB 即可绕过全部检查。现在 2 MB 硬上限内全量检查（超限 413）；危险模式规则全文扫描（撤销每字符串 10 KB 截断窗口）；XSS 规则去 ReDoS（`<script[^>]*>` → `<script\b`——前者 O(n²) 回溯，2 MB 洪水输入实测 ~113 秒）。新增 15 项回归测试。
+
+### 修复
+
+- **归属铁律**（`bb78aa0`）— session 启动目录是唯一归属权威：子目录不再另立幽灵项目、移除自动注册、回执迁移加负排除 + 孤儿收尸；SessionEnd 不再误杀运行中的 workflow 队。
+- **per-run 建队提前到回执时点**（`3a31d8b`）— kill 中途（或超长 turn）的 run 不再在项目页隐形。
+- **`project_delete` 级联 500**（`16dd004`）— 级联引用了不存在的 `EventModel.team_id`，删除恒返 500。
+- **项目页 run 摘要恢复**（`f97be00`）— 请求 limit 500→200；被静默吞掉的 422 曾让整个行内摘要特性失效。
+
+### 内部
+
+- 每日流量归档 workflow（`7dd9d95`）— 仅在私有仓运行（仓库守卫）；公开发布前净化批次（`7b195c7`）。
+
+## [1.7.0] — 2026-07-07
+
+> 说明：1.6.2 为内部过渡版本号（五处版本锁步用，从未打 tag / 发布），其内容作为 1.7.0 的一部分随本版发布。
+
+### 新增 — Workflow 观测层 Phase 2：live 追踪 + 相位泳道
+
+- **journal 增量 tail**（`32becb5`）— 按字节 offset 尾读 `journal.jsonl`（只消费到最后一条完整行），Workflow 回执携带的 `transcript_dir` 持久化后直接寻址，运行期 `live_tokens` / `last_activity_at` 近似值（终态由 `wf_<id>.json` 文件值覆盖），900s 保守 `interrupted` 判定，`mtime_ns:size` 指纹短路让稳态对账近零成本。
+- **相位泳道 UI**（`/workflows` 详情页）— 逐 agent 时间条按 phase 分组，running 期实时轮询推进，遥测表可排序。
+- **回执 / 认养加固**（`10abd20`）— 早到的 workflow agent 先由会话兜底队（`workflow-session-<sid>`）认养，`wf_id` 一旦可见即迁入 per-run 团队；子 agent 模型不再落错误的硬编码默认值。
+- **嵌套 workflow 布局支持** — 从 subagent 内启动的 run 落盘在 `<session>/subagents/workflows/<wf_id>/`；live tail 与终态文件对账均能解析该布局（agent 语义标签在终态自动补全；running 窗口期标签缺口属 CC 落盘时序限制，缓解方案已上任务墙）。
+
+### 新增 — Leader 身份文件真相源直读（零注册依赖）
+
+- **`session_probe` 模块**（`d75b3de`）— 项目的 Leader 就是 `~/.claude/projects/<slug>/` 下最新的 CC 主会话：文件 mtime = 活跃度（15 分钟窗），transcript 尾读 = 当前真实模型（`/model` 随时切换一轮内跟上；compact 写入的 `model:"<synthetic>"` 合成行被跳过，`05f4092`）。`project_summary` 直出磁盘探测的 `leader` 块，Dashboard LeaderCard 不再走团队链查找（Leader 行寄生的 workflow 队跨项目迁移时团队链会断裂）。
+- **Leader 活性**（`44c7f91`、`1ab5c37`）— 工具事件在流即把 offline Leader 复活为 busy（60s 节流触摸）；state reaper 按角色豁免 `leader` 与 `workflow-subagent` 的配置探活（此前只按字面名 "team-lead" 豁免，行名实为 "Leader" 导致每个 tick 收割刚复活的行）。
+- **每轮模型刷新**（`9327038`）— Stop hook 每轮尾读 transcript 更新 Leader 模型；曾因缺一行 `import json` 被静默吞掉两个提交周期，已修复并配离线复现回归测试（`44c7f91`）。
+
+### 新增 — Dashboard ultracode 化改版
+
+- **workflow 名称为主的展示**（`f01c590`）— 各处以 run 名称为主标题，`wf_` 编号降级为等宽淡色小标；运行列表按 `COALESCE(started_at, created_at)` 排序（历史收编曾把最新运行埋没）；`/pipelines` 展示层退役并重定向 `/workflows`。
+- **项目详情行内摘要（方案 A）**（`87aecd3`、`daa2df0`）— 活跃区与历史区的 workflow 团队行内直接展示 run 摘要（泳道同色系状态徽章、agent 数、总耗时、完成时刻）+「查看泳道 →」直达链接；活跃 workflow 团队以 `run.summary` 为副标题，成员显示观测层阶段标签（`audit:…`），`wf-<ccid>` 编号降级小字。
+- **Leader 卡与会话计数**（`3403e0f`、`20fff24`）— 模型全名直显（无别名映射，兼容未来非 Claude 模型接入）；项目会话数改文件真相源统计；空态卡替代整卡隐藏；磁盘迁移后的遗留项目注册清理。
+
+### 变更
+
+- **D5 双轴收敛**（`618e176`）— `stage_status` 唯一权威，`status` 改为派生只读投影，认领零窗口（DB 原子认领），幂等回填。
+- **pipeline 退役 Phase 1–3**（`8fc3e2d`、`f01c590`）— 拆除新增入口硬拦、停用自动推进、展示层由 `/workflows` 接管；OS 定位为 CC ultracode 的持久化 / 观测层。
+- **治理租约**（`00c861b`）— reaper + watchdog 共用单行 `governance_lease`（fail-open），跨进程同刻只有一个治理者；kill 路径先校验进程身份再动手。
+
+### 修复
+
+- **跨项目 workflow 归属**（`86c6900`、`44c7f91`）— 归属改随文件真相源：run 落盘路径的 slug 与注册项目的 `_project_slug(root_path)` 匹配（与 CC 目录命名逐字符一致）；团队跟随其 run 迁移；孤儿队 cwd 认领排除 workflow 队。59 条误归 run + 5 个队迁回真实项目；匹配不到的留空不猜。
+- **`claude-opus-4-7` 幽灵模型**（`391a866`、`364060d`）— 四层烘焙默认值全部拔除（types 默认 / ORM 列默认 / `to_pydantic` 读注入 / MCP 工具参数）。读注入是真凶——DB 已清洗干净它仍在读路径上凭空再造幽灵。
+- **重启僵尸误报**（`d6d6ed5`）— 优雅停机成功后残留 zombie PID 不再误报 `shutdown_timeout`；存活检查经 psutil status + `ps` state 前缀识别 `ZOMBIE`。
+- **fastmcp 3.4.3 在 SOCKS 代理下启动崩溃**（`56733f5`）— 关闭启动期 PyPI 版本检查（`check_for_updates="off"`）；无 `socksio` 的 SOCKS 代理曾以 `-32000` 炸掉 stdio 重连。更新检测改 `git merge-base --is-ancestor`（严格落后才提示），根除本地领先时的「检测到新版本」误报。
+- **`os_restart_api` 子进程 stderr 持久化**（`9d8f020`）— 重启拉起的 API 进程曾把 stderr 写进 tmpdir（重启机器即丢、巡检盲区）；统一并入持久的 `api-stderr.log`。
+- **bootstrap 不再引导手动起第二个 uvicorn**（`f8da12b`）；autostart 跳过测试不再硬编码版本 `1.3.4`（`677c557`）。
+
+### 新增 — Workflow 治理（跟随 CC ultracode）
+
+OS 转向「CC 的持久化治理层」定位，不再与 CC 内置 Workflow 抢会话内编排。
+
+- **Workflow 自动追踪为团队 + 识别为委派**（`abec404`）— `hook_translator._on_subagent_start` 新增 `workflow-subagent` 分支：按 transcript_path 里的 `wf_<id>` 严格「一 workflow 一团队」（`workflow-<wf_id>`）；成员按 `cc_agent_id` 去重（非 name）根治 16-agent 塌成 1 行；自动建团队、不要求已有 active team 根治 0 行注册；绑定到发起 workflow 的 Leader 项目。`_DELEGATION_TOOLS` 加入 `Workflow`——调 Workflow 即视为委派、重置 B0.9「为什么不委派」计数；PreToolUse / PostToolUse matcher 补 `Workflow` 让 hook 能看到调用。
+- **Workflow 回写治理**（`29eab2b`）— `workflow_reminder` 新增 Workflow 软提醒（300s 节流）：调 Workflow 时提醒①总任务上墙（`task_create`）②让每个 workflow agent 用 OS 工具（`task_memo` / `report_save`）回写，指向新 skill `/os-workflow`（`plugin/skills/os-workflow`，含回写指令标准模板 + 脚本示例）；Dashboard TeamsPage 给 `workflow-*` 团队加「工作流」徽章；`CLAUDE.md` 新增「用 CC Workflow 时」一节固化约定。
+- **严格一 workflow 一团队（per-run）+ Step 4 启动预登记解析**（`aac902f`）— `_promote_workflow_team`：`wf_id` 一旦在 `SubagentStop` / 子 agent 自身工具调用里可见，即把 agent 从 `workflow-session-<sid>` 兜底团队迁移到 per-run 的 `workflow-<wf_id>` 团队；`_parse_workflow_plan` 从 `tool_input.script` 静态提取声明式 phases + 字面 agent 数 + 动态 fan-out 节点数，`_on_pre_tool_use` 在 `tool_name==Workflow` 时 emit `workflow.planned` 预告事件。
+
+### 修复
+
+- **项目详情页团队列表消失**：`apiFetch` 原先把 `X-Project-Id` 头注入到*所有*请求，导致残留在 `localStorage` 的全局项目 pin 把 `/api/teams` 也限定到单一项目。ProjectDetailPage 是拉全量团队后客户端按 `project_id === projectId` 过滤，被限定后过滤结果为空，于是每个项目的活跃/历史团队全部消失。现把 `X-Project-Id` / `X-Project-Dir` 头**硬性限定为只给 `/api/ecosystem` 请求**，其它端点永不被项目作用域影响。
+- **新项目 Leader 永久显示「空闲」**（`dfe5f67`）— 此前 `project_id` 仅在 SessionStart 绑定；新项目的 Leader 若在项目登记前 / cwd 未匹配时创建为 `project_id=None`，后续每次工具调用刷新 `last_active_at`（一直「活动」）却永不回填 `project_id`，项目判活便看不到它。修复：**服务端 `PreToolUse` hook** 抽 `_resolve_project_id_by_cwd` 最长前缀匹配 helper（与 SessionStart 复用），对 `project_id` 为空的 Leader 按 cwd 解析并补绑——任意工具调用即自愈，不再依赖 SessionStart 时机。
+- **SessionStart 项目解析改最长前缀匹配 + Leader 绑定纠偏**（`b3f7cb6`）— cwd 可能同时前缀命中多个项目（父目录与其子目录项目），原 first-match 会把 Leader 绑到更宽的父项目（实测绑到 TUF 垃圾项目）。改用与 team-mapping fallback 相同的最长 `root_path` 匹配，并把补绑条件升级为「解析结果与现绑不一致即纠正」（session 只有一个 cwd，解析结果是权威）。
+- **SessionStart 复用 session Leader 时补绑缺失的 `project_id`**（`c7b4c6e`）— session Leader 档案若生而无项目归属（实测累积 7 条孤儿 Leader 行），复用分支永不回填，导致项目判活匹配不到活跃 Leader、项目永远显示空闲；复用时若 cwd 已解析出项目且档案未绑定则补绑。
+
+### 变更
+
+- **生态库项目筛选归位**：项目筛选下拉本属于「按项目查看生态库」的功能，却被挂成全局 Header 切换器（`components/layout/ProjectSwitcher`）并在 `client.ts` 注释为「Global project context」，因而被误当成全局应用切换器。现移除全局 Header 处的切换器，组件改名 `EcosystemProjectFilter` 并迁至 `components/ecosystem/`，仅在 `/ecosystem` 列表页提供；相关注释补充历史教训与「勿全局化」硬约束以防复发。
+- **项目详情头部布局重排**：描述独占整行（长描述可读性最优），当前团队 / 历史团队 / 创建时间三项紧凑成一排，不再四等分挤压描述。
+
+### 文档
+
+- **开发机迁移指南（Windows → Mac / VS Code）**（`7828e7b`）— 新增 `docs/` 指南（强制追踪，与 `ecosystem-recipes.md` 同例）：跨平台现状（代码无版本问题）+ 三样不随 git 走的东西（未推送提交 / `aiteam.db` 数据库 / `.mcp.json` · `.claude` 本机配置）+ Mac 完整安装步骤（含 DB 拷贝命令）。
+
+### 新增 — Workflow 观测层 MVP（CC ultracode）
+
+自带 pipeline 已定向废弃（与 CC 内置编排重复），OS 转型为 CC ultracode/Workflow 的**持久化观测层**。设计：hook 只当「时机 + 关联锚点」，落盘的 `wf_<id>.json` 富快照才是遥测真相源；完成检测 = reaper 保底轮询 + hook 流量对账，同一幂等 ingest，离线缺口自愈。_（本批将在发布时归入 1.6.2 或 1.7.0，由作者定——见备注。）_
+
+- **新表 `workflow_runs` / `workflow_agents` + repository CRUD**（`6f9ceb4`）— 不可变快照文件的可重建缓存，按自然键 UPSERT 单调推进（绝不删行；审计轨仍走 `events` 表）；新增 `WorkflowRun` / `WorkflowAgent` 模型；顺带落地孤儿 `TeamState` / `TEAM_STATE_CHANNELS` 删除。
+- **`workflow.planned` / `workflow.started` / `workflow.completed` 三个事件类型** — `EventType` 补 `planned` 成员，修复 planned 不在枚举导致 `create_event` 抛 `ValueError` 被吞的 Step 4「0 有效数据」真因。
+- **摄取 + 对账**（`workflow_ingest.py`）— 回执解析 / 富快照摄取 / reconcile 对账（`mtime` 优于 `updated_at` 才重读——稳态只剩 `stat` 成本，`resume` 重写同名文件自然触发再摄取）。`hook_translator` 新增 `PostToolUse(Workflow)` 回执锚点分支 + SessionStart 全量对账（加 `mtime` 短路）；`state_reaper` 无 running 即零 `stat` 的保底轮询。
+- **REST `/api/workflows` 4 端点 + 3 个 MCP 工具**（`workflow_list` / `workflow_get` / `workflow_reconcile`）— MCP 工具总数达到 **155**。
+- **Dashboard `/workflows` 页** — 列表卡片流 + 逐 agent 遥测详情页、侧栏入口、双语 i18n、`workflow.*` 事件实时失效、TeamsPage 工作流徽章改为可点击链接；双侧 `dist` 同步。
+- **`_WF_STATUS_RANK` 补 `killed` / `failed` 终态** — 实测 69 份真实 wf 文件 10% 命中，缺失会永久把运行卡在 `running` 并打破 reaper 短路；前端状态联合 / 徽章 / 筛选同步。
+
+### 变更
+
+- **纯 Python BM25 接入检索主链路**（`15e4fe3`）— `retriever.py` 内置 BM25（TF 饱和 + IDF `ln(1+(N-df+.5)/(df+.5))` 恒非负 + 长度归一，沿用中文 bigram + 单字分词），替换 `rank_bm25` 可选依赖路径（`keyword_search` 保留兜底）。`search_memories` 从整串 SQL `ilike` 改为「scope 内近期窗口粗召回 → BM25 重排」：多词非连续查询（如 `Python 部署`）现可命中，旧实现必 miss（审计 M11、备忘录 D4）。
+- **LangGraph 降级为可选 `[langgraph]` extra**（`f6b3140`）— `langgraph` / `langchain-anthropic` / `langchain-core` 移出核心依赖，三者只服务 CLI `aiteam task run` 的遗留图执行路径（`456512f` 后 CC Agent 已接管执行权），API / MCP / Dashboard 全程用不到；`team_manager.compile_graph` 下沉为运行期懒加载，缺依赖时给出 `pip install 'ai-team-os[langgraph]'` 指引。实证：装有 langgraph 的环境 `import aiteam.api.app` 后 `sys.modules` 不含 langgraph/langchain（审计 M21/M44、备忘录 D1 方案一）。
+- **版本五处锁步 1.6.2 + 补写历史 CHANGELOG**（`7be8cd8`）— `__init__` / `pyproject` / `plugin.json` / 两份 marketplace 条目统一 1.6.2（此前 9 处发散 0.0.0–1.6.1 且 1.6.x 从未打 tag，H19；marketplace `metadata.version` 保持 1.0.0 为目录格式版本，非插件版本）；`pyproject` 增 pytest `pythonpath=['src']`（src 布局免 editable install，配合 CI）；CHANGELOG 双语补写 1.5.2 / 1.6.0 / 1.6.1 三段。`tag v1.6.2` 留待发布时由作者打。
+- **CI 真门禁恢复**（`e2d725f`）— 去掉单测步 `2>&1 || true`（`4288ce3` 救火遗留，根因次日已被 `a050585` 修复但从未回退：此前 pytest 因 import 不到 aiteam 以退出码 4 失败仍显绿，0 用例真实执行，H15/H16）；依赖补 `typer` / `rich` / `alembic`；`aiteam` 可导入性由 `pyproject pythonpath=['src']` 提供，刻意不用 `pip install -e .`（历史红线）。
+
+### 修复
+
+- **插件清单解释器统一 `python3` + 首启自愈 `sys.executable`**（`715acc8`）— `plugin/hooks/hooks.json`（22 条命令）与 `plugin/.mcp.json` 由裸 `python` 改 `python3`（stock macOS 无 `python` shim 时 MCP + 全部 hook 整层 command-not-found，审计 H17/H18/H25）；`auto_install._self_heal_interpreter()` 首启把清单解释器改写为绝对 `sys.executable`（幂等 / 静默失败），把 `e2d0fbb` 铁律落地到静态分发路径，同时解决 macOS 缺 shim 与项目 `.venv` 劫持两难；`src/aiteam/hooks/install.py` 生成的 hook 命令同改用 `sys.executable` + 绝对脚本路径。
+- **跨项目守卫回填 plugin 副本**（`715acc8`）— `workflow_reminder.py`（plugin 执行副本）回填 `_check_team_cross_project`；2026-05-08 浅扫泄漏事故的 v1.5.2 修复此前只存在于从不分发的 `src` 副本（H9）。
+- **Dashboard 产物治理**（`fe5b682`）— 重建 Dashboard 并整体同步 `plugin/dashboard-dist`（含 `7550f33` 项目隔离修复，此前已提交产物停在 `29eab2b`，文档承诺的修复不在线上 UI 里，H21）；`dashboard/dist` 移出 git 索引（先前 force-add 的残缺快照——仅 `index.html` + 字体、无 JS/CSS——会遮蔽完整的 `plugin/dashboard-dist`，源码安装路径白屏，H10/H14）；`app.py` 候选目录发现加「缺 JS bundle 即跳过」硬化；version 改为引用 `aiteam.__version__` 根除 OpenAPI 版本漂移；SettingsPage 版本显示 v1.6.2。
+- **`/api/tasks/compare` 路由恢复可达**（`2606297`）— 自 `082a0e7` 诞生即被 `{task_id}` 参数路由抢占恒 404（H2）；移到参数路由之前并加注释防回退，`task_compare` MCP 工具链恢复。
+- **自启 API `stderr` 落文件防管道死锁**（`2606297`）— `_autostart` 的 `stderr=PIPE` 终身无人排空，traceback 累积满 ~64KB 缓冲将冻结整个 API（H22）；改为追加写 `~/.claude/data/ai-team-os/api-stderr.log`（premature-exit 诊断改尾读该文件）；`stdout=DEVNULL` 与命令数组不动（`0d7a063`/`e2d0fbb`/`84059f8` 铁律）。
+- **install 自检恒假失败修复**（`b7e225b`）— `verify_installation` 改读 `~/.claude.json`（与 `register_global_mcp` 实际写入处一致，`a050585` 引入 CC 读取位置迁移后 verify 一直读错文件）；`_check_package` 改 `find_spec('aiteam')`（`pip show aiteam` 因发行名 ai-team-os 恒失败，H12）；`_write_project_mcp_json` 回退分支改 `sys.executable`（此前恰在全局注册失败的兜底路径上写裸 python 埋雷）；`scripts/install.py` `project_root` 修正为扁平仓库布局（自 `baf8eba` 诞生即假设从未入库的嵌套布局，STEP1 cwd 不存在直接崩，H11）。
+- **`greenlet>=3.0` 入核心依赖（Apple Silicon 修复）**（`f6b3140`）— SQLAlchemy async 必需，但其自带平台标记不含 Apple Silicon macOS（`platform_machine=='arm64'` 不在 aarch64/x86_64 列表），漏装则 async 引擎首次连接即 `ValueError`——本机迁移实测踩中。
+
+### 移除
+
+- **删除 `semantic_cache` 全链**（`15e4fe3`）— `api/semantic_cache.py` + `routes/cache.py` + `mcp/tools/cache.py` + 30 条测试；自诞生即未接线的幽灵特性，`/api/cache/stats` 恒返回 0 误导使用者（审计 H3/M60）；README 双语撤下语义缓存宣传条目。
+
+### 备注
+
+- 以上全部条目随 **1.7.0** 一同发布。验证：观测层集成测试 27/27；autostart + MCP 套件 84/84；`tsc` + 生产构建双绿；归属 / 活性 / 标签补全均经真实运行实战验证。
+
+## [1.6.1] — 2026-06-12
+
+### 新增
+
+- **多源 schema 准备**（`e1b3ddd`）— `ecosystem_repo_profiles` 加 `sources`（JSON list）+ `primary_source` 两字段（COLUMNS_TO_ENSURE + ORM Mapped + Pydantic 三处同步）；678 个 GitHub profile 已 backfill `sources=[{kind:github,…}]`。新增 `ecosystem_hf_fetcher.py`（HuggingFace Spaces 公开 API fetcher）**仅归档保留供未来参考**——PoC `dry_run` 实测 HF Spaces 与 Claude/agent/MCP 生态重叠率 0%，故**不接入主流程**。
+- **每项目周期 cron 自动化**（`4e317f2`）— `deps.py` 启动时幂等注册 per-project 每周刷新 cron（`interval = refresh_interval_days × 86400s`，`action_type=emit_event`，`event=ecosystem.refresh.periodic`）；5 个项目自动装好，`next_run` 为 7 天后。
+- **`os_restart_api` 标准化重启工具 + 优雅停机**（`896d5b9`）— MCP `os_restart_api(force)`：有 busy-agent 时拒绝；**端口钉死不漂移**；等旧进程死透才拉新的；健康验证后返回新旧版本与 PID。新增 `POST /api/system/shutdown`：返回后延迟 0.5s 自退，best-effort WAL checkpoint。两个等待循环加 200 次迭代硬上限（时钟被冻结/被 mock 时也必然终止）。这是刻意的**端口钉死**重启，与 `_autostart` 的空闲端口自动发现是两套策略（stdio 脱钩见下方修复）。
+- **生态库 Phase 2 — 浅扫批次审批 gate**（`c74d53b`）— 新增 `ecosystem_shallow_batches` 表 + 6 个批次端点（create / list / detail / items / **approve** / **cancel**），批准前不入队（治理闸门）；新增批次管理页 + 6 个 react-query hooks；`ScanRun` 加 `metadata_changed_count`（「更新 N（含 M 真实变化）」展示）。
+- **项目状态识别「CC 会话在线」**（`4370468`）— 状态改由真实 agent 活动时间派生，并在项目下拉框显示真实活动时间。
+
+### 变更
+
+- **默认模型 `claude-opus-4-6` → `claude-opus-4-7`**（`5a0f9a2`）— 后端 10 处硬编码默认值升级、4 个单测断言同步刷新；成员编辑 Select 刷新为 Opus 4.7 / Sonnet 4.6 / Haiku 4.5 三档；删除 SettingsPage 不生效的「默认 LLM 模型」下拉（其 `handleSave` 从不落库）。
+- **弃用启发式字段停止读写**（`e1b3ddd`）— API `_profile_to_dict` / `_profile_to_list_dict` 不再返回 `relevance_category` / `relevance_score`；前端删「相关性 X/10」与「活跃集排名」。schema 列保留（仅停止读写，避免 migration 风险）。
+- **项目状态文案** — 「关闭」→「空闲」（en: Inactive → Idle）（`6cb4914`）。
+
+### 修复
+
+- **老库重扫 + tick 去 budget + status API 语义**（`4e317f2`）— 浅扫队列候选检查改用 `pushed_at > last_shallow_refreshed_at`；跳过判定从 `status` 改用 `stage_status`（此前 678 个 `shallow_done` 脏数据行全被误跳过）；`tick` 一次性 dispatch 全部候选（并发控制移到 worker claim 阶段，不再限 15）；`queue_status` 用真实 stage + `claimed_by` 精确计数并返回 `pending / in_progress / done / failed`。实测 `tick dispatched=134 / skipped=0`。
+- **`context_tracker` 默认窗口改为 1M**（`af495c7`）— CC transcript 剥离 model 的 `[1m]` 后缀，新机器 `~/.claude.json` 无 1M 历史条目时 fallback 误用 200K，把 17% 真实用量报成 85.3%，频繁假 CONTEXT WARNING 打断工作。`DEFAULT_CONTEXT_SIZE` 200K → 1M（删去 `>200K` 兜底分支）；保留 `CLAUDE_CONTEXT_SIZE` env 覆盖作为降级机制。
+- **MCP `X-Project-Dir` header 中文 latin-1 编码错误**（`af495c7`）— `CLAUDE_PROJECT_DIR` 含中文路径（如 `AI团队框架`）时 urllib 用 latin-1 编码 HTTP header 失败，导致 `report_save` / `team_list` 等在中文环境下不可用；现发送侧 `urllib.parse.quote()` percent-encode，接收侧 `urllib.parse.unquote()` 解码。
+- **`os_restart_api` spawn 与 MCP stdio 完全脱钩**（`3e7d320`）— 从 MCP 工具调用上下文 spawn 时，子进程继承了正被占用的 MCP stdio 管道，实测**卡死在导入前（9MB 永不推进）**。修复：`stdin=DEVNULL`、`stderr` 落 `%TEMP%/aiteam-api-restart.log`（保留可诊断性）、`close_fds`、Windows 加 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` 分离标志。
+- **项目判活时钟对齐「裸本地时间」约定**（`cfa6861`）— agent 时间戳全库以 naive local 写入（`hook_translator` / `StateReaper` 均用 `datetime.now()`），判活却按 UTC 比较，恒差本机 UTC 偏移（实测 4h），15min 阈值永不满足，项目永远「空闲」；比较与序列化均改为同一本地钟。
+
+### 备注
+
+- 本周期 `__init__.py` bump 到 **1.6.1**（`896d5b9`）。仅 GitHub 开发里程碑（延续 v1.4.0 / v1.5.0 模式），未发布到 PyPI/marketplace。
+
+## [1.6.0] — 2026-05-13
+
+### 新增 — 生态库统一设计 MVP（配置驱动 + 多源框架）
+
+围绕**配置驱动的统一设计**（v4）重建生态扫描。用户通过最少约 3 个问题（数据源 / topics / 默认参数）启动扫描，`dry_run` 安全预览，自动生成 diff 报告 + 状态变化时间线。全部仍在**单库 `project_scope`** 模型内——生态表按 `project_id` 作用域隔离，**不分库**。
+
+- **配置驱动 schema（P0）** — 新增 `DataSourceKind`（8 类源）/ `RepoActiveStatus` / `NormalizedSignal` / `DataSource` / `ScanProfile` / `EcosystemIndexDiff` / `EcosystemStatusChange` 类型；`ecosystem_repo_profiles` +6 字段（`canonical_id` / `source_kind` / `last_active_status` / `last_status_change_at` / `popularity_percentile` / `activity_score`，幂等 backfill 保留全部 265 仓）；4 张新表（`ecosystem_data_sources` / `scan_profiles` / `index_diffs` / `status_changes`）。
+- **9 个新 REST 端点 + 5 个新 MCP 工具** — data_source CRUD、`scan_profile` GET/PUT、`quick_setup`、`index_update`（真实 `dry_run`，0 副作用）、`index_diffs` latest/history；MCP `quick_setup` / `data_source_create` / `scan_profile_update` / `index_update` / `index_diff_latest`。
+- **判活简化（P1.A）** — stars 仅作**入库门槛**，入库后所有仓永久参与搜索。判活简化为：archived → `archived`；`manual_status='no_value'` → `manual_archived`；其他 → `active`；本次没扫到的老仓保留原状态（append-only）。新增 `manual_status` 列 + `POST /repos/{id}/manual_status` + `ecosystem_mark_no_value` / `clear_manual_status`。
+- **`list` 端点分层（P1.B）** — 摘要序列化器（18 字段，不含 `shallow_summary`），`limit` 默认 20 / max 100 + `has_more`，防 token 爆炸；`/teams/{id}/agents` 加 max 200 上限（防 254-agent 历史事故）。
+- **事件溯源** — 新表 `ecosystem_repo_events` 成为每个仓的单一数据源（discovered / topics_changed / stars_jumped / status_changed / …），时段 diff 通过 `GET /api/ecosystem/diff?from=&to=` 从事件动态算出。新增 `ecosystem_repo_events` / `ecosystem_diff_period` MCP 工具 + 详情页「事件历史 / 扫描研究历程」timeline tab。旧 `index_diffs` / `status_changes` 表与端点保留兼容。
+- **真实 GitHub topics + 全局 `topicRankMap`** — fetcher 从「搜索 query 当 proxy 的 hint topics」升级到真实 `repositoryTopics`（per-repo `gh api repos/{owner}/{repo}`）；`compute_ecosystem_facet_counts` 加全局 `topics` 维度（678 仓产出 2425 unique topics，top：mcp 386 / claude-code 294 / ai 257 / claude 185 / …）。全局 `topicRankMap` 让每个 topic 在所有卡片和 StatsBar 顶部配色一致。
+- **SST — 字段映射单一源** — 删除客户端 `inferStage()` 与 `relevance_category` 派生，后端 `_build_stage_map` / `_serialize_full` 为唯一权威；`is_active` / `active_rank` / `relevance_*` 标 `@deprecated`（保留兼容）。
+- **入库 678 仓** — 一次真实 `dry_run=False` 把 DB 从 265 → 678（+413），并真实化 252 个老仓的 topics（如 `n8n-io/n8n`：`['mcp']` → 15 个真实 topics）；默认 `popularity_floor` 降低（github 5000 → 1000、huggingface 1000 → 200、npm / pypi 5000 → 1000）以更宽松收录。
+
+### 修复
+
+- **`GET /api/ecosystem/diff` 当 `from > to`** 现返回 HTTP 400，不再返回误导性的空 200（`4f1926e`）。
+- 前端「加载生态档案失败」+ 分页 UI；scan_history 区分浅扫 / 深扫；空占位过滤；`RepoCard` 删除启发式 `lifecycle` tab 与类别徽章。
+
+### 备注
+
+- `__init__.py` bump 到 **1.6.0**（`355aae8`）。仅 GitHub 开发里程碑（延续 v1.4.0 / v1.5.0 模式），未发布到 PyPI/marketplace。
+
+## [1.5.2] — 2026-05-11
+
+### 修复 — 跨项目隔离 hotfix
+
+由一次真实事故触发：**2026-05-08 派出的 5 个浅扫 agent** 本应服务生态平台，却误入 `topic-mapping-v8`（一个独立的量化备考项目）并在其中背书 / 写入研究产物——根因是 Leader 的 active-team 解析不是 project-aware 的。
+
+- **`context_resolve` 改为 project-aware**（`infra.py`）— 先按 cwd 找 project 再 filter teams，避免会话拿到别项目的 active team。
+- **`PreToolUse:Agent` 新增跨项目守卫**（`src/aiteam/hooks/workflow_reminder.py`）— 被派团队的 `project_id` ≠ 当前项目时，hook `exit 2` 硬阻断。
+- **Stage 0 浅扫双通道写回** — 浅扫结果 MCP primary + SendMessage fallback 双通道回写，避免 MCP 工具暴露不稳定时整批全失败。
+- **`research_count` 语义修复** — `_build_stage_map` 只数 `architecture_done`+ 的行，浅扫不再抬高深扫计数；`apply_summary` 不再写 `status='completed'`（浅扫完成 ≠ 整个评审完成）。
+- **生态库 UI 重构** — 「深扫摘要」→「评审记录」（`ecosystem_deep_reviews` 表承载全部 4 stage，命名歧义修复）；`ReviewCard` 按 `stage_status` 智能渲染；`parseAsUtc` helper 修裸 datetime 字符串的时区 bug（「耗时 4h 1m」）；新增 `RecentScanRunsBar`。
+
+**已知问题**：该跨项目守卫**仅**加进了 `src/aiteam/hooks/workflow_reminder.py`——`plugin/hooks/` 分发副本尚未回填 `_check_team_cross_project`，插件用户在该副本回填前不享有此硬阻断。
+
+## [1.5.0] — 2026-05-08
+
+### 新增 — 生态研究平台 v2：渐进式深扫漏斗
+
+把 v1.4.0 的"一次性 5 段深扫"重构为 **4 阶段渐进式知识库漏斗**，让生态仓研究产物**累加而非一次性产出**。基于用户敲定语义实施，避免低价值仓浪费 token，并支持研究产物跨周期复用召回。
+
+- **Stage 0 — 入档即浅扫（Stage A/B）**
+  - 新建 `EcosystemShallowQueueWorker`（552 行），自动派 `ai-engineer` agent（5 并发）总结新入档仓
+  - 浅扫内容：核心功能 / 定位 / 优势 / 适用场景（200-400 字）
+  - Worker 每 5 分钟跑一次，返回 `DispatchIntent[]`（不直接 spawn agent — Leader 用 Agent 工具 + `team_name=ecosystem-platform` 实际派遣）
+  - **8 类失败分类处理**：404→mark_deleted / 403_私密→mark_private / rate_limit→backoff+重试 / 5xx→指数退避重试 / agent_read→重试+换 agent / agent_timeout / json_parse→带示例重试 / fetch_style→pattern_record
+  - **失败自学习机制**：同类 `fetch_style` 失败 ≥ 3 个不同仓 → 自动 `pattern_record(type='failure')`，未来 agent 通过 `pattern_search` 读到 lessons 优化策略
+
+- **Stage 1 — 按需架构分析（Stage C）**
+  - 新增 `ecosystem_deep_review_request_batch(tags, min_stars, limit)` MCP 工具
+  - 用户挑研究方向（如 "memory_system"）→ 批量派 `backend-architect` 读架构关键文件
+  - 输出：`architecture_md` 字段 + `stage_status='architecture_done'`
+
+- **Stage 2 — 多角度辩论（Stage C）**
+  - 新增 `ecosystem_trigger_debate(repo_ids, research_goal)` 直接调现有 `debate_start`（**不内建辩论引擎**，复用会议系统）
+  - Leader 完全掌控辩论参与者和轮次（保留现有会议系统能力）
+  - **会议→生态库反向写入 hook**（`meeting_ecosystem_writeback.py`）：会议结束 + topic 含生态关键词时，hook 提醒 Leader 派 agent 调 `ecosystem_apply_debate_result(risks_md / learnings_md / integration_md / integration_recommendation)`
+  - 输出：每个 finalist 4 字段 + `stage_status='debated'`
+
+- **Stage 3 — 参考 / 集成标记（Stage C）**
+  - `ecosystem_mark_as_reference` 加 `lifecycle:reference` tag + `stage_status='referenced'`
+  - `ecosystem_start_integration` 加 `lifecycle:integrated` tag + 通过 `task_create` 创建真实集成任务（**不内建实施引擎**，复用任务系统）
+  - 两路径都保留研究产物便于未来快速召回（避免重复深扫）
+
+### 新增 — 项目可定制阈值（Stage A）
+
+- 新建 `EcosystemProjectSettings` 表（每项目独立）：`min_stars` / `top_n` / `refresh_interval_days` / `focus_topics` / `focus_languages` / `shallow_concurrency` / `deep_concurrency`
+- AI Team OS 默认：`min_stars=5000, top_n=200, focus_topics=['claude-code','mcp','agent-framework']`
+- 其他项目默认：`min_stars=1000, top_n=100`
+
+### 新增 — 活跃/全量双视图 + 数据 append-only（Stage A/D）
+
+- **决策 D**：数据**永不删除** — stars 跌出阈值的仓不删，仅 `is_active=False`；stars 涨回 → 自动激活 + 重新入队 Stage 0
+- **决策 E**：周期浅扫**只扫活跃集**（top_n by stars），节省 GitHub API 配额
+- 新建 `EcosystemRepoStatusSnapshot` 表，每次 scan 记录 stars/pushed_at/is_archived/is_active 供历史分析
+- 新建 `EcosystemRefresher` service（480 行）：`shallow_refresh()`（diff 跳过 last_pushed_at 未变的仓）+ `recompute_active_set()` + `resurrect()`（删库/私密复活）
+
+### 新增 — 前端漏斗 UI（Stage E）
+
+- 列表页：stage 颜色徽章（queued/shallow_done/architecture_done/debated/referenced/integrated/_failed）+ 3 tab（活跃/全量/已删除）
+- 详情页：新增"研究历程"timeline tab，显示 stage 推进 + agent 输出 + `shallow_summary_history` 历史快照
+- 新页面 `/ecosystem/research` 候选筛选：输入研究目标 → tags 候选列表 + 浅扫 summary 预览 → 多选触发 Stage 1 → finalists 触发 Stage 2
+- 项目详情页加 "Ecosystem 设置" tab，8 字段（min_stars / top_n / refresh_interval_days / focus_topics / focus_languages / shallow_concurrency / deep_concurrency / auto_shallow_on_archive）
+- 失败仓：红色徽章 + "立即重试"按钮（调 `POST /api/ecosystem/profiles/{id}/retry`）
+
+### 新增 — 11 个新 MCP 工具
+
+- Stage 0: `ecosystem_apply_shallow_summary`, `ecosystem_shallow_queue_status`
+- Stage 1: `ecosystem_deep_review_request_batch`, `ecosystem_apply_architecture_md`
+- Stage 2: `ecosystem_trigger_debate`, `ecosystem_link_debate_meeting`, `ecosystem_apply_debate_result`
+- Stage 3: `ecosystem_mark_as_reference`, `ecosystem_start_integration`, `ecosystem_link_integration_task`
+- Refresh: (扩展 `ecosystem_scan_periodic` 加 refresh 策略)
+
+### 新增 — 8 个新 REST 端点
+
+- `/api/ecosystem/lifecycle/*`（Stage 1/2/3 触发链路）
+- `/api/ecosystem/profiles/{id}/retry`（失败仓手动重试）
+- `GET/PUT /api/ecosystem/projects/{project_id}/settings`
+- `POST /api/ecosystem/shallow_queue/{apply_summary,tick}`, `GET /api/ecosystem/shallow_queue/status`
+
+### Schema 变更（Stage A — 通过 COLUMNS_TO_ENSURE 完全向后兼容）
+
+- `EcosystemDeepReview` +8 字段：`stage_status` enum / `integration_md` / 4 个 stage 时间戳 / `debate_meeting_id` / `integration_task_id`
+- `EcosystemRepoProfile` +8 字段：`shallow_summary` / `last_shallow_refreshed_at` / `is_deleted` / `is_private_now` / `last_fetch_error` / `fetch_failure_count` / `is_active` / `active_rank`
+- 2 张新表：`EcosystemRepoStatusSnapshot`（append-only 历史）/ `EcosystemProjectSettings`（每项目配置）
+- 标签字典：26 → 31（新增 5 个 lifecycle 标签：`evaluating` / `reference` / `integrated` / `deleted` / `private_now`）
+- Tag source enum +1：`lifecycle`（Stage 3 转换自动管理）
+
+### 测试
+
+- 1283+ 单元测试通过（1264 baseline + 110+ 新 ecosystem 测试覆盖 A/B/C/D/E）
+- 0 回归
+- 6 pre-existing failures（CLI version flag / debate template / mcp_autostart / pipeline）经 `git stash` 验证与本次无关
+
+### 架构决策（用户敲定）
+
+- **(A)** Ecosystem 是**知识库不是工作流引擎** — Stage 2 复用 `debate_start`，Stage 3 复用 `task_create`。Ecosystem 只做记录、召回、标注。
+- **(B)** 会议→生态库反向写入 hook 提醒 Leader 把辩论结论回写生态库（保留 Leader 决策权）
+- **(C)** 每个项目独立阈值 + 活跃/全量双视图
+- **(D)** 数据 append-only 永不删除；星标跌出的仓保留以备未来复活
+- **(E)** 周期浅扫只扫活跃集
+- **(F)** Rate limit 测试驱动并发调优（不预设，实测调整）
+
+### 备注
+
+- 本版本**仅发布到 GitHub**（延续 v1.4.0 开发里程碑模式），PyPI 发布留待后续稳定性验证
+
+## [1.4.0] — 2026-05-07
+
+### 新增 — 生态研究平台（Stage A-J）
+
+完整的项目隔离开源生态发现/打标/深度审查平台。专为 Claude/MCP/agent 开源生态设计。首扫入档 188 仓，三层打标平均 2.05 tags/repo，0 标签率仅 1.5%。
+
+- **数据层（Stage B）** — 5 张新表：`EcosystemRepoProfile` 扩展 + `EcosystemDeepReview` 深扫报告 + `EcosystemTag` 标签字典 + `EcosystemRepoTag` 关联 + `EcosystemRelation` 仓与仓关系 + `EcosystemScanRun` 扫描批次。21 个 seed 标签；删除仓档案 CASCADE 删除关联，删标签 RESTRICT；50/50 单元测试。
+
+- **周期扫描（Stage C）** — `EcosystemScanner` 服务，增量策略（< 7 天扫过的跳过）+ 全量策略 + ScanRun 审计 + GitHub API 优雅降级 + owner 黑名单 + 关键词白名单二次过滤。3 个新 MCP 工具（`ecosystem_scan_periodic` / `ecosystem_scan_status` / `ecosystem_scan_history`）+ 5 个 REST 端点 + 31 个新测试。
+
+- **三层打标（Stage D）** — Layer 1 GitHub topics 直接映射（命中 105 仓）+ Layer 2 关键词规则（命中 70 仓）+ Layer 3 LLM dispatch_plan 模式派子 agent。5 个新 MCP 工具 + 26 个标签字典（capability/tech_stack/maturity/positioning 四类）+ 48 个单元测试。
+
+- **多维搜索（Stage E）** — `ecosystem_search` 升级到 11 个参数（query/tags AND/min_stars/language/sort_by/has_deep_review 等），`ecosystem_repo_get` 返回 profile+tags+deep_reviews+relations+scan_run 全息详情，`ecosystem_search_by_capability` 按标签反向检索。SQLite NULLS LAST 模拟 + EXISTS subquery 实现 tag AND 语义。38 新测试，p95 < 50ms 目标。
+
+- **深扫工作流（Stage F）** — 5 段式报告模板（真实定位 / 架构 / 借鉴点 / 风险 / 集成建议）+ `EcosystemDeepReviewer` 服务通过 `dispatch_plan` 派 Explore + backend-architect 子 agent（兼容 CC 子进程模型）+ PostToolUse `deep_review_link.py` hook 自动关联 report 到 `EcosystemDeepReview.report_id`。4 个新 MCP 工具 + 5 个 REST 端点 + 19 个新测试。
+
+- **自动汇总（Stage G）** — 4 个 markdown 汇总工具：`ecosystem_summary_weekly`（周报）/ `ecosystem_summary_by_tag`（按方向）/ `ecosystem_summary_top_n`（Top N 排行）/ `ecosystem_summary_health`（平台自检）。自动 `report_save`（报告类型 `ecosystem-{weekly,by-tag,top-n,health}`）。Join 一次拉完避免 N+1。33 个新测试。
+
+- **前端（Stage H）** — `/ecosystem` 列表页（4 列卡片 + 筛选栏 + 分页），`/ecosystem/:repoId` 详情页 + 4 个新组件（`CapabilityTags` / `DeepReviewSection` / `RelationsSection` / `ScanRunSection`），通过 `useEcosystemRepoFull` hook 消费 v2 API（UUID → full_name 反查 + path 段编码）。响应式 + Playwright 截图验证。
+
+- **项目隔离（Stage J）** — 6 张 ecosystem 表全部加 nullable `project_id` 列；`EcosystemRepoProfile` 用 `(project_id, repo_full_name)` 联合 UNIQUE。`EcosystemTag` 字典保持 `project_id=NULL`（全局共享 21 seed）。`X-Project-Id` HTTP header → `get_scoped_repository` 路由；MCP `_api_call` 自动注入（基于 cwd 推断的 session 项目）。启动时自动 `backfill_ecosystem_to_project` 钩子迁移历史 188 仓到 AI Team OS 项目。前端 `setCurrentProjectId` 切换项目时同步。10 个隔离测试 + 1109 全套 unit 测试通过。
+
+### 新增 — 标签质量打磨（Stage K4）
+
+- **`ecosystem_tag_apply_batch` 加 `replace_auto` 模式** — 替换模式（默认 `False` 向后兼容）：先删除该仓所有 `auto_rule` 和 `github_topic` 来源的 RepoTag 行（保留 `manual` 和 `auto_llm`），再插入新规则的结果。修复了"新规则虽产生新标签但旧 `mcp_framework` 假阳性 99 仓没清"的 bug。
+
+- **5 个新标签 + 边界规则** — `claude_code` / `agent_harness` / `javascript` / `java` / `docs_only` 加入 seed 字典。新增 `LANGUAGE_TAG_MAP`、`DOCS_ONLY_LANGUAGES`、`DOCS_ONLY_NAME_PATTERNS` 三组 Layer 2 子规则。`mcp_framework` 假阳性率从 37%（99/265）降到 **0.8%（2/265）**，平均标签数从 **1.01 → 2.05**，0 标签率从 **28.7% → 1.5%**。
+
+- **18+ 边界仓实地调研** — `docs/ecosystem-tag-edge-cases.md` 记录真实 anomaly（n8n / dify / awesome-mcp-servers / claude-cookbooks / hermes-agent / netdata / JavaGuide 等）+ 根因 + 规则修复。
+
+### 性能 — 搜索优化（Stage K1）
+
+- **`ecosystem_repo_profiles` 加 5 个复合索引**：`(project_id, stars)` / `(project_id, category, stars)` / `(project_id, language, stars)` / `(project_id, pushed_at)` / `(project_id, is_archived, stars)`。EXPLAIN QUERY PLAN 验证 TEMP B-TREE 全部消除。
+
+- **search p95：2057ms → 13.1ms（156x 提升）** — 100 次 random query 实测（真实生产数据，265 仓）。p50 6.6ms / p99 25ms。
+
+- **`ecosystem_search` 缺省行为修复** — `tags=[]` 现在跳过 EXISTS subquery（避免全表扫），返回按 stars 排序的全集而非空。
+
+- `compute_ecosystem_facet_counts` 重构为单次 SELECT 三列 + Python 聚合（IO 减 2/3）。
+
+- 6 个新性能 regression 测试。
+
+### 修复
+
+- **`context_tracker` 新 model 变体的 1M 检测** — `claude-opus-4-7` 等新 opus 模型在 1M 模式下被误判为 200K window，导致 198K tokens 时报告 99% 假警告。两层检测：(1) 精确 `{model}[1m]` 匹配；(2) 同 family 兜底（任意 `claude-{opus|sonnet|haiku}-*[1m]` 历史 → 该 family 视为 1M）。新增 `CLAUDE_CONTEXT_SIZE` env 终极覆盖。4 个新测试 + module 级 autouse fixture 隔离 `~/.claude.json`。
+
+- **新 agent 注册到 completed 团队自动恢复** — hook_translator 现在检测到新 agent 注册到 `status=completed` 的团队时自动恢复为 `active` 并发出 `team.auto_revived` 事件 + 警告日志。替代了之前的硬阻断方式（曾导致历史团队上的长任务被中断）。
+
+### 前端 bug 修复（Stage K2）
+
+- **详情页 `深度档案区` 占位符移除** — 之前详情页硬编码 "TODO: Stage E v2 API" 占位文案，但 v2 API（`/profiles/{name}/full`）从 Stage E 起就已存在。`useEcosystemRepoFull` hook 现在直接消费 v2（含 UUID → full_name 反查 + path 段斜杠编码）。v2 失败时优雅降级到 v1 列表数据。
+
+### 变更
+
+- **Plugin description 升级** — 反映 140+ MCP 工具（含 30+ 生态研究工具）+ 生态研究平台。新增 marketplace 标签：`ecosystem-research`、`github-discovery`、`code-mining`。
+
+## [1.3.4] — 2026-04-14
+
+### 修复
+- **紧急：升级自 1.3.0 之前版本的数据库上 `meeting_send_message` 500** — 1.3.3 的 `_sqlite_migrate()` 补了 `meetings.meta_json`，但漏掉了 `meeting_messages.metadata_json`。老数据库（在该字段加入 ORM 模型前创建）上的所有 `meeting_messages` INSERT/SELECT 都会抛 `OperationalError`。修复方案：将 `_sqlite_migrate()` 重构为数据驱动循环，统一遍历 `COLUMNS_TO_ENSURE` 列表（同时覆盖 `meetings.meta_json`）。所有迁移项均通过 `PRAGMA table_info` 保护，幂等安全。
+- **迁移框架改为数据驱动** — 未来新增字段只需在 `COLUMNS_TO_ENSURE` 列表 append 一行。
+
+## [1.3.3] — 2026-04-14
+
+### 修复
+- **紧急：外部项目调用 `meeting_create` API 崩溃 500** — 三个根因一次修复：
+  1. **`meta_json` 列缺失** — 旧数据库 `meetings` 表没有该列（该字段加入 ORM 模型前创建的库），`init_db` 用 `create_all` 不会为已存在表补列，INSERT 直接报 `OperationalError`。新增 `connection.py` 启动时幂等 SQLite 迁移，缺列则 `ALTER TABLE` 补全。
+  2. **team_id 未按名称解析** — `POST /api/teams/{team_id}/meetings` 路由接收团队名（如 `"repo-insight-build"`）但未转 UUID，直接传给仓储层导致后续查询静默失败。路由现在先按 UUID 查、再按 name 查，都找不到返回 HTTP 404。
+  3. **ORM 异常未捕获导致 worker 假卡** — `create_meeting` 调用外围加 `try/except`，DB 错误以 HTTP 500 JSON 返回，不再让 worker 卡死。
+
+## [1.3.2] — 2026-04-14
+
+### 修复
+- **紧急：MCP 动态端口发现失效** — `plugin/.mcp.json` 把 `AITEAM_API_URL=http://localhost:8000` 硬编码为 env var，覆盖了 `_get_api_url()` 中的动态端口 fallback。当 autostart 因 8000 被占用而选择空闲端口（如 59711）时，MCP 工具仍连接 8000 并报告 `unhealthy`，而 hook 走同一代码路径却正常工作。现已从 plugin 配置、根目录 `.mcp.json` 及所有安装脚本中删除该 env var，MCP 现在正确回退到读取 `api_port.txt` 动态发现端口。用户手动设置的 `AITEAM_API_URL` 仍具最高优先级（用于远程 API 场景）。
+
+## [1.3.1] — 2026-04-13
+
+### 修复
+- **Hotfix: context_tracker 1M context window 检测** — transcript 中 model 字段为 `claude-opus-4-6`（无 `[1m]` 后缀），导致 1M context session 被误判为 200K，出现 342% 等异常百分比。新增 token 数量 fallback：若 `used_tokens > 200K`，自动识别为 1M context window。
+
+## [1.3.0] — 2026-04-13
+
+### 新增
+- **CC 原生集成（Track A）**
+  - `TaskCompleted` hook 硬门控 — `task_completed_gate.py` 在任务缺失 memo/result 时 exit 2 拒绝完成，把 verify_completion 从"软提示"变"硬拦截"
+  - `TaskCreated` hook 桥接 — `cc_task_bridge.py` 把 CC 原生任务自动镜像到 OS 任务墙
+  - `PermissionDenied` hook 接入分类器 — `permission_denied_recovery.py` 调用新 `POST /api/hooks/diagnose_denial` 端点，返回 4 类决策：`recoverable_with_retry` / `recoverable_with_workaround` / `needs_user_approval` / `permanent_denial`
+  - 8 个大数据 MCP 工具添加 `meta={"anthropic/maxResultSizeChars": 500000}` 注解（`taskwall_view` / `task_list_project` / `report_list` / `report_read` / `event_list` / `meeting_read_messages` / `memory_search` / `team_knowledge`）
+  - `wake_agent` 启用 `--bare` + `--exclude-dynamic-system-prompt-sections` 优化，预期启动延迟降 50%；长 prompt 走临时文件 fallback 绕过 Windows 命令行长度限制
+
+- **会议系统完整重设计（Track B）**
+  - `meeting_create` 返回完整 `dispatch_plan[]` — 每个参与者带 ready-to-paste 的 `Agent()` 启动参数，彻底消除 Leader 代打问题
+  - 结构化 `participants` 输入：`{name, agent_template, role, context_files, expected_output}` 替代旧字符串列表（向后兼容）
+  - `meeting_attendance_check(meeting_id)` — 查询当前轮次已发言/未发言参与者 + 超时跟踪
+  - `meeting_send_message` 新增 `caller_agent_id` 参数 — 代打审计，调用者与 agent_id 不一致时打 `impersonation: true` 元数据并记录事件日志
+  - `meeting_conclude` 默认 `validate_attendance: true` — 未全员发言返回 400 + missing 清单；`force=true` 绕过但记录 `meeting.forced_conclude_with_missing` 事件
+  - `Meeting.meta_json` 持久化字段存储 `expected_participants` 和轮次状态
+
+- **会议模板迁移到 Plugin Skills（Track C）**
+  - 8 个模板从硬编码 `templates.py` dict（234 行）迁移到 `plugin/skills/meeting-facilitate/templates/*.md` 文件（brainstorm/decision/review/retrospective/standup/debate/lean_coffee/council）
+  - 每个模板含 YAML frontmatter 结构化轮次数据 + markdown 正文（何时使用 / 参与者建议 / 反模式）
+  - `templates.py` 重写为懒加载 YAML loader（107 行），保持 API 向后兼容
+  - **用户可扩展**：drop 一个 `.md` 文件即可新增自定义会议模板，无需改 Python 代码
+  - 利用 CC 的 progressive disclosure 模式 — 模板仅在需要时加载，零 token 消耗
+  - 完全重写 `plugin/skills/meeting-facilitate/SKILL.md`（355 行）：7 步生命周期对接新 dispatch_plan API + 模板选择决策矩阵 + 3 个端到端场景 + 7 条反模式警告
+
+- **上下文追踪改为 transcript 直读（Plan E）**
+  - 新增 `context_tracker.py` hook 注册到 `UserPromptSubmit` — 从 hook payload 读 `transcript_path`，解析 session jsonl 最后一条 assistant message 的 `usage.input_tokens` + cache tokens，获得 100% 精确的上下文使用率
+  - 自动识别 1M 上下文窗口（通过 model 标识符 `[1m]` 后缀）
+  - `>=80%` 触发 CONTEXT WARNING，`>=90%` 触发 CONTEXT CRITICAL，带 token 明细
+  - **完全不依赖 statusline** — 分发版用户无需安装自定义 statusline 也能工作
+  - **天然项目隔离** — transcript path 本身就编码了项目身份，彻底消除跨项目 monitor 文件 bug
+
+- **项目自动注册流程**
+  - 新增 `POST /api/context/resolve` 端点，支持精确匹配/前缀匹配/自动创建三种策略
+  - `session_bootstrap.py` 检测未注册目录并注入注册询问提示给 Leader（非阻塞）
+  - 新增 `dismiss_project_registration(cwd)` MCP 工具 — 用户可拒绝注册；持久化到 `~/.claude/data/ai-team-os/dismissed_projects.json`
+  - 修复新项目目录（如 `靖安笔试`、`repo-insight`）必须手动触发才能注册的 bug
+
+### 变更
+- **任务墙自动同步（`workflow_reminder.py`）**
+  - PreToolUse：提取 agent prompt + description，与项目任务墙 pending 项做关键词匹配，Leader 派遣未匹配墙上任务时发出警告
+  - PostToolUse：新增 `_post_tool_taskwall_sync()` — Agent 派遣时自动更新匹配任务为 `running`；完成 SendMessage 时自动更新为 `completed`
+  - 报告数据目录警告精确到 `.claude/data/ai-team-os/reports/` 路径，不再对源码误报
+
+- **会话启动上下文工程**
+  - 移除损坏的"读取 `~/.claude/context-monitor.json`"指令（文件已不再维护）
+  - 新指令：hook 已自动监控上下文，Leader 只需专注任务推进
+  - 未注册目录检测到时注入项目自动注册提示块
+
+- **文档更新**
+  - `README.md` / `README.zh-CN.md` 反映新会议系统和模板架构
+  - Skill 文档按 CC progressive disclosure 最佳实践重组
+
+### 修复
+- **分发版同步** — 4 个 hook 脚本在 `src/aiteam/hooks/` 和 `plugin/hooks/` 之间失同步（缺失 `_get_api_url()`、项目注册检查、任务墙自动同步逻辑）。分发版用户会遭遇动态端口失效和功能静默缺失。所有 4 个文件现在在 dev 和分发副本之间字节级一致。
+- **`meeting.py:103`** — `_build_dispatch_plan` 返回类型注解对齐实际三元组（补上 `legacy_warnings`）
+- **`context-monitor.json` 跨项目污染** — 旧 `_find_monitor_file()` 用 glob 扫所有项目按 mtime 取最新，会读到其他 session 的过期数据。已被 `context_tracker.py` 完全替代，后者用 `transcript_path.parent` 天然隔离
+- **定时唤醒误报** — 自动唤醒 prompt 不再读取 9 天前的全局 `context-monitor.json`（它错误地总是报告 <10% 无论实际用量如何）
+
+### 移除
+- `src/aiteam/hooks/context_monitor.py` 和 `plugin/hooks/context_monitor.py` — 被 `context_tracker.py` 取代
+- 全局 `~/.claude/context-monitor.json` 依赖 — OS 不再读也不再写
+
+## [1.2.1] — 2026-04-07
+
+### 新增
+- **报告系统数据库迁移** — 报告从文件系统迁入 SQLite 数据库，消除文件权限问题并支持项目隔离
+- **ReportModel ORM** — 新增 `reports` 表，包含 `project_id`、`author`、`topic`、`report_type`、`content` 字段
+- **报告 REST API** — `POST/GET/DELETE /api/reports`，支持 `project_id`、`report_type`、`author` 查询过滤
+- **Dashboard 全页面项目隔离** — 全部 9 个 Dashboard 页面均有项目选择器：
+  - 报告：项目选择器 + 作者过滤
+  - 事件日志 & 失败分析：events API 新增 project_id 参数
+  - 会议室 & Agent 看板：前端按 team.project_id 过滤
+  - 活动分析 & Pipeline：项目→团队联动选择器
+- **任务墙自动同步** — workflow_reminder 新增 `_post_tool_taskwall_sync()`：Agent 派遣自动关联任务墙项并更新状态（pending→running→completed）
+- **PreToolUse 任务墙匹配** — Agent prompt 与项目任务墙的关键词重叠检查，未在墙上的工作会收到警告
+- **项目级联删除** — `delete_project()` 清理 11 张关联表：meetings、meeting_messages、tasks、agents、teams、phases、reports、briefings、memories、events、cross_messages
+
+### 变更
+- **`report_save` MCP 工具** — 改为调用 `POST /api/reports` 存入数据库，不再直接写文件，无需文件系统权限
+- **`report_list` MCP 工具** — 改为调用 `GET /api/reports`，支持服务端过滤（report_type、author、topic）
+- **`report_read` MCP 工具** — 改为通过报告 ID 从数据库读取，不再按文件名读取
+- **Events API** — `list_events` 端点接受 `project_id` 查询参数，按项目所属团队 ID 过滤
+- **子 Agent 上下文注入** — 加强 report_save 指令："报告必须通过 report_save 工具保存到数据库（直接 Write 不会被系统追踪）"
+- **Workflow reminder 报告检测** — 路径匹配精确到 `.claude/data/ai-team-os/reports/` 数据目录，不再对包含"reports"的源码文件误报
+- **i18n** — 中英文新增 `allProjects`、`filterType`、`types.*` 翻译键
+
+### 修复
+- `app.py` — `_dist_dir` 为 None 时崩溃（无 dashboard dist 目录场景）
+- `test_version_flag` — 版本断言从 `0.8.0` 更新为 `1.2.0`
+- `test_teamcreate_reminds_task` — 放宽 warning 数量断言为 `>= 1`（适配新增的活跃团队提醒）
+- 报告页面无法切换分类和读取报告 — 使用数据库后端完全重写
+- 155 份旧文件系统报告通过 `scripts/migrate_reports.py` 迁入数据库
+
+## [1.2.0] — 2026-04-05
+
+### 新增
+- **Agent 看门狗心跳系统** — `agent_heartbeat` / `watchdog_check` MCP 工具，5 分钟 TTL 超时检测，自动识别卡死的 Agent
+- **SRE 错误预算模型** — 绿色/黄色/橙色/红色四级响应，20 任务滑动窗口，`error_budget_status` / `error_budget_update` 工具
+- **完成验证协议** — `verify_completion` 检查任务状态与备忘录是否存在，防止幻觉完成报告
+- **Alembic 增量迁移** — v1.1 完整 schema 迁移文件（trust_score / channel_messages / entity_id / state_snapshot 等）
+- **生态集成配方文档** — GitHub / Slack / Linear / 全栈团队 4 个预设配方（`docs/ecosystem-recipes.md`）
+- **`ecosystem_recipes()` MCP 工具** — 集成配方发现与查询
+- **MCP 调试日志增强** — 启动锁机制日志，API 启动过程可追踪
+- **自动端口发现** — API 服务器自动寻找空闲端口，避免多项目冲突；端口写入 `api_port.txt` 共享
+- **MCP HTTP Streamable 端点** — `/mcp/` 挂载到 FastAPI（附加能力，CC 连接保持 stdio）
+- **INSTALL.md** — CC 辅助安装指引，含 venv 检测逻辑
+- **PyPI 1.2.0 发布** — `pip install ai-team-os` 可获取最新版
+
+### 变更
+- **会话启动上下文工程** — 规则从 23 条精简为 5 条核心规则（上下文注入量减少 60%）
+- **子 Agent 上下文注入** — 新增 60 行上限裁剪，按优先级自动丢弃低优先内容
+- **`_ensure_api_running` 原子启动锁** — 防止多会话端口竞争（`O_CREAT|O_EXCL` 文件锁）
+- **Hooks 动态读取 API 端口** — 从 `api_port.txt` 读取端口，不再硬编码 8000
+- **`__init__.py` 版本同步为 1.2.0**
+- **`pyproject.toml` 元数据** — 添加 classifiers、keywords 和项目 URLs
+
+### 修复
+- Alembic 集成后 `_run_migrations` 被跳过 — 改为始终执行（幂等安全）
+- 多个 CC 会话同时启动 API 导致端口冲突 — 使用原子文件锁解决
+- StateReaper 级联关闭活跃会议时误关有近期消息的会议 — 增加近期消息检查
+- `_read_pid_file` 在 Windows 上抛出 `SystemError` — 增加异常捕获
+- `install.py` 使用 `sys.executable` 绝对路径 — 解决项目 venv 劫持 hooks/MCP 问题
+- `auto_install.py` 改为从 GitHub 安装 — PyPI 版本滞后时仍能获取最新代码
+- 启动锁 60 秒 TTL — 防止 CC 异常退出后锁文件残留阻塞启动
+- MCP HTTP 挂载修复 — lifespan 传递 + `path='/'` 路由 + 308 重定向处理
+- Plugin marketplace 15 个安装 bug 修复 — hooks 改为 `${CLAUDE_PLUGIN_ROOT}` 路径 + 恢复 `.py` 脚本
+
+## [1.1.0] — 2026-04-05
+
+### 新增
+- **Agent 信任评分系统** — `trust_score` 字段（0-1），任务成功/失败自动调整，`auto_assign` 加权匹配，`agent_trust_scores` / `agent_trust_update` MCP 工具
+- **语义缓存层** — BM25 + Jaccard 相似度匹配，JSON 持久化，TTL 过期机制，`cache_stats` / `cache_clear` MCP 工具
+- **工具分级定义** — 核心工具（15 个必备）与高级工具（46 个领域专用）分类，为未来上下文预算优化做准备
+
+### 变更
+- `TaskModel.status` 新增数据库索引（提升查询性能）
+- `resolve_task_dependencies` 改用批量 IN 查询替换逐条查询（N+1 优化）
+- `detect_dependency_cycle` 改为广度优先搜索 + 批量查询（大规模依赖图性能优化）
+- `task_list_project` 分页 — 新增 `limit` / `offset` / `include_completed` / `status` 参数
+
+### 修复
+- `trust.py` 错误响应改为 `HTTPException`（此前返回裸字典）
+- `git_ops.py` 敏感文件过滤改用 `basename`（避免路径包含关键字时误拦）
+- `channels.py` 死代码清理
+- 修复已存在的 `test_check_for_updates_no_git_repo_silent` 测试
+
+## [1.0.0] — 2026-04-05
+
+### 新增
+- **错误类型到恢复策略映射** — `_api_call` 统一附加 `_recovery` 和 `_error_category`，自动推荐恢复动作
+- **文件锁 / 工作区隔离** — `file_lock_acquire` / `release` / `check` / `list` 4 个 MCP 工具 + TTL=300 秒 + hook 警告，防止并发编辑冲突
+- **频道通讯系统** — `team:` / `project:` / `global` 三种频道格式 + `@mention` 支持，`channel_send` / `channel_read` / `channel_mentions` MCP 工具
+- **执行模式记忆** — 成功/失败模式记录 + BM25 检索 + 子 Agent 上下文注入，`pattern_record` / `pattern_search` MCP 工具
+- **Git 自动化工具** — `git_auto_commit` / `git_create_pr` / `git_status_check` MCP 工具，自动过滤敏感文件
+- **Guardrails 一级防护** — 7 种危险模式检测 + 个人信息警告 + `InputGuardrailMiddleware`，防止无监督运行时的破坏性操作
+- **Alembic 数据库迁移系统** — 初始修订版本 + 双路径初始化（全新/已有数据库），迁移历史可追踪
+- **MCP 调试日志系统** — `~/.claude/data/ai-team-os/mcp-debug.log`，工具调用链路可观测
+
+### 变更
+- **陷阱工具消除** — `team_create` / `agent_register` 描述首行添加警告 + `_warning` 返回值，防止误用
+- **`task_id` 自动注入** — 子 Agent 上下文自动携带当前 task_id，无需手动传递
+- **增强任务分配** — `auto_assign` 加入 `completion_rate` + `trust_score` 加权，优先分配可靠 Agent
+- **`inject_subagent_context` 环境变量统一** — 统一为 `AITEAM_API_URL`
+
+### 修复
+- `context_monitor` 改为读取项目级监控文件（不再读取过时的全局文件）
+- 修复已存在的 `test_check_for_updates_no_git_repo_silent` 测试
+
+### 测试
+- 28 个跨功能集成测试
+- 总测试数：769（从 389 增长）
+
+## [0.9.0] — 2026-04-04
+
+### 新增
+- **Prompt Registry（提示词注册表）** — Agent 模板版本追踪 + 效果统计，3 个 API 端点 + `prompt_version_list` / `prompt_effectiveness` MCP 工具，与 `failure_alchemy` 关联
+- **BM25 搜索升级** — 中文 bigram + 英文分词替代简单关键词匹配，搜索质量提升 3-5 倍，优雅降级（`jieba` 为可选依赖）
+- **事件日志增强** — EventModel 新增 `entity_id` / `entity_type` / `state_snapshot` 三个字段，自动快照 + 实体过滤
+- **辩论模式** — 4 轮结构化辩论（倡导者 -> 批评者 -> 回应 -> 裁判）+ `debate_start` / `debate_code_review` MCP 工具 + 2 个辩论角色模板
+- **3 个仪表盘可观测性页面** — 流水线可视化 / 失败分析 / 提示词注册表
+- **Agent 模板自动安装** — `install.py` 自动安装到 `~/.claude/agents/`（默认 opus 模型）
+- **CC Marketplace 提交** — 正式提交到 Anthropic 官方插件市场
+
+### 变更
+- **server.py 模块化拆分** — 3050 行单文件拆分为 57 行入口 + 14 个工具模块 + 2 个基础模块，可维护性大幅提升
+- **会话启动优化** — 从 15-25 秒缩短至 1-2 秒：并行化 + 异步 git 检查 + 减少重试次数
+- **workflow_reminder 项目隔离** — 所有 API 调用添加 `X-Project-Id` 请求头
+- **install.py 重构** — 支持多 hook 分组/事件、自动设置 `AGENT_TEAMS` 环境变量和 `effortLevel` 推荐配置
+- **`_resolve_project_id` 缓存** — 5 分钟 TTL 文件缓存，减少高频 hook 的 HTTP 调用
+- **inject_subagent_context 环境变量统一** — `AI_TEAM_OS_API` 更名为 `AITEAM_API_URL`
+- **测试导入路径迁移** — `plugin/hooks/` 迁移至 `aiteam.hooks` 包导入
+
+### 修复
+- workflow_reminder 项目级任务查询缺少 `X-Project-Id` 请求头（B1）
+- TeamDelete PUT 请求缺少 `X-Project-Id` 请求头（B2）
+- 测试文件导入路径断裂（plugin/hooks 删除后）
+- `context_monitor` 路径修复 — 改为读取项目级文件而非全局过时文件
+- statusline.py 相关废弃测试清理
+
+### 移除
+- **plugin/hooks/ 死代码清理** — 删除 11 个过时的 `.py` / `.ps1` 文件，仅保留 `hooks.json` + `README`
+- **重复 Agent 模板清理** — 删除旧版 `meeting-facilitator.md` 和 `tech-lead.md`（从 25 个减至 23 个模板）
+- **移除 enforce_model hook** — 保留用户模型选择的灵活性
+- **从 install.py 移除模型设置** — 不再强制新用户配置模型
+
+## [0.8.0] — 2026-04-04
+
+### 新增
+- **成本追踪**：AgentActivity 新增 `tokens_input`/`tokens_output`/`cost_usd` 字段，`GET /api/analytics/token-costs` 接口，`token_costs` MCP 工具
+- **执行追踪**：`GET /api/tasks/{id}/execution-trace` 统一时间线（事件 + 备忘录），`task_execution_trace` MCP 工具
+- **Agent 实时面板**：`AgentLivePage` 仪表盘，状态标签（忙碌/等待/离线），30 秒自动刷新
+- **故障自动诊断**：`FailureAlchemist.diagnose_failure()`，`POST /api/tasks/{id}/diagnose`，`diagnose_task_failure` MCP 工具
+- **Slack/Webhook 通知**：`NotificationService`，EventBus 自动触发，`GET/PUT/DELETE /api/settings/webhook`，`send_notification` MCP 工具
+- **流水线并行执行**：`parallel_with` 字段，完成门控，4 个新增并行测试（共 28 个）
+- **执行回放引擎**：`ReplayEngine`（get_replay + compare_executions），`task_replay`/`task_compare` MCP 工具
+- **成本预算与告警**：每周预算限额（默认 50 美元），80% 告警阈值，`GET /api/analytics/budget`，`budget_status` MCP 工具
+- **Leader 简报页面**：双层标签页（项目 + 状态），项目名称标签，解决/忽略操作界面
+- **79 个 MCP 工具**（原为 72 个）
+
+### 修复
+- **P0 API 进程管理**：PID 文件替换文件锁，`_is_api_healthy()` 替换 `_is_port_open()`，卡死进程 15 秒自动终止
+- **全局项目隔离**：`Repository._apply_project_filter()`，MCP 自动注入 `X-Project-Id` 请求头
+- **会话启动**：使用工作目录匹配的项目（不再使用 `projects[0]`）
+- **简报列表隔离**：使用限定范围的仓储
+- **上下文监控**：按项目隔离文件（不再跨会话覆盖）
+
+### 变更
+- **Hook 脚本**：改用 `python -m aiteam.hooks.*` 模块调用方式（不再使用文件路径）
+- **插件 hooks.json + .mcp.json**：统一为 python -m 命令
+- **install.py**：基于模块的 hook，`~/.mcp.json` 用于跨项目 MCP
+
+## [0.7.2] — 2026-04-02
+
+### 新增
+- **MCP 工具**：`project_update`、`project_delete`、`project_summary`、`task_subtasks`、`team_delete`、`briefing_dismiss`（共 72 个）
+- **仪表盘项目改版**：状态标签（活跃/非活跃），可展开的详情行，唤醒设置标签页
+- **项目摘要 API**：`GET /api/projects/{id}/summary` — 快速状态 + 优先任务
+
+### 变更
+- **项目隔离重新设计**：移除按项目分库方案（死代码，减少 180 行），统一 `context_resolve()` 使用进程级缓存
+- **SQLite WAL 模式**：通过引擎事件监听器启用，支持多会话并发
+- **禁用自动项目注册**：SessionStart 不再自动创建项目，提示用户通过 `project_create` 手动注册
+- **context_resolve()**：移除危险的 `projects[0]` 回退策略，无匹配时返回空值
+
+### 修复
+- 多会话数据库锁：SQLite `journal_mode=WAL` + `busy_timeout=10s` 防止并发写入失败
+- 数据回填：272 个孤立 Agent、57 个任务、72 个会议分配到正确项目
+- 垃圾项目清理：移除 6 个自动创建的项目，去重量化项目
+- 仪表盘 `ProjectSwitcher` 下拉框移除（原先会跳转到空白页）
+- 唤醒 Agent `--output-format stream-json` 错误移除（与 `-p` 标志不兼容）
+- 唤醒熔断器：仅统计真实失败（错误/超时），不统计跳过
+
+## [0.7.1] — 2026-04-02
+
+### 新增
+- **Leader 简报系统** — 自主运行时的决策上报机制
+  - 数据库表 `leader_briefings` + Pydantic 模型 + ORM
+  - 3 个 MCP 工具：`briefing_add`、`briefing_list`、`briefing_resolve`
+  - API 端点：GET/POST `/api/leader-briefings`，PUT `/{id}/resolve`，PUT `/{id}/dismiss`
+  - Leader 在自主工作期间记录待决事项，用户返回后统一审阅
+- **通过 CronCreate 自动唤醒** — SessionStart 启动时注入 CronCreate 指令
+  - 每 3 分钟 Leader 自动检查任务墙并推进工作
+  - 通过 `briefing_add` 上报决策，用户返回时汇报待处理事项
+- **install.py** — 一键安装 hook、MCP 和验证
+  - `python scripts/install.py` — 完整安装（hook + MCP + settings.json）
+  - `python scripts/install.py --check` — 验证 9 个 hook、MCP、API、包
+  - `python scripts/install.py --uninstall` — 移除配置，保留数据
+
+## [0.7.0] — 2026-04-02
+
+### 新增
+- **唤醒 Agent 调度器** — 通过 `claude -p` 子进程自动唤醒 Agent
+  - WakeAgentManager：子进程生命周期管理（communicate + 两阶段终止）
+  - WakeSession 数据模型 + ORM + 7 个仓储 CRUD 方法
+  - 7 层安全机制：数组参数、UUID 验证、按 Agent 加锁、全局信号量（最大=2）、熔断器、提示/数据 XML 分离、环境变量清理
+  - 分诊预检：无可执行任务时跳过唤醒（约 70% 跳过率）
+  - 紧急停止 API：`PUT /wake-pause-all`、`PUT /wake-resume-all`
+  - StateReaper 集成（即发即忘 + 优雅关闭）
+  - allowedTools 预设：安全模式（无 Bash）/ 含 Bash 模式（显式启用）
+- **CronCreate 会话唤醒** — 验证 CC 内置定时任务用于唤醒当前会话
+- 20 个 wake_manager 单元测试（全部通过）
+- 唤醒会话结果追踪（已完成/超时/错误/熔断/分诊跳过）
+
+### 修复
+- `context_resolve()` 自动项目选择：通过工作目录匹配 root_path，不再盲目选择第一个项目
+- Hook 路径编码：将 hook 脚本移至 ASCII 路径（`~/.claude/plugins/ai-team-os/hooks/`）
+- Hook 豁免列表：将 claude-code-guide、tdd-guide、refactor-cleaner 添加到非阻塞 Agent 类型
+- 调度器路由中 `valid_actions` 缺少 "wake_agent"（导致无法创建 API）
+- 信号量私有 API 访问（`_value`）替换为 `locked()`
+- 熔断器：仅统计真实失败（错误/超时），不统计跳过
+- `duration_seconds` 现已正确计算并记录
+- `shutdown()` 字典迭代安全（取消前先快照值）
+- 全局 MCP 配置：添加 `cwd` 字段以支持跨目录使用
+- 数据迁移：将 19 个任务 + 1 个团队从错误项目移至正确项目
+
+### 变更
+- `_clean_env()` 从白名单策略改为黑名单策略（继承全部，排除密钥）
+- 插件清单：添加 `hooks` 字段指向 `hooks/hooks.json`
+- 插件 `.mcp.json`：本地开发模式使用 `python -m aiteam.mcp.server` 并指定 `cwd`
+
+## [0.6.0] — 2026-03-22
+
+### 新增
+- 工作流编排流水线（7 个模板，自动阶段推进）
+- 流水线强制执行：task_type 参数 + 逐步阻塞
+- 跨项目消息系统（v1，单机版）
+- 自动更新机制（scripts/update.py）
+- 团队清理提醒（SessionStart + 规则 15）
+- 独立安装方式（hook 复制到 ~/.claude/hooks/）
+- CC 插件包结构
+- 卸载脚本（scripts/uninstall.py）
+- 仪表盘：活动表格 + 决策时间线增强
+
+### 修复
+- 全局 MCP 配置：使用 ~/.claude.json（而非 settings.json）
+- 安装依赖（fastapi、uvicorn、fastmcp 改为必需依赖）
+- SessionStart API 重试（针对时序问题重试 3 次）
+- B0.9 噪音降低（首次提醒后每 10 次调用提醒一次）
+- Windows UTF-8 编码修复（所有 hook 脚本）
+
+## [0.5.0] — 2026-03-22
+
+### 新增
+- 跨项目消息系统（2 个 MCP 工具 + 4 个 API 端点 + 全局数据库）
+- 自动更新机制（scripts/update.py + install.py --update）
+- SessionStart 24 小时冷却更新检查
+- 独立安装：hook 复制到 ~/.claude/hooks/ai-team-os/
+- 全局 MCP 注册到 ~/.claude/settings.json
+
+### 变更
+- 安装步骤缩减为 3 步（API 随 MCP 自动启动，无需手动启动）
+
+## [0.4.0] — 2026-03-21
+
+### 新增
+- 按项目数据库隔离（阶段 1-4）
+- EnginePool 带 LRU 缓存的多数据库管理
+- ProjectContextMiddleware（X-Project-Dir 请求头路由）
+- 迁移脚本：按 project_id 拆分全局数据库
+- StateReaper + 看门狗多数据库适配
+- 仪表盘项目切换器
+- install.py：完整入门流程（hook + Agent + MCP + 验证）
+- GET /api/health 健康检查端点
+
+### 修复
+- Windows UTF-8 编码修复（所有 hook 脚本从 gbk 转为 utf-8）
+- 团队模板引用实际的 Agent 模板名称
+
+## [0.3.0] — 2026-03-21
+
+### 新增
+- 工作流强制执行：规则 2 任务墙检查 + 模板提醒
+- 本地 Agent 阻塞（B0.4）：所有非只读 Agent 必须有 team_name
+- Council 会议模板（3 轮多视角专家评审）
+- 会议自动选择：跨 8 个模板的关键词匹配
+- 团队关闭时级联关闭会议
+- find_skill MCP 工具，3 层渐进式加载
+- task_update MCP 工具 + PUT /api/tasks/{id}
+- 6 个新增 MCP 工具（共 55 个）
+- 467+ 个测试
+
+### 修复
+- S1 安全正则捕获大写 -R 标志
+- S1 heredoc 误报
+- 规则 7 任务墙计时器初始化
+- 会议过期时间从 2 小时调整为 45 分钟
+- B0.9 基础设施工具豁免于委派计数器
+
+## [0.2.0] — 2026-03-20
+
+### 新增
+- LoopEngine 与 AWARE 循环
+- 任务墙（评分排序 + 看板视图）
+- 调度器系统（周期性任务）
+- React 仪表盘（6 个页面）
+- 会议系统（7 个模板）
+- 26 个 Agent 模板，覆盖 7 个类别
+- 失败炼金术（抗体 + 疫苗 + 催化剂）
+- 假设分析
+- 国际化支持（中文/英文）
+- 研发监控系统（10 个信息源）
+
+## [0.1.0] — 2026-03-12
+
+### 新增
+- MCP 服务器 + FastAPI 后端
+- CC Hooks 集成（7 个生命周期事件）
+- 团队/Agent/任务/项目管理
+- SQLite 存储 + 异步仓储
+- 会话启动时行为规则注入
+- 事件总线 + 决策日志
+- 记忆搜索

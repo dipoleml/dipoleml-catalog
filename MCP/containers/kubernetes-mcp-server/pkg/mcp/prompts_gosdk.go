@@ -1,0 +1,110 @@
+package mcp
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/containers/kubernetes-mcp-server/pkg/api"
+)
+
+// promptCallRequestAdapter adapts MCP GetPromptRequest to api.PromptCallRequest
+type promptCallRequestAdapter struct {
+	request *mcp.GetPromptRequest
+}
+
+func (p *promptCallRequestAdapter) GetArguments() map[string]string {
+	if p.request == nil || p.request.Params == nil || p.request.Params.Arguments == nil {
+		return make(map[string]string)
+	}
+	return p.request.Params.Arguments
+}
+
+// ServerPromptToGoSdkPrompt converts an api.ServerPrompt to MCP SDK types
+func ServerPromptToGoSdkPrompt(s *Server, serverPrompt api.ServerPrompt) (*mcp.Prompt, mcp.PromptHandler, error) {
+	var meta mcp.Meta
+	if serverPrompt.RBAC != nil {
+		if err := serverPrompt.RBAC.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("prompt %q: invalid RBAC metadata: %w", serverPrompt.Prompt.Name, err)
+		}
+		meta = mcp.Meta{api.RBACMetadataKey: serverPrompt.RBAC}
+	}
+
+	// Convert arguments
+	var args []*mcp.PromptArgument
+	for _, arg := range serverPrompt.Prompt.Arguments {
+		args = append(args, &mcp.PromptArgument{
+			Name:        arg.Name,
+			Description: arg.Description,
+			Required:    arg.Required,
+		})
+	}
+
+	// Create the MCP SDK prompt
+	mcpPrompt := &mcp.Prompt{
+		Meta:        meta,
+		Name:        serverPrompt.Prompt.Name,
+		Title:       serverPrompt.Prompt.Title,
+		Description: serverPrompt.Prompt.Description,
+		Arguments:   args,
+	}
+
+	// Create the handler that wraps the ServerPrompt handler
+	handler := func(ctx context.Context, request *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		clusterParam := s.p.GetTargetParameterName()
+		var cluster string
+		if request.Params != nil && request.Params.Arguments != nil {
+			if val, ok := request.Params.Arguments[clusterParam]; ok {
+				cluster = val
+			}
+		}
+
+		cfg := s.configuration.Load()
+		limit := cfg.MaxResultBytes.Get()
+		ctx = api.WithResultBudget(ctx, limit)
+		params, err := newHandlerParams(s, ctx, cfg, api.PromptCallRequest(&promptCallRequestAdapter{request: request}), cluster)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get kubernetes client: %w", err)
+		}
+
+		result, err := serverPrompt.Handler(api.PromptHandlerParams(params))
+		if err != nil {
+			return nil, err
+		}
+
+		if result.Error != nil {
+			return nil, result.Error
+		}
+		if err := promptWithinLimit(limit, result.Messages); err != nil {
+			return nil, err
+		}
+
+		var messages []*mcp.PromptMessage
+		for _, msg := range result.Messages {
+			mcpMsg := &mcp.PromptMessage{
+				Role: mcp.Role(msg.Role),
+			}
+
+			switch msg.Content.Type {
+			case "text":
+				mcpMsg.Content = &mcp.TextContent{
+					Text: msg.Content.Text,
+				}
+			default:
+				mcpMsg.Content = &mcp.TextContent{
+					Text: msg.Content.Text,
+				}
+			}
+
+			messages = append(messages, mcpMsg)
+		}
+
+		return &mcp.GetPromptResult{
+			Description: result.Description,
+			Messages:    messages,
+		}, nil
+	}
+
+	return mcpPrompt, handler, nil
+}

@@ -1,0 +1,143 @@
+[
+  {
+    "_meta": {
+      "io.kubernetes-mcp-server/rbac": {
+        "bounded": {
+          "requirements": [
+            {
+              "target": {
+                "resource": {
+                  "resource": "nodes"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "target": {
+                "resource": {
+                  "resource": "namespaces"
+                }
+              },
+              "verbs": [
+                "get",
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "pods"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "apps",
+                  "resource": "deployments"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "apps",
+                  "resource": "statefulsets"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "apiGroup": "apps",
+                  "resource": "daemonsets"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "persistentvolumeclaims"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "target": {
+                "resource": {
+                  "apiGroup": "config.openshift.io",
+                  "resource": "clusteroperators"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            },
+            {
+              "namespace": {
+                "argument": "namespace"
+              },
+              "target": {
+                "resource": {
+                  "resource": "events"
+                }
+              },
+              "verbs": [
+                "list"
+              ]
+            }
+          ]
+        },
+        "version": "v1alpha1"
+      }
+    },
+    "arguments": [
+      {
+        "name": "namespace",
+        "description": "Optional namespace to limit health check scope (default: all namespaces)"
+      },
+      {
+        "name": "check_events",
+        "description": "Include recent warning/error events (true/false, default: true)"
+      },
+      {
+        "name": "context",
+        "description": "Optional parameter selecting which context to run the prompt in. Defaults to fake-context if not set"
+      }
+    ],
+    "description": "Perform comprehensive health assessment of Kubernetes/OpenShift cluster",
+    "name": "cluster-health-check",
+    "title": "Cluster Health Check"
+  }
+]

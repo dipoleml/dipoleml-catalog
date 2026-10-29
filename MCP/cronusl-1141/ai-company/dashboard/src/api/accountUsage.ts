@@ -1,0 +1,277 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiFetch } from './client';
+import { accountReadOptions } from '@/lib/account-connection';
+import { monitorSavedNewData } from '@/lib/account-usage';
+import type { APIResponse } from '@/types';
+
+export interface PricingAccount {
+  account_key: string;
+  label: string;
+  created_at: string;
+}
+
+interface PricingAccountsData {
+  accounts: PricingAccount[];
+  current_account_key: string | null;
+}
+
+export interface PricingQuotaSnapshot {
+  snapshot_id: string;
+  account_key: string;
+  limit_id: string;
+  used_percent: string | null;
+  window_duration_ms: number;
+  resets_at: string;
+  observed_at: string;
+  source: 'codex_app_server' | 'user_import';
+}
+
+export interface PricingRequestLine {
+  request_id: string;
+  model: string;
+  /** Observed value, including unknown tiers that must remain unpriced. */
+  service_tier: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_input_tokens: number;
+  cache_write_input_tokens: number;
+}
+
+export interface PricingUsageEntry {
+  occurred_at: string;
+  request: PricingRequestLine;
+  model_source?: 'payload' | 'matching_turn_context' | null;
+  service_tier_source?: 'payload' | 'matching_turn_context' | 'thread_settings' | 'session_meta' | 'launch_requested' | 'standard_assumption' | null;
+  launch_id?: string | null;
+}
+
+export interface PricingUsageBatch {
+  batch_id: string;
+  account_key: string;
+  start_snapshot_id: string;
+  end_snapshot_id: string;
+  coverage: 'local_only' | 'account_complete';
+  coverage_statement: string;
+  coverage_confirmed_at: string | null;
+  entries: PricingUsageEntry[];
+}
+
+export interface PricingRates {
+  input: string;
+  cached_input: string | null;
+  cache_write: string | null;
+  output: string;
+}
+
+export interface PricingRateRecord {
+  model: string;
+  tier: 'standard' | 'fast' | 'ultrafast' | 'flex' | 'batch';
+  min_input_tokens: number;
+  max_input_tokens: number | null;
+  rates: PricingRates;
+  source_url: string;
+  verified_at: string;
+  effective_from: string | null;
+  effective_until: string | null;
+  notes: string;
+}
+
+export interface PricingQuoteItem {
+  request_id: string;
+  model: string;
+  canonical_model: string | null;
+  service_tier: PricingRequestLine['service_tier'];
+  status: 'priced' | 'unpriced';
+  reason: string | null;
+  amount_usd: string | null;
+  rate_record: PricingRateRecord | null;
+}
+
+export interface PricingVerificationSignal {
+  model: string;
+  canonical_model: string | null;
+  status: 'fresh' | 'stale' | 'unverified' | 'unpriced';
+  verified_at: string | null;
+  missing_price: boolean;
+}
+
+export interface PricingQuoteResponse {
+  basis: 'api_equivalent_at_catalog_version';
+  currency: 'USD';
+  catalog_version: string;
+  catalog_sha256: string;
+  verified_at: string;
+  request_count: number;
+  priced_request_count: number;
+  unpriced_request_count: number;
+  complete: boolean;
+  total_usd: string | null;
+  priced_subtotal_usd: string;
+  items: PricingQuoteItem[];
+  missing_models: string[];
+}
+
+export interface PricingAccountEstimate {
+  batch_id: string;
+  account_key: string;
+  start_snapshot_id: string;
+  end_snapshot_id: string;
+  coverage: PricingUsageBatch['coverage'];
+  coverage_statement: string;
+  coverage_confirmed_at: string | null;
+  interval_start: string;
+  interval_end: string;
+  delta_used_percent: string | null;
+  quote: PricingQuoteResponse;
+  estimated_full_week_usd: string | null;
+  status: 'sample_only' | 'conditional' | 'unavailable';
+  reason: string | null;
+}
+
+/** The account detail is a summary: the full quota history is paged separately. */
+export interface AccountUsageDetail {
+  account: PricingAccount;
+  snapshot_count: number;
+  latest_snapshots: PricingQuotaSnapshot[];
+  estimates: PricingAccountEstimate[];
+}
+
+export interface CapturedAccount {
+  account: PricingAccount;
+  snapshots: PricingQuotaSnapshot[];
+}
+
+export interface PricingMonitorSettings {
+  enabled: boolean;
+  interval_ms: number;
+}
+
+export interface PricingMonitorState {
+  account_key: string;
+  settings: PricingMonitorSettings;
+  revision: number;
+  status: 'disabled' | 'waiting' | 'sampling' | 'error' | 'paused_account_changed';
+  runtime_running: boolean;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  next_run_at: string | null;
+  last_error: string | null;
+  /** A due round skipped because local Codex had no new activity. */
+  last_skipped_at?: string | null;
+}
+
+const ROOT = '/api/account-usage';
+const accountPath = (key: string) => `${ROOT}/${encodeURIComponent(key)}`;
+
+
+export function usePricingAccounts() {
+  return useQuery({
+    ...accountReadOptions,
+    queryKey: ['account-usage'],
+    // The account list only changes on a capture or a login switch; captures
+    // invalidate it directly, so a slow poll only catches the latter.
+    refetchInterval: 60_000,
+    queryFn: async () => (await apiFetch<APIResponse<PricingAccountsData>>(ROOT)).data,
+  });
+}
+
+export function usePricingAccount(key: string, includePricing = true) {
+  return useQuery({
+    ...accountReadOptions,
+    queryKey: includePricing ? ['account-usage', key] : ['account-usage', key, 'plan'],
+    enabled: Boolean(key),
+    queryFn: async () => (await apiFetch<APIResponse<AccountUsageDetail>>(
+      accountPath(key) + (includePricing ? '' : '?include_pricing=false'),
+    )).data,
+  });
+}
+
+export function useCapturePricingAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async () => (await apiFetch<APIResponse<CapturedAccount>>(
+      `${ROOT}/capture`, { method: 'POST', body: '{}' },
+    )).data,
+    onSuccess: ({ account }) => {
+      // Capture confirms the current login, but is not a manual history pin.
+      // Publish it immediately even if the subsequent list refresh disconnects.
+      client.setQueryData<PricingAccountsData>(['account-usage'], (previous) => ({
+        accounts: previous?.accounts.some((item) => item.account_key === account.account_key)
+          ? previous.accounts.map((item) => item.account_key === account.account_key ? account : item)
+          : [...(previous?.accounts ?? []), account],
+        current_account_key: account.account_key,
+      }));
+      void client.invalidateQueries({ queryKey: ['account-usage'] });
+    },
+  });
+}
+
+export function useImportPricingBatch() {
+  const client = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async (batch: PricingUsageBatch) => (await apiFetch<APIResponse<PricingAccountEstimate>>(
+      `${accountPath(batch.account_key)}/batches`, { method: 'POST', body: JSON.stringify(batch) },
+    )).data,
+    onSuccess: (_result, batch) => {
+      void client.invalidateQueries({ queryKey: ['account-usage', batch.account_key] });
+    },
+  });
+}
+
+export function useLabelPricingAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async ({ key, label }: { key: string; label: string }) => (
+      await apiFetch<APIResponse<PricingAccount>>(`${accountPath(key)}/label`, {
+        method: 'PATCH', body: JSON.stringify({ label }),
+      })
+    ).data,
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ['account-usage'] }); },
+  });
+}
+
+export function usePricingMonitor(key: string) {
+  const client = useQueryClient();
+  return useQuery({
+    ...accountReadOptions,
+    queryKey: ['account-usage', key, 'monitor'],
+    enabled: Boolean(key),
+    refetchInterval: 10_000,
+    queryFn: async () => {
+      const previous = client.getQueryData<PricingMonitorState>(['account-usage', key, 'monitor']);
+      const result = (await apiFetch<APIResponse<PricingMonitorState>>(`${accountPath(key)}/monitor`)).data;
+      if (monitorSavedNewData(previous, result)) {
+        void client.invalidateQueries({ queryKey: ['account-usage', key], exact: true });
+        void client.invalidateQueries({ queryKey: ['account-usage', key, 'plan'], exact: true });
+      }
+      return result;
+    },
+  });
+}
+
+export function useUpdatePricingMonitor() {
+  const client = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: async ({ key, settings }: {
+      key: string;
+      settings: { enabled: true; interval_ms: number } | { enabled: false; interval_ms?: number };
+    }) => (
+      await apiFetch<APIResponse<PricingMonitorState>>(`${accountPath(key)}/monitor`, {
+        method: 'PUT', body: JSON.stringify(settings),
+      })
+    ).data,
+    onSuccess: (result, { key }) => {
+      const previous = client.getQueryData<PricingMonitorState>(['account-usage', key, 'monitor']);
+      if (monitorSavedNewData(previous, result)) {
+        void client.invalidateQueries({ queryKey: ['account-usage', key], exact: true });
+        void client.invalidateQueries({ queryKey: ['account-usage', key, 'plan'], exact: true });
+      }
+      client.setQueryData(['account-usage', key, 'monitor'], result);
+      void client.invalidateQueries({ queryKey: ['account-usage', key, 'monitor'], exact: true });
+    },
+  });
+}

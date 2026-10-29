@@ -1,0 +1,15 @@
+{
+  "skill": "deploy",
+  "should_trigger": [
+    "How do I set up Fly.io deployment?",
+    "Create a Dockerfile for my production app",
+    "Help with mix release configuration",
+    "Configure distributed Erlang nodes with libcluster",
+    "What vm.args.eex settings should I use?"
+  ],
+  "should_not_trigger": [
+    "Add OAuth login to my API",
+    "Database queries are slow, optimize",
+    "Split my User context into Auth and Profile"
+  ]
+}

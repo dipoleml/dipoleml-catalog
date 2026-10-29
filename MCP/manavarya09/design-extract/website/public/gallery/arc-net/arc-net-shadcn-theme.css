@@ -1,0 +1,19 @@
+/* shadcn/ui Theme — extracted from https://arc.net */
+/* Paste into your globals.css */
+
+@layer base {
+  :root {
+    --background: 51 100% 96%;
+    --foreground: 0 0% 0%;
+    --primary: 252 98% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 51 100% 93%;
+    --secondary-foreground: 0 0% 0%;
+    --accent: 238 96% 59%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 0 0% 41%;
+    --muted-foreground: 0 0% 0%;
+    --border: 0 0% 41%;
+    --radius: 8px;
+  }
+}

@@ -1,0 +1,422 @@
+"""AST-based Python file annotator.
+
+Uses Python's ast module to extract structural information from Python source code:
+functions, classes, imports, and a best-effort dependency graph.
+"""
+
+import ast
+import logging
+
+from token_savior.models import (
+    ClassInfo,
+    FunctionInfo,
+    ImportInfo,
+    LineRange,
+    StructuralMetadata,
+    VariableInfo,
+    build_line_char_offsets,
+    variables_mode,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _decorator_name(node: ast.expr) -> str:
+    """Extract a readable name from a decorator AST node."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parts = []
+        current: ast.expr = node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+        return ".".join(reversed(parts))
+    if isinstance(node, ast.Call):
+        return _decorator_name(node.func)
+    return ast.dump(node)
+
+
+def _base_name(node: ast.expr) -> str:
+    """Extract a readable name from a base class AST node."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parts = []
+        current: ast.expr = node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+        return ".".join(reversed(parts))
+    if isinstance(node, ast.Subscript):
+        # e.g., Generic[T]
+        return _base_name(node.value)
+    return ast.dump(node)
+
+
+def _detect_scaffold(body: list[ast.stmt]) -> str:
+    """Classify a function body as 'stub' (scaffold) or 'impl' (real body).
+
+    A body is a stub if it contains nothing beyond:
+    - `pass`
+    - bare `...` (Ellipsis expression)
+    - a single docstring
+    - `return` / `return None`
+    - `raise NotImplementedError(...)`
+    """
+    effective: list[ast.stmt] = []
+    for i, stmt in enumerate(body):
+        if (
+            i == 0
+            and isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            continue  # docstring
+        effective.append(stmt)
+    if not effective:
+        return "stub"
+    for stmt in effective:
+        if isinstance(stmt, ast.Pass):
+            continue
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis:
+            continue
+        if isinstance(stmt, ast.Return) and (stmt.value is None or (
+            isinstance(stmt.value, ast.Constant) and stmt.value.value is None
+        )):
+            continue
+        if isinstance(stmt, ast.Raise):
+            exc = stmt.exc
+            name = None
+            if isinstance(exc, ast.Name):
+                name = exc.id
+            elif isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+                name = exc.func.id
+            if name == "NotImplementedError":
+                continue
+        return "impl"
+    return "stub"
+
+
+def _extract_function_info(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    parent_class: str | None = None,
+) -> FunctionInfo:
+    """Extract FunctionInfo from a function/method AST node."""
+    is_method = parent_class is not None
+    qualified_name = f"{parent_class}.{node.name}" if parent_class else node.name
+
+    # Parameters: skip self/cls for methods
+    params: list[str] = []
+    for arg in node.args.args:
+        if is_method and arg.arg in ("self", "cls"):
+            continue
+        params.append(arg.arg)
+    # Also include *args and **kwargs style params
+    if node.args.vararg:
+        params.append(f"*{node.args.vararg.arg}")
+    for arg in node.args.kwonlyargs:
+        params.append(arg.arg)
+    if node.args.kwarg:
+        params.append(f"**{node.args.kwarg.arg}")
+
+    decorators = [_decorator_name(d) for d in node.decorator_list]
+    docstring = ast.get_docstring(node)
+
+    # Line range: account for decorators
+    start_line = node.lineno
+    if node.decorator_list:
+        start_line = min(d.lineno for d in node.decorator_list)
+
+    return FunctionInfo(
+        name=node.name,
+        qualified_name=qualified_name,
+        line_range=LineRange(start=start_line, end=node.end_lineno or node.lineno),
+        parameters=params,
+        decorators=decorators,
+        docstring=docstring,
+        is_method=is_method,
+        parent_class=parent_class,
+        scaffold_kind=_detect_scaffold(node.body),
+    )
+
+
+def _extract_class_info(node: ast.ClassDef) -> ClassInfo:
+    """Extract ClassInfo from a class AST node."""
+    base_classes = [_base_name(b) for b in node.bases]
+    decorators = [_decorator_name(d) for d in node.decorator_list]
+    docstring = ast.get_docstring(node)
+
+    methods: list[FunctionInfo] = []
+    for child in ast.walk(node):
+        if child is node:
+            continue
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Only direct methods (check parent is this class)
+            pass
+
+    # Use iter_child_nodes to get only direct children
+    methods = []
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            methods.append(_extract_function_info(child, parent_class=node.name))
+
+    start_line = node.lineno
+    if node.decorator_list:
+        start_line = min(d.lineno for d in node.decorator_list)
+
+    return ClassInfo(
+        name=node.name,
+        line_range=LineRange(start=start_line, end=node.end_lineno or node.lineno),
+        base_classes=base_classes,
+        methods=methods,
+        decorators=decorators,
+        docstring=docstring,
+    )
+
+
+def _collect_name_references(node: ast.AST) -> set[str]:
+    """Collect all Name and Attribute references in an AST subtree."""
+    refs: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Name):
+            refs.add(child.id)
+        elif isinstance(child, ast.Attribute):
+            # Collect the full dotted name's root
+            current: ast.expr = child
+            while isinstance(current, ast.Attribute):
+                current = current.value
+            if isinstance(current, ast.Name):
+                refs.add(current.id)
+    return refs
+
+
+def _build_dependency_graph(
+    tree: ast.Module,
+    defined_names: set[str],
+) -> dict[str, list[str]]:
+    """Build a dependency graph mapping each defined name to the other defined names it references.
+
+    For classes, we use the class name as the key and collect references from the
+    entire class body. For functions, we collect references from the function body.
+    """
+    graph: dict[str, list[str]] = {}
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            refs = _collect_name_references(node)
+            # Remove self-reference and keep only defined names
+            deps = sorted(refs & defined_names - {node.name})
+            graph[node.name] = deps
+
+        elif isinstance(node, ast.ClassDef):
+            refs = _collect_name_references(node)
+            deps = sorted(refs & defined_names - {node.name})
+            graph[node.name] = deps
+
+    return graph
+
+
+_VALUE_PREVIEW_MAX = 60
+
+
+def _is_constant_name(name: str, annotation: str | None) -> bool:
+    """UPPER_SNAKE or a Final[...] annotation reads as a constant."""
+    if annotation is not None and "Final" in annotation:
+        return True
+    stripped = name.lstrip("_")
+    return bool(stripped) and stripped.upper() == stripped and any(c.isalpha() for c in stripped)
+
+
+def _unparse(node: ast.AST | None) -> str | None:
+    if node is None:
+        return None
+    try:
+        text = ast.unparse(node)
+    except Exception:  # pragma: no cover - unparse is total in practice
+        return None
+    text = " ".join(text.split())
+    if len(text) > _VALUE_PREVIEW_MAX:
+        text = text[: _VALUE_PREVIEW_MAX - 1] + "…"
+    return text
+
+
+def _binding_names(stmt: ast.stmt) -> list[tuple[str, str | None]]:
+    """(name, type_annotation) bound by one assignment statement.
+
+    ``AugAssign`` is skipped: ``x += 1`` rebinds an existing name rather than
+    introducing one, so treating it as a definition would report the wrong
+    line for the actual binding site.
+    """
+    if isinstance(stmt, ast.AnnAssign):
+        if isinstance(stmt.target, ast.Name):
+            return [(stmt.target.id, _unparse(stmt.annotation))]
+        return []
+    if isinstance(stmt, ast.Assign):
+        names: list[tuple[str, str | None]] = []
+        for target in stmt.targets:
+            # `a = b = 1` gives two targets; `a, b = ...` gives one Tuple.
+            elements = target.elts if isinstance(target, (ast.Tuple, ast.List)) else [target]
+            for element in elements:
+                if isinstance(element, ast.Name):
+                    names.append((element.id, None))
+        return names
+    return []
+
+
+def _extract_variables(tree: ast.Module) -> list[VariableInfo]:
+    """Module-level and class-level bindings, in source order.
+
+    Function locals are not collected — they cannot be referenced from
+    another module, so they are not findable symbols.
+    """
+    variables: list[VariableInfo] = []
+    seen: set[str] = set()
+
+    def collect(body: list[ast.stmt], parent_class: str | None) -> None:
+        for stmt in body:
+            for name, annotation in _binding_names(stmt):
+                qualified_name = f"{parent_class}.{name}" if parent_class else name
+                if qualified_name in seen:
+                    continue  # a rebinding; the first one is the definition
+                seen.add(qualified_name)
+                value = getattr(stmt, "value", None)
+                variables.append(
+                    VariableInfo(
+                        name=name,
+                        qualified_name=qualified_name,
+                        line_number=stmt.lineno,
+                        kind="constant" if _is_constant_name(name, annotation) else "variable",
+                        scope="class" if parent_class else "module",
+                        type_annotation=annotation,
+                        value_preview=_unparse(value),
+                    )
+                )
+
+    collect(tree.body, None)
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef):
+            collect(node.body, node.name)
+    return variables
+
+
+def _extract_imports(tree: ast.Module) -> list[ImportInfo]:
+    """Extract all import statements from the AST."""
+    imports: list[ImportInfo] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.append(
+                    ImportInfo(
+                        module=alias.name,
+                        names=[],
+                        alias=alias.asname,
+                        line_number=node.lineno,
+                        is_from_import=False,
+                    )
+                )
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            names = [alias.name for alias in node.names]
+            # For `from X import Y as Z`, we record Y in names and Z as alias
+            # But ImportInfo has a single alias field - use it for single-name imports
+            alias = None
+            if len(node.names) == 1 and node.names[0].asname:
+                alias = node.names[0].asname
+            imports.append(
+                ImportInfo(
+                    module=module,
+                    names=names,
+                    alias=alias,
+                    line_number=node.lineno,
+                    is_from_import=True,
+                )
+            )
+
+    return imports
+
+
+def annotate_python(source: str, source_name: str = "<source>") -> StructuralMetadata:
+    """Parse Python source code and extract structural metadata.
+
+    Uses ast.parse() to build the AST, then walks it to extract:
+    - All function definitions (top-level and methods, including async)
+    - All class definitions with base classes, methods, decorators, docstrings
+    - All import statements (import X, from X import Y, aliases)
+    - A dependency graph mapping each function/class to the names it references
+
+    If the source fails to parse (syntax error), falls back to line-only annotation
+    (empty functions/classes/imports lists) and logs a warning.
+
+    Args:
+        source: Python source code as a string.
+        source_name: Identifier for error messages.
+
+    Returns:
+        StructuralMetadata with code structure populated.
+    """
+    lines = source.split("\n")
+    line_offsets = build_line_char_offsets(lines)
+    total_lines = len(lines)
+    total_chars = len(source)
+
+    # Attempt to parse the AST
+    try:
+        tree = ast.parse(source, filename=source_name)
+    except SyntaxError as e:
+        logger.warning(
+            "Syntax error in %s: %s. Falling back to line-only annotation.", source_name, e
+        )
+        return StructuralMetadata(
+            source_name=source_name,
+            total_lines=total_lines,
+            total_chars=total_chars,
+            lines=lines,
+            line_char_offsets=line_offsets,
+        )
+
+    # Extract top-level functions (not methods)
+    functions: list[FunctionInfo] = []
+    classes: list[ClassInfo] = []
+
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            functions.append(_extract_function_info(node, parent_class=None))
+        elif isinstance(node, ast.ClassDef):
+            class_info = _extract_class_info(node)
+            classes.append(class_info)
+            # Also add methods to the top-level functions list for easy lookup
+            functions.extend(class_info.methods)
+
+    # Extract imports
+    imports = _extract_imports(tree)
+
+    # Extract module- and class-level bindings
+    variables = _extract_variables(tree) if variables_mode() != "off" else []
+
+    # Build dependency graph
+    defined_names: set[str] = set()
+    for f in functions:
+        defined_names.add(f.name)
+    for c in classes:
+        defined_names.add(c.name)
+
+    dependency_graph = _build_dependency_graph(tree, defined_names)
+
+    return StructuralMetadata(
+        source_name=source_name,
+        total_lines=total_lines,
+        total_chars=total_chars,
+        lines=lines,
+        line_char_offsets=line_offsets,
+        functions=functions,
+        classes=classes,
+        imports=imports,
+        variables=variables,
+        dependency_graph=dependency_graph,
+    )

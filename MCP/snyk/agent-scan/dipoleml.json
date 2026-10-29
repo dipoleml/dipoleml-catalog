@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.snyk.agent-scan",
+  "type": "mcp",
+  "name": "Agent Scan",
+  "slug": "agent-scan",
+  "vendor": "snyk",
+  "description": "Security scanner for AI agents, MCP servers and agent skills.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/snyk/agent-scan",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "modelcontextprotocol",
+    "security"
+  ],
+  "tags": [
+    "agent",
+    "ai",
+    "mcp",
+    "modelcontextprotocol",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "snyk",
+    "brandName": "snyk",
+    "source": "https://cdn.simpleicons.org/snyk",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:38Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "snyk/agent-scan",
+    "url": "https://github.com/snyk/agent-scan",
+    "commit": "a69e1c354ad0812c13da15dc64770e1c21786841",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3184,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:50Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "snyk-agent-scan"
+    ],
+    "env": [
+      "IMPORTANT",
+      "SNYK_TOKEN"
+    ],
+    "credentials": [
+      "SNYK_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

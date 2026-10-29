@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Integration Tutorials — Roam Docs · Claude Code, Cursor, Codex, more</title>
+  <meta name="description" content="End-to-end MCP setup for Claude Code, Cursor, Gemini CLI, Codex CLI, and Amp (Sourcegraph). Per-platform commands and the cross-platform validation checklist.">
+  <link rel="canonical" href="https://roam-code.com/docs/integration-tutorials">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta name="theme-color" content="#0049b7">
+  <meta name="apple-mobile-web-app-title" content="Roam">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preload" href="/fonts/space-grotesk-variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="dns-prefetch" href="//github.com">
+  <link rel="dns-prefetch" href="//pypi.org">
+  <link rel="stylesheet" href="/landing.css">
+  <meta name="robots" content="index,follow">
+  <meta property="og:title" content="Integration Tutorials — Roam Docs">
+  <meta property="og:description" content="MCP setup for Claude Code, Cursor, Gemini CLI, Codex CLI, and Amp.">
+  <meta property="og:url" content="https://roam-code.com/docs/integration-tutorials">
+  <meta property="og:image" content="https://roam-code.com/og-code-analysis.png">
+  <meta property="og:image:width" content="1731">
+  <meta property="og:image:height" content="909">
+  <meta property="og:image:alt" content="Roam — Code analysis your agent can query. Checks it can run.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://roam-code.com/og-code-analysis.png">
+  <meta name="twitter:image:alt" content="Roam — Code analysis your agent can query. Checks it can run.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://roam-code.com/"},
+      {"@type": "ListItem", "position": 2, "name": "Docs", "item": "https://roam-code.com/docs/"},
+      {"@type": "ListItem", "position": 3, "name": "Integration Tutorials", "item": "https://roam-code.com/docs/integration-tutorials"}
+    ]
+  }
+  </script>
+</head>
+<body>
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <nav class="site-nav" aria-label="Main navigation">
+    <div class="nav-inner">
+      <a href="/" class="site-logo" aria-label="Roam — home">
+        <svg class="site-logo-mark" viewBox="0 0 32 32" fill="none" stroke="currentColor" aria-hidden="true" focusable="false">
+          <line x1="16" y1="16" x2="0" y2="8" stroke-width="1" opacity="0.55"/>
+          <line x1="16" y1="16" x2="32" y2="22" stroke-width="1" opacity="0.55"/>
+          <line x1="16" y1="16" x2="16" y2="32" stroke-width="1" opacity="0.35"/>
+          <circle cx="16" cy="16" r="4.5" fill="currentColor" stroke="none"/>
+          <circle cx="16" cy="16" r="7.5" stroke-width="1" opacity="0.30"/>
+        </svg>
+        <span>roam<span class="logo-dot">.</span></span>
+      </a>
+      <input type="checkbox" id="nav-toggle" class="nav-toggle-checkbox" aria-label="Toggle navigation menu" aria-controls="site-navigation">
+      <label for="nav-toggle" class="nav-toggle-label">
+        <span class="nav-burger" aria-hidden="true"></span><span class="visually-hidden">Menu</span>
+      </label>
+      <ul class="nav-links" id="site-navigation">
+        <li><a href="/explore">Explore the map</a></li>
+        <li><a href="/docs/" aria-current="true">Docs</a></li>
+        <li><a href="/compare">Compare</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="https://github.com/Cranot/roam-code">GitHub</a></li>
+        <li><a href="/setup" class="nav-start">Set up your agent</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <nav class="docs-subnav" aria-label="Documentation sections">
+    <div class="docs-subnav-inner">
+      <a href="/docs/getting-started">Get started</a>
+      <a href="/docs/integration-tutorials" aria-current="page">Integrations</a>
+      <a href="/docs/command-reference">Command reference</a>
+      <a href="/docs/architecture">Architecture</a>
+      <a href="/docs/agent-contract">Agent contract</a>
+      <a href="/docs/troubleshooting">Troubleshooting</a>
+    </div>
+  </nav>
+
+  <main tabindex="-1" id="main" class="docs-page">
+    <p class="eyebrow">Connection guides</p>
+    <h1>Connect Roam to your workflow</h1>
+    <p class="subtitle">
+      Connect your coding agent, add checks to your build pipeline, or
+      integrate a tool gateway. Pick the relevant section, try a first query,
+      and check both the result and any reported limitations.
+    </p>
+    <div class="callout">
+      Start with your editor or agent below. CI, gateway, and audit-export
+      sections are optional integrations, not prerequisites for local use.
+      Private-deployment pilots are scoped separately by SOW.
+    </div>
+    <p>
+      Ordinary analysis is local and needs no API key. Explicit network
+      features, including opt-in MCP model summarization, follow the
+      <a href="https://github.com/Cranot/roam-code/blob/main/docs/network-boundary.md">network boundary</a>.
+      Install <code>roam-code[mcp]</code> and run <code>roam init</code> in
+      the project root before connecting. Setup commands below run in a terminal.
+    </p>
+
+    <nav aria-labelledby="integration-contents-title">
+      <p id="integration-contents-title"><strong>Jump to your next step</strong></p>
+      <ul>
+        <li><a href="#mcp-host-tutorial">Setup overview</a>:
+          <a href="#claude-code">Claude Code</a> · <a href="#cursor">Cursor</a> ·
+          <a href="#gemini-cli">Gemini CLI</a> · <a href="#codex-cli">Codex CLI</a> ·
+          <a href="#amp">Amp</a> · <a href="#vscode">VS Code</a> · <a href="#windsurf">Windsurf</a></li>
+        <li><a href="#validate-connection">Check the connection and add the routine</a></li>
+        <li>Optional integrations: <a href="#ci-tutorial">CI pipelines</a> ·
+          <a href="#mcp-gateway-tutorial">Tool gateways</a> ·
+          <a href="#oscal-audit-tutorial">Audit exports</a></li>
+      </ul>
+    </nav>
+
+    <section>
+      <h2 id="mcp-host-tutorial">MCP host integration</h2>
+      <p>
+        Preview a maintained client template with <code>roam mcp-setup</code>.
+        Add <code>--write</code> to install it after reviewing the path and
+        settings. The generator configures a server process; it does not
+        inspect the connected client's tool inventory. Restart the connection
+        after changing its configuration or preset, then try a query in the
+        client. See <a href="/docs/mcp-usage#config-generator">configuration
+        and tool discovery</a> for the distinction.
+      </p>
+      <p>
+        Generator targets in this checkout:
+        <code>claude-code</code>, <code>cursor</code>,
+        <code>windsurf</code>, <code>vscode</code>,
+        <code>gemini-cli</code>, <code>codex-cli</code>. Amp
+        (Sourcegraph) uses the same JSON shape but is added through
+        Amp's own MCP settings panel.
+      </p>
+
+      <h2>Quick Setup Matrix</h2>
+      <div class="table-wrap" tabindex="0" role="group" aria-label="Scrollable reference table"><table>
+        <thead>
+          <tr><th>Platform</th><th>Fast setup command</th><th>Config fallback</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><a href="#claude-code">Claude Code</a></td><td><code>roam mcp-setup claude-code --write</code></td><td><code>.mcp.json</code> in project root</td></tr>
+          <tr><td><a href="#cursor">Cursor</a></td><td><code>roam mcp-setup cursor --write</code></td><td><code>.cursor/mcp.json</code></td></tr>
+          <tr><td><a href="#gemini-cli">Gemini CLI</a></td><td><code>roam mcp-setup gemini-cli --write</code></td><td><code>~/.gemini/settings.json</code></td></tr>
+          <tr><td><a href="#codex-cli">Codex CLI</a></td><td><code>roam mcp-setup codex-cli --write</code></td><td><code>~/.codex/config.toml</code> or <code>codex mcp add</code></td></tr>
+          <tr><td><a href="#vscode">VS Code</a></td><td><code>roam mcp-setup vscode --write</code></td><td><code>.vscode/mcp.json</code></td></tr>
+          <tr><td><a href="#windsurf">Windsurf</a></td><td><code>roam mcp-setup windsurf --write</code></td><td><code>~/.codeium/windsurf/mcp_config.json</code></td></tr>
+          <tr><td><a href="#amp">Amp (Sourcegraph)</a></td><td>Manual stdio entry</td><td>Amp MCP settings with command <code>roam mcp</code></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section>
+      <h2 id="claude-code">Claude Code</h2>
+      <h3>1. Register Roam as an MCP server</h3>
+<pre><code>roam mcp-setup claude-code --write
+# Alternatively: claude mcp add roam-code -- roam mcp</code></pre>
+      <h3>2. Verify tool visibility</h3>
+      <p>Restart the connection and inspect Roam's tools in Claude Code.
+        <code>roam mcp --list-tools-json</code> is a separate local inventory,
+        not proof of what the connected client exposes.</p>
+      <h3>3. First end-to-end workflow</h3>
+      <p>Ask the agent to find one function in your project and inspect its
+        callers. Use the <a href="/docs/mcp-usage#typical-agent-flow">core-preset
+        example</a> for actual MCP call names and arguments, then follow the
+        <a href="#validate-connection">connection and routine checklist</a>.</p>
+    </section>
+
+    <section>
+      <h2 id="cursor">Cursor</h2>
+      <h3>1. Generate MCP config snippet</h3>
+<pre><code>roam mcp-setup cursor</code></pre>
+      <h3>2. Add generated JSON to Cursor MCP config</h3>
+      <p>Place the emitted config at <code>.cursor/mcp.json</code> in your project.</p>
+      <h3>3. Try a repository question</h3>
+      <p>Restart the connection, check its tool list, and ask the agent to
+        locate a function you know. Compare the returned file and line with
+        the source. Continue with the <a href="#validate-connection">connection checklist</a>.</p>
+    </section>
+
+    <section>
+      <h2 id="gemini-cli">Gemini CLI</h2>
+      <h3>1. Generate Gemini MCP config</h3>
+<pre><code>roam mcp-setup gemini-cli</code></pre>
+      <h3>2. Install into Gemini settings</h3>
+      <p>Merge emitted JSON into <code>~/.gemini/settings.json</code>.</p>
+      <h3>3. Check the active connection</h3>
+      <p>Restart the connection and use the
+        <a href="#validate-connection">same first-query check</a>. A successful
+        configuration write alone does not prove that Gemini loaded the server.</p>
+    </section>
+
+    <section>
+      <h2 id="codex-cli">Codex CLI</h2>
+      <h3>1. Configure via command or config file</h3>
+<pre><code>codex mcp add roam-code -- roam mcp
+codex mcp list</code></pre>
+      <h3>2. Alternative configuration route</h3>
+      <p>Alternatively, run <code>roam mcp-setup codex-cli --write</code> to safely merge the emitted TOML into <code>~/.codex/config.toml</code>.</p>
+      <h3>3. Inspect the active server</h3>
+      <p><code>codex mcp list</code> lists configured servers; use
+        <code>/mcp</code> in the Codex CLI session to inspect active servers,
+        then make a real query. If needed, set the server's <code>cwd</code>
+        to the intended project and use an absolute executable path. See
+        <a href="https://learn.chatgpt.com/docs/extend/mcp?surface=cli">OpenAI's MCP configuration guide</a>.</p>
+      <p>Finish with the <a href="#validate-connection">connection and routine checklist</a>.</p>
+    </section>
+
+    <section>
+      <h2 id="amp">Amp (Sourcegraph)</h2>
+      <h3>1. Add a stdio MCP server entry</h3>
+      <p>
+        In Amp MCP settings, register a server named <code>roam-code</code> with command
+        <code>roam</code> and args <code>["mcp"]</code>.
+      </p>
+<pre><code>{
+  "mcpServers": {
+    "roam-code": {
+      "command": "roam",
+      "args": ["mcp"]
+    }
+  }
+}</code></pre>
+      <h3>2. Validate the connection</h3>
+      <p>Reload the server in Amp and run the
+        <a href="#validate-connection">first-query check</a>. The JSON above
+        describes the server entry; follow your installed client's settings
+        format when adding it.</p>
+    </section>
+
+    <section>
+      <h2 id="vscode">VS Code</h2>
+<pre><code>roam mcp-setup vscode
+roam mcp-setup vscode --write</code></pre>
+      <p>The generator targets the project's <code>.vscode/mcp.json</code>.
+        Review the preview first, restart the MCP connection, and check
+        Roam's tools in the agent interface. Finish with the
+        <a href="#validate-connection">connection and routine checklist</a>.</p>
+    </section>
+
+    <section>
+      <h2 id="windsurf">Windsurf</h2>
+<pre><code>roam mcp-setup windsurf
+roam mcp-setup windsurf --write</code></pre>
+      <p>The generator targets the user-level
+        <code>~/.codeium/windsurf/mcp_config.json</code>. Confirm the intended
+        project root after restarting the connection, then follow the
+        <a href="#validate-connection">connection and routine checklist</a>.</p>
+    </section>
+
+    <section>
+      <h2 id="validate-connection">Check the connection, then add the routine</h2>
+      <ul>
+        <li>Confirm the connected client exposes the intended Roam preset and uses the intended project root.</li>
+        <li>Ask the agent to locate a known function using <code>roam_search_symbol</code>, then inspect its references with <code>roam_uses</code>. Check the returned source locations.</li>
+        <li>Inspect result status, scanned scope, freshness, and any partial or failed checks. Follow <a href="/docs/mcp-usage#troubleshooting">result-state guidance</a>; an empty list alone is unknown.</li>
+      </ul>
+      <p>Connection makes tools available; it does not ensure the agent uses
+        them. Add a small instruction to your project's agent guidance:</p>
+<pre><code>Use Roam to find relevant code and inspect indexed callers before a non-trivial edit.
+Read the returned source locations and limitations. After editing, refresh the index
+and run the project's required tests and review checks. Keep missing evidence explicit.</code></pre>
+    </section>
+
+    <section>
+      <h2 id="ci-tutorial">CI/CD pipeline integration</h2>
+      <p>
+        Generate a starting pipeline for your CI platform. Inspect its
+        checks, triggers, permissions, and package pins before committing it;
+        comment and artifact behavior differ by platform. A generated workflow
+        is configuration, not evidence that its checks have run successfully.
+      </p>
+<pre><code>roam ci-setup                          # auto-detect platform
+roam ci-setup --platform github --write
+roam ci-setup --platform gitlab --gate 70 --write
+roam --json ci-setup --platform azure  # structured envelope</code></pre>
+      <p>
+        Supported platforms: <code>github</code>, <code>gitlab</code>,
+        <code>azure</code>, <code>jenkins</code>,
+        <code>bitbucket</code>. The GitHub Actions template surfaces
+        Roam findings to Code Scanning via SARIF 2.1.0:
+      </p>
+<pre><code>roam --sarif health &gt; roam-health.sarif
+# Upload via github/codeql-action/upload-sarif in the generated workflow.</code></pre>
+      <p>
+        Opt into supply-chain attestation with
+        <code>--with-slsa-l3</code>. The flag emits a second workflow
+        (<code>.github/workflows/roam-slsa-src-l3.yml</code>) that runs
+        <code>roam pr-bundle emit --slsa-l3 --sign --keyless</code> on
+        its configured trigger &mdash; an opt-in cosign/keyless signing path
+        using OIDC, Fulcio, and Rekor. This is not automatic SLSA qualification;
+        inspect the resulting statement and verify its signer and subject.
+        Keyless signing uses the network. After the workflow
+        is in place, sanity-check the local roam install with
+        <code>roam doctor</code>; it surfaces missing index, stale
+        schema, or missing optional extras before the first CI run.
+      </p>
+      <p>
+        Also bundled (drop-in samples, not auto-emitted by
+        <code>ci-setup</code>):
+        <code>agent-review.yml</code> for <code>roam pr-analyze</code>
+        on every PR, and <code>roam-sarif-with-codeql.yml</code> for
+        running Roam SARIF alongside CodeQL. Sources ship inside the
+        wheel at <code>src/roam/templates/ci/</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2 id="mcp-gateway-tutorial">MCP gateway integration</h2>
+      <p>
+        Gateway operators (Interlock, Lasso, Portkey, custom) consume
+        two structured evidence streams Roam emits per agent session:
+        the per-tool-call <code>McpDecisionReceipt</code> and the
+        HMAC-chained run ledger under <code>.roam/runs/</code>. Roam is
+        the <strong>inside-server</strong> half of the trust boundary;
+        a gateway can add network policy, semantic inspection, and audit
+        aggregation beyond Roam's bounded producer-side checks. The split is summarised on
+        <a href="/docs/mcp-usage#security-stance">MCP security stance</a>
+        and discussed in full on
+        <a href="https://github.com/Cranot/roam-code/discussions/37#discussioncomment-16967163">Discussion #37</a>.
+      </p>
+      <p>
+        Export the receipt schema (JSON Schema Draft 2020-12) for
+        validator wire-up:
+      </p>
+<pre><code>python -m roam.evidence.mcp_receipt_schema --out mcp-receipt.schema.json</code></pre>
+      <p>Use the Python environment containing your Roam installation. This
+        module ships in the package; a Roam source checkout is not required.</p>
+      <p>
+        The schema is reconstructed at export time from the closed-enum
+        vocabulary in <code>roam.evidence._vocabulary</code>, so a
+        vocabulary change propagates without manual edits. Each
+        receipt records actor identity, tool id, sha256 of inputs,
+        policy verdict (<code>allow</code> / <code>deny</code> /
+        <code>escalate</code> / <code>redact</code> /
+        <code>not_evaluated</code> / <code>would_deny_dry_run</code>), and a hash of outputs.
+        These receipt fields are digests, not raw payloads; response handles
+        and other saved artifacts can still contain analysis data. Recorded
+        actor labels are not authenticated identity.
+      </p>
+      <p>
+        Verify the run ledger offline with <code>roam runs verify</code>
+        (4-state verdict: <code>ok</code>, <code>tampered</code>,
+        <code>unsigned</code>, <code>key_missing</code>; exit 5 on
+        <code>tampered</code> so CI can gate on integrity):
+      </p>
+<pre><code>roam --json runs verify &lt;run_id&gt;
+roam --json runs verify --all   # every run in this repo</code></pre>
+      <p>Choose one form. Substitute the actual run ID in the first; the
+        second inspects all available runs, not just the intended change.</p>
+      <p>
+        For the full gateway-vs-inside-server framing, see
+        <a href="https://github.com/Cranot/roam-code/blob/main/dev/MCP-SECURITY-POSTURE.md"><code>dev/MCP-SECURITY-POSTURE.md</code></a>
+        in the repo &mdash; the long-form posture document the public docs
+        condense.
+      </p>
+    </section>
+
+    <section>
+      <h2 id="oscal-audit-tutorial">OSCAL audit integration</h2>
+      <p>
+        Emit an OSCAL v1.2 Control Mapping or Assessment Results
+        document for downstream GRC tooling. Roam <em>maps to</em> and
+        <em>supports evidence for</em> the controls in the bundled
+        crosswalk; it does not certify a customer compliant. The
+        crosswalk lives in the wheel at
+        <code>src/roam/templates/audit_report/control-mapping.yaml</code>
+        and is honoured as an override when present at the project
+        root.
+      </p>
+<pre><code>roam evidence-oscal --kind control-mapping &gt; oscal-controls.json
+roam evidence-oscal --kind assessment-results --evidence change-evidence.json --import-ap-ref oscal-ap.json &gt; oscal-results.json</code></pre>
+      <p>
+        Persist the OSCAL artefacts on disk with
+        <code>roam ci-setup --with-oscal</code>; the flag materialises
+        <code>.roam/oscal/control-mapping.json</code> and a stub
+        <code>.roam/oscal/stub-assessment-plan.json</code> so subsequent
+        <code>roam evidence-oscal --kind assessment-results</code>
+        calls can pass <code>--import-ap-ref</code> instead of
+        synthesising the stub inline. The eight evidence questions an
+        Assessment Results document answers are catalogued on
+        <a href="/docs/architecture#eight-evidence-questions">Architecture
+        &mdash; The eight evidence questions</a>; the corresponding
+        <code>ChangeEvidence</code> packet shape is summarised on
+        <a href="/audit#evidence">PR Replay &mdash; Eight questions every
+        packet answers</a>.
+      </p>
+    </section>
+
+    <section>
+      <h2>See also</h2>
+      <ul>
+        <li><strong>Command reference:</strong> <a href="/docs/command-reference">Examples and command index</a> &mdash; worked examples, global output options and the complete command index. For a command's own flags, run <code>roam &lt;command&gt; --help</code>.</li>
+        <li><strong>MCP security stance:</strong> <a href="/docs/mcp-usage#security-stance">Inside-server vs gateway</a> &mdash; what Roam owns and what your MCP host owns.</li>
+        <li><strong>Configuration and discovery:</strong> <a href="/docs/mcp-usage#config-generator">Preview the client configuration</a> &mdash; what the generator checks and what needs a connected-client test.</li>
+        <li><strong>Eight evidence questions:</strong> <a href="/docs/architecture#eight-evidence-questions">Architecture</a> &mdash; how the graph, findings registry, run ledger, and evidence compiler fit together.</li>
+        <li><strong>Agent contract:</strong> <a href="/docs/agent-contract">Agent Contract</a> &mdash; context before edit, impact before delete, critique before merge.</li>
+        <li><strong>Try your own history:</strong> use the <a href="/audit#sample">free local sample</a> over <code>HEAD~5..HEAD</code>: recent commits, not five identified PRs. Check the sample's history prerequisites first. For help interpreting a scoped report, see <a href="/audit">PR Replay</a>.</li>
+      </ul>
+    </section>
+
+    <nav class="docs-footer-nav" aria-label="Pagination">
+      <a href="/docs/getting-started">
+        <span class="label">← Previous</span>
+        Getting Started
+      </a>
+      <a href="/docs/command-reference" class="next">
+        <span class="label">Next →</span>
+        Command Reference
+      </a>
+    </nav>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="footer-col">
+        <strong>Roam</strong>
+        <span>A local map and free static checks for coding agents.</span>
+        <span class="footer-meta">Built in Athens. Made in the EU.</span>
+      </div>
+      <div class="footer-col">
+        <a href="https://github.com/Cranot/roam-code">GitHub</a>
+        <a href="https://pypi.org/project/roam-code/">PyPI</a>
+        <a href="/docs/">Docs</a>
+      </div>
+      <div class="footer-col">
+        <a href="/setup">Setup</a>
+        <a href="/about">About</a>
+        <a href="/press">Press</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/status">Status</a>
+        <a href="/security">Security</a>
+        <a href="/accessibility">Accessibility</a>
+      </div>
+      <div class="footer-col">
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/refund">Refund</a>
+        <a href="/no-cookies">No cookies</a>
+      </div>
+      <div class="footer-col">
+        <a href="mailto:hello@roam-code.com">hello@roam-code.com</a>
+        <a href="mailto:security@roam-code.com">security@roam-code.com</a>
+        <span class="footer-meta">No cookies. No analytics scripts. No ad tracking.</span>
+        <span class="footer-meta"><a href="https://github.com/Cranot/roam-code/tree/main/templates/distribution/landing-page">This page is open source</a></span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

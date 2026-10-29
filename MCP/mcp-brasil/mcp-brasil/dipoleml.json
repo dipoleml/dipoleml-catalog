@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mcp-brasil.mcp-brasil",
+  "type": "mcp",
+  "name": "MCP Brasil",
+  "slug": "mcp-brasil",
+  "vendor": "mcp-brasil",
+  "description": "MCP Server para 70 APIs públicas brasileiras",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Mcp-Brasil/mcp-brasil",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "apis-publicas",
+    "brazil",
+    "fastmcp",
+    "governo"
+  ],
+  "tags": [
+    "ai-agents",
+    "apis-publicas",
+    "brazil",
+    "claude",
+    "fastmcp",
+    "governo",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mcp-brasil",
+    "brandName": "mcp-brasil",
+    "source": "https://github.com/Mcp-Brasil.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Mcp-Brasil/mcp-brasil",
+    "url": "https://github.com/Mcp-Brasil/mcp-brasil",
+    "commit": "2efb258370b125bbf190884283ae10f209b9d335",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1838,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:39Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-brasil"
+    ],
+    "env": [
+      "TRANSPARENCIA_API_KEY",
+      "DATAJUD_API_KEY",
+      "META_ACCESS_TOKEN"
+    ],
+    "credentials": [
+      "TRANSPARENCIA_API_KEY",
+      "DATAJUD_API_KEY",
+      "META_ACCESS_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

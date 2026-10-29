@@ -1,0 +1,126 @@
+{
+  "tone": "friendly",
+  "pronoun": "you-only",
+  "headingStyle": "Sentence case",
+  "headingLengthClass": "tight",
+  "ctaVerbs": [
+    {
+      "value": "publish",
+      "count": 2
+    },
+    {
+      "value": "products",
+      "count": 1
+    },
+    {
+      "value": "solutions",
+      "count": 1
+    },
+    {
+      "value": "community",
+      "count": 1
+    },
+    {
+      "value": "resources",
+      "count": 1
+    },
+    {
+      "value": "prompt",
+      "count": 1
+    },
+    {
+      "value": "design",
+      "count": 1
+    },
+    {
+      "value": "draw",
+      "count": 1
+    },
+    {
+      "value": "build",
+      "count": 1
+    },
+    {
+      "value": "promote",
+      "count": 1
+    }
+  ],
+  "buttonPatterns": [
+    {
+      "value": "products",
+      "count": 1
+    },
+    {
+      "value": "solutions",
+      "count": 1
+    },
+    {
+      "value": "community",
+      "count": 1
+    },
+    {
+      "value": "resources",
+      "count": 1
+    },
+    {
+      "value": "prompt",
+      "count": 1
+    },
+    {
+      "value": "design",
+      "count": 1
+    },
+    {
+      "value": "draw",
+      "count": 1
+    },
+    {
+      "value": "build",
+      "count": 1
+    },
+    {
+      "value": "publish",
+      "count": 1
+    },
+    {
+      "value": "promote",
+      "count": 1
+    },
+    {
+      "value": "jam",
+      "count": 1
+    },
+    {
+      "value": "present",
+      "count": 1
+    },
+    {
+      "value": "turn figma context into code",
+      "count": 1
+    },
+    {
+      "value": "publish custom websites—with or without code",
+      "count": 1
+    },
+    {
+      "value": "ship products faster with ai",
+      "count": 1
+    }
+  ],
+  "sampleHeadings": [
+    "Use cases",
+    "Roles",
+    "Organizations",
+    "Get started",
+    "Learn",
+    "Use cases",
+    "Roles",
+    "Organizations",
+    "Get started",
+    "Learn"
+  ],
+  "stats": {
+    "buttons": 16,
+    "headings": 48
+  }
+}

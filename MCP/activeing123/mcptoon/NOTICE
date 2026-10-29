@@ -1,0 +1,35 @@
+mcptoon — Token-efficient MCP CLI client
+Copyright 2025 activeing123
+
+This product includes software developed by activeing123
+(https://github.com/activeing123/mcptoon).
+
+=== TOON Format ===
+mcptoon supports standard TOON (Token-Oriented Object Notation) as defined
+by the toon-format/toon open spec (https://github.com/toon-format/toon).
+The SLIM format (name|param:type*) is an mcptoon-specific innovation.
+
+TOON encoder/decoder is vendored from python-toon v0.1.1
+(https://github.com/xaviviro/python-toon), Copyright (c) Xavi Vinaixa,
+licensed under the MIT License. See src/mcptoon/toon_vendored.py for
+the full copyright notice and license terms.
+
+If you implement TOON encoding in a derivative work, please reference
+the standard TOON spec. If you implement SLIM format, please:
+  1. Attribute the original design to mcptoon
+  2. Include a reference to https://github.com/activeing123/mcptoon
+  3. Include this NOTICE file
+
+=== Third-Party Acknowledgments ===
+This project is inspired by the Model Context Protocol (MCP) specification
+by Anthropic (https://modelcontextprotocol.io/). mcptoon is an independent
+implementation and is not affiliated with or endorsed by Anthropic.
+
+=== OpenAPI adapter — design inspiration ===
+The `mcptoon openapi` adapter (src/mcptoon/openapi.py) is an independent,
+stdlib-only implementation. Its design conventions — operation naming from
+operationId, path-item parameter inheritance, Optional[T] union collapsing,
+and request-body content negotiation — follow the approach popularised by
+knowsuchagency/mcp2cli (https://github.com/knowsuchagency/mcp2cli),
+Copyright (c) 2026 Stephan Fitzpatrick, licensed under the MIT License.
+No mcp2cli source code is included; this notice records the design lineage.

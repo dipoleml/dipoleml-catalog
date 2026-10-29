@@ -1,0 +1,57 @@
+{
+  "providers": {
+    "codex": {
+      "name": "Codex (GPT)",
+      "description": "OpenAI GPT models via Codex CLI - specialized expert subagents",
+      "cli": "codex",
+      "install": "npm install -g @openai/codex",
+      "auth": "codex login (codex login --device-auth on a remote machine), or CODEX_ACCESS_TOKEN",
+      "mcp": null,
+      "note": "No dedicated MCP server - codex-cli ships no MCP server mode. GPT is served by the unified `deliberation` server, which spawns `codex exec` (core/providers/codex.js).",
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
+      "strengths": ["architecture", "code-review", "security", "requirements-analysis", "plan-validation"],
+      "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
+    },
+    "gemini": {
+      "name": "Gemini 3",
+      "description": "Google Gemini 3 via the Antigravity CLI (agy) - specialized expert subagents",
+      "cli": "agy",
+      "install": "Install Antigravity from https://antigravity.google",
+      "auth": "run `agy` once and complete sign-in (OAuth)",
+      "mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["${CLAUDE_PLUGIN_ROOT}/server/gemini/index.js"]
+      },
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
+      "strengths": ["reasoning", "large context", "code generation", "multimodal analysis"],
+      "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes"]
+    },
+    "grok": {
+      "name": "Grok (xAI)",
+      "description": "xAI Grok models via bundled MCP bridge over the xAI HTTP API - advisory expert subagents",
+      "cli": null,
+      "api": "https://api.x.ai/v1/responses",
+      "auth": "export XAI_API_KEY=xai-...",
+      "mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["${CLAUDE_PLUGIN_ROOT}/server/grok/index.js"]
+      },
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
+      "strengths": ["reasoning", "architecture", "code-review", "security", "large context"],
+      "avoid": ["simple-operations", "trivial-decisions", "research", "first-attempt-fixes", "file-editing"]
+    },
+    "openrouter": {
+      "name": "OpenRouter",
+      "description": "OpenAI-compatible gateway to 400+ models via a bundled MCP bridge - config-driven advisory delegates",
+      "cli": null,
+      "api": "https://openrouter.ai/api/v1/chat/completions",
+      "auth": "export OPENROUTER_API_KEY=sk-or-... (or the env var named by apiKeyEnv)",
+      "mcp": { "type": "stdio", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/server/openrouter/index.js"] },
+      "experts": ["architect", "plan-reviewer", "scope-analyst", "code-reviewer", "security-analyst", "researcher", "debugger", "writing-editor"],
+      "strengths": ["model breadth", "consensus diversity", "advisory second opinions"],
+      "avoid": ["file-editing", "implementation tasks", "sandboxed work"]
+    }
+  }
+}

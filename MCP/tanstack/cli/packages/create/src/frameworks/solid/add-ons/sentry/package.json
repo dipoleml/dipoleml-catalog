@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@sentry/solid": "^10.67.0"
+  }
+}

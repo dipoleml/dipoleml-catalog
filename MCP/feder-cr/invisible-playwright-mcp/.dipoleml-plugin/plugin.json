@@ -1,0 +1,16 @@
+{
+  "name": "invisible-playwright-mcp",
+  "displayName": "Invisible Playwright MCP",
+  "version": "1.0.1",
+  "description": "AI browser agent: browses, clicks, types, and reads real web pages from plain-English instructions.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Feder Cr"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/feder-cr/invisible_playwright_mcp/wiki/mcp-server",
+  "repository": "https://github.com/feder-cr/invisible_playwright_mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,22 @@
+.DS_Store
+*.plugin
+.env
+.mcp.json
+.mcpb-cache/
+node_modules/
+__pycache__/
+immich-mcp-server
+scripts/location_inventory.json
+drolosoft-update-prompt.md
+docs/superpowers/
+.claude/settings.local.json
+outputs/
+dist/
+*.egg-info/
+.venv/
+ipm/
+
+# Local launch script — contains real credentials (API key, host, IP).
+# Use start-mcp.sh.example as the committed template.
+start-mcp.sh
+mcp-server.log

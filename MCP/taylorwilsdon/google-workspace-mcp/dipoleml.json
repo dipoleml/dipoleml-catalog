@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.taylorwilsdon.google-workspace-mcp",
+  "type": "mcp",
+  "name": "Google Workspace MCP",
+  "slug": "google-workspace-mcp",
+  "vendor": "taylorwilsdon",
+  "description": "Control Gmail, Google Calendar, Docs, Sheets, Slides, Chat, Forms, Tasks, Search & Drive with AI - Comprehensive Google Workspace MCP Server & CLI Tool",
+  "version": "0.0.0",
+  "homepage": "https://github.com/taylorwilsdon/google_workspace_mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "chatgpt",
+    "claude-desktop",
+    "gmail",
+    "google-calendar",
+    "google-chat",
+    "google-docs",
+    "google-drive",
+    "google-forms"
+  ],
+  "tags": [
+    "ai",
+    "chatgpt",
+    "claude",
+    "claude-code",
+    "claude-desktop",
+    "gmail",
+    "google-calendar",
+    "google-chat",
+    "google-docs",
+    "google-drive",
+    "google-forms",
+    "google-sheets",
+    "google-tasks",
+    "google-workspace",
+    "gsuite",
+    "llm",
+    "llm-tools",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:44Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "taylorwilsdon/google_workspace_mcp",
+    "url": "https://github.com/taylorwilsdon/google_workspace_mcp",
+    "commit": "c0bff66e6842720cfdeebbfa38d7f9731c496fe3",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3432,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "workspace-mcp"
+    ],
+    "env": [
+      "GOOGLE_OAUTH_CLIENT_SECRET",
+      "GOOGLE_CLIENT_SECRET_PATH",
+      "WORKSPACE_MCP_PORT",
+      "OAUTHLIB_INSECURE_TRANSPORT",
+      "WORKSPACE_EXTERNAL_URL",
+      "WORKSPACE_MCP_GOOGLE_API_WORKERS",
+      "WORKSPACE_MCP_GOOGLE_API_TIMEOUT_SECONDS",
+      "WORKSPACE_MCP_TOKEN_VALIDATION_WORKERS",
+      "WORKSPACE_MCP_TOKEN_VALIDATION_CACHE_TTL",
+      "WORKSPACE_MCP_ALLOWED_HOSTS"
+    ],
+    "credentials": [
+      "GOOGLE_OAUTH_CLIENT_SECRET",
+      "GOOGLE_CLIENT_SECRET_PATH",
+      "WORKSPACE_MCP_TOKEN_VALIDATION_WORKERS",
+      "WORKSPACE_MCP_TOKEN_VALIDATION_CACHE_TTL"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

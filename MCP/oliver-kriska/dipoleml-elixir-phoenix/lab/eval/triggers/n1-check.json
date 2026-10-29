@@ -1,0 +1,17 @@
+{
+  "skill": "n1-check",
+  "should_trigger": [
+    "Scan the codebase for N+1 query patterns",
+    "Find all missing preloads in my associations",
+    "My dashboard is slow, check for N+1 queries",
+    "Audit the code for Repo calls inside loops",
+    "Where are we accessing associations without preloading?"
+  ],
+  "should_not_trigger": [
+    "How do I structure Ecto queries properly?",
+    "My API endpoint times out, debug it",
+    "Optimize our database performance overall",
+    "Review my PR for code issues",
+    "Design a user-posts relationship schema"
+  ]
+}

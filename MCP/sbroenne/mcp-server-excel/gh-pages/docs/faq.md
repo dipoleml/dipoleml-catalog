@@ -1,0 +1,87 @@
+---
+title: Frequently Asked Questions
+description: >-
+  Answers to common questions about Excel MCP Server - Windows and Excel
+  requirements, CLI vs. MCP Server, workbook safety, cost, and privacy.
+keywords: "Excel MCP FAQ, does Excel MCP need Excel installed, Excel MCP Windows only, Excel MCP vs openpyxl, Excel MCP CLI or MCP Server, is Excel MCP free"
+---
+
+# Frequently Asked Questions
+
+<!--
+  Every `###` heading on this page is   parsed by gh-pages/sitegen/llm.py into FAQPage
+    JSON-LD (see `faq_jsonld`). The structured data is derived from this visible
+  content, so there is nothing to keep in sync by hand - just write the
+  questions here. Headings rather than collapsible admonitions are used
+  deliberately: they give each answer a stable anchor that can be deep-linked
+  from another page or straight from a search result.
+-->
+
+Hitting an actual error rather than a question? See
+[Troubleshooting](troubleshooting.md).
+
+## Getting started
+
+### Do I need to know how Excel automation works to use this?
+
+No. You talk to your AI assistant in plain language ("build a PivotTable of
+sales by product and chart it") and it drives Excel for you. The
+[feature overview](features.md) helps you explore the capabilities and important
+limitations - you don't need to memorize commands.
+
+### CLI or MCP Server - which should I install?
+
+Both expose the **same 429 operations**, so the choice is technical. Use the
+**MCP Server** with any MCP-compatible assistant. Coding agents that can run
+terminal commands can use either; the **CLI** (`excelcli`) usually uses fewer
+AI tokens because the agent reads command help only when needed. See
+[Installation](installation.md).
+
+### Which AI assistants does it work with?
+
+Any client that speaks the Model Context Protocol - GitHub Copilot in VS Code,
+Claude Desktop, Claude Code, Cursor, and others. Coding agents that can run
+shell commands can use the CLI directly instead. See
+[MCP Server installation](installation-mcp-server.md).
+
+## Requirements and platform
+
+### Does it require Microsoft Excel to be installed?
+
+Yes. Excel MCP Server drives the **real Excel application** through its COM API,
+so it's **Windows-only** and needs **Excel 2016 or later** installed locally. It
+is not a file-format parser and does not run on macOS or Linux.
+
+### Why drive real Excel instead of parsing the file?
+
+Because Excel itself is the only thing that fully understands its own file
+format. Recalculation, Power Query evaluation, the Data Model, PivotTable
+caches, and chart rendering all live in the application, not in the `.xlsx`
+container. See
+[Excel automation vs. file parsers](guides/excel-automation-vs-file-parsers.md)
+for the full comparison with tools like openpyxl and pandas.
+
+### Will it damage my existing workbooks?
+
+Excel itself opens and saves the file, rather than a file-parser library
+rewriting it. That avoids file-parser limitations, but it is not a guarantee
+that a workbook stays unchanged. Requested edits can change or remove data,
+formulas, formatting, charts, PivotTables, macros, or Data Model features.
+Review the requested changes before saving; some operations are destructive
+and have no tool-level undo.
+
+## Cost, privacy and support
+
+### Does it cost anything or send my data anywhere?
+
+Excel MCP Server is free and open source (MIT). It runs locally against your own
+Excel. A few opt-in features reach the internet (remote M/DAX formatting, and
+Python in Excel, which runs in Microsoft's cloud). See
+[Privacy](privacy.md) for details.
+
+### Where do I report a bug or ask for a feature?
+
+On [GitHub Issues](https://github.com/sbroenne/mcp-server-excel/issues). If
+something is failing rather than missing, check
+[Troubleshooting](troubleshooting.md) first - most first-time failures are one
+of a handful of known setup issues.

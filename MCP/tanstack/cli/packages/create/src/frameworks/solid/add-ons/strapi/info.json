@@ -1,0 +1,18 @@
+{
+  "name": "Strapi",
+  "description": "Headless CMS with admin UI (self-hosted, content models in TypeScript).",
+  "link": "https://strapi.io/",
+  "phase": "add-on",
+  "type": "add-on",
+  "category": "cms",
+  "color": "#4945FF",
+  "modes": ["file-router"],
+  "routes": [
+    {
+      "url": "/demo/strapi",
+      "name": "Strapi",
+      "path": "src/routes/demo.strapi.tsx",
+      "jsName": "StrapiDemo"
+    }
+  ]
+}

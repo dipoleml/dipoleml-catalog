@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Task",
+      "Glob",
+      "Grep",
+      "LS",
+      "Read",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "WebFetch",
+      "WebSearch",
+      "mcp__nixos__nix",
+      "mcp__nixos__nix_versions",
+      "Skill(test-tools)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "nixos"
+  ]
+}

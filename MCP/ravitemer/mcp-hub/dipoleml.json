@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ravitemer.mcp-hub",
+  "type": "mcp",
+  "name": "MCP Hub",
+  "slug": "mcp-hub",
+  "vendor": "ravitemer",
+  "description": "A centralized manager for Model Context Protocol (MCP) servers with dynamic server management and monitoring",
+  "version": "4.2.1",
+  "homepage": "https://github.com/ravitemer/mcp-hub",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "chatgpt",
+    "claude-ai",
+    "llms",
+    "local-development",
+    "mcp-hub",
+    "model-context-protocol",
+    "process-management-server",
+    "server"
+  ],
+  "tags": [
+    "ai",
+    "chatgpt",
+    "claude-ai",
+    "llms",
+    "local-development",
+    "mcp",
+    "mcp-hub",
+    "mcp-servers",
+    "model-context-protocol",
+    "nodejs",
+    "process-management-server",
+    "server",
+    "smithery"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ravitemer",
+    "brandName": "ravitemer",
+    "source": "https://github.com/ravitemer.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:31Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ravitemer/mcp-hub",
+    "url": "https://github.com/ravitemer/mcp-hub",
+    "commit": "9c7670a4c341ed3cf738a6242c0fde1cea40bccf",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 524,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-hub"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "mcp-hub"
+    ],
+    "env": [
+      "API_KEY",
+      "PERPLEXITY_API_KEY",
+      "API_TOKEN",
+      "DB_URL",
+      "MY_TOKEN"
+    ],
+    "credentials": [
+      "API_KEY",
+      "PERPLEXITY_API_KEY",
+      "API_TOKEN",
+      "MY_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

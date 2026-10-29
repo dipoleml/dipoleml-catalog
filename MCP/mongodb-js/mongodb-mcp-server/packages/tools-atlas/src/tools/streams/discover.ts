@@ -1,0 +1,854 @@
+import { z } from "zod";
+import { StreamsToolBase } from "../../streams/streamsToolBase.js";
+import type { IAtlasConfig } from "../../atlasTool.js";
+import type { CallToolResult, OperationType, ToolExecutionContext, ToolRequest } from "@mongodb-js/mcp-types";
+import { formatUntrustedData, type ToolArgs } from "@mongodb-js/mcp-core";
+import { AtlasArgs } from "../../args.js";
+import {
+    StreamsArgs,
+    StreamsAutoscaling,
+    StreamsTier,
+    type StreamsTierValue,
+    toStreamsAutoscaling,
+} from "../../streams/streamsArgs.js";
+import { StreamsInvalidArgumentError } from "../../streams/errors.js";
+import { redactSensitiveKeys } from "../../streams/redactSensitiveKeys.js";
+
+type StreamsProcessorWithStats = {
+    name?: string;
+    state?: string;
+    tier?: StreamsTierValue;
+    effectiveTier?: StreamsTierValue;
+    stats?: Record<string, unknown>;
+    options?: {
+        dlq?: { connectionName?: string; db?: string; coll?: string };
+        // Raw Atlas response model: the generated client types options.autoscaling as
+        // nullable, but the API omits it when disabled/cleared and never returns a null
+        // `enabled` (only minTier/maxTier may be null). toStreamsAutoscaling normalizes
+        // this to the tool's non-null surface before structured output.
+        autoscaling?: {
+            enabled?: boolean | null;
+            minTier?: StreamsTierValue | null;
+            maxTier?: StreamsTierValue | null;
+        } | null;
+    };
+    pipeline?: Record<string, unknown>[];
+};
+
+const DiscoverAction = z.enum([
+    "list-workspaces",
+    "inspect-workspace",
+    "list-connections",
+    "inspect-connection",
+    "list-processors",
+    "inspect-processor",
+    "diagnose-processor",
+    "get-networking",
+]);
+
+const ResponseFormat = z.enum(["concise", "detailed"]);
+
+const WorkspaceSummarySchema = z.object({
+    name: z.string(),
+    region: z.string(),
+    tier: z.string(),
+    maxTier: z.string(),
+});
+
+const WorkspaceInspectConciseSchema = WorkspaceSummarySchema.extend({
+    connectionCount: z.number().int().nonnegative(),
+});
+
+const ConnectionSummarySchema = z.object({
+    name: z.string(),
+    type: z.string().optional(),
+    state: z.string().optional(),
+});
+
+type ConnectionSummary = z.infer<typeof ConnectionSummarySchema>;
+
+function toConnectionSummary(c: unknown): ConnectionSummary {
+    const conn = c as Record<string, unknown>;
+    return {
+        name: conn.name,
+        type: conn.type,
+        state: conn.state,
+    } as ConnectionSummary;
+}
+
+const ConnectionInspectSchema = ConnectionSummarySchema.omit({ name: true }).extend({
+    region: z.string().optional(),
+    clusterName: z.string().optional(),
+    bootstrapServers: z.union([z.string(), z.array(z.string())]).optional(),
+});
+
+type ConnectionInspect = z.infer<typeof ConnectionInspectSchema>;
+
+function toConnectionInspect(data: Record<string, unknown>): ConnectionInspect {
+    const summary = toConnectionSummary(data);
+    return {
+        ...(summary.type !== undefined && { type: summary.type }),
+        ...(summary.state !== undefined && { state: summary.state }),
+        ...(data.region !== undefined && { region: data.region }),
+        ...(data.clusterName !== undefined && { clusterName: data.clusterName }),
+        ...(data.bootstrapServers !== undefined && { bootstrapServers: data.bootstrapServers }),
+    } as ConnectionInspect;
+}
+
+const AutoscalingSchema = StreamsAutoscaling;
+
+const ProcessorSummarySchema = z.object({
+    name: z.string(),
+    state: z.string().optional(),
+    tier: StreamsTier.optional(),
+    effectiveTier: StreamsTier.optional(),
+    autoscaling: AutoscalingSchema.optional(),
+});
+
+const ProcessorState = z.enum(["STARTED", "STOPPED", "CREATED", "FAILED"]);
+
+const ProcessorStatsSchema = z.object({
+    inputMessageCount: z.number().optional(),
+    outputMessageCount: z.number().optional(),
+    dlqMessageCount: z.number().optional(),
+});
+
+const DlqConfigSchema = z.object({
+    connectionName: z.string().optional(),
+    db: z.string().optional(),
+    coll: z.string().optional(),
+});
+
+const PrivateLinkSummarySchema = z.object({
+    id: z.string(),
+    provider: z.string().optional(),
+    region: z.string().optional(),
+    state: z.string().optional(),
+    vendor: z.string().optional(),
+});
+
+const AccountDetailsSummarySchema = z.object({
+    awsAccountId: z.string().optional(),
+    azureSubscriptionId: z.string().optional(),
+    gcpProjectId: z.string().optional(),
+    cidrBlock: z.string().optional(),
+    vpcId: z.string().optional(),
+    virtualNetworkName: z.string().optional(),
+    vpcNetworkName: z.string().optional(),
+});
+
+type PrivateLinkSummary = z.infer<typeof PrivateLinkSummarySchema>;
+type AccountDetailsSummary = z.infer<typeof AccountDetailsSummarySchema>;
+
+function toPrivateLinkSummary(pl: {
+    _id?: string;
+    provider?: string;
+    region?: string;
+    state?: string;
+    vendor?: string;
+}): PrivateLinkSummary | undefined {
+    if (!pl._id) {
+        return undefined;
+    }
+    return {
+        id: pl._id,
+        provider: pl.provider,
+        region: pl.region,
+        state: pl.state,
+        vendor: pl.vendor,
+    };
+}
+
+function toAccountDetailsSummary(data: Record<string, unknown>): AccountDetailsSummary {
+    return {
+        ...(data.awsAccountId !== undefined && { awsAccountId: data.awsAccountId }),
+        ...(data.azureSubscriptionId !== undefined && { azureSubscriptionId: data.azureSubscriptionId }),
+        ...(data.gcpProjectId !== undefined && { gcpProjectId: data.gcpProjectId }),
+        ...(data.cidrBlock !== undefined && { cidrBlock: data.cidrBlock }),
+        ...(data.vpcId !== undefined && { vpcId: data.vpcId }),
+        ...(data.virtualNetworkName !== undefined && { virtualNetworkName: data.virtualNetworkName }),
+        ...(data.vpcNetworkName !== undefined && { vpcNetworkName: data.vpcNetworkName }),
+    } as AccountDetailsSummary;
+}
+
+const DiscoverOutputSchema = z.object({
+    workspaces: z.array(WorkspaceSummarySchema).optional(),
+    connections: z.array(ConnectionSummarySchema).optional(),
+    processors: z.array(ProcessorSummarySchema).optional(),
+    workspace: WorkspaceInspectConciseSchema.optional(),
+    processorState: ProcessorState.optional(),
+    tier: StreamsTier.optional(),
+    effectiveTier: StreamsTier.optional(),
+    autoscaling: AutoscalingSchema.optional(),
+    stats: ProcessorStatsSchema.optional(),
+    dlq: DlqConfigSchema.optional(),
+    pipeline: z.array(z.record(z.string(), z.unknown())).optional(),
+    connectionHealth: z.array(ConnectionSummarySchema).optional(),
+    connection: ConnectionInspectSchema.optional(),
+    privateLinks: z.array(PrivateLinkSummarySchema).optional(),
+    accountDetails: AccountDetailsSummarySchema.optional(),
+});
+
+type DiscoverOutput = z.infer<typeof DiscoverOutputSchema>;
+
+function buildProcessorStructuredContent(
+    proc: StreamsProcessorWithStats,
+    { includePipeline = false }: { includePipeline?: boolean } = {}
+): DiscoverOutput {
+    const structuredContent: DiscoverOutput = {};
+
+    const parsedState = ProcessorState.safeParse(proc.state);
+    if (parsedState.success) {
+        structuredContent.processorState = parsedState.data;
+    }
+    if (proc.tier !== undefined) {
+        structuredContent.tier = proc.tier;
+    }
+    if (proc.effectiveTier !== undefined) {
+        structuredContent.effectiveTier = proc.effectiveTier;
+    }
+    const autoscaling = toStreamsAutoscaling(proc.options?.autoscaling);
+    if (autoscaling !== undefined) {
+        structuredContent.autoscaling = autoscaling;
+    }
+    if (proc.stats && Object.keys(proc.stats).length > 0) {
+        structuredContent.stats = {
+            inputMessageCount: Number(proc.stats.inputMessageCount ?? 0),
+            outputMessageCount: Number(proc.stats.outputMessageCount ?? 0),
+            dlqMessageCount: Number(proc.stats.dlqMessageCount ?? 0),
+        };
+    }
+    if (proc.options?.dlq) {
+        structuredContent.dlq = {
+            connectionName: proc.options.dlq.connectionName,
+            db: proc.options.dlq.db,
+            coll: proc.options.dlq.coll,
+        };
+    }
+    if (includePipeline && proc.pipeline) {
+        structuredContent.pipeline = proc.pipeline;
+    }
+
+    return structuredContent;
+}
+
+const StreamsDiscoverArgsShape = {
+    projectId: AtlasArgs.projectId().describe(
+        "Atlas project ID. Use atlas-list-projects to find project IDs if not available."
+    ),
+    action: DiscoverAction.describe(
+        "What to look up. Start with 'list-workspaces' to see available workspaces, " +
+            "then use inspect actions for details or 'diagnose-processor' for a health report."
+    ),
+    workspaceName: StreamsArgs.workspaceName()
+        .optional()
+        .describe("Workspace name. Required for all actions except 'list-workspaces' and 'get-networking'."),
+    resourceName: StreamsArgs.resourceName()
+        .optional()
+        .describe(
+            "Connection or processor name. Required for 'inspect-connection', 'inspect-processor', and 'diagnose-processor'."
+        ),
+    responseFormat: ResponseFormat.optional().describe(
+        "Response detail level. 'concise' returns names and states only. " +
+            "'detailed' returns full configuration and stats. " +
+            "Default: 'concise' for list actions, 'detailed' for inspect/diagnose."
+    ),
+    cloudProvider: z
+        .string()
+        .optional()
+        .describe(
+            "Cloud provider (AWS, AZURE, GCP). Only for 'get-networking': returns account details for the specified provider."
+        ),
+    region: z
+        .string()
+        .optional()
+        .describe("Cloud region. Only for 'get-networking': returns account details for the specified region."),
+    limit: z.number().int().min(1).max(100).optional().describe("Max results per page for list actions. Default: 20."),
+    pageNum: z.number().int().min(1).optional().describe("Page number for list actions. Default: 1."),
+};
+
+export class StreamsDiscoverTool extends StreamsToolBase {
+    static toolName = "atlas-streams-discover";
+    static operationType: OperationType = "read";
+
+    public description =
+        "Discover and inspect Atlas Stream Processing resources. " +
+        "Also use for 'why is my processor failing', 'what workspaces do I have', 'show processor stats', or 'check processor health'. " +
+        "Use 'list-workspaces' to see all workspaces in a project. " +
+        "Use inspect actions for details on a specific resource. " +
+        "Use 'diagnose-processor' for a combined health report including state, stats, connection health, and recent errors. " +
+        "Use 'get-networking' for PrivateLink and account details.";
+
+    public argsShape(): typeof StreamsDiscoverArgsShape {
+        return StreamsDiscoverArgsShape;
+    }
+
+    public override outputSchema(): typeof DiscoverOutputSchema.shape {
+        return DiscoverOutputSchema.shape;
+    }
+
+    protected async execute(
+        {
+            projectId,
+            action,
+            workspaceName,
+            resourceName,
+            responseFormat,
+            cloudProvider,
+            region,
+            limit,
+            pageNum,
+        }: ToolArgs<ReturnType<typeof this.argsShape>>,
+        { request }: ToolExecutionContext
+    ): Promise<CallToolResult> {
+        switch (action) {
+            case "list-workspaces":
+                return this.listWorkspaces({ projectId, responseFormat, limit, pageNum, request });
+            case "inspect-workspace":
+                return this.inspectWorkspace({
+                    projectId,
+                    workspaceName: this.requireWorkspaceName(workspaceName),
+                    responseFormat,
+                    request,
+                });
+            case "list-connections":
+                return this.listConnections({
+                    projectId,
+                    workspaceName: this.requireWorkspaceName(workspaceName),
+                    responseFormat,
+                    limit,
+                    pageNum,
+                    request,
+                });
+            case "inspect-connection":
+                return this.inspectConnection({
+                    projectId,
+                    workspaceName: this.requireWorkspaceName(workspaceName),
+                    connectionName: this.requireResourceName(resourceName, "connection"),
+                    request,
+                });
+            case "list-processors":
+                return this.listProcessors({
+                    projectId,
+                    workspaceName: this.requireWorkspaceName(workspaceName),
+                    responseFormat,
+                    limit,
+                    pageNum,
+                    request,
+                });
+            case "inspect-processor":
+                return this.inspectProcessor({
+                    projectId,
+                    workspaceName: this.requireWorkspaceName(workspaceName),
+                    processorName: this.requireResourceName(resourceName, "processor"),
+                    request,
+                });
+            case "diagnose-processor":
+                return this.diagnoseProcessor({
+                    projectId,
+                    workspaceName: this.requireWorkspaceName(workspaceName),
+                    processorName: this.requireResourceName(resourceName, "processor"),
+                    request,
+                });
+            case "get-networking":
+                return this.getNetworking({ projectId, cloudProvider, region, request });
+            default:
+                return {
+                    content: [{ type: "text", text: `Unknown action: ${action as string}` }],
+                    isError: true,
+                };
+        }
+    }
+
+    private requireWorkspaceName(workspaceName: string | undefined): string {
+        if (!workspaceName) {
+            throw new StreamsInvalidArgumentError(
+                "workspaceName is required for this action. Use action 'list-workspaces' to see available workspaces."
+            );
+        }
+        return workspaceName;
+    }
+
+    private requireResourceName(resourceName: string | undefined, resourceType: string): string {
+        if (!resourceName) {
+            throw new StreamsInvalidArgumentError(
+                `resourceName is required to inspect a ${resourceType}. ` +
+                    `Use 'list-${resourceType}s' action to see available ${resourceType}s.`
+            );
+        }
+        return resourceName;
+    }
+
+    private async listWorkspaces({
+        projectId,
+        responseFormat,
+        limit,
+        pageNum,
+        request,
+    }: {
+        projectId: string;
+        responseFormat: string | undefined;
+        limit: number | undefined;
+        pageNum: number | undefined;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const data = await this.server.apiClient.listStreamWorkspaces(
+            {
+                params: { path: { groupId: projectId }, query: { itemsPerPage: limit ?? 20, pageNum: pageNum ?? 1 } },
+            },
+            request
+        );
+
+        if (!data?.results?.length) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "No Stream Processing workspaces found in this project. Use `atlas-streams-build` with resource='workspace' to create one.",
+                    },
+                ],
+                structuredContent: { workspaces: [] },
+            };
+        }
+
+        const format = responseFormat ?? "concise";
+        const conciseWorkspaces = data.results.map((w) => ({
+            name: w.name,
+            region: w.dataProcessRegion
+                ? `${w.dataProcessRegion.cloudProvider}/${w.dataProcessRegion.region}`
+                : "unknown",
+            tier: w.streamConfig?.tier ?? "unknown",
+            maxTier: w.streamConfig?.maxTierSize ?? "unknown",
+        }));
+        const workspaces = format === "concise" ? conciseWorkspaces : data.results;
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                `Found ${data.results.length} workspace(s) (total: ${data.totalCount ?? data.results.length}):`,
+                JSON.stringify(workspaces, null, 2)
+            ),
+            structuredContent: { workspaces: conciseWorkspaces },
+        };
+    }
+
+    private async inspectWorkspace({
+        projectId,
+        workspaceName,
+        responseFormat,
+        request,
+    }: {
+        projectId: string;
+        workspaceName: string;
+        responseFormat: string | undefined;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const data = await this.server.apiClient.getStreamWorkspace(
+            {
+                params: {
+                    path: { groupId: projectId, tenantName: workspaceName },
+                    query: { includeConnections: true },
+                },
+            },
+            request
+        );
+        if (!data) {
+            throw new StreamsInvalidArgumentError(`Workspace '${workspaceName}' not found.`);
+        }
+
+        const format = responseFormat ?? "detailed";
+        const conciseWorkspace = {
+            name: data.name,
+            region: data.dataProcessRegion
+                ? `${data.dataProcessRegion.cloudProvider}/${data.dataProcessRegion.region}`
+                : "unknown",
+            tier: data.streamConfig?.tier ?? "unknown",
+            maxTier: data.streamConfig?.maxTierSize ?? "unknown",
+            connectionCount: data.connections?.length ?? 0,
+        };
+        // The detailed form carries the raw workspace object (with embedded
+        // connections when `includeConnections` is set), so mask secret-valued
+        // fields first; the concise form is already a safe summary.
+        const output = format === "concise" ? conciseWorkspace : redactSensitiveKeys(data);
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                "Details for the requested workspace:",
+                JSON.stringify(output, null, 2)
+            ),
+            structuredContent: { workspace: conciseWorkspace },
+        };
+    }
+
+    private async listConnections({
+        projectId,
+        workspaceName,
+        responseFormat,
+        limit,
+        pageNum,
+        request,
+    }: {
+        projectId: string;
+        workspaceName: string;
+        responseFormat: string | undefined;
+        limit: number | undefined;
+        pageNum: number | undefined;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const data = await this.server.apiClient.listStreamConnections(
+            {
+                params: {
+                    path: { groupId: projectId, tenantName: workspaceName },
+                    query: { itemsPerPage: limit ?? 20, pageNum: pageNum ?? 1 },
+                },
+            },
+            request
+        );
+
+        if (!data?.results?.length) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `No connections found in workspace '${workspaceName}'. Use \`atlas-streams-build\` with resource='connection' to add one.`,
+                    },
+                ],
+                structuredContent: { connections: [] },
+            };
+        }
+
+        const format = responseFormat ?? "concise";
+        const conciseConnections = data.results.map(toConnectionSummary);
+        // The concise form is already safe; the verbose form carries the raw
+        // connection objects, so mask any secret-valued fields first.
+        const connections = format === "concise" ? conciseConnections : data.results.map(redactSensitiveKeys);
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                `Found ${data.results.length} connection(s) in the requested workspace:`,
+                JSON.stringify(connections, null, 2)
+            ),
+            structuredContent: { connections: conciseConnections },
+        };
+    }
+
+    private async inspectConnection({
+        projectId,
+        workspaceName,
+        connectionName,
+        request,
+    }: {
+        projectId: string;
+        workspaceName: string;
+        connectionName: string;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const data = (await this.server.apiClient.getStreamConnection(
+            {
+                params: { path: { groupId: projectId, tenantName: workspaceName, connectionName } },
+            },
+            request
+        )) as Record<string, unknown>;
+
+        let header = "Details for the requested connection:";
+
+        if (data.type === "Cluster" && typeof data.clusterName === "string" && data.clusterName !== data.name) {
+            header +=
+                "\n\nNote: This connection's name differs from its target cluster name. " +
+                "Use the connection name (not the cluster name) when referencing it in pipeline stages.";
+        }
+
+        const connection = toConnectionInspect(data);
+
+        // Mask any secret-valued fields (e.g. authentication.password) that the
+        // Atlas API response may include: those values are never useful to the
+        // agent, and the keychain does not register runtime connection secrets.
+        const safeData = redactSensitiveKeys(data);
+
+        return {
+            content: formatUntrustedData(this.server.config, header, JSON.stringify(safeData, null, 2)),
+            ...(Object.keys(connection).length > 0 && { structuredContent: { connection } }),
+        };
+    }
+
+    private async listProcessors({
+        projectId,
+        workspaceName,
+        responseFormat,
+        limit,
+        pageNum,
+        request,
+    }: {
+        projectId: string;
+        workspaceName: string;
+        responseFormat: string | undefined;
+        limit: number | undefined;
+        pageNum: number | undefined;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const data = await this.server.apiClient.getStreamProcessors(
+            {
+                params: {
+                    path: { groupId: projectId, tenantName: workspaceName },
+                    query: { itemsPerPage: limit ?? 20, pageNum: pageNum ?? 1 },
+                },
+            },
+            request
+        );
+
+        if (!data?.results?.length) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `No processors found in workspace '${workspaceName}'. Use \`atlas-streams-build\` with resource='processor' to deploy one.`,
+                    },
+                ],
+                structuredContent: { processors: [] },
+            };
+        }
+
+        const format = responseFormat ?? "concise";
+        const conciseProcessors = data.results.map((p) => {
+            const autoscaling = toStreamsAutoscaling(p.options?.autoscaling);
+            return {
+                name: p.name,
+                state: p.state,
+                tier: p.tier,
+                effectiveTier: p.effectiveTier,
+                ...(autoscaling !== undefined && { autoscaling }),
+            };
+        });
+        const processors = format === "concise" ? conciseProcessors : data.results;
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                `Found ${data.results.length} processor(s) in the requested workspace:`,
+                JSON.stringify(processors, null, 2)
+            ),
+            structuredContent: { processors: conciseProcessors },
+        };
+    }
+
+    private async inspectProcessor({
+        projectId,
+        workspaceName,
+        processorName,
+        request,
+    }: {
+        projectId: string;
+        workspaceName: string;
+        processorName: string;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const data = await this.server.apiClient.getStreamProcessor(
+            {
+                params: { path: { groupId: projectId, tenantName: workspaceName, processorName } },
+            },
+            request
+        );
+        const structuredContent = buildProcessorStructuredContent(data, { includePipeline: true });
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                "Details for the requested processor:",
+                JSON.stringify(data, null, 2)
+            ),
+            ...(Object.keys(structuredContent).length > 0 && { structuredContent }),
+        };
+    }
+
+    private async diagnoseProcessor({
+        projectId,
+        workspaceName,
+        processorName,
+        request,
+    }: {
+        projectId: string;
+        workspaceName: string;
+        processorName: string;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const [processorResult, connectionsResult] = await Promise.allSettled([
+            this.server.apiClient.getStreamProcessor(
+                {
+                    params: { path: { groupId: projectId, tenantName: workspaceName, processorName } },
+                },
+                request
+            ),
+            this.server.apiClient.listStreamConnections(
+                {
+                    params: { path: { groupId: projectId, tenantName: workspaceName } },
+                },
+                request
+            ),
+        ]);
+
+        const sections: string[] = [];
+        const structuredContent: DiscoverOutput = {};
+
+        // Processor state and stats
+        if (processorResult.status === "fulfilled" && processorResult.value) {
+            const proc = processorResult.value;
+            Object.assign(structuredContent, buildProcessorStructuredContent(proc));
+
+            sections.push(
+                `## Processor State\n- Name: ${proc.name}\n- State: ${proc.state}\n- Baseline Tier: ${proc.tier ?? "default"}\n- Effective Tier: ${proc.effectiveTier ?? proc.tier ?? "default"}`
+            );
+
+            if (proc.options?.autoscaling !== undefined) {
+                sections.push(`## Autoscaling\n${JSON.stringify(proc.options.autoscaling, null, 2)}`);
+            }
+
+            if (proc.stats && Object.keys(proc.stats).length > 0 && structuredContent.stats) {
+                const stats = structuredContent.stats;
+                sections.push(`## Processor Stats\n${JSON.stringify(stats, null, 2)}`);
+
+                const inputCount = stats.inputMessageCount ?? 0;
+                const outputCount = stats.outputMessageCount ?? 0;
+                const dlqCount = stats.dlqMessageCount ?? 0;
+
+                if (inputCount > 0 && outputCount === 0 && dlqCount > 0) {
+                    const healthWarning =
+                        `All ${dlqCount} input messages went to DLQ (0 successful outputs). ` +
+                        `This typically indicates a schema mismatch, serialization error, or sink configuration problem. ` +
+                        `Query the DLQ collection to inspect error details.`;
+                    sections.push(`## Health Warning\n${healthWarning}`);
+                } else if (inputCount > 0 && dlqCount > 0) {
+                    const dlqRatio = Math.round((dlqCount / inputCount) * 100);
+                    if (dlqRatio > 50) {
+                        const healthWarning = `${dlqRatio}% of messages going to DLQ. Check DLQ collection for error patterns.`;
+                        sections.push(`## Health Warning\n${healthWarning}`);
+                    }
+                }
+            }
+
+            if (proc.options?.dlq) {
+                sections.push(
+                    `## Dead Letter Queue Config\n- Connection: ${proc.options.dlq.connectionName}\n- Database: ${proc.options.dlq.db}\n- Collection: ${proc.options.dlq.coll}`
+                );
+            }
+
+            if (proc.pipeline) {
+                sections.push(`## Pipeline\n${JSON.stringify(proc.pipeline, null, 2)}`);
+            }
+        } else {
+            const processorError =
+                processorResult.status === "rejected" ? String(processorResult.reason) : "No data returned";
+            sections.push(`## Processor State\nError fetching processor: ${processorError}`);
+        }
+
+        // Connection health
+        if (connectionsResult.status === "fulfilled" && connectionsResult.value?.results?.length) {
+            const connections = connectionsResult.value.results;
+            structuredContent.connectionHealth = connections.map(toConnectionSummary);
+            const summary = connections
+                .map((c) => {
+                    const conn = c as Record<string, unknown>;
+                    return `- ${String(conn.name)} (${String(conn.type)}): ${String(conn.state)}`;
+                })
+                .join("\n");
+            sections.push(`## Connection Health\n${summary}`);
+        }
+
+        // Actionable guidance
+        const proc = processorResult.status === "fulfilled" ? processorResult.value : undefined;
+        if (proc?.state === "FAILED") {
+            sections.push(
+                "## Recommended Actions\n" +
+                    "- Check the Dead Letter Queue for failed documents\n" +
+                    "- Use `atlas-streams-manage` with action 'modify-processor' to fix pipeline issues (processor must be stopped)\n" +
+                    "- Use `atlas-streams-manage` with action 'start-processor' and resumeFromCheckpoint=false to restart from the beginning"
+            );
+        } else if (proc?.state === "STOPPED") {
+            sections.push(
+                "## Recommended Actions\n- Use `atlas-streams-manage` with action 'start-processor' to resume processing"
+            );
+        }
+
+        return {
+            content: formatUntrustedData(
+                this.server.config,
+                "Diagnostic report for the requested processor:",
+                sections.join("\n\n")
+            ),
+            ...(Object.keys(structuredContent).length > 0 && { structuredContent }),
+        };
+    }
+
+    private async getNetworking({
+        projectId,
+        cloudProvider,
+        region,
+        request,
+    }: {
+        projectId: string;
+        cloudProvider: string | undefined;
+        region: string | undefined;
+        request: ToolRequest<IAtlasConfig>;
+    }): Promise<CallToolResult> {
+        const [privateLinkResult] = await Promise.allSettled([
+            this.server.apiClient.listPrivateLinkConnections(
+                {
+                    params: { path: { groupId: projectId } },
+                },
+                request
+            ),
+        ]);
+
+        const sections: string[] = [];
+        const structuredContent: DiscoverOutput = { privateLinks: [] };
+
+        if (cloudProvider && region) {
+            try {
+                const accountDetails = await this.server.apiClient.getAccountDetails(
+                    {
+                        params: {
+                            path: { groupId: projectId },
+                            query: { cloudProvider, regionName: region },
+                        },
+                    },
+                    request
+                );
+                const accountDetailsSummary = toAccountDetailsSummary(accountDetails);
+                if (Object.keys(accountDetailsSummary).length > 0) {
+                    structuredContent.accountDetails = accountDetailsSummary;
+                }
+                sections.push(
+                    `## Account Details (${cloudProvider}/${region})\n${JSON.stringify(accountDetails, null, 2)}`
+                );
+            } catch {
+                sections.push(`## Account Details\nCould not fetch account details for ${cloudProvider}/${region}.`);
+            }
+        }
+
+        if (privateLinkResult.status === "fulfilled" && privateLinkResult.value?.results?.length) {
+            const results = privateLinkResult.value.results;
+            structuredContent.privateLinks = results
+                .map(toPrivateLinkSummary)
+                .filter((pl): pl is PrivateLinkSummary => pl !== undefined);
+
+            const pls = results.map((pl) => ({
+                id: pl._id,
+                provider: pl.provider,
+                region: pl.region,
+                state: pl.state,
+                vendor: pl.vendor,
+                ...(pl.errorMessage && { errorMessage: pl.errorMessage }),
+            }));
+
+            sections.push(`## PrivateLink Connections\n${JSON.stringify(pls, null, 2)}`);
+        } else {
+            sections.push("## PrivateLink Connections\nNo PrivateLink connections found.");
+        }
+
+        return {
+            content: formatUntrustedData(this.server.config, "Streams networking details:", sections.join("\n\n")),
+            structuredContent,
+        };
+    }
+}

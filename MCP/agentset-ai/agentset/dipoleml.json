@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.agentset-ai.agentset",
+  "type": "mcp",
+  "name": "Agentset",
+  "slug": "agentset",
+  "vendor": "agentset-ai",
+  "description": "The open-source RAG platform: built-in citations, deep research, 22+ file formats, partitions, MCP server, and more.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/agentset-ai/agentset",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic-rag",
+    "ai-sdk",
+    "chatbots",
+    "embeddings",
+    "genai",
+    "llms",
+    "memory",
+    "memory-management"
+  ],
+  "tags": [
+    "agentic-rag",
+    "ai",
+    "ai-agents",
+    "ai-sdk",
+    "chatbots",
+    "embeddings",
+    "genai",
+    "llms",
+    "memory",
+    "memory-management",
+    "rag",
+    "vercel-ai-sdk"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "agentset-ai",
+    "brandName": "agentset-ai",
+    "source": "https://github.com/agentset-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "agentset-ai/agentset",
+    "url": "https://github.com/agentset-ai/agentset",
+    "commit": "d8e34f6e6cf5eac3b3947ac0adfa75ccc20938a3",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2115,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.12.0"
+    ],
+    "packages": [
+      "app.agentset.ai"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

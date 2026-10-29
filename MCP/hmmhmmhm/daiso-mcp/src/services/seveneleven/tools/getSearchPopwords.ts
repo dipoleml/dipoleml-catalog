@@ -1,0 +1,73 @@
+import type { ConvenienceTransportOptions } from '../../../utils/convenienceTransport.js';
+/**
+ * 세븐일레븐 인기 검색어 조회 도구
+ */
+
+import * as z from 'zod';
+import type { McpToolResponse, ToolRegistration } from '../../../core/types.js';
+import { fetchSevenElevenSearchPopwords } from '../client.js';
+
+interface GetSearchPopwordsArgs {
+  label?: string;
+  timeoutMs?: number;
+}
+
+async function getSearchPopwords(
+  args: GetSearchPopwordsArgs,
+  zyteApiKey?: string,
+  transport: ConvenienceTransportOptions = {},
+): Promise<McpToolResponse> {
+  const { label = 'home', timeoutMs = 15000 } = args;
+
+  const keywords = await fetchSevenElevenSearchPopwords(label, {
+    timeout: timeoutMs,
+    ...transport,
+    zyteApiKey,
+  });
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            label,
+            available: keywords.length > 0,
+            count: keywords.length,
+            keywords,
+            ...(keywords.length === 0 ? { reason: 'upstream_empty' } : {}),
+            note:
+              keywords.length === 0
+                ? '공식 API가 빈 목록을 반환했습니다. 현재 제공되는 인기 검색어를 찾지 못했습니다.'
+                : '홈 인기 검색어를 조회했습니다.',
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+export function createGetSearchPopwordsTool(
+  zyteApiKey?: string,
+  transport: ConvenienceTransportOptions = {},
+): ToolRegistration {
+  return {
+    name: 'seveneleven_get_search_popwords',
+    metadata: {
+      title: '세븐일레븐 인기 검색어 조회',
+      description: '세븐일레븐 인기 검색어 목록을 조회합니다.',
+      inputSchema: {
+        label: z.string().optional().default('home').describe('조회 라벨 (기본값: home)'),
+        timeoutMs: z
+          .number()
+          .optional()
+          .default(15000)
+          .describe('요청 제한 시간(ms, 기본값: 15000)'),
+      },
+    },
+    handler: (args: unknown) =>
+      getSearchPopwords(args as GetSearchPopwordsArgs, zyteApiKey, transport),
+  };
+}

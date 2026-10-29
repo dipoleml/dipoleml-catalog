@@ -1,0 +1,108 @@
+/**
+ * Vitest 설정 파일
+ *
+ * 테스트 및 코드 커버리지 설정
+ */
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    // 운영 중계와 메모리를 공유하는 Mac은 한 워커만 사용합니다.
+    maxWorkers: process.platform === 'darwin' ? 1 : 2,
+    // 테스트 환경
+    environment: 'node',
+
+    // 테스트 파일 패턴
+    include: ['tests/**/*.test.ts'],
+
+    // 글로벌 설정 (describe, it, expect 등을 import 없이 사용)
+    globals: true,
+
+    // 타입 체크 (선택적)
+    typecheck: {
+      enabled: false,
+    },
+
+    // 커버리지 설정
+    coverage: {
+      // 커버리지 도구
+      provider: 'v8',
+
+      // 리포터 형식
+      reporter: ['text', 'text-summary', 'html', 'json'],
+
+      // 커버리지 대상 파일
+      include: [
+        'scripts/relay/watchdog.ts',
+        'scripts/relay/marker-lease.ts',
+        'scripts/relay/recover-abandoned-guard.ts',
+        'scripts/relay/recover-exited-guard.ts',
+        'scripts/ops/mcp-smoke-validation.ts',
+        'scripts/relay/daiso-jp.ts',
+        'scripts/ops/health-check-retry.ts',
+        'src/**/*.ts',
+        'scripts/relay/cache.ts',
+        'scripts/relay/logging.ts',
+        'scripts/relay/observed.ts',
+        'scripts/relay/oliveyoung.ts',
+        'scripts/relay/dtryx.ts',
+        'scripts/relay/http-relay.ts',
+        'scripts/relay/convenience.ts',
+        'scripts/relay/gs25-session.ts',
+        'scripts/relay/browser.ts',
+        'scripts/relay/lifecycle.ts',
+        'scripts/relay/ownership.ts',
+        'scripts/relay/guard-controller.ts',
+        'scripts/relay/guard-runtime.ts',
+        'scripts/relay/supervisor.ts',
+        'scripts/relay/quota.ts',
+        'scripts/relay/consumer.ts',
+        'scripts/relay/seven-session.ts',
+        'scripts/relay/seven-browser-session.ts',
+        'scripts/relay/browser-environment.ts',
+        'scripts/relay/http-lifecycle.ts',
+        'scripts/relay/transport-lifecycle.ts',
+      ],
+
+      // 커버리지 제외 파일
+      exclude: [
+        'src/**/*.d.ts',
+        'src/core/types.ts', // 타입만 정의
+        'src/core/interfaces.ts', // 인터페이스만 정의
+        'src/services/**/types.ts', // 타입만 정의
+        'src/services/**/clientTypes.ts', // 타입만 정의
+        'src/api/emart24Handlers.ts', // 신규 서비스 핸들러는 별도 통합 검증
+        'src/api/gs25Handlers.ts', // 외부 BFF 연동 핸들러는 별도 통합 검증
+        'src/api/lottecinemaHandlers.ts', // 신규 서비스 핸들러는 별도 통합 검증
+        'src/api/sevenelevenHandlers.ts', // 외부 웹/앱 연동 핸들러는 별도 통합 검증
+        'src/services/emart24/client.ts', // 신규 서비스 클라이언트는 별도 실측 기반 검증
+        'src/services/gs25/client.ts', // 외부 BFF 클라이언트는 별도 실측 기반 검증
+        'src/services/lottecinema/client.ts', // 신규 서비스 클라이언트는 별도 실측 기반 검증
+        'src/services/seveneleven/client.ts', // 외부 웹/앱 클라이언트는 별도 실측 기반 검증
+        'src/services/seveneleven/inventory.ts', // 외부 재고 암호화 경로는 별도 실측 기반 검증
+        'src/services/emart24/tools/checkInventory.ts', // 신규 서비스 재고 도구는 별도 실측 기반 검증
+        'src/services/gs25/tools/checkInventory.ts', // 외부 BFF 재고 도구는 별도 통합 검증
+        'src/services/lottecinema/tools/getRemainingSeats.ts', // 신규 서비스 좌석 도구는 별도 실측 기반 검증
+        'src/services/seveneleven/tools/checkInventory.ts', // 외부 재고 암호화 경로는 별도 실측 기반 검증
+        'src/pages/openapi.ts', // 엔트리 재노출 파일
+        'src/pages/openapiSpec.ts', // 엔트리 재노출 파일
+        'src/bin.ts', // npm bin 진입점 파일
+        'src/cli.ts', // 실행 진입점 파일
+        'src/cli/**/*.ts', // CLI 오케스트레이션 분리 모듈
+        'src/cliInteractive.ts', // 인터랙티브 UI 오케스트레이션 파일
+        'src/cliRenderer.ts', // CLI 출력 렌더러 파일
+      ],
+
+      // 커버리지 임계값 (100% 목표)
+      thresholds: {
+        lines: 100,
+        functions: 100,
+        branches: 100,
+        statements: 100,
+      },
+
+      // 리포트 디렉토리
+      reportsDirectory: './coverage',
+    },
+  },
+});

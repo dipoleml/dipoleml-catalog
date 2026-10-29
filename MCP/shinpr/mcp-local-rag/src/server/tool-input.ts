@@ -1,0 +1,281 @@
+// Runtime validation for MCP tool arguments, which arrive as `unknown` from
+// the SDK. These reject malformed input at the entry boundary with
+// `McpError(InvalidParams)`, without leaking internal diagnostics.
+
+import { isAbsolute } from 'node:path'
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
+import { MAX_NEIGHBOR_COUNT, MAX_QUERY_LIMIT, MIN_QUERY_LIMIT } from '../utils/limits.js'
+import { CONTENT_FORMATS } from '../utils/raw-data-utils.js'
+import { isInteger, isMemberOf, isRecord } from '../utils/type-guards.js'
+import { QUALITY_PROFILES } from '../utils/visual-profile.js'
+import type {
+  DeleteFileInput,
+  IngestDataInput,
+  IngestFileInput,
+  ListFilesInput,
+  QueryDocumentsInput,
+  ReadChunkNeighborsInput,
+  SyncStartInput,
+  SyncStatusInput,
+} from './types.js'
+
+const SCOPE_ERROR = 'scope must be a non-empty string or a non-empty array of non-empty strings'
+
+/**
+ * Normalize the optional `scope` to a trimmed `string[]`, rejecting any other
+ * shape with `McpError(InvalidParams)`. Mirrors the `limit` boundary check.
+ */
+function normalizeScope(scope: unknown): string[] {
+  const isNonEmptyString = (value: unknown): value is string =>
+    typeof value === 'string' && value.trim().length > 0
+
+  // Trim so whitespace-padded prefixes don't silently match nothing.
+  if (isNonEmptyString(scope)) {
+    return [scope.trim()]
+  }
+
+  if (Array.isArray(scope) && scope.length > 0 && scope.every(isNonEmptyString)) {
+    return scope.map((value) => value.trim())
+  }
+
+  throw new McpError(ErrorCode.InvalidParams, SCOPE_ERROR)
+}
+
+function asRecord(raw: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(raw) || Array.isArray(raw)) {
+    throw new McpError(ErrorCode.InvalidParams, `${label} arguments must be an object`)
+  }
+  return raw
+}
+
+/**
+ * Validate `query_documents` arguments. `query` must be a non-empty string;
+ * `limit`, when provided, must be a positive integer (the handler defaults it
+ * to 10 when absent).
+ */
+export function parseQueryDocumentsInput(raw: unknown): QueryDocumentsInput {
+  const obj = asRecord(raw, 'query_documents')
+  const { query, limit, scope } = obj
+
+  if (typeof query !== 'string' || query.trim().length === 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'query must be a non-empty string')
+  }
+
+  const input: QueryDocumentsInput = { query }
+
+  if (limit !== undefined) {
+    // Bound to the shared range at the entry boundary — the same range
+    // VectorStore.search enforces and the CLI `--limit` accepts. Rejecting
+    // here returns a clean McpError(InvalidParams) instead of letting an
+    // out-of-range value reach search() and surface as a DatabaseError.
+    if (
+      typeof limit !== 'number' ||
+      !Number.isInteger(limit) ||
+      limit < MIN_QUERY_LIMIT ||
+      limit > MAX_QUERY_LIMIT
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `limit must be an integer between ${MIN_QUERY_LIMIT} and ${MAX_QUERY_LIMIT}`
+      )
+    }
+    input.limit = limit
+  }
+
+  if (scope !== undefined) {
+    input.scope = normalizeScope(scope)
+  }
+
+  return input
+}
+
+/**
+ * Validate `list_files` arguments. The tool historically takes no arguments, so
+ * an omitted `arguments` (`undefined`) or `{}` is accepted as "no scope". When
+ * `scope` is present, it is normalized the same way as `query_documents`.
+ */
+export function parseListFilesInput(raw: unknown): ListFilesInput {
+  // Preserve the no-argument contract: `asRecord` rejects `undefined`, so
+  // short-circuit before it to avoid a spurious McpError on no-arg calls.
+  if (raw === undefined) {
+    return {}
+  }
+
+  const { scope } = asRecord(raw, 'list_files')
+
+  if (scope === undefined) {
+    return {}
+  }
+
+  return { scope: normalizeScope(scope) }
+}
+
+/**
+ * Validate `ingest_data` arguments. `content` must be a non-empty string;
+ * `metadata` must be an object with a non-empty `source` string and a `format`
+ * in the supported set.
+ */
+export function parseIngestDataInput(raw: unknown): IngestDataInput {
+  const obj = asRecord(raw, 'ingest_data')
+  const { content, metadata } = obj
+
+  if (typeof content !== 'string' || content.length === 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'content must be a non-empty string')
+  }
+
+  const meta = asRecord(metadata, 'ingest_data metadata')
+  const { source, format } = meta
+
+  if (typeof source !== 'string' || source.trim().length === 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'metadata.source must be a non-empty string')
+  }
+
+  if (typeof format !== 'string' || !isMemberOf(CONTENT_FORMATS, format)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `metadata.format must be one of: ${CONTENT_FORMATS.join(', ')}`
+    )
+  }
+
+  return { content, metadata: { source, format } }
+}
+
+export function parseIngestFileInput(raw: unknown): IngestFileInput {
+  const { filePath, visual, visualQuality } = asRecord(raw, 'ingest_file')
+  if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'filePath must be a non-empty string')
+  }
+  if (visual !== undefined && typeof visual !== 'boolean') {
+    throw new McpError(ErrorCode.InvalidParams, "'visual' must be a boolean if provided")
+  }
+  const hasQualityProfile =
+    typeof visualQuality === 'string' && isMemberOf(QUALITY_PROFILES, visualQuality)
+  if (visualQuality !== undefined && visualQuality !== '' && !hasQualityProfile) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      "'visualQuality' must be 'fast' or 'quality' if provided"
+    )
+  }
+
+  return {
+    filePath,
+    ...(visual !== undefined ? { visual } : {}),
+    ...(hasQualityProfile ? { visualQuality } : {}),
+  }
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+export function parseDeleteFileInput(raw: unknown): DeleteFileInput {
+  const { filePath, source } = asRecord(raw, 'delete_file')
+  const hasFilePath = nonEmptyString(filePath)
+  const hasSource = nonEmptyString(source)
+  if (hasFilePath && hasSource) {
+    throw new McpError(ErrorCode.InvalidParams, 'Provide either filePath or source, not both')
+  }
+  if (hasFilePath) {
+    return { filePath }
+  }
+  if (hasSource) {
+    return { source }
+  }
+  throw new McpError(ErrorCode.InvalidParams, 'Either filePath or source must be provided')
+}
+
+export function parseReadChunkNeighborsInput(raw: unknown): ReadChunkNeighborsInput {
+  const { filePath, source, chunkIndex, before, after } = asRecord(raw, 'read_chunk_neighbors')
+  if (!isInteger(chunkIndex) || chunkIndex < 0) {
+    throw new McpError(ErrorCode.InvalidParams, 'chunkIndex must be a non-negative integer')
+  }
+  for (const [label, value] of [
+    ['before', before],
+    ['after', after],
+  ] as const) {
+    if (value !== undefined && (!isInteger(value) || value < 0)) {
+      throw new McpError(ErrorCode.InvalidParams, `${label} must be a non-negative integer`)
+    }
+    if (typeof value === 'number' && value > MAX_NEIGHBOR_COUNT) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `${label} must be between 0 and 50 (got ${value})`
+      )
+    }
+  }
+
+  const ref = parseDeleteFileInput({ filePath, source })
+  return {
+    ...ref,
+    chunkIndex,
+    ...(isInteger(before) ? { before } : {}),
+    ...(isInteger(after) ? { after } : {}),
+  }
+}
+
+/**
+ * `sync_start` is legitimately callable with no arguments — an omitted `path`
+ * means every configured root — so `undefined` and `{}` both pass, as with
+ * `list_files`.
+ *
+ * Root containment is deliberately not checked here: the sync core owns that
+ * rule, so the CLI and MCP surfaces cannot drift.
+ */
+export function parseSyncStartInput(raw: unknown): SyncStartInput {
+  if (raw === undefined) {
+    return {}
+  }
+
+  const { path } = asRecord(raw, 'sync_start')
+
+  if (path === undefined) {
+    return {}
+  }
+
+  if (!nonEmptyString(path)) {
+    throw new McpError(ErrorCode.InvalidParams, 'path must be a non-empty string')
+  }
+
+  // Trimmed for the same reason as `scope`: a whitespace-padded path would
+  // otherwise be resolved verbatim and silently match nothing on disk.
+  const trimmed = path.trim()
+
+  // A relative path would be resolved against the server process's working
+  // directory, which the caller cannot see. `ingest_file` and `delete_file`
+  // already require absolute paths, and the tool description promises one.
+  if (!isAbsolute(trimmed)) {
+    throw new McpError(ErrorCode.InvalidParams, 'path must be an absolute path')
+  }
+
+  return { path: trimmed }
+}
+
+/**
+ * A job id is a `randomUUID()` this server handed out. The alphabet and length
+ * are enforced because the value is echoed into an error message and a stderr
+ * line — an unbounded id containing a newline could forge a log line.
+ */
+const JOB_ID_PATTERN = /^[0-9a-fA-F-]{1,128}$/
+
+/**
+ * Validate `sync_status` arguments. `jobId` is required; an unknown but
+ * well-formed id is the handler's concern, not this boundary's.
+ */
+export function parseSyncStatusInput(raw: unknown): SyncStatusInput {
+  const { jobId } = asRecord(raw, 'sync_status')
+
+  if (!nonEmptyString(jobId)) {
+    throw new McpError(ErrorCode.InvalidParams, 'jobId must be a non-empty string')
+  }
+
+  const trimmed = jobId.trim()
+
+  if (!JOB_ID_PATTERN.test(trimmed)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      'jobId must be at most 128 characters of hexadecimal digits and dashes'
+    )
+  }
+
+  return { jobId: trimmed }
+}

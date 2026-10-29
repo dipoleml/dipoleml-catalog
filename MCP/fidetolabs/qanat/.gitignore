@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+data/
+*.duckdb
+*.duckdb.wal
+# The sec-10k example downloads its own documents on the first run, so nothing
+# under its data/ belongs in the repo.
+examples/sec-10k/data/
+.env
+
+# Local IDE / agent config (machine-specific)
+.claude/
+.cursor/
+
+# Demo video tooling (not part of the product)
+videos/
+node_modules/
+package-lock.json

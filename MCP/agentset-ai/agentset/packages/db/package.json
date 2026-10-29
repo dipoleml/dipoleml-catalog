@@ -1,0 +1,52 @@
+{
+  "name": "@agentset/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/prisma.ts",
+    "./trigger": "./src/trigger.ts",
+    "./client": "./src/client.ts",
+    "./browser": "./src/browser.ts",
+    "./schemas": "./src/schemas.ts",
+    "./ssl": "./src/ssl.ts"
+  },
+  "scripts": {
+    "postinstall": "bun run db:generate",
+    "build": "tsc",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "dev": "tsc",
+    "format": "prettier --check . --ignore-path ../../.gitignore",
+    "lint": "eslint",
+    "db:generate": "PRISMA_MODE=generate bun --env-file=../../.env run prisma generate",
+    "db:deploy": "bun --env-file=../../.env run prisma migrate deploy",
+    "db:deploy:eu": "bun --env-file=../../.env.eu.local run prisma migrate deploy",
+    "db:status:eu": "bun --env-file=../../.env.eu.local run prisma migrate status",
+    "db:studio": "bun --env-file=../../.env run prisma studio",
+    "db:migrate": "bun --env-file=../../.env run prisma migrate dev",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "@agentset/utils": "workspace:*",
+    "@prisma/adapter-pg": "^7.4.1",
+    "@prisma/client": "^7.4.1",
+    "pg": "^8.16.3",
+    "zod": "catalog:"
+  },
+  "prisma": {
+    "schema": "prisma/schema"
+  },
+  "devDependencies": {
+    "@agentset/eslint-config": "workspace:*",
+    "@agentset/prettier-config": "workspace:*",
+    "@agentset/tsconfig": "workspace:*",
+    "@agentset/validation": "workspace:*",
+    "@types/pg": "^8.20.0",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "prisma": "^7.4.1",
+    "prisma-json-types-generator": "^4.1.1",
+    "typescript": "catalog:"
+  },
+  "prettier": "@agentset/prettier-config"
+}

@@ -1,0 +1,132 @@
+# Roam SLSA SRC-L3 Source Provenance — drop-in GitHub Actions workflow.
+#
+# W471 — emits a SLSA v1.2 Verification Summary Attestation (VSA) plus a
+# run-ledger HMAC root attestation on every pull request, keyless-signed
+# via Sigstore Fulcio + Rekor (the GitHub Actions OIDC token is the trust
+# anchor that lifts the assurance floor from SRC-L2 to SRC-L3).
+#
+# Place at .github/workflows/roam-slsa-src-l3.yml in your repo.
+#
+# What this produces:
+#   * .roam/pr-bundle/slsa-vsa-<evidence_id>.json
+#       — in-toto v1 Statement, predicateType
+#         https://slsa.dev/verification_summary/v1
+#   * .roam/pr-bundle/run-ledger-root-<run_id>.json
+#       — in-toto v1 Statement attesting to the HMAC chain tip of the
+#         active run-ledger; predicateType
+#         https://roam-code.com/spec/RunLedgerRoot/v1
+#   * cosign .sig + Rekor transparency-log entries for both
+#
+# Wording-lint discipline (CLAUDE.md): this workflow produces evidence
+# that *supports* a SLSA SRC-L3 claim. The verifier asserts the claim;
+# the workflow itself does NOT make the repo "SLSA-compliant".
+#
+# Trust anchor: the `id-token: write` permission gives the job an
+# OIDC token that cosign exchanges with Fulcio for a short-lived
+# X.509 certificate bound to the GitHub workflow identity. Without
+# this permission, keyless signing fails and the assurance floor
+# stays at SRC-L2.
+
+name: Roam SLSA SRC-L3 Source Provenance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  slsa-src-l3:
+    name: roam SLSA source provenance
+    # Inert W515 drift-test sentinel; never use this legacy form as config:
+    # runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      # Retained as data so the existing W515 negative test can mutate a
+      # non-comment line; this value never selects or configures a runner.
+      W515_DRIFT_TEST_SENTINEL: "runs-on: ubuntu-latest"
+    permissions:
+      contents: read
+      id-token: write      # REQUIRED — keyless cosign OIDC (lifts L2 -> L3)
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0   # full history — VSA subject is the commit SHA
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "{python_version}"
+
+      - name: Install roam-code
+        run: python -m pip install "roam-code[mcp]==14.1.0"
+
+      - name: Install cosign (keyless OIDC signer)
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      - name: Index repository
+        run: roam init
+
+      - name: Start run ledger (HMAC-chained event log)
+        id: run
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          mkdir -p .roam-artifacts
+          roam --json runs start --intent "$PR_TITLE" > .roam-artifacts/run-start.json
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          import re
+          from pathlib import Path
+
+          payload = json.loads(Path(".roam-artifacts/run-start.json").read_text(encoding="utf-8"))
+          run_id = payload.get("summary", {}).get("run_id")
+          if not isinstance(run_id, str) or not re.fullmatch(r"run_[0-9]{8}_[0-9a-f]{6}", run_id):
+              raise SystemExit(f"invalid or missing run_id: {run_id!r}")
+          print(f"ROAM_RUN_ID={run_id}")
+          PY
+
+      - name: Initialise pr-bundle
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HUMAN_ACTOR: ${{ github.actor }}
+        run: |
+          roam pr-bundle init \
+            --intent "$PR_TITLE" \
+            --agent-id "github-actions" \
+            --human-actor "$HUMAN_ACTOR"
+
+      - name: Emit pr-bundle with SLSA SRC-L3 attestations (signed)
+        run: |
+          roam pr-bundle emit \
+            --auto-collect \
+            --strict \
+            --slsa-l3 \
+            --sign \
+            --keyless
+
+      # Hard gate: non-zero exit on HMAC chain tamper breaks the pipeline
+      # before any signed attestation is uploaded.
+      - name: Verify run-ledger HMAC chain integrity
+        run: roam runs verify
+
+      - name: Close run ledger with pr-bundle reference
+        run: roam runs end --with-pr-bundle-emit
+
+      - name: Upload SLSA attestations + run-ledger root
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: roam-slsa-src-l3
+          path: |
+            .roam/pr-bundle/slsa-vsa-*.json
+            .roam/pr-bundle/run-ledger-root-*.json
+            .roam/pr-bundle/*.sig
+            .roam/pr-bundle/*.pem
+          retention-days: 90
+          if-no-files-found: error

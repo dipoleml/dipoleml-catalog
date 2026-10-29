@@ -1,0 +1,58 @@
+"""AI Team OS CLI — up command.
+
+Start the API server (uvicorn).
+"""
+
+from __future__ import annotations
+
+import typer
+from rich.console import Console
+
+from aiteam.session_env import scrub_process_env
+
+app = typer.Typer()
+console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def up(
+    api_port: int = typer.Option(8000, "--api-port", help="API服务器端口"),
+    no_dashboard: bool = typer.Option(False, "--no-dashboard", help="仅启动API，不启动Dashboard"),
+    reload: bool = typer.Option(False, "--reload", help="开发模式，自动重载"),
+) -> None:
+    """Start the AI Team OS API server."""
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]错误: uvicorn未安装，请运行 pip install 'uvicorn[standard]'[/red]")
+        raise typer.Exit(1)
+
+    from aiteam.paths import migration_lock
+
+    lock = migration_lock()
+    if lock is not None:
+        console.print(f"[red]OS 数据目录正在迁移（进程 {lock['pid']}，锁 {lock['path']}），"
+                      "迁移结束会自行拉起服务；现在不启动。[/red]")
+        raise typer.Exit(1)
+
+    console.print("[bold blue]AI Team OS[/bold blue] API 服务器启动中...")
+    console.print(f"  API地址: [green]http://localhost:{api_port}[/green]")
+    console.print(f"  API文档: [green]http://localhost:{api_port}/docs[/green]")
+
+    if no_dashboard:
+        console.print("  Dashboard: [dim]已禁用[/dim]")
+    else:
+        console.print("  Dashboard: [yellow]尚未集成（使用 --no-dashboard 跳过）[/yellow]")
+
+    console.print()
+
+    # This process becomes the API (and the parent of any reload worker): drop the
+    # launching session's credentials and identity first.
+    scrub_process_env()
+    uvicorn.run(
+        "aiteam.api.app:create_app",
+        host="0.0.0.0",
+        port=api_port,
+        reload=reload,
+        factory=True,
+    )

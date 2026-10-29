@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.chrisryugj.korean-law-mcp",
+  "type": "mcp",
+  "name": "Korean Law MCP",
+  "slug": "korean-law-mcp",
+  "vendor": "chrisryugj",
+  "description": "법제처 국가법령정보를 LLM에서 바로 조회하는 MCP 서버. 법령·판례·조례 검색과 인용 검증 | MCP server for Korean law — search statutes, precedents, and ordinances, and verify citations",
+  "version": "4.15.14",
+  "homepage": "https://github.com/chrisryugj/korean-law-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "case-law",
+    "citation-verification",
+    "claude-desktop",
+    "cursor",
+    "hallucination-detection",
+    "korea",
+    "korean",
+    "korean-law"
+  ],
+  "tags": [
+    "case-law",
+    "citation-verification",
+    "claude",
+    "claude-desktop",
+    "cursor",
+    "hallucination-detection",
+    "korea",
+    "korean",
+    "korean-law",
+    "law",
+    "legal-ai",
+    "legal-rag",
+    "legal-research",
+    "legal-tech",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "precedent",
+    "statutes",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "chrisryugj",
+    "brandName": "chrisryugj",
+    "source": "https://github.com/chrisryugj.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:46Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "chrisryugj/korean-law-mcp",
+    "url": "https://github.com/chrisryugj/korean-law-mcp",
+    "commit": "32c294e63b5a182a0e4166ab2ee38184e0b330ed",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2816,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Korean law for Claude via the official 법제처 Open API: statutes, precedents, administrative rules, local ordinances, treaties and interpretations, with citation verification. 법제처 42개 API → 10개 통합 도구. 법령·판례·행정규칙·자치법규·조약·해석례 + LLM 환각 방지 인용 검증 + 조문 영향 그래프 + 시점 비교 자동 diff + 판례 생사 확인(Citator) + 행위시법 판단 + 이럴 땐 이렇게 5단계 안내",
+        "after": "Korean law for DipoleML via the official 법제처 Open API: statutes, precedents, administrative rules, local ordinances, treaties and interpretations, with citation verification. 법제처 42개 API → 10개 통합 도구. 법령·판례·행정규칙·자치법규·조약·해석례 + LLM 환각 방지 인용 검증 + 조문 영향 그래프 + 시점 비교 자동 diff + 판례 생사 확인(Citator) + 행위시법 판단 + 이럴 땐 이렇게 5단계 안내",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "korean-law-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "korean-law-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.19.0"
+    ],
+    "packages": [
+      "korean-law-mcp"
+    ],
+    "env": [
+      "LAW_API_PROTOCOL",
+      "EXTERNAL_API_ERROR",
+      "MCP_HTTP_HOST",
+      "MCP_AUTH_TOKEN",
+      "ALLOW_QUERY_API_KEY"
+    ],
+    "credentials": [
+      "MCP_AUTH_TOKEN",
+      "ALLOW_QUERY_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

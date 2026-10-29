@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.notion.notion-mcp-server",
+  "type": "mcp",
+  "name": "Notion MCP Server",
+  "slug": "notion-mcp-server",
+  "vendor": "notion",
+  "description": "Official Notion MCP Server",
+  "version": "2.6.0",
+  "homepage": "https://github.com/makenotion/notion-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "notion",
+    "brandName": "notion",
+    "source": "https://cdn.simpleicons.org/notion",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-28T22:56:44Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "makenotion/notion-mcp-server",
+    "url": "https://github.com/makenotion/notion-mcp-server",
+    "commit": "d221339a14fd452429cb81bec559d445364de8a6",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4685,
+    "archived": false,
+    "vendoredAt": "2026-10-28T22:56:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@notionhq/notion-mcp-server"
+    ],
+    "env": [
+      "OPENAPI_MCP_HEADERS",
+      "NOTION_TOKEN",
+      "AUTH_TOKEN"
+    ],
+    "credentials": [
+      "NOTION_TOKEN",
+      "AUTH_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

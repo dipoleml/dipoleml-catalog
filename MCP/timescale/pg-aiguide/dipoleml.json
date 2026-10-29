@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.timescale.pg-aiguide",
+  "type": "mcp",
+  "name": "Pg Aiguide",
+  "slug": "pg-aiguide",
+  "vendor": "timescale",
+  "description": "MCP server and DipoleML plugin for Postgres skills and documentation. Helps AI coding tools generate better PostgreSQL code.",
+  "version": "0.6.1",
+  "homepage": "https://github.com/timescale/pg-aiguide",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-coding",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-marketplace",
+    "claude-plugin",
+    "claude-skills",
+    "docs"
+  ],
+  "tags": [
+    "ai",
+    "ai-agents",
+    "ai-coding",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-marketplace",
+    "claude-plugin",
+    "claude-skills",
+    "docs",
+    "documentation",
+    "mcp",
+    "mcp-server",
+    "postgres",
+    "postgresql",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "timescale",
+    "brandName": "postgres",
+    "source": "https://cdn.simpleicons.org/timescale",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:44Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "timescale/pg-aiguide",
+    "url": "https://github.com/timescale/pg-aiguide",
+    "commit": "5d3b76b5c986693b30753828b404aa66ba34c31a",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1879,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Pg Aiguide | MCP server and Claude plugin for Postgres skills and documentation. Helps AI coding tools generate better PostgreSQL code.",
+        "after": "Pg Aiguide | MCP server and DipoleML plugin for Postgres skills and documentation. Helps AI coding tools generate better PostgreSQL code.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@tigerdata/pg-aiguide"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@tigerdata/pg-aiguide"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

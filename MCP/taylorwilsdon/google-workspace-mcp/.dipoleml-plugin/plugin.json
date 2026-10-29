@@ -1,0 +1,16 @@
+{
+  "name": "google-workspace-mcp",
+  "displayName": "Google Workspace MCP",
+  "version": "0.0.0",
+  "description": "Complete Google Workspace integration -- Gmail, Drive, Calendar, Docs, Sheets, Slides, Forms, Tasks, Contacts, Chat, Apps Script, and Custom Search via MCP with workflow guidance.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Taylorwilsdon"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/taylorwilsdon/google_workspace_mcp",
+  "repository": "https://github.com/taylorwilsdon/google_workspace_mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

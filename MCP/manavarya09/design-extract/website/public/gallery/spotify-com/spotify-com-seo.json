@@ -1,0 +1,52 @@
+{
+  "openGraph": {
+    "site_name": "Spotify",
+    "title": "Spotify - Web Player: Music for everyone",
+    "description": "Spotify is a digital music service that gives you access to millions of songs.",
+    "url": "https://open.spotify.com/",
+    "type": "website",
+    "image": "https://open.spotifycdn.com/cdn/images/download-page-image-mac.fec937cc.png"
+  },
+  "twitter": {
+    "site": "@spotify",
+    "title": "Spotify - Web Player: Music for everyone",
+    "description": "Spotify is a digital music service that gives you access to millions of songs.",
+    "image": "https://open.spotifycdn.com/cdn/images/download-page-image-mac.fec937cc.png",
+    "card": "summary"
+  },
+  "description": "Spotify is a digital music service that gives you access to millions of songs.",
+  "canonical": null,
+  "themeColor": null,
+  "viewport": "width=device-width, initial-scale=1, maximum-scale=1",
+  "favicons": [
+    {
+      "rel": "icon",
+      "href": "https://open.spotifycdn.com/cdn/images/favicon32.b64ecc03.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "rel": "icon",
+      "href": "https://open.spotifycdn.com/cdn/images/favicon16.1c487bff.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    },
+    {
+      "rel": "icon",
+      "href": "https://open.spotifycdn.com/cdn/images/favicon.0f31d2ea.ico",
+      "sizes": "",
+      "type": ""
+    }
+  ],
+  "manifest": "https://open.spotifycdn.com/cdn/generated/manifest-web-player.1609946b.json",
+  "structuredData": [],
+  "score": {
+    "hasOg": true,
+    "hasTwitter": true,
+    "hasDescription": true,
+    "hasCanonical": false,
+    "hasStructuredData": false,
+    "hasFavicon": true,
+    "hasThemeColor": false
+  }
+}

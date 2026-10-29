@@ -1,0 +1,65 @@
+# Credentials and tokens (never commit; this package ships zero secrets)
+*.json
+!package.json
+!manifest.json
+!server.json
+!.cursor-plugin/plugin.json
+!.mcp.json
+sa.json
+client_secret*.json
+token*.json
+psi_api_key.txt
+token.txt
+config.toml
+.config/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+.env.*
+
+# Internal strategy + planning docs (never push these). Keep them under
+# ~/.local/share/seo-monster-private/ or in a .private/ subdirectory of a
+# local clone; both stay off the public repo.
+RESEARCH-AND-PROPOSAL.md
+LISTINGS-PLAN.md
+PLAN.md
+marketing/
+.private/
+
+# Claude Code conversation exports (dated YYYY-MM-DD-HHMMSS-*.txt). These can
+# quote secrets and private planning content; never commit them.
+20??-??-??-*.txt
+
+# Local-only archive of moved-aside clutter (e.g. old session transcripts).
+# Never committed; kept locally for reference. See archive/README.md.
+archive/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+
+# Tester/local harness scripts (live outside the repo; guard against drift)
+rv.py
+call_tool.py
+smoke.py
+
+# mcp-publisher's registry bearer token. v1.8.1 writes it to
+# ~/.config/mcp-publisher/token.json (outside the repo), but upstream also
+# supports a working-directory token file and gitignores `.mcpregistry*` for
+# exactly this reason. Cheap insurance against a future version dropping a
+# live credential into a public repo.
+.mcpregistry*

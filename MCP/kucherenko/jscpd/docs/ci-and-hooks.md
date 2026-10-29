@@ -1,0 +1,467 @@
+# CI & Pre-Commit Hooks
+
+jscpd can enforce duplication thresholds in CI pipelines and as a local pre-commit hook — catching copy/pasted code before it reaches the main branch.
+
+## GitHub Action
+
+The [jscpd-copy-paste-detector](https://github.com/marketplace/actions/jscpd-copy-paste-detector) GitHub Action runs jscpd in your CI workflow. It installs the Rust engine, runs detection, uploads SARIF to GitHub Code Scanning, and optionally uploads the report as an artifact.
+
+### Basic Usage
+
+```yaml
+name: Duplication Check
+
+on: [push, pull_request]
+
+jobs:
+  jscpd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: kucherenko/jscpd@v5
+```
+
+This scans the entire repository with default settings and uploads SARIF results to GitHub Code Scanning.
+
+`@v5` is a moving tag that follows the latest 5.x release of the action. Pin to an exact release tag (e.g. `kucherenko/jscpd@v5.4.2`) or its commit SHA if you need reproducible runs, and see [Pin a specific version](#pin-a-specific-version) for the jscpd release it installs.
+
+### Fail on Threshold
+
+Set `threshold` to fail the build when duplication exceeds a percentage:
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  with:
+    threshold: 5
+```
+
+The workflow fails if more than 5% of the code is duplicated.
+
+### Action Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Paths to scan (space-separated) | `.` |
+| `config` | Path to `.jscpd.json` config file | — |
+| `min-tokens` | Minimum tokens for a clone | `50` |
+| `min-lines` | Minimum lines for a clone | `5` |
+| `max-lines` | Maximum lines per block | — |
+| `mode` | Detection mode: `mild`, `weak`, `strict` | `mild` |
+| `format` | Comma-separated formats to check | — |
+| `ignore` | Comma-separated glob patterns to ignore | — |
+| `ignore-pattern` | Comma-separated regex patterns to skip | — |
+| `reporters` | Comma-separated reporters | `console` |
+| `output` | Output directory for file reporters | `report` |
+| `report-name` | Base name of the report files (`--report-name`); the action reads `<report-name>.json` and `.sarif` back, so set it here when `.jscpd.json` sets `reportName` | `jscpd-report` |
+| `threshold` | Max duplication % before exit 1 | — |
+| `baseline` | Path to a clone baseline file; clones absent from it are reported as new | — |
+| `update-baseline` | Rewrite the baseline file from the current run (requires `baseline`) | `false` |
+| `fail-on-new-clones` | Exit 1 on new clones (`true`, or an integer N to allow up to N) | — |
+| `fail-on-empty` | Exit 1 when the scan analyzes no files (paths exist but nothing matched the filters) | `false` |
+| `history` | Duplication and health trend over git history: `true` for the last 30 commits of the branch, or for the `history` range of the config file when it has one; a range of commits to scan (e.g. `v5.0.0..HEAD`); `false` leaves it off. Prints charts and a table in the log (needs the commits fetched: `fetch-depth: 0`, or `30` for `true`) | — |
+| `baseline-from-ref` | Compare against an ephemeral baseline built from a git ref (needs `fetch-depth: 0`) | — |
+| `blame` | Enrich clones with git blame data | `false` |
+| `exit-code` | Exit with code when duplicates found (`true` or integer) | — |
+| `pattern` | Glob pattern for file search | — |
+| `max-size` | Skip files larger than SIZE | — |
+| `skip-local` | Skip clones in same directory | `false` |
+| `ignore-case` | Ignore case of symbols (experimental) | `false` |
+| `ignore-identifiers` | Treat identifiers as equal (Type-2 clones): `consistent` lets a name stand for one name on the other side only, `blind` any name match any other, in `similarity` too, `true` takes the matching from the config's `ignoreIdentifiers`, else `consistent` | `false` |
+| `ignore-literals` | Treat all string and numeric literals as equal | `false` |
+| `ignore-annotations` | Skip annotations and decorators (`@Name`, `@Name(...)`) | `false` |
+| `max-gap-lines` | Merge clones separated by at most N unmatched lines into one near-miss clone (Type-3); `0` disables | `0` |
+| `similarity` | Report pairs of functions whose normalized syntax trees share at least this ratio of subtrees, a number in `(0, 1]` such as `0.8` | config, else off |
+| `min-nodes` | The fewest nodes of a normalized syntax tree a function needs for `similarity` to compare it | config, else `20` |
+| `follow-symlinks` | Follow symbolic links | `false` |
+| `no-gitignore` | Don't respect .gitignore files | `false` |
+| `absolute` | Use absolute paths in reports | `false` |
+| `formats-exts` | Custom format-to-extension mappings | — |
+| `formats-names` | Custom format-to-filename mappings | — |
+| `version` | jscpd version to install: empty installs the release the action ref belongs to, `latest` the newest release | the action's release |
+| `install-prefix` | Installation directory for the binary on Linux/macOS (Windows installs it with npm) | `~/.local/bin` |
+| `skip-install` | Skip installation (binary already present) | `false` |
+| `extra-args` | Additional arguments passed to jscpd | — |
+| `upload-report` | Upload report directory as artifact | `false` |
+| `upload-sarif` | Upload SARIF to GitHub Code Scanning | `true` |
+
+### Action Outputs
+
+| Output | Description |
+|--------|-------------|
+| `duplication-percentage` | Percentage of duplicated code found |
+| `clones-found` | Number of clone pairs found |
+| `duplicated-lines` | Number of duplicated lines |
+| `total-lines` | Total lines scanned |
+| `files-count` | Number of source files scanned |
+| `report-path` | Path to the output directory |
+| `sarif-path` | Path to the SARIF report file |
+| `exit-code` | Exit code from jscpd |
+
+### Examples
+
+#### Scan specific directories with threshold
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  with:
+    path: src/lib src/utils
+    threshold: 3
+    ignore: "**/*.test.*,**/*.spec.*"
+```
+
+#### Use a config file
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  with:
+    config: .jscpd.json
+    upload-report: true
+```
+
+#### Multi-reporter with artifact upload
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  with:
+    reporters: console,json,html,sarif
+    output: jscpd-report
+    upload-report: true
+```
+
+#### Pin a specific version
+
+By default the action installs the jscpd release its ref belongs to, so pinning the action to a release tag or its commit SHA pins jscpd too, and a Dependabot or Renovate bump of the action updates both. This starts with the first release after 5.4.2: v5.4.2 and older tags install the newest jscpd.
+
+A commit between releases installs the release before it, so pin a release rather than a commit on `master`. While a release is being published, `@master` already names the new version, and the action installs the latest release with a warning until the new one is out.
+
+Set `version` to install another release, or `latest` for the newest one:
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  with:
+    version: "5.4.2"
+```
+
+#### Skip install (binary already in image)
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  with:
+    skip-install: true
+```
+
+#### Fail only on new duplication (pull requests)
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- uses: kucherenko/jscpd@v5
+  with:
+    baseline-from-ref: origin/${{ github.base_ref }}
+    fail-on-new-clones: true
+```
+
+Existing clones are tolerated; the job fails only when the pull request introduces clones that are absent from the base branch.
+
+#### Use outputs in subsequent steps
+
+```yaml
+- uses: kucherenko/jscpd@v5
+  id: jscpd
+
+- name: Check results
+  if: steps.jscpd.outputs.duplication-percentage > 5
+  run: |
+    echo "Duplication is ${{ steps.jscpd.outputs.duplication-percentage }}%"
+    echo "Found ${{ steps.jscpd.outputs.clones-found }} clones"
+```
+
+## Using jscpd with Super Linter
+
+[Super Linter](https://github.com/super-linter/super-linter) runs jscpd as `jscpd --config <rules>/.jscpd.json` over the whole workspace. The config file lives in the linter rules folder, `.github/linters/.jscpd.json` by default (`LINTER_RULES_PATH`, file name `JSCPD_CONFIG_FILE`). Every key of the [config file](rust.md#config-file) works there, including `threshold`, `ignore`, `ignorePattern`, `baseline`, `baselineFromRef` and `failOnNewClones`, so there is no need to pass flags.
+
+The baseline keys arrived in jscpd 5.1.0, so the two recipes below need Super Linter v9.0.0 or later, which ships jscpd 5.3.0. v8.7.0 ships jscpd 5.0.10: it prints `unknown field 'baseline'` for each of the keys and runs without the gate, so the job passes whatever the change adds. v8.0.0 to v8.6.0 run jscpd 4.x.
+
+When the repository has no such file, Super Linter uses its bundled one, which sets `"threshold": 0`. That fails the build on any duplication at all, including clones that were there long before the change, which is why many projects end up with `VALIDATE_JSCPD: false`. Commit a config of your own and gate on *new* clones instead, with one of the two recipes below. Leave `threshold` out of it, or the old clones fail the build as before.
+
+`VALIDATE_ALL_CODEBASE: false` does not narrow the scan: jscpd needs the whole tree to find clones.
+
+### Committed baseline
+
+For a repository that already has duplication, record the clones it has now and fail only on clones that are not in the record. `.github/linters/.jscpd.json`:
+
+```json
+{
+  "reporters": ["consoleFull"],
+  "ignore": ["**/__snapshots__/**"],
+  "absolute": true,
+  "baseline": ".jscpd-baseline.json",
+  "failOnNewClones": 0
+}
+```
+
+A relative `baseline` is resolved against the folder of the config file, so this one is `.github/linters/.jscpd-baseline.json`. Create it once, locally (jscpd 5.1.0 or later), and commit it next to the config:
+
+```bash
+jscpd --config .github/linters/.jscpd.json --update-baseline .
+git add .github/linters/.jscpd-baseline.json
+```
+
+The file holds a content fingerprint per clone and no paths, so a baseline made on a laptop matches in the Super Linter container. Until it is committed, the run stops with `baseline file … not found — run with --update-baseline to create it`.
+
+Super Linter then passes while the clones stay the ones in the file and fails with `ERROR: jscpd found N new clones not in the baseline (allowed: 0)` when a change adds one. Run the same command again to accept clones on purpose, for example after a refactoring removed some. Raise `failOnNewClones` to tolerate a few new clones per run.
+
+### Changed code only
+
+To compare each run with the base branch instead of a committed file, use `baselineFromRef`:
+
+```json
+{
+  "reporters": ["consoleFull"],
+  "ignore": ["**/__snapshots__/**"],
+  "absolute": true,
+  "baselineFromRef": "origin/main",
+  "failOnNewClones": 0
+}
+```
+
+Put the default branch of the repository in place of `main`. jscpd scans the tree of that ref with the same configuration and fails only on clones it does not find there, so there is no file to keep up to date. The ref has to be in the checkout, otherwise jscpd stops with `git ref 'origin/main' not found`; Super Linter already asks for the full history:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- uses: super-linter/super-linter@v9
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+It costs a second scan of the repository, and on a push to `main` itself every clone is in the base, so the check passes. See [Baseline](rust.md#baseline) for how clones are matched.
+
+## Docker
+
+A multi-arch image (`linux/amd64`, `linux/arm64`) built from the release binaries is published to GitHub Container Registry on every release. It contains only the static `jscpd` binary, so it is suitable for any CI system that can run containers:
+
+```bash
+# Scan the current directory
+docker run --rm -v "$PWD:/src" ghcr.io/kucherenko/jscpd .
+
+# Pin a version and fail over a threshold
+docker run --rm -v "$PWD:/src" ghcr.io/kucherenko/jscpd:5 --threshold 5 --reporters console,silent .
+
+# Write reports to ./report on the host
+docker run --rm -v "$PWD:/src" ghcr.io/kucherenko/jscpd --reporters json,html --output report .
+```
+
+The working directory inside the container is `/src`. Tags: `latest`, `5`, `5.4`, `5.4.2` (major, minor, and exact version). The image contains only the static binary — `--blame` and `--baseline-from-ref` need `git`, which is not included. On Linux hosts, add `--user "$(id -u):$(id -g)"` so report files are owned by you rather than root.
+
+GitLab CI example, using the Code Quality and metrics reporters:
+
+```yaml
+duplication:
+  image:
+    name: ghcr.io/kucherenko/jscpd:5
+    entrypoint: [""]
+  script:
+    - jscpd --reporters console,codeclimate,openmetrics --output report .
+  artifacts:
+    reports:
+      codequality: report/gl-code-quality-report.json
+      metrics: report/jscpd-metrics.txt
+```
+
+## Pre-Commit Hook
+
+Run jscpd before every commit to prevent duplicated code from entering the repository.
+
+### Using pre-commit framework
+
+The [pre-commit](https://pre-commit.com) framework manages git hooks for you. After configuring the hook, it runs automatically on every `git commit`.
+
+**1. Install pre-commit** (one time, any of these):
+
+```bash
+# pip
+pip install pre-commit
+
+# brew
+brew install pre-commit
+
+# npm (wrapper around the Python tool)
+npm install -g pre-commit
+```
+
+**2. Add the hook config** to `.pre-commit-config.yaml` in your repo:
+
+**Option A: `language: node`** — pre-commit installs jscpd automatically:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: jscpd
+        name: jscpd - copy/paste detector
+        entry: jscpd
+        language: node
+        additional_dependencies: ['jscpd']
+        args: [--threshold, "5", --reporters, console,silent]
+        pass_filenames: false
+        always_run: true
+```
+
+**Option B: `language: python`** — pre-commit installs the [PyPI wheel](https://pypi.org/project/jscpd/) (the same prebuilt binary), so no Node.js is needed on the machine. Pin the version so every contributor gets the same binary:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: jscpd
+        name: jscpd - copy/paste detector
+        entry: jscpd
+        language: python
+        additional_dependencies: ['jscpd==5.4.2']
+        args: [--threshold, "5", --reporters, console,silent]
+        pass_filenames: false
+        always_run: true
+```
+
+**Option C: `language: system`** — jscpd must be pre-installed globally:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: jscpd
+        name: jscpd - copy/paste detector
+        entry: jscpd
+        language: system
+        args: [--threshold, "5", --reporters, console,silent]
+        pass_filenames: false
+        always_run: true
+```
+
+If using Option C, install jscpd globally first: `npm install -g jscpd`, `pip install jscpd` or `cargo install jscpd`.
+
+**3. Install the hook into git:**
+
+```bash
+pre-commit install
+```
+
+That's it — jscpd now runs on every `git commit`. If duplication exceeds the threshold, the commit is blocked.
+
+To run manually without committing:
+
+```bash
+pre-commit run jscpd --all-files
+```
+
+### Only the files you changed
+
+A hook that scans the whole repository also fails on duplication that was there before your change. `--changed` reports only the clones of the files `git status` lists, and `--fail-on-new-clones` fails only on the ones HEAD didn't have:
+
+```bash
+jscpd --changed --fail-on-new-clones --reporters console .
+```
+
+The first run saves the clones of HEAD to `.jscpd-baseline.json`, and the first run after a commit builds it again. Add the file to `.gitignore`. See [Changed files](rust.md#changed-files).
+
+### Using Husky
+
+```bash
+npm install -D husky
+npx husky init
+```
+
+Add the hook:
+
+```bash
+echo 'npx jscpd --threshold 5 --reporters console,silent .' > .husky/pre-commit
+```
+
+### Manual git hook
+
+No extra tools required — just a shell script in `.git/hooks/`.
+
+1. Create `.git/hooks/pre-commit`:
+
+```bash
+#!/bin/sh
+jscpd --threshold 5 --reporters console,silent .
+```
+
+2. Make it executable:
+
+```bash
+chmod +x .git/hooks/pre-commit
+```
+
+Hooks in `.git/hooks/` are not version-controlled. To share the hook with your team, store it in the repo and symlink or copy it:
+
+**Option A: Symlink from a versioned script**
+
+Store the hook logic in the repo (e.g. `scripts/pre-commit`), then symlink:
+
+```bash
+ln -s ../../scripts/pre-commit .git/hooks/pre-commit
+```
+
+Each developer runs the symlink command once after cloning.
+
+**Option B: `core.hooksPath` (Git 2.9+)**
+
+Point Git at a versioned hooks directory:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Create `.githooks/pre-commit`:
+
+```bash
+#!/bin/sh
+jscpd --threshold 5 --reporters console,silent .
+```
+
+```bash
+chmod +x .githooks/pre-commit
+```
+
+Commit `.githooks/` to the repo. New contributors run the `git config` command once after cloning. Add it to your onboarding docs or a `scripts/setup.sh`:
+
+```bash
+#!/bin/sh
+git config core.hooksPath .githooks
+```
+
+**Option C: npm `prepare` script**
+
+Add to `package.json`:
+
+```json
+{
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks"
+  }
+}
+```
+
+`npm install` (and `npm ci`) automatically run `prepare`, so the hooks path is set with no manual steps.
+
+**Option D: Makefile**
+
+```makefile
+.PHONY: hooks
+hooks:
+	git config core.hooksPath .githooks
+```
+
+Contributors run `make hooks` after cloning.
+
+### Tips
+
+- Use `--reporters console,silent` to show clone details without writing report files on every commit
+- Use `--threshold` to set a failure threshold — the hook exits with code 1 if exceeded
+- Use `--ignore` to exclude generated files, test fixtures, or vendor directories
+- Consider `--format` to limit detection to specific languages during the hook, with a full scan in CI

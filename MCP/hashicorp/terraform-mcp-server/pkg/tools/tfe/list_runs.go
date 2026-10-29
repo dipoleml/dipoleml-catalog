@@ -1,0 +1,225 @@
+// Copyright IBM Corp. 2025
+// SPDX-License-Identifier: MPL-2.0
+
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/hashicorp/go-tfe"
+	"github.com/hashicorp/terraform-mcp-server/pkg/client"
+	"github.com/hashicorp/terraform-mcp-server/pkg/utils"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	log "github.com/sirupsen/logrus"
+)
+
+// ListRuns creates a tool to list Terraform runs in a workspace.
+func ListRuns(logger *log.Logger) server.ServerTool {
+	return server.ServerTool{
+		Tool: mcp.NewTool("list_runs",
+			mcp.WithDescription(`List or search Terraform runs in a specific workspace with optional filtering.`),
+			mcp.WithTitleAnnotation("List Terraform runs"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+			mcp.WithString("terraform_org_name",
+				mcp.Required(),
+				mcp.Description(terraformOrgNameDescription+" in which to list runs based on the provided filters when no workspace is specified"),
+			),
+			mcp.WithString("workspace_name",
+				mcp.Description("If specified, lists the runs in the given workspace instead of the organization based on filters"),
+			),
+			mcp.WithString("vcs_username",
+				mcp.Description("Searches for runs that match the VCS username you supply"),
+			),
+			mcp.WithArray("status",
+				mcp.Description("Optional run status filter"),
+				mcp.WithStringEnumItems([]string{
+					"pending",
+					"fetching",
+					"fetching_completed",
+					"pre_plan_running",
+					"pre_plan_completed",
+					"queuing",
+					"plan_queued",
+					"planning",
+					"planned",
+					"cost_estimating",
+					"cost_estimated",
+					"policy_checking",
+					"policy_override",
+					"policy_soft_failed",
+					"policy_checked",
+					"confirmed",
+					"post_plan_running",
+					"post_plan_completed",
+					"planned_and_finished",
+					"planned_and_saved",
+					"apply_queued",
+					"applying",
+					"applied",
+					"discarded",
+					"errored",
+					"canceled",
+					"force_canceled",
+				},
+				),
+			),
+			utils.WithPagination(),
+		),
+		Handler: func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return listRunsHandler(ctx, req, logger)
+		},
+	}
+}
+
+func listRunsHandler(ctx context.Context, request mcp.CallToolRequest, logger *log.Logger) (*mcp.CallToolResult, error) {
+	terraformOrgName, err := request.RequireString("terraform_org_name")
+	if err != nil {
+		return ToolError(logger, "missing required input: terraform_org_name", err)
+	}
+	terraformOrgName = strings.TrimSpace(terraformOrgName)
+
+	workspaceName := request.GetString("workspace_name", "")
+	vcsUsername := request.GetString("vcs_username", "")
+	status := strings.Join(request.GetStringSlice("status", nil), ",")
+
+	pagination, err := utils.OptionalPaginationParams(request)
+	if err != nil {
+		return ToolError(logger, "invalid pagination parameters", err)
+	}
+
+	tfeClient, err := client.GetTfeClientFromContext(ctx, logger)
+	if err != nil {
+		return ToolError(logger, "failed to get Terraform client", err)
+	}
+
+	if workspaceName != "" {
+		options := &tfe.RunListOptions{
+			ListOptions: tfe.ListOptions{
+				PageNumber: pagination.Page,
+				PageSize:   pagination.PageSize,
+			},
+			Include: []tfe.RunIncludeOpt{tfe.RunWorkspace},
+		}
+
+		if status != "" {
+			options.Status = status
+		}
+
+		if vcsUsername != "" {
+			options.User = vcsUsername
+		}
+
+		workspace, err := tfeClient.Workspaces.Read(ctx, terraformOrgName, workspaceName)
+		if err != nil {
+			return ToolErrorf(logger, "workspace '%s' not found in org '%s'", workspaceName, terraformOrgName)
+		}
+
+		runs, err := tfeClient.Runs.List(ctx, workspace.ID, options)
+		if err != nil {
+			return ToolError(logger, "failed to list runs in workspace", err)
+		}
+
+		summaries := make([]*RunSummary, len(runs.Items))
+		for i, r := range runs.Items {
+			summaries[i] = &RunSummary{
+				ID:            r.ID,
+				Status:        string(r.Status),
+				Message:       r.Message,
+				Source:        string(r.Source),
+				CreatedAt:     r.CreatedAt,
+				HasChanges:    r.HasChanges,
+				IsDestroy:     r.IsDestroy,
+				PlanOnly:      r.PlanOnly,
+				RefreshOnly:   r.RefreshOnly,
+				WorkspaceName: r.Workspace.Name,
+			}
+		}
+
+		buf, err := json.Marshal(&RunSummaryList{
+			Items:      summaries,
+			Pagination: runs.Pagination,
+		})
+		if err != nil {
+			return ToolError(logger, "failed to marshal runs", err)
+		}
+
+		return mcp.NewToolResultText(string(buf)), nil
+
+	} else {
+		options := &tfe.RunListForOrganizationOptions{
+			ListOptions: tfe.ListOptions{
+				PageNumber: pagination.Page,
+				PageSize:   pagination.PageSize,
+			},
+			Include: []tfe.RunIncludeOpt{tfe.RunWorkspace},
+		}
+
+		if status != "" {
+			options.Status = status
+		}
+
+		if vcsUsername != "" {
+			options.User = vcsUsername
+		}
+
+		runs, err := tfeClient.Runs.ListForOrganization(ctx, terraformOrgName, options)
+		if err != nil {
+			return ToolErrorf(logger, "failed to list runs in org '%s'", terraformOrgName)
+		}
+
+		summaries := make([]*RunSummary, len(runs.Items))
+		for i, r := range runs.Items {
+			summaries[i] = &RunSummary{
+				ID:            r.ID,
+				Status:        string(r.Status),
+				Message:       r.Message,
+				Source:        string(r.Source),
+				CreatedAt:     r.CreatedAt,
+				HasChanges:    r.HasChanges,
+				IsDestroy:     r.IsDestroy,
+				PlanOnly:      r.PlanOnly,
+				RefreshOnly:   r.RefreshOnly,
+				WorkspaceName: r.Workspace.Name,
+			}
+		}
+
+		buf, err := json.Marshal(&RunSummaryList{
+			Items: summaries,
+			Pagination: &tfe.Pagination{
+				CurrentPage:  runs.PaginationNextPrev.CurrentPage,
+				PreviousPage: runs.PaginationNextPrev.PreviousPage,
+				NextPage:     runs.PaginationNextPrev.NextPage,
+			},
+		})
+		if err != nil {
+			return ToolError(logger, "failed to marshal runs", err)
+		}
+
+		return mcp.NewToolResultText(string(buf)), nil
+	}
+}
+
+// RunSummary is a truncated summary of a Run for top level listing
+type RunSummary struct {
+	ID            string    `json:"id"`
+	Status        string    `json:"status"`
+	Message       string    `json:"message"`
+	Source        string    `json:"source"`
+	CreatedAt     time.Time `json:"created_at"`
+	HasChanges    bool      `json:"has_changes"`
+	IsDestroy     bool      `json:"is_destroy"`
+	PlanOnly      bool      `json:"plan_only"`
+	RefreshOnly   bool      `json:"refresh_only"`
+	WorkspaceName string    `json:"workspace_name"`
+}
+
+// RunSummaryList contains the list of run summaries and pagination details
+type RunSummaryList struct {
+	Items []*RunSummary `json:"items"`
+	*tfe.Pagination
+}

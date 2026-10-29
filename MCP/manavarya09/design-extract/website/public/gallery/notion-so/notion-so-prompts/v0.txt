@@ -1,0 +1,41 @@
+Build a landing page with this exact visual language.
+COLORS:
+  #000000
+  #f6f5f4
+  #a39e98
+  #ffffff
+  #615d59
+  #0075de
+  #097fe8
+  #62aef0
+  #f64932
+  #9c7054
+  #ff6d00
+  #78736f
+  #9849e8
+  #ffb110
+FONTS: [object Object], [object Object], [object Object]
+SPACING: 2, 20, 24, 28, 32, 40, 44, 48
+RADIUS: 4, 8, 12, 16, 50, 100
+SHADOWS: rgba(0, 0, 0, 0) 0px 1px 0px 0px | rgba(0, 0, 0, 0.01) 0px 0.175px 1.041px 0px, rgba(0, 0, 0, 0.02) 0px 0.8px 2.925px 0px, rgba(0, 0, 0, 0.027) 0px 2.025px 7.847px 0px, rgba(0, 0, 0, 0.04) 0px 4px 18px 0px | rgba(0, 0, 0, 0.016) 0px 0.7px 1.462px 0px, rgba(0, 0, 0, 0.03) 0px 3px 9px 0px
+MATERIAL LANGUAGE: material-you
+VOICE: Tone: friendly · Headings: Sentence case · CTA verbs: [object Object], [object Object], [object Object], [object Object], [object Object], [object Object]
+SECTIONS (in order):
+- cta
+- steps — heading: "Meet the night shift."
+- testimonial — heading: "Meet the night shift."
+- bento — heading: "Keep work moving 24/7."
+- bento — heading: "Automate repetitive work for your team."
+- bento — heading: "Automate repetitive work for your team."
+- bento — heading: "Ask your on-demand assistants."
+- bento — heading: "You assign the tasks. Notion Agent does the work."
+- bento — heading: "One search for everything."
+- bento — heading: "Perfect notes, every time."
+- bento — heading: "Bring all your work together."
+- bento — heading: "Simple and powerful."
+- bento — heading: "One source of truth for teams and agents."
+- bento — heading: "Less tracking. More progress."
+- hero — heading: "Trusted by teams that ship."
+- testimonial — heading: "Try for free."
+- footer
+Use Tailwind. Match these tokens exactly. Keep the material language consistent.

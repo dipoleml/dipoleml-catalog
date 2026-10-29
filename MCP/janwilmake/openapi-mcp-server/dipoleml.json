@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.janwilmake.openapi-mcp-server",
+  "type": "mcp",
+  "name": "Openapi MCP Server",
+  "slug": "openapi-mcp-server",
+  "vendor": "janwilmake",
+  "description": "Allow AI to wade through complex OpenAPIs using Simple Language",
+  "version": "0.0.0",
+  "homepage": "https://github.com/janwilmake/openapi-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "janwilmake",
+    "brandName": "janwilmake",
+    "source": "https://github.com/janwilmake.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:07Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "janwilmake/openapi-mcp-server",
+    "url": "https://github.com/janwilmake/openapi-mcp-server",
+    "commit": "7350f0c9c1892c4633e1846cdbb8de198975fec0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 905,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

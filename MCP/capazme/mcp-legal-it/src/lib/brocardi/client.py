@@ -1,0 +1,765 @@
+"""Standalone Brocardi scraper — async, structured extraction from brocardi.it.
+
+Extracts from each article page:
+- Position (breadcrumb): Libro > Titolo > Capo > Art.
+- Dispositivo text (article text itself)
+- Ratio Legis
+- Spiegazione dottrinale
+- Brocardi (adagi/proverbi giuridici)
+- Massime giurisprudenziali (structured: autorità, numero, anno, testo)
+- Relazioni storiche (Guardasigilli, Ruini)
+- Glossario (link a definizioni giuridiche inline)
+- Note a piè di pagina
+- Riferimenti incrociati (link ad altri articoli)
+- Articoli correlati (precedente/successivo)
+"""
+
+import copy
+import json
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import urljoin
+
+import httpx
+from bs4 import BeautifulSoup, Tag
+
+from .._cache import cache_enabled, cache_root
+from .._http import note_source
+from ..visualex.map import find_brocardi_url
+
+BASE_URL = "https://www.brocardi.it"
+
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept-Language": "it-IT,it;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
+# Persistent JSON cache for article URLs. `LEGAL_CACHE=off` keeps it in memory
+# only (see lib/_cache.py) -- the directory is then never read or created.
+def _cache_file() -> Path:
+    return cache_root() / "brocardi_urls.json"
+
+
+def _load_url_cache() -> dict[str, str]:
+    if not cache_enabled():
+        return {}
+    try:
+        path = _cache_file()
+        if path.exists():
+            return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def _save_url_cache(cache: dict[str, str]) -> None:
+    if not cache_enabled():
+        return
+    try:
+        path = _cache_file()
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path.write_text(json.dumps(cache, ensure_ascii=False))
+    except OSError:
+        pass
+
+
+_url_cache: dict[str, str] = _load_url_cache()
+
+# ── Italian judicial authorities (for structured massime parsing) ───────────
+
+_AUTORITA = {
+    "corte_cost": r"(?:Corte\s+cost\.?|C\.\s*cost\.?|Corte\s+Costituzionale)",
+    "cassazione": r"(?:Cass\.?\s*(?:civ|pen|lav|sez\.?\s*un)?\.?)",
+    "cons_stato": r"(?:Cons\.?\s*(?:St\.?|Stato)|Consiglio\s+di\s+Stato)",
+    "tar": r"(?:TAR\s*(?:Lazio|Lombardia|Campania|Sicilia|Veneto|Piemonte|Emilia[\s-]?Romagna|Toscana|Puglia|Calabria|Liguria|Marche|Abruzzo|Sardegna|Friuli|Umbria|Basilicata|Molise|Valle\s*d'?Aosta|Trentino)?)",
+    "corte_conti": r"(?:Corte\s+(?:dei\s+)?[Cc]onti|C\.\s*conti)",
+    "appello": r"(?:App\.?|C\.\s*App\.?|Corte\s+(?:d'?)?[Aa]ppello)",
+    "tribunale": r"(?:Trib\.?|Tribunale)",
+    "cgue": r"(?:CGUE|Corte\s+[Gg]iust\.?\s*(?:UE|CE)?|C\.\s*Giust\.?\s*UE)",
+    "cedu": r"(?:CEDU|Corte\s+EDU|Corte\s+[Ee]uropea\s+[Dd]iritti)",
+}
+_AUTORITA_PATTERN = "|".join(f"({p})" for p in _AUTORITA.values())
+
+
+# ── Data classes ───────────────────────────────────────────────────────────
+
+
+@dataclass
+class Massima:
+    """A single massima giurisprudenziale, structurally parsed."""
+
+    autorita: str | None = None
+    numero: str | None = None
+    anno: str | None = None
+    testo: str = ""
+
+    @property
+    def estremi(self) -> str | None:
+        """Return formatted citation, e.g. 'Cass. civ. n. 12345/2024'."""
+        if self.autorita and self.numero and self.anno:
+            return f"{self.autorita} n. {self.numero}/{self.anno}"
+        return None
+
+    @property
+    def is_cassazione(self) -> bool:
+        return bool(self.autorita and re.match(r"Cass", self.autorita))
+
+
+@dataclass
+class Relazione:
+    tipo: str
+    titolo: str
+    testo: str
+    articoli_citati: list[dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class GlossaryEntry:
+    """A link to a Brocardi legal dictionary term found inline in the article text."""
+    termine: str
+    url: str
+    dizionario_id: str = ""
+
+
+@dataclass
+class BrocardiResult:
+    """Full Brocardi extraction result for an article."""
+
+    url: str = ""
+    position: str = ""
+    rubrica: str = ""
+    dispositivo: str = ""
+    brocardi: list[str] = field(default_factory=list)
+    ratio: str = ""
+    spiegazione: str = ""
+    massime: list[Massima] = field(default_factory=list)
+    relazioni: list[Relazione] = field(default_factory=list)
+    glossario: list[GlossaryEntry] = field(default_factory=list)
+    footnotes: list[dict[str, str | int]] = field(default_factory=list)
+    cross_references: list[dict[str, str]] = field(default_factory=list)
+    related_articles: dict[str, dict[str, str]] = field(default_factory=dict)
+    error: str = ""
+
+    @property
+    def cassazione_references(self) -> list[Massima]:
+        """Return only massime from Corte di Cassazione (linkable to Italgiure)."""
+        return [m for m in self.massime if m.is_cassazione]
+
+    def to_markdown(self) -> str:
+        """Format the full result as markdown."""
+        if self.error:
+            return f"**Errore Brocardi**: {self.error}"
+
+        parts: list[str] = []
+        parts.append(f"**Fonte**: Brocardi — {self.url}\n")
+
+        if self.position:
+            parts.append(f"**Posizione**: {self.position}\n")
+
+        if self.rubrica:
+            parts.append(f"**Rubrica**: {self.rubrica}\n")
+
+        if self.dispositivo:
+            parts.append(f"## Testo dell'articolo\n{self.dispositivo}\n")
+
+        if self.ratio:
+            parts.append(f"## Ratio Legis\n{self.ratio}\n")
+
+        if self.spiegazione:
+            parts.append(f"## Spiegazione\n{self.spiegazione}\n")
+
+        if self.brocardi:
+            parts.append("## Brocardi (adagi)")
+            for b in self.brocardi:
+                parts.append(f"- _{b}_")
+            parts.append("")
+
+        if self.massime:
+            parts.append("## Massime giurisprudenziali")
+            for m in self.massime:
+                header = m.estremi or "—"
+                parts.append(f"- **{header}**: {m.testo}")
+            parts.append("")
+
+        if self.relazioni:
+            parts.append("## Relazioni storiche")
+            for r in self.relazioni:
+                parts.append(f"### {r.titolo}\n{r.testo}\n")
+
+        if self.glossario:
+            parts.append("## Glossario giuridico")
+            for g in self.glossario:
+                parts.append(f"- **{g.termine}**: {g.url}")
+            parts.append("")
+
+        if self.footnotes:
+            parts.append("## Note")
+            for fn in self.footnotes:
+                parts.append(f"({fn['numero']}) {fn['testo']}")
+            parts.append("")
+
+        return "\n".join(parts)
+
+
+# ── Public API ─────────────────────────────────────────────────────────────
+
+
+async def fetch_brocardi(
+    tipo_atto: str,
+    articolo: str,
+    numero_atto: str = "",
+    data: str = "",
+) -> BrocardiResult:
+    """Fetch full Brocardi annotations for an article.
+
+    Args:
+        tipo_atto: Normalized act type (e.g. "codice civile", "codice penale")
+        articolo: Article number (e.g. "2043", "13", "640-bis")
+        numero_atto: Act number for disambiguation (e.g. "196", "231")
+        data: Act date or year — D.lgs. 81/2008 and 81/2015 differ only by it
+    """
+    base_url = find_brocardi_url(tipo_atto, numero_atto, data)
+    if not base_url:
+        return BrocardiResult(error=f"Nessun mapping Brocardi per '{tipo_atto}'")
+
+    article_num = articolo.replace("-", "") if articolo else ""
+    if not article_num:
+        return BrocardiResult(url=base_url, error="Numero articolo richiesto per Brocardi")
+
+    async with httpx.AsyncClient(
+        headers=_HEADERS, timeout=_TIMEOUT, follow_redirects=True
+    ) as client:
+        article_url = await find_article_url(client, base_url, article_num)
+        if not article_url:
+            return BrocardiResult(
+                url=base_url,
+                error=f"Articolo {articolo} non trovato su Brocardi",
+            )
+
+        try:
+            resp = await client.get(article_url)
+            resp.raise_for_status()
+            note_source("brocardi", str(resp.url) if hasattr(resp, "url") else "")
+        except httpx.HTTPStatusError as exc:
+            # Self-healing cache: a stale/poisoned entry can point at a 404 URL.
+            # Drop it and re-resolve once from scratch before giving up.
+            if exc.response is not None and exc.response.status_code == 404:
+                _url_cache.pop(f"{base_url}#{article_num}", None)
+                _save_url_cache(_url_cache)
+                article_url = await find_article_url(
+                    client, base_url, article_num, force_refresh=True
+                )
+                if not article_url:
+                    return BrocardiResult(
+                        url=base_url,
+                        error=f"Articolo {articolo} non trovato su Brocardi",
+                    )
+                resp = await client.get(article_url)
+                resp.raise_for_status()
+                note_source("brocardi", str(resp.url) if hasattr(resp, "url") else "")
+            else:
+                raise
+        soup = BeautifulSoup(resp.text, "lxml")
+
+    result = BrocardiResult(url=article_url)
+    result.position = _extract_position(soup)
+    _extract_all_sections(soup, result)
+    return result
+
+
+async def find_article_url(
+    client: httpx.AsyncClient, base_url: str, article_num: str, force_refresh: bool = False
+) -> str | None:
+    """Navigate Brocardi to find the article page URL.
+
+    Uses persistent JSON cache to avoid repeated HTTP requests across sessions.
+    Searches sub-pages without a fixed limit — stops as soon as the article is found.
+    Set ``force_refresh`` to bypass (and overwrite) a stale cache entry.
+    """
+    cache_key = f"{base_url}#{article_num}"
+    if not force_refresh and cache_key in _url_cache:
+        return _url_cache[cache_key]
+
+    resp = await client.get(base_url)
+    resp.raise_for_status()
+    note_source("brocardi", str(resp.url) if hasattr(resp, "url") else "")
+
+    # Word-boundary pattern: match artNNN.html but not artNNNx.html
+    pattern = re.compile(
+        rf'href=["\']([^"\']*art{re.escape(article_num)}(?:\.html))["\']'
+    )
+
+    # Direct match on index page — use base_url (not BASE_URL) so relative
+    # hrefs like "libro-quarto/titolo-ix/art2043.html" resolve correctly
+    page_url = str(resp.url) if hasattr(resp, "url") else base_url
+    if not page_url.endswith("/"):
+        page_url += "/"
+    matches = pattern.findall(resp.text)
+    if matches:
+        result = urljoin(page_url, matches[0])
+        _url_cache[cache_key] = result
+        _save_url_cache(_url_cache)
+        return result
+
+    # Collect all sub-page URLs first, then search them
+    soup = BeautifulSoup(resp.text, "lxml")
+    sub_urls: list[str] = []
+    for section in soup.find_all("div", class_="section-title"):
+        for a_tag in section.find_all("a", href=True):
+            sub_url = urljoin(page_url, a_tag.get("href", ""))
+            if sub_url.startswith(BASE_URL) and sub_url != base_url:
+                sub_urls.append(sub_url)
+
+    for sub_url in sub_urls:
+        try:
+            sub_resp = await client.get(sub_url)
+            sub_resp.raise_for_status()
+            note_source("brocardi", str(sub_resp.url) if hasattr(sub_resp, "url") else "")
+            sub_page_url = str(sub_resp.url) if hasattr(sub_resp, "url") else sub_url
+            if not sub_page_url.endswith("/"):
+                sub_page_url += "/"
+            sub_matches = pattern.findall(sub_resp.text)
+            if sub_matches:
+                result = urljoin(sub_page_url, sub_matches[0])
+                _url_cache[cache_key] = result
+                _save_url_cache(_url_cache)
+                return result
+        except httpx.HTTPError:
+            continue
+
+    return None
+
+
+def parse_massime_references(massime: list[Massima]) -> list[dict[str, str | int]]:
+    """Extract Cassazione decision references from massime for Italgiure lookup.
+
+    Returns list of dicts with {autorita, numero, anno} ready for leggi_sentenza().
+    """
+    refs = []
+    seen = set()
+    for m in massime:
+        if m.is_cassazione and m.numero and m.anno:
+            key = f"{m.numero}/{m.anno}"
+            if key not in seen:
+                seen.add(key)
+                refs.append({
+                    "autorita": m.autorita or "",
+                    "numero": int(m.numero),
+                    "anno": int(m.anno),
+                })
+    return refs
+
+
+# ── Internal extraction ────────────────────────────────────────────────────
+
+
+def _clean_text(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r">(\w)", r"> \1", text)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def _extract_position(soup: BeautifulSoup) -> str:
+    breadcrumb = soup.find("div", id="breadcrumb")
+    if breadcrumb:
+        text = breadcrumb.get_text(strip=False).replace("\n", "").replace("  ", "")
+        # Strip "Brocardi.it > " prefix
+        return re.sub(r"^Brocardi\.it\s*>\s*", "", text).strip()
+    return ""
+
+
+def _extract_all_sections(soup: BeautifulSoup, result: BrocardiResult) -> None:
+    corpo = soup.find(
+        "div",
+        class_=lambda c: c and "panes-condensed" in c and "content-ext-guide" in c,
+    )
+    if not corpo:
+        corpo = soup.find("body") or soup
+        if not corpo:
+            return
+
+    _extract_rubrica(soup, result)
+    _extract_dispositivo(soup, result)
+    _extract_brocardi_adagi(corpo, result)
+    _extract_ratio(corpo, result)
+    _extract_spiegazione(corpo, result)
+    _extract_massime(corpo, result)
+    _extract_relazioni(corpo, result)
+    _extract_glossario(soup, result)
+    _extract_footnotes(corpo, result)
+    _extract_cross_references(corpo, result)
+    _extract_related_articles(soup, result)
+
+
+def _text_without_note_refs(node: Tag) -> str:
+    """Text of a node without the footnote calls "(1)", "(2)" ... of Brocardi.
+
+    The calls are ``<sup><a class="nota-ref">``; they are dropped from a COPY of the node
+    (the footnote extractor still needs them in the page), and the notes themselves are
+    reported in the "Note" section.
+    """
+    clone = copy.copy(node)
+    for sup in clone.find_all("sup"):
+        if sup.find("a", class_="nota-ref"):
+            sup.decompose()
+    return _clean_text(clone.get_text())
+
+
+def _extract_rubrica(soup: BeautifulSoup, result: BrocardiResult) -> None:
+    """Extract the heading (rubrica) of the article, e.g. "Risarcimento per fatto illecito".
+
+    On the article page it is the ``<h3 class="hbox-content">`` under the title block (the
+    ``<h2 class="hbox-header">`` next to the h1 holds the act's estremi, not the rubrica).
+    """
+    for h3 in soup.find_all("h3", class_="hbox-content"):
+        text = _clean_text(h3.get_text())
+        if text:
+            result.rubrica = text
+            return
+
+
+def _extract_dispositivo(soup: BeautifulSoup, result: BrocardiResult) -> None:
+    """Extract the article text (the "Dispositivo" tab of the page).
+
+    Brocardi marks the block ``<div class="corpoDelTesto dispositivo">`` with no id (the
+    ``#dispositivo`` anchor is an ``<a name>``); the id lookup is kept as a fallback for the
+    older markup.
+    """
+    disp = soup.select_one("div.corpoDelTesto.dispositivo") or soup.find("div", class_="dispositivo")
+    if disp is not None:
+        text = _text_without_note_refs(disp)
+        if text:
+            result.dispositivo = text
+            return
+    # Older markup: a div with id="dispositivo", or a corpoDelTesto inside one.
+    disp = soup.find("div", id="dispositivo")
+    if disp:
+        text = _text_without_note_refs(disp)
+        if text:
+            result.dispositivo = text
+            return
+    for div in soup.find_all("div", class_="corpoDelTesto"):
+        parent = div.find_parent("div", id="dispositivo")
+        if parent:
+            result.dispositivo = _text_without_note_refs(div)
+            return
+
+
+def _extract_glossario(soup: BeautifulSoup, result: BrocardiResult) -> None:
+    """Extract glossary links (/dizionario/NNN.html) from the article page."""
+    seen: set[str] = set()
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag.get("href", "")
+        if "/dizionario/" not in href or ".html" not in href:
+            continue
+        url = href if href.startswith("http") else f"{BASE_URL}{href}"
+        if url in seen:
+            continue
+        seen.add(url)
+        termine = a_tag.get_text(strip=True)
+        if not termine:
+            continue
+        id_match = re.search(r"/dizionario/(\d+)\.html", href)
+        result.glossario.append(GlossaryEntry(
+            termine=termine,
+            url=url,
+            dizionario_id=id_match.group(1) if id_match else "",
+        ))
+
+
+def _extract_brocardi_adagi(corpo: Tag, result: BrocardiResult) -> None:
+    for div in corpo.find_all("div", class_="brocardi-content"):
+        text = _clean_text(div.get_text())
+        if text:
+            result.brocardi.append(text)
+
+
+def _extract_ratio(corpo: Tag, result: BrocardiResult) -> None:
+    ratio_section = corpo.find("div", class_="container-ratio")
+    if ratio_section:
+        ratio_text = ratio_section.find("div", class_="corpoDelTesto")
+        if ratio_text:
+            result.ratio = _clean_text(ratio_text.get_text())
+
+
+def _extract_spiegazione(corpo: Tag, result: BrocardiResult) -> None:
+    header = corpo.find("h3", string=lambda t: t and "Spiegazione dell'art" in t)
+    if header:
+        content = header.find_next_sibling("div", class_="text")
+        if content:
+            result.spiegazione = _clean_text(content.get_text())
+
+
+def _extract_massime(corpo: Tag, result: BrocardiResult) -> None:
+    header = corpo.find("h3", string=lambda t: t and "Massime relative all'art" in t)
+    if not header:
+        return
+
+    content = header.find_next_sibling("div", class_="text")
+    if not content:
+        return
+
+    for sentenza_div in content.find_all("div", class_="sentenza"):
+        massima = _parse_single_massima(sentenza_div)
+        if massima:
+            result.massime.append(massima)
+
+
+def _parse_single_massima(sentenza_div: Tag) -> Massima | None:
+    """Parse a single massima extracting authority, number, year, and text."""
+    massima = Massima()
+
+    header_tag = sentenza_div.find("strong")
+    if header_tag:
+        header_text = header_tag.get_text(strip=True)
+
+        # Try structured pattern: Autorità n. NUMERO/ANNO
+        match = re.match(
+            rf"^({_AUTORITA_PATTERN})\s*n\.\s*(\d+)/(\d{{4}})",
+            header_text,
+            re.IGNORECASE,
+        )
+        if match:
+            groups = match.groups()
+            # Find which authority group matched
+            for g in groups[: len(_AUTORITA)]:
+                if g:
+                    massima.autorita = g.strip()
+                    break
+            massima.numero = groups[-2]
+            massima.anno = groups[-1]
+        else:
+            # Fallback: extract number/year
+            num_match = re.search(r"n\.\s*(\d+)/(\d{4})", header_text)
+            if num_match:
+                massima.numero = num_match.group(1)
+                massima.anno = num_match.group(2)
+
+            # Extract authority from beginning
+            auth_match = re.match(rf"^({_AUTORITA_PATTERN})", header_text, re.IGNORECASE)
+            if auth_match:
+                for g in auth_match.groups():
+                    if g:
+                        massima.autorita = g.strip().rstrip(".")
+                        break
+            elif not massima.autorita:
+                # Last fallback: text before "n."
+                fb_match = re.match(r"^([^n]+?)(?:\s*n\.|\s*$)", header_text)
+                if fb_match:
+                    massima.autorita = fb_match.group(1).strip().rstrip(".")
+
+    # Get text (excluding header)
+    full_text = _clean_text(sentenza_div.get_text())
+    if massima.numero and massima.anno:
+        # Remove the header portion to keep just the massima body
+        pattern = rf"(?:{_AUTORITA_PATTERN})[^n]*n\.\s*{massima.numero}/{massima.anno}\s*"
+        body = re.sub(pattern, "", full_text, count=1, flags=re.IGNORECASE).strip()
+        massima.testo = body if body else full_text
+    else:
+        massima.testo = full_text
+
+    return massima if massima.testo else None
+
+
+def _extract_relazioni(corpo: Tag, result: BrocardiResult) -> None:
+    # Relazione al Progetto della Costituzione (Meuccio Ruini, 1947)
+    cost_header = corpo.find(
+        "h3", string=lambda t: t and "Relazione al Progetto della Costituzione" in t
+    )
+    if cost_header:
+        content = cost_header.find_next_sibling("div", class_="text")
+        if content:
+            result.relazioni.append(
+                Relazione(
+                    tipo="costituzione",
+                    titolo="Relazione al Progetto della Costituzione (Meuccio Ruini, 1947)",
+                    testo=_clean_text(content.get_text()),
+                )
+            )
+
+    # Relazione al Libro delle Obbligazioni
+    libro_header = corpo.find(
+        "h3", string=lambda t: t and "Libro delle Obbligazioni" in t
+    )
+    if libro_header:
+        content = libro_header.find_next_sibling("div", class_="text")
+        if content:
+            result.relazioni.append(
+                Relazione(
+                    tipo="libro_obbligazioni",
+                    titolo="Relazione al Libro delle Obbligazioni (1941)",
+                    testo=_clean_text(content.get_text()),
+                    articoli_citati=_extract_article_links(content),
+                )
+            )
+
+    # Relazione al Codice Civile
+    cc_header = corpo.find(
+        "h3",
+        string=lambda t: t and "Codice Civile" in t and "Relazione" in t,
+    )
+    if cc_header:
+        content = cc_header.find_next_sibling("div", class_="text")
+        if content:
+            result.relazioni.append(
+                Relazione(
+                    tipo="codice_civile",
+                    titolo="Relazione al Codice Civile (1942)",
+                    testo=_clean_text(content.get_text()),
+                    articoli_citati=_extract_article_links(content),
+                )
+            )
+
+
+def _extract_article_links(element: Tag) -> list[dict[str, str]]:
+    links = []
+    for a_tag in element.find_all("a", href=True):
+        href = a_tag.get("href", "")
+        if "/art" in href and ".html" in href:
+            match = re.search(r"/art(\d+[a-z]*)\.html", href)
+            if match:
+                links.append({
+                    "numero": match.group(1),
+                    "titolo": a_tag.get("title", ""),
+                    "url": href if href.startswith("http") else f"{BASE_URL}{href}",
+                })
+    return links
+
+
+def _extract_footnotes(corpo: Tag, result: BrocardiResult) -> None:
+    footnotes: list[dict[str, str | int]] = []
+
+    # Pattern 1: <a class="nota-ref" href="#nota_XXXX">
+    nota_refs = corpo.find_all("a", class_="nota-ref")
+    for nota_ref in nota_refs:
+        href = nota_ref.get("href", "")
+        if not href.startswith("#nota_"):
+            continue
+        anchor_name = href[1:]
+        numero_text = nota_ref.get_text(strip=True)
+        numero_match = re.search(r"\((\d+)\)|^(\d+)$", numero_text)
+        if not numero_match:
+            continue
+        numero = int(numero_match.group(1) or numero_match.group(2))
+
+        target = corpo.find("a", attrs={"name": anchor_name})
+        if target:
+            parent_div = target.find_parent("div", class_="nota")
+            if parent_div:
+                testo = parent_div.get_text(separator=" ", strip=True)
+                testo = re.sub(r"^\(\d+\)\s*", "", testo)
+                if testo:
+                    footnotes.append({"numero": numero, "testo": _clean_text(testo)})
+
+    # Pattern 2: div.corpoDelTesto.nota (alternative)
+    if not footnotes:
+        nota_divs = corpo.find_all(
+            "div",
+            class_=lambda c: c and "nota" in c and "corpoDelTesto" in c,
+        )
+        for nota_div in nota_divs:
+            text = nota_div.get_text(separator=" ", strip=True)
+            match = re.match(r"^\((\d+)\)\s*(.+)$", text, re.DOTALL)
+            if match:
+                footnotes.append({
+                    "numero": int(match.group(1)),
+                    "testo": _clean_text(match.group(2)),
+                })
+
+    # Pattern 3: <sup> + div.nota
+    if not footnotes:
+        for sup in corpo.find_all("sup"):
+            num_text = sup.get_text(strip=True)
+            if num_text.isdigit():
+                nota_div = corpo.find(
+                    "div", class_="nota", string=lambda t: t and num_text in t
+                )
+                if nota_div:
+                    footnotes.append({
+                        "numero": int(num_text),
+                        "testo": _clean_text(nota_div.get_text()),
+                    })
+
+    # Deduplicate and sort
+    seen: dict[int, dict] = {}
+    for fn in footnotes:
+        n = fn["numero"]
+        if n not in seen:
+            seen[n] = fn
+    result.footnotes = sorted(seen.values(), key=lambda x: x["numero"])
+
+
+def _extract_cross_references(corpo: Tag, result: BrocardiResult) -> None:
+    seen_urls: set[str] = set()
+    sections_map = {
+        "brocardi-content": "brocardi",
+        "container-ratio": "ratio",
+        "text": "spiegazione",
+        "sentenza": "massime",
+    }
+
+    _tipo_atto_from_path = {
+        "/codice-civile/": "Codice Civile",
+        "/codice-penale/": "Codice Penale",
+        "/costituzione/": "Costituzione",
+        "/codice-di-procedura-civile/": "Codice Procedura Civile",
+        "/codice-di-procedura-penale/": "Codice Procedura Penale",
+        "/codice-del-consumo/": "Codice del Consumo",
+        "/codice-della-privacy/": "Codice Privacy",
+    }
+
+    for section_class, section_name in sections_map.items():
+        for section in corpo.find_all("div", class_=section_class):
+            for a_tag in section.find_all("a", href=True):
+                href = a_tag.get("href", "")
+                if "/art" not in href or ".html" not in href:
+                    continue
+                if href in seen_urls:
+                    continue
+                seen_urls.add(href)
+
+                art_match = re.search(r"/art(\d+[a-z]*)\.html", href)
+                if not art_match:
+                    continue
+
+                tipo = None
+                for path_pattern, tipo_name in _tipo_atto_from_path.items():
+                    if path_pattern in href:
+                        tipo = tipo_name
+                        break
+
+                result.cross_references.append({
+                    "articolo": art_match.group(1),
+                    "tipo_atto": tipo or "",
+                    "url": href if href.startswith("http") else f"{BASE_URL}{href}",
+                    "sezione": section_name,
+                    "testo": a_tag.get_text(strip=True),
+                })
+
+
+def _extract_related_articles(soup: BeautifulSoup, result: BrocardiResult) -> None:
+    for a_tag in soup.find_all("a", href=True):
+        text = a_tag.get_text(strip=True).lower()
+        href = a_tag.get("href", "")
+        if "/art" not in href:
+            continue
+
+        art_match = re.search(r"/art(\d+[a-z]*)\.html", href)
+        if not art_match:
+            continue
+
+        entry = {
+            "numero": art_match.group(1),
+            "url": href if href.startswith("http") else f"{BASE_URL}{href}",
+            "titolo": a_tag.get("title", ""),
+        }
+
+        if "precedente" in text:
+            result.related_articles["previous"] = entry
+        elif "successivo" in text:
+            result.related_articles["next"] = entry

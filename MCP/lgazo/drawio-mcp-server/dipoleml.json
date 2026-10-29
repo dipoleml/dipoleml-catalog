@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.lgazo.drawio-mcp-server",
+  "type": "mcp",
+  "name": "Drawio MCP Server",
+  "slug": "drawio-mcp-server",
+  "vendor": "lgazo",
+  "description": "Draw.io Model Context Protocol (MCP) Server",
+  "version": "2.1.0",
+  "homepage": "https://github.com/lgazo/drawio-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "lgazo",
+    "brandName": "lgazo",
+    "source": "https://github.com/lgazo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:13Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "lgazo/drawio-mcp-server",
+    "url": "https://github.com/lgazo/drawio-mcp-server",
+    "commit": "d2f7c32fa91606c53bb184f429ea58ebaf26a255",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1496,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:11Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://127.0.0.1:9226"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--cdp-endpoint",
+        "http://127.0.0.1:9226"
+      ]
+    },
+    {
+      "kind": "mcp-http",
+      "url": "http://localhost:3000/mcp",
+      "transport": "http",
+      "command": "drawio"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "drawio-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE.md",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

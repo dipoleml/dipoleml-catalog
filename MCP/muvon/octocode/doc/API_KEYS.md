@@ -1,0 +1,482 @@
+# API Keys Setup Guide
+
+Octocode requires an embedding provider and optional API keys for AI features. Default builds embed locally via FastEmbed with no key required; this guide covers every supported provider and setup method.
+
+## Required: Embedding Providers
+
+Octocode needs embeddings to function. You must configure at least one embedding provider.
+
+### Voyage AI (Recommended)
+
+**Free tier**: 200M tokens per month
+**Best for**: High-quality embeddings with generous free tier
+
+```bash
+# Set environment variable
+export VOYAGE_API_KEY="your-voyage-api-key"
+
+# Or configure in config file
+octocode config \
+  --code-embedding-model "voyage:voyage-code-3" \
+  --text-embedding-model "voyage:voyage-3.5-lite"
+```
+
+**Get API key**: [voyageai.com](https://www.voyageai.com/)
+
+### Jina AI
+
+**Best for**: Code-specialized embeddings
+
+```bash
+# Set environment variable
+export JINA_API_KEY="your-jina-api-key"
+
+# Configure models
+octocode config \
+  --code-embedding-model "jina:jina-embeddings-v2-base-code" \
+  --text-embedding-model "jina:jina-embeddings-v4"
+```
+
+**Get API key**: [jina.ai](https://jina.ai/)
+
+### Google AI
+
+**Best for**: Integration with Google ecosystem
+
+```bash
+# Set environment variable
+export GOOGLE_API_KEY="your-google-api-key"
+
+# Configure models
+octocode config \
+  --code-embedding-model "google:text-embedding-005" \
+  --text-embedding-model "google:gemini-embedding-001"
+```
+
+**Get API key**: [Google AI Studio](https://makersuite.google.com/app/apikey)
+
+### OpenAI
+
+**Best for**: High-quality embeddings with latest models
+
+```bash
+# Set environment variable
+export OPENAI_API_KEY="your-openai-api-key"
+
+# Configure models
+octocode config \
+  --code-embedding-model "openai:text-embedding-3-small" \
+  --text-embedding-model "openai:text-embedding-3-small"
+
+# Or use large model for higher quality
+octocode config \
+  --code-embedding-model "openai:text-embedding-3-large" \
+  --text-embedding-model "openai:text-embedding-3-large"
+```
+
+**Get API key**: [OpenAI Platform](https://platform.openai.com/api-keys)
+
+**Available models:**
+- `text-embedding-3-small` - 1536 dimensions, cost-effective
+- `text-embedding-3-large` - 3072 dimensions, highest quality
+- `text-embedding-ada-002` - 1536 dimensions, legacy model
+
+### Local Models (Feature-Gated)
+
+**Best for**: Privacy, no API costs, offline usage
+
+```bash
+# FastEmbed (fastest, requires fastembed feature)
+octocode config \
+  --code-embedding-model "fastembed:BAAI/bge-small-en-v1.5" \
+  --text-embedding-model "fastembed:multilingual-e5-small"
+
+# HuggingFace (highest quality, requires huggingface feature)
+octocode config \
+  --code-embedding-model "huggingface:microsoft/codebert-base" \
+  --text-embedding-model "huggingface:sentence-transformers/all-MiniLM-L6-v2"
+
+**Supported Architectures:**
+- **BERT**: Standard BERT models (e.g., `sentence-transformers/all-MiniLM-L6-v2`)
+- **RoBERTa**: RoBERTa/XLM-RoBERTa models (e.g., `microsoft/codebert-base`)
+- **JinaBERT**: Jina's BERT variants (e.g., `jinaai/jina-embeddings-v2-base-code`)
+- **Qwen2/Qwen3**: Qwen decoder models for embeddings
+
+**Popular Models:**
+- `sentence-transformers/all-MiniLM-L6-v2` - 384 dimensions, fast and efficient
+- `microsoft/codebert-base` - 768 dimensions, code-specialized
+- `jinaai/jina-embeddings-v2-base-code` - 768 dimensions, code-optimized
+
+**Note**: Local models require the `fastembed` or `huggingface` feature. Both are enabled in default builds; only `--no-default-features` builds are cloud-only.
+
+## Optional: LLM Provider
+
+For AI-powered features like commit messages, code review, and optional persisted GraphRAG descriptions. The live MCP symbol graph does not use an LLM.
+
+Octocode supports multiple LLM providers through a unified interface. Configure using `provider:model` format.
+
+### OpenRouter (Recommended)
+
+**Best for**: Access to multiple LLM providers through one API
+
+```bash
+# Set environment variable
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+
+# Configure default model (provider:model format)
+octocode config --model "openrouter:openai/gpt-4o-mini"
+
+# Or use Claude for better code understanding
+octocode config --model "openrouter:anthropic/claude-3.5-sonnet"
+```
+
+**Get API key**: [openrouter.ai](https://openrouter.ai/)
+
+**Popular models:**
+- `openrouter:openai/gpt-4o-mini` - Fast and cost-effective (current default)
+- `openrouter:openai/gpt-4o` - High quality
+- `openrouter:anthropic/claude-3.5-sonnet` - Excellent for code
+- `openrouter:google/gemini-2.0-flash-exp` - Good balance
+
+### OpenAI
+
+**Best for**: Direct OpenAI API access
+
+```bash
+# Set environment variable
+export OPENAI_API_KEY="your-openai-api-key"
+
+# Configure model
+octocode config --model "openai:gpt-4o-mini"
+```
+
+**Get API key**: [platform.openai.com](https://platform.openai.com/)
+
+**Popular models:**
+- `openai:gpt-4o-mini` - Fast and cost-effective
+- `openai:gpt-4o` - High quality
+- `openai:gpt-4-turbo` - Balanced performance
+
+### Anthropic
+
+**Best for**: Code understanding and analysis
+
+```bash
+# Set environment variable
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+
+# Configure model
+octocode config --model "anthropic:claude-3-5-haiku-20241022"
+```
+
+**Get API key**: [console.anthropic.com](https://console.anthropic.com/)
+
+**Popular models:**
+- `anthropic:claude-3-5-haiku-20241022` - Fast and cost-effective
+- `anthropic:claude-3-5-sonnet-20241022` - Excellent for code
+- `anthropic:claude-3-opus-20240229` - Highest quality
+
+### Google AI
+
+**Best for**: Integration with Google ecosystem
+
+```bash
+# Set environment variable
+export GOOGLE_API_KEY="your-google-api-key"
+
+# Configure model
+octocode config --model "google:gemini-2.0-flash-exp"
+```
+
+**Get API key**: [aistudio.google.com](https://aistudio.google.com/)
+
+**Popular models:**
+- `google:gemini-2.0-flash-exp` - Fast and experimental
+- `google:gemini-1.5-pro` - High quality
+- `google:gemini-1.5-flash` - Balanced performance
+
+### DeepSeek
+
+**Best for**: Cost-effective code generation
+
+```bash
+# Set environment variable
+export DEEPSEEK_API_KEY="your-deepseek-api-key"
+
+# Configure model
+octocode config --model "deepseek:deepseek-chat"
+```
+
+**Get API key**: [platform.deepseek.com](https://platform.deepseek.com/)
+
+**Popular models:**
+- `deepseek:deepseek-chat` - General purpose
+- `deepseek:deepseek-coder` - Code-specialized
+
+### OpenAI-Compatible Endpoints
+
+Octocode's generic `local:` LLM provider works with any OpenAI-compatible Chat
+Completions endpoint, whether it runs locally or remotely. `LOCAL_API_URL` must
+be the full request URL, including `/v1/chat/completions`. The model ID after
+`local:` is sent to the endpoint unchanged, including IDs that contain slashes.
+
+```bash
+# Endpoint without authentication
+export LOCAL_API_URL="http://127.0.0.1:8000/v1/chat/completions"
+octocode config --model "local:<model-id>"
+```
+
+If the endpoint requires bearer authentication, also set `LOCAL_API_KEY`:
+
+```bash
+export LOCAL_API_URL="https://llm.example.com/v1/chat/completions"
+export LOCAL_API_KEY="your-api-key"
+octocode config --model "local:<model-id>"
+```
+
+Use the same model format wherever Octocode accepts an LLM model:
+
+```toml
+[llm]
+model = "local:<model-id>"
+
+[index]
+contextual_model = "local:<model-id>"
+
+[graphrag.llm]
+description_model = "local:<model-id>"
+relationship_model = "local:<model-id>"
+```
+
+Contextual indexing and optional LLM GraphRAG enrichment require structured-output support, so an
+otherwise compatible endpoint can still be rejected when the selected model's
+capabilities are not recognized.
+
+## Platform Limitations
+
+### Feature-Gated Providers
+- **FastEmbed**: Requires the `fastembed` feature
+- **HuggingFace**: Requires the `huggingface` feature
+- **Default builds**: Enable both local providers alongside every cloud provider (`default = ["fastembed", "huggingface"]`)
+- **Cloud-only builds**: `cargo build --no-default-features` drops the local providers
+
+### Cross-Platform Support
+- **All platforms**: Cloud embeddings work everywhere
+- **Local models**: Available whenever the corresponding feature is compiled in (the default)
+
+## Configuration Methods
+
+### Environment Variables (Recommended)
+
+```bash
+# Add to your shell profile (.bashrc, .zshrc, etc.)
+export VOYAGE_API_KEY="your-voyage-api-key"
+
+# Optional: Add LLM provider for AI features
+export OPENROUTER_API_KEY="sk-or-..."
+# Or use other providers
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GOOGLE_API_KEY="..."
+export DEEPSEEK_API_KEY="..."
+
+# Reload your shell
+source ~/.bashrc  # or ~/.zshrc
+```
+
+### Configuration File
+
+Models are configured in `~/.local/share/octocode/config.toml`:
+
+```toml
+[embedding]
+code_model = "voyage:voyage-code-3"
+text_model = "voyage:voyage-3.5-lite"
+
+[llm]
+model = "openrouter:openai/gpt-4o-mini"
+```
+
+**Note**: API keys are NOT stored in the config file. Use environment variables only.
+
+### Command Line Configuration
+
+```bash
+# View current configuration
+octocode config --show
+
+# Set embedding models
+octocode config --code-embedding-model "voyage:voyage-code-3"
+octocode config --text-embedding-model "voyage:voyage-3.5-lite"
+
+# Set LLM model (provider:model format)
+octocode config --model "anthropic:claude-3-5-sonnet-20241022"
+```
+
+## Model Recommendations
+
+### For Code Understanding (code_model)
+
+**Best Quality:**
+- `huggingface:microsoft/codebert-base` (768 dim, local)
+- `jina:jina-embeddings-v2-base-code` (768 dim, cloud)
+- `voyage:voyage-code-3` (1024 dim, cloud)
+
+**Fast Local:**
+- `fastembed:BAAI/bge-small-en-v1.5` (384 dim)
+- `fastembed:multilingual-e5-small` (384 dim)
+
+**Best Quality:**
+- `huggingface:sentence-transformers/all-MiniLM-L6-v2` (384 dim, local)
+- `jina:jina-embeddings-v4` (2048 dim, cloud)
+- `voyage:voyage-3.5-lite` (1024 dim, cloud)
+- `openai:text-embedding-3-large` (3072 dim, cloud)
+
+**Fast Local:**
+- `fastembed:multilingual-e5-small` (384 dim)
+- `huggingface:sentence-transformers/all-MiniLM-L6-v2` (384 dim)
+
+## Quick Setup Examples
+
+### Free Tier Setup (Recommended)
+
+```bash
+# Use Voyage AI free tier (200M tokens/month)
+export VOYAGE_API_KEY="your-voyage-api-key"
+
+octocode config \
+  --code-embedding-model "voyage:voyage-code-3" \
+  --text-embedding-model "voyage:voyage-3.5-lite"
+
+# Optional: Add OpenRouter for AI features
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+octocode config --model "openrouter:openai/gpt-4o-mini"
+```
+
+### Local-Only Setup
+
+```bash
+# No API keys required
+octocode config \
+  --code-embedding-model "fastembed:BAAI/bge-small-en-v1.5" \
+  --text-embedding-model "fastembed:multilingual-e5-small"
+
+# AI features disabled without LLM provider API key
+```
+
+### High-Quality Setup
+
+```bash
+# Best embedding quality
+export JINA_API_KEY="your-jina-api-key"
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+
+octocode config \
+  --code-embedding-model "jina:jina-embeddings-v2-base-code" \
+  --text-embedding-model "jina:jina-embeddings-v4" \
+  --model "anthropic:claude-3-5-sonnet-20241022"
+```
+
+## Verification
+
+### Test Embedding Configuration
+
+```bash
+# Index a small project to test embeddings
+octocode index
+
+# If successful, embeddings are working
+# If errors, check API keys and model names
+```
+
+### Test LLM Configuration
+
+```bash
+# Test AI features (requires staged changes)
+git add .
+octocode commit --yes
+
+# If successful, LLM is working
+# If errors, check LLM provider API key (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
+```
+
+### Debug Configuration Issues
+
+```bash
+# Show current configuration
+octocode config --show
+
+# Check for configuration errors
+RUST_LOG=debug octocode index
+```
+
+## Cost Management
+
+### Free Tiers
+
+- **Voyage AI**: 200M tokens/month (very generous)
+- **LLM Providers**: Varies by provider and model, some have free tiers
+- **Google AI**: 15 requests/minute free tier
+
+### Cost Optimization
+
+```bash
+# Use smaller, faster models
+octocode config \
+  --code-embedding-model "voyage:voyage-3.5-lite" \
+  --text-embedding-model "voyage:voyage-3.5-lite"
+
+# Use local models when possible
+octocode config \
+  --code-embedding-model "fastembed:BAAI/bge-small-en-v1.5" \
+  --text-embedding-model "fastembed:multilingual-e5-small"
+
+# Reduce chunk sizes to use fewer tokens
+octocode config --chunk-size 1000
+```
+
+## Security Best Practices
+
+### Environment Variables
+
+```bash
+# Add to shell profile, not to git
+echo 'export VOYAGE_API_KEY="your-key"' >> ~/.bashrc
+
+# Use different keys for different environments
+export VOYAGE_API_KEY_DEV="dev-key"
+export VOYAGE_API_KEY_PROD="prod-key"
+```
+
+### Configuration File Security
+
+```bash
+# Ensure config file is not world-readable
+chmod 600 ~/.local/share/octocode/config.toml
+
+# Don't commit config files with API keys
+echo "config.toml" >> .gitignore
+```
+
+## Troubleshooting
+
+### API Key Not Working
+
+1. **Check key format**: Ensure no extra spaces or characters
+2. **Verify provider**: Make sure you're using the correct provider prefix
+3. **Test directly**: Try the API key with curl or provider's test tools
+4. **Check quotas**: Ensure you haven't exceeded rate limits
+
+### Model Not Found
+
+1. **Check model name**: Verify exact model name from provider docs
+2. **Check provider prefix**: Ensure correct prefix (voyage:, jina:, etc.)
+3. **Update configuration**: Use `octocode config --show` to verify
+
+### Local Models Not Available
+
+1. **Check features**: Local models require `fastembed` or `huggingface` features
+2. **Build with features**: Use `cargo build --features fastembed,huggingface`
+3. **Check availability**: Use `octocode models list` to see available providers
+
+For more help, see [Configuration Guide](CONFIGURATION.md) or [Getting Started](GETTING_STARTED.md).

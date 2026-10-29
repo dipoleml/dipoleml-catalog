@@ -1,0 +1,10 @@
+{
+  "obsidian-mcp-server": {
+    "command": "npx",
+    "args": ["-y", "obsidian-mcp-server"],
+    "env": {
+      "MCP_TRANSPORT_TYPE": "stdio"
+    },
+    "env_vars": ["OBSIDIAN_API_KEY", "OBSIDIAN_BASE_URL"]
+  }
+}

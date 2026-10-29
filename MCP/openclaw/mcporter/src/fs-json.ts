@@ -1,0 +1,315 @@
+import crypto from 'node:crypto';
+import { constants } from 'node:fs';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { isProcessRunning } from './process-utils.js';
+
+const DEFAULT_LOCK_TIMEOUT_MS = 30_000;
+const LOCK_POLL_MS = 25;
+const WINDOWS_LOCK_RELEASE_RETRIES = 20;
+const MALFORMED_LOCK_STALE_MS = 1_000;
+const MAX_SYMLINK_DEPTH = 40;
+const DEFAULT_ATOMIC_FILE_MODE = 0o600;
+const localLockTails = new Map<string, Promise<void>>();
+
+// Callers that degrade on contention (the OAuth refresh lock returns a stale
+// token instead of redeeming unlocked) must tell a timeout apart from a real
+// filesystem failure. Message matching would misroute either direction.
+export class FileLockTimeoutError extends Error {
+  readonly lockPath: string;
+
+  constructor(lockPath: string, options?: ErrorOptions) {
+    super(`Timed out waiting for file lock ${lockPath}`, options);
+    this.name = 'FileLockTimeoutError';
+    this.lockPath = lockPath;
+  }
+}
+
+export function isFileLockTimeoutError(error: unknown): error is FileLockTimeoutError {
+  return error instanceof FileLockTimeoutError;
+}
+
+// readJsonFile reads a JSON file and returns undefined when the file does not exist.
+export async function readJsonFile<T = unknown>(filePath: string): Promise<T | undefined> {
+  try {
+    const content = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(content) as T;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+// writeTextFileAtomic writes a file via same-directory temp file and rename.
+export async function writeTextFileAtomic(filePath: string, data: string): Promise<void> {
+  const target = await resolveAtomicWriteTarget(filePath);
+  await fs.mkdir(path.dirname(target.path), { recursive: true });
+  const tempPath = path.join(
+    path.dirname(target.path),
+    `.${path.basename(target.path)}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`
+  );
+  try {
+    if (target.mode !== undefined) {
+      await fs.access(target.path, constants.W_OK);
+    }
+    await fs.writeFile(tempPath, data, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: target.mode ?? DEFAULT_ATOMIC_FILE_MODE,
+    });
+    if (target.mode !== undefined) {
+      await fs.chmod(tempPath, target.mode);
+    }
+    await fs.rename(tempPath, target.path);
+  } catch (error) {
+    await fs.unlink(tempPath).catch(() => {});
+    if (target.mode !== undefined && isPermissionError(error)) {
+      await fs.writeFile(filePath, data, 'utf8');
+      return;
+    }
+    throw error;
+  }
+}
+
+// writeJsonFile writes a JSON object to disk, ensuring parent directories are created first.
+export async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+  await writeTextFileAtomic(filePath, JSON.stringify(data, null, 2));
+}
+
+export async function withFileLock<T>(
+  filePath: string,
+  task: () => Promise<T>,
+  options: { timeoutMs?: number } = {}
+): Promise<T> {
+  const lockTargetPath = await resolvePathFollowingSymlinks(filePath);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
+  const startedAt = Date.now();
+  return withLocalLock(lockTargetPath, timeoutMs, async () => {
+    await fs.mkdir(path.dirname(lockTargetPath), { recursive: true });
+    let lockPath = `${lockTargetPath}.lock`;
+    const fallbackLockPath = lockTargetPath !== filePath ? `${filePath}.lock` : undefined;
+    const lockContents = `${process.pid}\n${new Date().toISOString()}\n${crypto.randomUUID()}\n`;
+    let acquired = false;
+
+    while (!acquired) {
+      try {
+        await fs.writeFile(lockPath, lockContents, {
+          encoding: 'utf8',
+          flag: 'wx',
+        });
+        acquired = true;
+        break;
+      } catch (error) {
+        if (fallbackLockPath && lockPath !== fallbackLockPath && isPermissionError(error)) {
+          await fs.mkdir(path.dirname(fallbackLockPath), { recursive: true });
+          lockPath = fallbackLockPath;
+          continue;
+        }
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw error;
+        }
+        if (await removeRecoverableLock(lockPath)) {
+          continue;
+        }
+        if (Date.now() - startedAt > timeoutMs) {
+          throw new FileLockTimeoutError(lockPath, { cause: error });
+        }
+        await sleep(LOCK_POLL_MS);
+      }
+    }
+
+    try {
+      return await task();
+    } finally {
+      await releaseFileLock(lockPath, lockContents);
+    }
+  });
+}
+
+async function releaseFileLock(lockPath: string, expectedContents: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      // A failed Windows delete may have completed before a retry; never remove a successor's lock.
+      if (attempt > 0 && (await fs.readFile(lockPath, 'utf8')) !== expectedContents) return;
+      await fs.unlink(lockPath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return;
+      if (
+        process.platform !== 'win32' ||
+        (code !== 'EPERM' && code !== 'EBUSY') ||
+        attempt >= WINDOWS_LOCK_RELEASE_RETRIES
+      )
+        throw error;
+      await sleep(LOCK_POLL_MS);
+    }
+  }
+}
+
+function isPermissionError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'EACCES' || code === 'EPERM';
+}
+
+async function withLocalLock<T>(key: string, timeoutMs: number, task: () => Promise<T>): Promise<T> {
+  const previous = localLockTails.get(key) ?? Promise.resolve();
+  const { promise: current, resolve: release } = Promise.withResolvers<void>();
+  const tail = previous.then(() => current);
+  localLockTails.set(key, tail);
+  try {
+    await waitForLocalLock(previous, timeoutMs, key);
+    return await task();
+  } finally {
+    release();
+    void tail.then(() => {
+      if (localLockTails.get(key) === tail) {
+        localLockTails.delete(key);
+      }
+    });
+  }
+}
+
+async function waitForLocalLock(previous: Promise<void>, timeoutMs: number, key: string): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      previous,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new FileLockTimeoutError(`${key}.lock`)), Math.max(0, timeoutMs));
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function resolveAtomicWriteTarget(filePath: string): Promise<{ path: string; mode?: number }> {
+  try {
+    const stats = await fs.lstat(filePath);
+    if (stats.isSymbolicLink()) {
+      const targetPath = await resolvePathFollowingSymlinks(filePath);
+      return { path: targetPath, mode: await readMode(targetPath) };
+    }
+    return { path: filePath, mode: stats.mode & 0o777 };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { path: filePath };
+    }
+    throw error;
+  }
+}
+
+// Resolves a path to its real location so two spellings of one file (relative,
+// absolute, or symlinked) cannot be treated as separate identities.
+export async function canonicalizeFilePath(filePath: string): Promise<string> {
+  return await resolvePathFollowingSymlinks(path.resolve(filePath));
+}
+
+async function resolvePathFollowingSymlinks(filePath: string): Promise<string> {
+  let currentPath = await canonicalizeParentDirectory(filePath);
+  for (let depth = 0; depth < MAX_SYMLINK_DEPTH; depth += 1) {
+    let stats;
+    try {
+      stats = await fs.lstat(currentPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return await canonicalizeParentDirectory(currentPath);
+      }
+      throw error;
+    }
+    if (!stats.isSymbolicLink()) {
+      return currentPath;
+    }
+    const link = await fs.readlink(currentPath);
+    currentPath = await canonicalizeParentDirectory(
+      path.isAbsolute(link) ? link : path.resolve(path.dirname(currentPath), link)
+    );
+  }
+  throw new Error(`Too many symbolic links while resolving ${filePath}`);
+}
+
+async function canonicalizeParentDirectory(filePath: string): Promise<string> {
+  try {
+    return path.join(await fs.realpath(path.dirname(filePath)), path.basename(filePath));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return filePath;
+    }
+    throw error;
+  }
+}
+
+async function readMode(filePath: string): Promise<number | undefined> {
+  try {
+    const stats = await fs.stat(filePath);
+    return stats.mode & 0o777;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function removeRecoverableLock(lockPath: string): Promise<boolean> {
+  const breakerPath = `${lockPath}.break`;
+  try {
+    await fs.writeFile(breakerPath, `${process.pid}\n${new Date().toISOString()}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      return false;
+    }
+    if (!(await isLockRecoverable(breakerPath))) {
+      return false;
+    }
+    await fs.unlink(breakerPath).catch(() => {});
+    return false;
+  }
+
+  try {
+    if (!(await isLockRecoverable(lockPath))) {
+      return false;
+    }
+    await fs.unlink(lockPath);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  } finally {
+    await fs.unlink(breakerPath).catch(() => {});
+  }
+}
+
+async function isLockRecoverable(lockPath: string): Promise<boolean> {
+  let contents: string;
+  try {
+    contents = await fs.readFile(lockPath, 'utf8');
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+  if (contents.length === 0) {
+    return await isMalformedLockStale(lockPath);
+  }
+  const pid = Number.parseInt(contents.split(/\r?\n/, 1)[0] ?? '', 10);
+  if (Number.isInteger(pid) && pid > 0) {
+    return !isProcessRunning(pid);
+  }
+  return await isMalformedLockStale(lockPath);
+}
+
+async function isMalformedLockStale(lockPath: string): Promise<boolean> {
+  try {
+    const stats = await fs.stat(lockPath);
+    return Date.now() - stats.mtimeMs > MALFORMED_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}

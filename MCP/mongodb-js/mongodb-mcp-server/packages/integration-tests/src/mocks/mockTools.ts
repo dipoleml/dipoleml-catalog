@@ -1,0 +1,206 @@
+import { z } from "zod";
+import { ToolBase } from "@mongodb-js/mcp-core";
+import type { ToolArgs } from "@mongodb-js/mcp-core";
+import type {
+    IToolConfig,
+    ToolServices,
+    ToolServer,
+    OperationType,
+    ToolCategory,
+    CallToolResult,
+    ToolExecutionContext,
+} from "@mongodb-js/mcp-types";
+import type { TelemetryToolMetadata } from "@mongodb-js/mcp-atlas-telemetry";
+import type { DefaultPrometheusMetricDefinitions } from "@mongodb-js/mcp-metrics";
+
+/** The server shape the test tools read their services from. */
+export type TestServer = ToolServer<ToolServices<IToolConfig>>;
+
+/** Shared empty args shape reused by test tools that take no arguments. */
+const EmptyArgsShape = {};
+
+const TestToolArgsShape = {
+    param1: z.string().describe("Test parameter 1"),
+    param2: z.number().optional().describe("Test parameter 2"),
+};
+
+/** General-purpose tool used by most ToolBase unit tests. */
+export class TestTool extends ToolBase<TestServer, DefaultPrometheusMetricDefinitions> {
+    static toolName = "test-tool";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "delete";
+    public description = "A test tool for verification tests";
+    public argsShape(): typeof TestToolArgsShape {
+        return TestToolArgsShape;
+    }
+
+    protected execute(): Promise<CallToolResult> {
+        return Promise.resolve({
+            content: [{ type: "text", text: "Test tool executed successfully" }],
+        });
+    }
+
+    protected resolveTelemetryMetadata(
+        args: ToolArgs<ReturnType<typeof this.argsShape>>,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        { result }: { result: CallToolResult }
+    ): TelemetryToolMetadata {
+        if (args.param2 === 3) {
+            return { test_param2: "three" };
+        }
+        return {};
+    }
+}
+
+const TestToolWithOutputSchemaArgsShape = {
+    input: z.string().describe("Test input"),
+};
+const TestToolWithOutputSchemaOutputSchema = {
+    value: z.string(),
+    count: z.number(),
+};
+
+/** Tool that returns structured content, used by appendUIResource tests. */
+export class TestToolWithOutputSchema extends ToolBase<TestServer, DefaultPrometheusMetricDefinitions> {
+    static toolName = "test-tool-with-output-schema";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "metadata";
+    public description = "A test tool with output schema";
+    public argsShape(): typeof TestToolWithOutputSchemaArgsShape {
+        return TestToolWithOutputSchemaArgsShape;
+    }
+    public outputSchema(): typeof TestToolWithOutputSchemaOutputSchema {
+        return TestToolWithOutputSchemaOutputSchema;
+    }
+
+    protected execute(args: ToolArgs<ReturnType<typeof this.argsShape>>): Promise<CallToolResult> {
+        return Promise.resolve({
+            content: [{ type: "text", text: "Tool with output schema executed" }],
+            structuredContent: { value: args.input, count: 42 },
+        });
+    }
+
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+
+const TestToolWithoutStructuredContentArgsShape = {
+    input: z.string().describe("Test input"),
+};
+const TestToolWithoutStructuredContentOutputSchema = {
+    value: z.string(),
+};
+
+/** Tool that declares an outputSchema but never returns structuredContent. */
+export class TestToolWithoutStructuredContent extends ToolBase<TestServer, DefaultPrometheusMetricDefinitions> {
+    static toolName = "test-tool-without-structured";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "metadata";
+    public description = "A test tool without structured content";
+    public argsShape(): typeof TestToolWithoutStructuredContentArgsShape {
+        return TestToolWithoutStructuredContentArgsShape;
+    }
+    public outputSchema(): typeof TestToolWithoutStructuredContentOutputSchema {
+        return TestToolWithoutStructuredContentOutputSchema;
+    }
+
+    protected execute(): Promise<CallToolResult> {
+        return Promise.resolve({
+            content: [{ type: "text", text: "Tool without structured content executed" }],
+        });
+    }
+
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+
+/** Tool whose execute() always throws – used by error-path tests. */
+export class ErrorTool extends ToolBase<TestServer, DefaultPrometheusMetricDefinitions> {
+    static toolName = "error-tool";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "read";
+    public description = "A tool that always throws";
+    public argsShape(): typeof EmptyArgsShape {
+        return EmptyArgsShape;
+    }
+
+    protected execute(): Promise<CallToolResult> {
+        return Promise.reject(new TypeError("intentional error"));
+    }
+
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+
+/** Minimal tool that returns a static "ok" response. */
+export class EchoTool extends ToolBase<TestServer, DefaultPrometheusMetricDefinitions> {
+    static toolName = "echo-tool";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "read";
+    public description = "Returns a static response";
+    public argsShape(): typeof EmptyArgsShape {
+        return EmptyArgsShape;
+    }
+
+    protected execute(): Promise<CallToolResult> {
+        return Promise.resolve({ content: [{ type: "text", text: "ok" }] });
+    }
+
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+
+/**
+ * Tool that asks for confirmation from within execute(), the way aggregate does
+ * once it knows the pipeline contains a write stage.
+ */
+export class ConfirmingTool extends ToolBase {
+    static toolName = "confirming-tool";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "read";
+    public description = "Requests confirmation while executing";
+    public argsShape(): typeof EmptyArgsShape {
+        return EmptyArgsShape;
+    }
+
+    protected execute(
+        _args: ToolArgs<ReturnType<typeof this.argsShape>>,
+        context: ToolExecutionContext
+    ): Promise<CallToolResult> {
+        if (!this.requestConfirmation("Proceed?", context)) {
+            return Promise.resolve({
+                content: [{ type: "text" as const, text: "The operation was not performed." }],
+                isError: true,
+            });
+        }
+
+        return Promise.resolve({ content: [{ type: "text" as const, text: "executed" }] });
+    }
+
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}
+
+/** No-op tool used for session / lifecycle tests that don't need tool logic. */
+export class NoopTool extends ToolBase<TestServer, DefaultPrometheusMetricDefinitions> {
+    static toolName = "noop-tool";
+    static category: ToolCategory = "mongodb";
+    static operationType: OperationType = "read";
+    public description = "No-op tool";
+    public argsShape(): typeof EmptyArgsShape {
+        return EmptyArgsShape;
+    }
+
+    protected execute(): Promise<CallToolResult> {
+        return Promise.resolve({ content: [{ type: "text", text: "ok" }] });
+    }
+
+    protected resolveTelemetryMetadata(): TelemetryToolMetadata {
+        return {};
+    }
+}

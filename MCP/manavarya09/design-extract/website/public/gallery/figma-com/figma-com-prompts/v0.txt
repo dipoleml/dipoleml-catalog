@@ -1,0 +1,33 @@
+Build a landing page with this exact visual language.
+COLORS:
+  #000000
+  #ffffff
+  #697485
+  #33dfdf
+  #b98e01
+  #24cb71
+  #e6e6e6
+  #4d49fc
+  #f3ffe3
+  #e4ff97
+  #00b6ff
+  #c4baff
+  #95b9ac
+  #ff7237
+FONTS: [object Object], [object Object]
+SPACING: 1, 16, 24, 27, 40, 44, 53, 60
+RADIUS: 2, 8, 16, 50
+SHADOWS: rgb(0, 0, 0) 0px 0px 0px 1px inset | rgb(255, 255, 255) 0px 0px 0px 1px inset | rgba(0, 0, 0, 0.08) 0px 1px 0px 0px
+MATERIAL LANGUAGE: flat
+VOICE: Tone: friendly · Headings: Sentence case · CTA verbs: [object Object], [object Object], [object Object], [object Object], [object Object], [object Object]
+SECTIONS (in order):
+- cta — heading: "Use cases"
+- testimonial — heading: "Make anything possible, all in Figma"
+- hero — heading: "Make anything possible, all in Figma"
+- hero — heading: "Prompt, code, and design from first idea to final product"
+- testimonial
+- testimonial — heading: "Ship products, any way you want"
+- testimonial
+- pricing
+- footer — heading: "Figma Socials"
+Use Tailwind. Match these tokens exactly. Keep the material language consistent.

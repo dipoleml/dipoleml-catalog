@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.wh0am123.mcp-kali-server",
+  "type": "mcp",
+  "name": "MCP Kali Server",
+  "slug": "mcp-kali-server",
+  "vendor": "wh0am123",
+  "description": "MCP configuration to connect AI agent to a Linux machine.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Wh0am123/MCP-Kali-Server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "kali-tools",
+    "penetration-testing",
+    "pentesting",
+    "security"
+  ],
+  "tags": [
+    "kali-tools",
+    "mcp",
+    "mcp-server",
+    "penetration-testing",
+    "pentesting",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "wh0am123",
+    "brandName": "wh0am123",
+    "source": "https://github.com/Wh0am123.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Wh0am123/MCP-Kali-Server",
+    "url": "https://github.com/Wh0am123/MCP-Kali-Server",
+    "commit": "00154c053845b2ec4c3eef49ad09dd9bb2d3b7aa",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 863,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:53Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

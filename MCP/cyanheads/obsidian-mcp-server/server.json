@@ -1,0 +1,217 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cyanheads/obsidian-mcp-server",
+  "description": "Read, write, search, and surgically edit Obsidian notes, tags, and frontmatter via MCP.",
+  "repository": {
+    "url": "https://github.com/cyanheads/obsidian-mcp-server",
+    "source": "github"
+  },
+  "version": "3.7.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "obsidian-mcp-server",
+      "runtimeHint": "npx",
+      "version": "3.7.2",
+      "environmentVariables": [
+        {
+          "name": "OBSIDIAN_API_KEY",
+          "description": "Bearer token for the Obsidian Local REST API plugin (Settings → Community Plugins → Local REST API).",
+          "format": "string",
+          "isRequired": true
+        },
+        {
+          "name": "OBSIDIAN_BASE_URL",
+          "description": "Base URL of the Obsidian Local REST API. Default: http://127.0.0.1:27123 (enable \"Non-encrypted (HTTP) Server\" in plugin settings). Use https://127.0.0.1:27124 for the always-on HTTPS port (self-signed cert; pair with OBSIDIAN_VERIFY_SSL=false).",
+          "format": "string",
+          "isRequired": false,
+          "default": "http://127.0.0.1:27123"
+        },
+        {
+          "name": "OBSIDIAN_VERIFY_SSL",
+          "description": "Whether to verify the TLS certificate on the Obsidian endpoint. Default false because the plugin uses a self-signed cert.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_REQUEST_TIMEOUT_MS",
+          "description": "Per-request timeout in milliseconds.",
+          "format": "string",
+          "isRequired": false,
+          "default": "30000"
+        },
+        {
+          "name": "OBSIDIAN_ENABLE_COMMANDS",
+          "description": "Opt-in flag for the command-palette pair (obsidian_list_commands + obsidian_execute_command). Off by default — Obsidian commands are opaque and can be destructive.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_READ_PATHS",
+          "description": "Optional comma-separated vault-relative folder allowlist for reads. Prefix-based with implicit recursion; case-insensitive; trailing slashes normalized. Unset = full vault. Write paths are implicitly readable. Example: 'public/,projects/'.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "OBSIDIAN_WRITE_PATHS",
+          "description": "Optional comma-separated vault-relative folder allowlist for writes. Same syntax as OBSIDIAN_READ_PATHS. Unset = full vault, or the read scope when reads are restricted. Example: 'projects/,scratch/'.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "OBSIDIAN_READ_ONLY",
+          "description": "Global read-only kill switch. When true, every write is denied regardless of OBSIDIAN_WRITE_PATHS, and the command-palette pair is suppressed (commands can mutate). Useful for shared or public-facing deployments.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_DELETE_ELICITATION",
+          "description": "Opt-in delete confirmation. When true, obsidian_delete_note asks the user to confirm each delete through an elicitation round (the client must support elicitation), and HTTP startup requires a stateful session unless OBSIDIAN_READ_ONLY=true disables the tool. Off by default — the delete runs on the first call, bounded by OBSIDIAN_WRITE_PATHS and OBSIDIAN_READ_ONLY.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_OMNISEARCH_URL",
+          "description": "Override URL for the Omnisearch plugin HTTP server. Unset derives from OBSIDIAN_BASE_URL host with port 51361. Required only if the Omnisearch plugin is not on the default port.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "MCP_LOG_LEVEL",
+          "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
+          "format": "string",
+          "isRequired": false,
+          "default": "info"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "obsidian-mcp-server",
+      "runtimeHint": "npx",
+      "version": "3.7.2",
+      "environmentVariables": [
+        {
+          "name": "MCP_TRANSPORT_TYPE",
+          "description": "Selects the HTTP transport.",
+          "format": "string",
+          "value": "http"
+        },
+        {
+          "name": "OBSIDIAN_API_KEY",
+          "description": "Bearer token for the Obsidian Local REST API plugin (Settings → Community Plugins → Local REST API).",
+          "format": "string",
+          "isRequired": true
+        },
+        {
+          "name": "OBSIDIAN_BASE_URL",
+          "description": "Base URL of the Obsidian Local REST API. Default: http://127.0.0.1:27123 (enable \"Non-encrypted (HTTP) Server\" in plugin settings). Use https://127.0.0.1:27124 for the always-on HTTPS port (self-signed cert; pair with OBSIDIAN_VERIFY_SSL=false).",
+          "format": "string",
+          "isRequired": false,
+          "default": "http://127.0.0.1:27123"
+        },
+        {
+          "name": "OBSIDIAN_VERIFY_SSL",
+          "description": "Whether to verify the TLS certificate on the Obsidian endpoint. Default false because the plugin uses a self-signed cert.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_REQUEST_TIMEOUT_MS",
+          "description": "Per-request timeout in milliseconds.",
+          "format": "string",
+          "isRequired": false,
+          "default": "30000"
+        },
+        {
+          "name": "OBSIDIAN_ENABLE_COMMANDS",
+          "description": "Opt-in flag for the command-palette pair (obsidian_list_commands + obsidian_execute_command). Off by default — Obsidian commands are opaque and can be destructive.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_READ_PATHS",
+          "description": "Optional comma-separated vault-relative folder allowlist for reads. Prefix-based with implicit recursion; case-insensitive; trailing slashes normalized. Unset = full vault. Write paths are implicitly readable. Example: 'public/,projects/'.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "OBSIDIAN_WRITE_PATHS",
+          "description": "Optional comma-separated vault-relative folder allowlist for writes. Same syntax as OBSIDIAN_READ_PATHS. Unset = full vault, or the read scope when reads are restricted. Example: 'projects/,scratch/'.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "OBSIDIAN_READ_ONLY",
+          "description": "Global read-only kill switch. When true, every write is denied regardless of OBSIDIAN_WRITE_PATHS, and the command-palette pair is suppressed (commands can mutate). Useful for shared or public-facing deployments.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_DELETE_ELICITATION",
+          "description": "Opt-in delete confirmation. When true, obsidian_delete_note asks the user to confirm each delete through an elicitation round (the client must support elicitation), and HTTP startup requires a stateful session unless OBSIDIAN_READ_ONLY=true disables the tool. Off by default — the delete runs on the first call, bounded by OBSIDIAN_WRITE_PATHS and OBSIDIAN_READ_ONLY.",
+          "format": "string",
+          "isRequired": false,
+          "default": "false"
+        },
+        {
+          "name": "OBSIDIAN_OMNISEARCH_URL",
+          "description": "Override URL for the Omnisearch plugin HTTP server. Unset derives from OBSIDIAN_BASE_URL host with port 51361. Required only if the Omnisearch plugin is not on the default port.",
+          "format": "string",
+          "isRequired": false
+        },
+        {
+          "name": "MCP_HTTP_HOST",
+          "description": "The hostname for the HTTP server.",
+          "format": "string",
+          "isRequired": false,
+          "default": "127.0.0.1"
+        },
+        {
+          "name": "MCP_HTTP_PORT",
+          "description": "The port to run the HTTP server on.",
+          "format": "string",
+          "isRequired": false,
+          "default": "3010"
+        },
+        {
+          "name": "MCP_HTTP_ENDPOINT_PATH",
+          "description": "The endpoint path for the MCP server.",
+          "format": "string",
+          "isRequired": false,
+          "default": "/mcp"
+        },
+        {
+          "name": "MCP_AUTH_MODE",
+          "description": "Authentication mode to use: 'none', 'jwt', or 'oauth'.",
+          "format": "string",
+          "isRequired": false,
+          "default": "none"
+        },
+        {
+          "name": "MCP_LOG_LEVEL",
+          "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
+          "format": "string",
+          "isRequired": false,
+          "default": "info"
+        }
+      ],
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:3010/mcp"
+      }
+    }
+  ]
+}

@@ -1,0 +1,185 @@
+## Node
+node_modules/
+
+## TypeScript build output
+dist/
+
+## IDE
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+## MCP config (contains absolute local paths)
+.mcp.json
+
+## Local planning and announcement drafts (never shipped)
+plans/
+comms/
+
+## Test-project Claude Code artifacts (ephemeral - installed by `ue-mcp init` / skills dry-runs)
+tests/ue_mcp/.claude/
+
+## Deployed bridge plugin (source of truth lives in plugin/; scripts/deploy.mjs regenerates this on every build)
+tests/ue_mcp/Plugins/UE_MCP_Bridge/
+
+## PIE_Studio lives in its own repo; never commit a test install here
+tests/ue_mcp/Plugins/PIE_Studio/
+
+## Claude / Cursor local settings
+.claude/settings.local.json
+
+## Junk
+TODO.md
+ISSUES.md
+ISSUE-AUDIT.md
+CODE-SMELLS.md
+RELEASE_NOTES*.md
+CODE_OF_CONDUCT.md
+*.stackdump
+debug.log
+deploy-bridge.js
+.gitmodules
+.sf
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Build output
+publish/
+artifacts/
+
+## Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+.env
+*.pem
+venv/
+
+## Unreal Engine 5
+# Binaries (compiled executables and libraries)
+**/Binaries/
+*.dll
+*.exe
+*.pdb
+*.lib
+*.exp
+*.obj
+
+# Intermediate files (build artifacts, generated code)
+**/Intermediate/
+**/DerivedDataCache/
+
+# Saved files (runtime data, logs, cache)
+**/Saved/
+
+# Build files (Visual Studio solution/project files - these are generated)
+**/Build/
+**/*.sln
+**/*.vcxproj
+**/*.vcxproj.filters
+**/*.vcxproj.user
+
+# Visual Studio files
+**/*.DotSettings.user
+**/.vs/
+**/*.suo
+**/*.user
+**/*.userosscache
+**/*.sln.docstates
+
+# Content Browser cache
+**/Content/**/*.tmp
+**/Content/**/*.tmp.*
+
+# Crash reports
+**/CrashReports/
+
+# Config (keep Config/ directory and non-user .ini files, ignore user-specific configs)
+**/Config/*User*.ini
+**/Config/*User*.ini.backup
+
+# Logs
+*.log
+**/Logs/
+
+# Web cache (CEF browser cache)
+**/webcache_*/
+
+# Autosave
+**/Autosaves/
+
+# Asset metadata (keep .uasset/.umap but ignore temp metadata)
+**/*.uasset.tmp
+**/*.umap.tmp
+
+# Perforce (if used)
+**/.p4ignore
+
+# Rider
+**/.idea/
+**/*.iml
+
+# XCode (if building on Mac)
+**/DerivedData/
+**/*.xcodeproj/*
+!**/*.xcodeproj/project.pbxproj
+!**/*.xcodeproj/xcshareddata/
+**/*.xcworkspace/*
+!**/*.xcworkspace/contents.xcworkspacedata
+**/*.xcuserdata
+
+# Test-generated assets (should not be tracked - tests create/cleanup these)
+# Fixtures built by the live tests and by probes. Every live test creates its
+# own assets under an MCP-prefixed content path and deletes them in afterAll;
+# a run that dies partway leaves them behind. A stray .uasset reaching the
+# index also trips the em-dash pre-commit hook, which scans staged files as
+# text. The narrower MCPTest rules below predate this and are kept so an
+# existing checkout does not suddenly see those paths as new.
+tests/**/Content/MCP*/
+tests/**/Content/MCPTest/**/*.uasset
+tests/**/Content/MCPTest/**/*.umap
+tests/**/Content/*Test*.uasset
+tests/**/Content/*Test*.umap
+
+# Smoke + demo runtime artifacts (recreated on every run; never source-of-truth)
+tests/**/Content/MCP_Home.umap
+tests/**/Content/MCP_SmokeScratch.umap
+tests/**/Content/Demo/**/*.uasset
+tests/**/Content/Demo/**/*.umap
+
+# Note: The following WILL be tracked (as they should be):
+# - *.uproject (project files)
+# - Source/**/*.cpp, *.h, *.Build.cs, *.Target.cs (source code)
+# - Config/*.ini (except *User*.ini - project configs are tracked)
+# - Content/**/*.uasset, *.umap (content assets) - EXCEPT test-generated ones above
+# - Plugins/**/*.uplugin (plugin files)
+# - Any other project source files
+
+## Harness lockfiles
+.claude/*.lock
+
+## Test-project bridge cache (written by smoke runs)
+tests/ue_mcp/.ue-mcp/
+
+## Local benchmark scratch
+bench/
+
+# Agent scratch space, never committed.
+.scratch/
+
+# Engine symbol index cache for the live tests (rebuilt on demand).
+.engine-index-cache/
+dist-binaries/
+
+# Sharded live run: one copy of tests/ue_mcp per editor (#1436)
+tests/.shards/
+# Per-step logs and timing from scripts/release-run.mjs (#1465)
+release-logs/

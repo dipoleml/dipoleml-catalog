@@ -1,0 +1,53 @@
+#Requires -Version 7.4
+[CmdletBinding()]
+param(
+    [string]$BaseRef,
+    [string]$HeadRef = 'HEAD',
+    [ValidateSet('MergeBase', 'Direct')][string]$Comparison = 'MergeBase',
+    [switch]$Full,
+    [Parameter(Mandatory)][string]$OutputPath
+)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Get-ValidationPlan.ps1')
+if ($Full) {
+    $plan = Get-ValidationPlan -Full
+} else {
+    if (-not $BaseRef -or $BaseRef -match '^0+$') { throw 'A valid base revision or explicit -Full selection is required.' }
+    $range = if ($Comparison -eq 'MergeBase') { "$BaseRef...$HeadRef" } else { "$BaseRef..$HeadRef" }
+    $paths = @(git -c core.quotepath=false diff --name-only --no-renames $range)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot determine changed validation inputs.' }
+    $plan = Get-ValidationPlan -Paths $paths -BaseRef $BaseRef -HeadRef $HeadRef -Comparison $Comparison
+}
+$plan.Reasons | ForEach-Object { Write-Host $_ }
+$directory = Split-Path -Parent $OutputPath
+if ($directory) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+$plan | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+if ($env:GITHUB_OUTPUT) {
+    $include = @($plan.CiTestGroups | ForEach-Object { @{ group = $_ } })
+    $matrix = @{ include = $include } | ConvertTo-Json -Compress -Depth 5
+    $languages = @($plan.CodeQlLanguages | ForEach-Object {
+        @{
+            language = $_
+            os = if ($_ -eq 'csharp') { 'windows-latest' } else { 'ubuntu-26.04' }
+            'build-mode' = if ($_ -eq 'csharp') { 'manual' } else { 'none' }
+        }
+    })
+    $codeQlMatrix = @{ include = $languages } | ConvertTo-Json -Compress -Depth 5
+    @(
+        "matrix=$matrix"
+        "documentation_checks_group=$($plan.DocumentationChecksGroup)"
+        "documentation_counts=$($plan.DocumentationCounts)".ToLowerInvariant()
+        "full_solution_build=$($plan.FullSolutionBuild)".ToLowerInvariant()
+        "full_solution_build_group=$($plan.FullSolutionBuildGroup)"
+        "tests=$($plan.CiTestGroups.Count -gt 0)".ToLowerInvariant()
+        "build_only=$($plan.BuildOnly)".ToLowerInvariant()
+        "packages=$($plan.PackageComponents.Count -gt 0)".ToLowerInvariant()
+        "npm=$($plan.NpmTests)".ToLowerInvariant()
+        "package_skills=$(@($plan.PackageComponents | Where-Object { $_ -in @('Extension', 'Plugins') }).Count -gt 0)".ToLowerInvariant()
+        "package_dotnet=$(@($plan.PackageComponents | Where-Object { $_ -in @('Cli', 'Mcp', 'Extension') }).Count -gt 0)".ToLowerInvariant()
+        "codeql_matrix=$codeQlMatrix"
+        "codeql=$($plan.CodeQlLanguages.Count -gt 0)".ToLowerInvariant()
+        "docs=$($plan.Docs)".ToLowerInvariant()
+    ) | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+}
+$global:LASTEXITCODE = 0

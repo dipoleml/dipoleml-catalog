@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.softeria.ms-365-mcp-server",
+  "type": "mcp",
+  "name": "Ms 365 MCP Server",
+  "slug": "ms-365-mcp-server",
+  "vendor": "softeria",
+  "description": "A Model Context Protocol (MCP) server for interacting with Microsoft 365 and Microsoft Office services through the Graph API",
+  "version": "0.0.0-development",
+  "homepage": "https://github.com/Softeria/ms-365-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "microsoft",
+    "brandName": "microsoft",
+    "source": "https://github.com/Softeria.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Softeria/ms-365-mcp-server",
+    "url": "https://github.com/Softeria/ms-365-mcp-server",
+    "commit": "d0a018ff2a2b28fd137515d6e3822b2a56cdf868",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1091,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@softeria/ms-365-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "@softeria/ms-365-mcp-server"
+    ],
+    "env": [
+      "MS365_MCP_GRAPH_BASE_URL",
+      "MS365_MCP_CLIENT_SECRET",
+      "OPENAI_API_KEY",
+      "MS365_MCP_OAUTH_TOKEN",
+      "MS365_MCP_ATTACHMENT_PORT",
+      "MS365_MCP_ATTACHMENT_HOST",
+      "MS365_MCP_KEYVAULT_URL",
+      "MS365_MCP_TOKEN_CACHE_PATH",
+      "MS365_MCP_ATTACHMENT_URL_TTL_S",
+      "MS365_MCP_ATTACHMENT_URL_BASE",
+      "MS365_MCP_ATTACHMENT_URL_KEY",
+      "MS365_MCP_ATTACHMENT_URL_KEY_ID"
+    ],
+    "credentials": [
+      "MS365_MCP_CLIENT_SECRET",
+      "OPENAI_API_KEY",
+      "MS365_MCP_OAUTH_TOKEN",
+      "MS365_MCP_KEYVAULT_URL",
+      "MS365_MCP_TOKEN_CACHE_PATH",
+      "MS365_MCP_ATTACHMENT_URL_KEY",
+      "MS365_MCP_ATTACHMENT_URL_KEY_ID",
+      "MS365_MCP_USE_KEYTAR"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

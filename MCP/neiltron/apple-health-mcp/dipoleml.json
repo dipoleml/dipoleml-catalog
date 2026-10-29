@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.neiltron.apple-health-mcp",
+  "type": "mcp",
+  "name": "Apple Health MCP",
+  "slug": "apple-health-mcp",
+  "vendor": "neiltron",
+  "description": "Local-first Apple Health MCP server. Lets AI assistants answer questions about your sleep, workouts, activity and heart data from a local export.",
+  "version": "1.4.5",
+  "homepage": "https://github.com/neiltron/apple-health-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "apple-health",
+    "duckdb",
+    "health-data",
+    "model-context-protocol",
+    "quantified-self",
+    "sql"
+  ],
+  "tags": [
+    "apple-health",
+    "claude",
+    "duckdb",
+    "health-data",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "quantified-self",
+    "sql"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "neiltron",
+    "brandName": "neiltron",
+    "source": "https://github.com/neiltron.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:24Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "neiltron/apple-health-mcp",
+    "url": "https://github.com/neiltron/apple-health-mcp",
+    "commit": "2fbcf29599a5eac38d9ad3e976ee27142be6a77b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 575,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:29Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@neiltron/apple-health-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "@neiltron/apple-health-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

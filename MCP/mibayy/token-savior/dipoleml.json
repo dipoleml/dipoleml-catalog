@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mibayy.token-savior",
+  "type": "mcp",
+  "name": "Token Savior",
+  "slug": "token-savior",
+  "vendor": "mibayy",
+  "description": "MCP server that gets DipoleML to 97.9% (188/192) on a real coding benchmark at -80% active tokens and -83% wall time, vs 78.3% plain. Structural code navigation + persistent memory engine. Works with every MCP client.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/Mibayy/token-savior",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mibayy",
+    "brandName": "mibayy",
+    "source": "https://github.com/Mibayy.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Mibayy/token-savior",
+    "url": "https://github.com/Mibayy/token-savior",
+    "commit": "770e055defd10b114591c4a426af67d9422e0330",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1196,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:25Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Token Savior | MCP server that gets Claude to 97.9% (188/192) on a real coding benchmark at -80% active tokens and -83% wall time, vs 78.3% plain. Structural code navigation + persistent memory engine. Works with every MCP client.",
+        "after": "Token Savior | MCP server that gets DipoleML to 97.9% (188/192) on a real coding benchmark at -80% active tokens and -83% wall time, vs 78.3% plain. Structural code navigation + persistent memory engine. Works with every MCP client.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "token-savior-recall"
+    ],
+    "env": [
+      "TOKEN_SAVIOR_CLIENT",
+      "TOKEN_SAVIOR_PROFILE",
+      "TOKEN_SAVIOR_CHAIN_NUDGE",
+      "TOKEN_SAVIOR_NO_WARMUP",
+      "TOKEN_SAVIOR_SESSION_LABEL",
+      "TOKEN_SAVIOR_EXCLUDE_PATTERNS",
+      "TOKEN_SAVIOR_MAX_FILE_SIZE",
+      "TOKEN_SAVIOR_MAX_FILES",
+      "TOKEN_SAVIOR_WATCHER",
+      "TS_VIEWER_PORT",
+      "TS_API_KEY",
+      "TOKEN_SAVIOR_MEMORY_AUTO_SAVE"
+    ],
+    "credentials": [
+      "TOKEN_SAVIOR_CLIENT",
+      "TOKEN_SAVIOR_PROFILE",
+      "TOKEN_SAVIOR_CHAIN_NUDGE",
+      "TOKEN_SAVIOR_NO_WARMUP",
+      "TOKEN_SAVIOR_SESSION_LABEL",
+      "TOKEN_SAVIOR_EXCLUDE_PATTERNS",
+      "TOKEN_SAVIOR_MAX_FILE_SIZE",
+      "TOKEN_SAVIOR_MAX_FILES"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

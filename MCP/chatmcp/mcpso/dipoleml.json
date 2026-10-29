@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.chatmcp.mcpso",
+  "type": "mcp",
+  "name": "Mcpso",
+  "slug": "mcpso",
+  "vendor": "chatmcp",
+  "description": "directory for Awesome MCP Servers",
+  "version": "0.1.0",
+  "homepage": "https://github.com/chatmcp/mcpso",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "awesome-mcp-servers",
+    "mcp-server-store",
+    "mcp-servers-directory"
+  ],
+  "tags": [
+    "awesome-mcp-servers",
+    "mcp",
+    "mcp-server-store",
+    "mcp-servers",
+    "mcp-servers-directory"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "chatmcp",
+    "brandName": "chatmcp",
+    "source": "https://github.com/chatmcp.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:46Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "chatmcp/mcpso",
+    "url": "https://github.com/chatmcp/mcpso",
+    "commit": "e14f33850f449dce186eb78bbf05b075065c2ca4",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 2115,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "navfast"
+    ],
+    "env": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "NEXT_PUBLIC_WEB_URL"
+    ],
+    "credentials": [
+      "SUPABASE_ANON_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

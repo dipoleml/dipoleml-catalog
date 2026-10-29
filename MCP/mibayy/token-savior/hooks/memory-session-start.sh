@@ -1,0 +1,443 @@
+#!/bin/bash
+# Memory Engine — SessionStart hook
+#
+# TS_HOOK_MINIMAL=1     -> emit only the Memory Index block (skip Continuity,
+#                          Tool Capture status, Warm start, statusline, decay).
+# Memory Index budget (mesure le 07/10/2026 : ~1 160 car. en moyenne, aucun
+# #NNN injecte jamais cite par le modele sur 7 jours). Bornes reglables :
+#   TS_SESSION_INDEX_MAX=12            nombre maximal d'observations injectees
+#   TS_SESSION_INDEX_TYPES=guardrail,warning,decision
+#                                      types retenus (liste separee par des virgules)
+#   TS_SESSION_INDEX_RECENT_DAYS=14    les observations plus jeunes passent d'abord,
+#                                      les plus anciennes ne comblent que le reste
+#   TS_SESSION_INDEX_EXCLUDE='chmod,chown,restart,start,stop,enable,reload'
+#                                      premiers mots de titre exclus (traces automatiques)
+#   TS_SESSION_LINE_MAX=100            les lignes Continuity et Tool Capture ne sont
+#                                      emises que si elles tiennent dans ce nombre de
+#                                      caracteres (0 = les retirer toujours)
+# TS_MEMORY_DISABLE=1   -> short-circuit entirely (no output at all). Used by
+#                          tsbench subprocesses where cross-project memory
+#                          would pollute task context.
+
+# --- resolution des chemins (voir scripts/deroot_hooks.py) ---
+# Aucun chemin en dur : ces scripts sont livres dans la roue PyPI et doivent
+# fonctionner sur la machine de l'utilisateur, pas sur celle de l'auteur.
+TS_DATA="${TOKEN_SAVIOR_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/token-savior}"
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
+TS_BACKUP="${TOKEN_SAVIOR_BACKUP_DIR:-$TS_DATA/memory-backup}"
+# Interpreteur : celui qui sait importer token_savior. Un venv dedie l'emporte
+# s'il est declare, sinon on prend le python du PATH.
+# La sonde `python3 -c "import token_savior"` demarre un interpreteur complet,
+# mesure a ~127 ms sur ce VPS, et elle etait payee a CHAQUE appel de hook, donc
+# a chaque outil utilise par l'agent. Le resultat est desormais memorise, et
+# invalide des que le binaire python change (chemin + mtime + taille).
+if [ -n "${TOKEN_SAVIOR_PYTHON:-}" ]; then
+  TS_PY="$TOKEN_SAVIOR_PYTHON"
+else
+  _ts_py_bin="$(command -v python3 2>/dev/null)"
+  if [ -z "$_ts_py_bin" ]; then
+    TS_PY="${TS_PY:-python3}"
+  else
+    _ts_cache="${XDG_CACHE_HOME:-$HOME/.cache}/token-savior/interpreteur"
+    _ts_sig="$_ts_py_bin:$(stat -c '%Y:%s' "$_ts_py_bin" 2>/dev/null || echo 0)"
+    if [ -r "$_ts_cache" ] && IFS='|' read -r _c_sig _c_py < "$_ts_cache" 2>/dev/null \
+       && [ "$_c_sig" = "$_ts_sig" ] && [ -n "$_c_py" ]; then
+      TS_PY="$_c_py"
+    else
+      if "$_ts_py_bin" -c "import token_savior" 2>/dev/null; then
+        TS_PY="$_ts_py_bin"
+      else
+        TS_PY="${TS_PY:-python3}"
+      fi
+      mkdir -p "$(dirname "$_ts_cache")" 2>/dev/null \
+        && printf '%s|%s\n' "$_ts_sig" "$TS_PY" > "$_ts_cache" 2>/dev/null || true
+    fi
+    unset _ts_py_bin _ts_cache _ts_sig _c_sig _c_py
+  fi
+fi
+# Checkout source : utile en developpement seulement. Apres `pip install`,
+# token_savior est importable sans rien ajouter a sys.path.
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
+TS_SRC="${TOKEN_SAVIOR_SRC:-}"
+# shellcheck disable=SC2034  # preambule partage : chaque hook n en consomme qu un sous-ensemble
+TS_SCRIPTS="${TOKEN_SAVIOR_SCRIPTS:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd)/scripts}"
+# --- fin --- resolution des chemins (voir scripts/deroot_hooks.py) --- fin ---
+
+if [ "$TS_MEMORY_DISABLE" = "1" ]; then
+    exit 0
+fi
+
+# -- token-savior hook error log (see GitHub #15) ---------------------------
+# Re-routes stderr from Python / claude sub-shells so a broken import, a
+# missing venv, or a corrupt DB surfaces somewhere instead of vanishing.
+# Rotates at 2 MB (keeps tail 1 MB) so it never fills the disk.
+ERR_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/token-savior/hook-errors.log"
+mkdir -p "$(dirname "$ERR_LOG")" 2>/dev/null || true
+if [ -f "$ERR_LOG" ] && [ "$(stat -c%s "$ERR_LOG" 2>/dev/null || echo 0)" -gt 2000000 ]; then
+    tail -c 1000000 "$ERR_LOG" > "$ERR_LOG.tmp" 2>/dev/null && mv "$ERR_LOG.tmp" "$ERR_LOG"
+fi
+# -- end token-savior hook error log -----------------------------------------
+RESULT=$($TS_PY -c "
+import sys, os, json
+sys.path.insert(0, '$TS_SRC')
+from token_savior import memory_db
+
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
+
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, '').strip() or default)
+    except ValueError:
+        return default
+
+def _env_list(name, default):
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        raw = default
+    return [x.strip().lower() for x in raw.split(',') if x.strip()]
+
+idx_max = max(0, _env_int('TS_SESSION_INDEX_MAX', 12))
+idx_types = _env_list('TS_SESSION_INDEX_TYPES', 'guardrail,warning,decision')
+idx_days = _env_int('TS_SESSION_INDEX_RECENT_DAYS', 14)
+idx_excl = _env_list('TS_SESSION_INDEX_EXCLUDE', 'chmod,chown,restart,start,stop,enable,reload')
+
+# Adaptive budget based on remaining context (never above idx_max)
+try:
+    ctx_pct = int(os.environ.get('CLAUDE_CONTEXT_REMAINING_PCT', '100'))
+except ValueError:
+    ctx_pct = 100
+
+if ctx_pct >= 40:
+    limit = idx_max
+elif ctx_pct >= 20:
+    limit = min(5, idx_max)
+else:
+    limit = min(3, idx_max)
+types = idx_types if ctx_pct >= 20 else ['guardrail']
+types = [t for t in types if t] or ['guardrail']
+
+mode_name = None
+try:
+    mode_name = memory_db.get_current_mode(project_root=project or None).get('name', 'code')
+except Exception:
+    pass
+
+import re as _re
+_excl_re = _re.compile(r'^\W*(?:' + '|'.join(_re.escape(w) for w in idx_excl) + r')(?:\W|$)', _re.I) if idx_excl else None
+
+def _select(rows):
+    import time as _t
+    now = _t.time()
+    kept = [r for r in rows
+            if r['type'] in types and not (_excl_re and _excl_re.match(r.get('title') or ''))]
+    def _recent(r):
+        ep = r.get('created_at_epoch') or 0
+        return ep and (now - ep) < idx_days * 86400
+    # recentes d'abord, puis score decroissant
+    kept.sort(key=lambda r: (0 if _recent(r) else 1, -(r.get('score') or 0)))
+    return kept[:limit]
+
+def _fetch(proj):
+    if limit <= 0:
+        return []
+    return _select(memory_db.get_recent_index(proj, limit=500, type_filter=types, mode=mode_name))
+
+rows = _fetch(project) if project else []
+
+if not rows:
+    db = memory_db.get_db()
+    row = db.execute(
+        'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+    ).fetchone()
+    db.close()
+    if row:
+        project = row[0]
+        rows = _fetch(project)
+
+def _fmt_row(r):
+    age = r.get('age') or '?'
+    glob = '🌐 ' if r.get('is_global') else ''
+    stale = '⚠️ ' if r.get('stale_suspected') else ''
+    sym = f\" [{r['symbol']}]\" if r.get('symbol') else ''
+    sc = r.get('score')
+    sc_str = f\" ★{sc:.2f}\" if sc is not None else ''
+    exp = r.get('expires_at_epoch')
+    ttl_str = ''
+    if exp:
+        import time as _t
+        secs = exp - int(_t.time())
+        if secs < 7 * 86400:
+            if secs <= 0:
+                ttl_str = ' ⏰ expired'
+            else:
+                ttl_str = f' ⏰ {max(1, secs // 86400)}d'
+    return f\"  #{r['id']}  [{r['type']}]  {stale}{glob}{r['title']}{sym}  {age}{sc_str}{ttl_str}\"
+
+if rows:
+    import hashlib
+    from pathlib import Path as _P
+    state_file = _P('$TS_DATA/last_injected_state.json')
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    last_state = {}
+    if state_file.exists():
+        try:
+            last_state = json.loads(state_file.read_text())
+        except Exception:
+            last_state = {}
+
+    current_ids = [r['id'] for r in rows]
+    payload = json.dumps({'ids': current_ids, 'mode': mode_name})
+    current_hash = hashlib.md5(payload.encode()).hexdigest()
+    last_ids = set(last_state.get('injected_ids', []))
+    last_mode = last_state.get('mode')
+    mode_tag = f' · mode:{mode_name}' if mode_name else ''
+
+    if current_hash == last_state.get('hash'):
+        print(f'### 📌 Memory Index [{mode_tag.lstrip(\" ·\")} · unchanged]')
+    else:
+        new_ids = set(current_ids) - last_ids
+        removed_ids = last_ids - set(current_ids)
+        delta_size = len(new_ids) + len(removed_ids)
+        if last_ids and last_mode == mode_name and 0 < delta_size <= 5:
+            print(f'### 📌 Memory Index [{mode_tag.lstrip(\" ·\")} · delta +{len(new_ids)}/-{len(removed_ids)}]')
+            rows_by_id = {r['id']: r for r in rows}
+            for oid in new_ids:
+                r = rows_by_id.get(oid, {})
+                print('  ✚ ' + _fmt_row(r).lstrip())
+            for oid in removed_ids:
+                print(f'  ✖ #{oid} removed from index')
+        else:
+            print(f'### 📌 Memory Index (context: {ctx_pct}% · {len(rows)} obs{mode_tag})')
+            for r in rows:
+                print(_fmt_row(r))
+        state_file.write_text(json.dumps({
+            'hash': current_hash,
+            'injected_ids': current_ids,
+            'injected_at_epoch': int(__import__('time').time()),
+            'mode': mode_name,
+        }))
+    print('')
+
+# Continuity score (one short line, or nothing)
+_line_max = _env_int('TS_SESSION_LINE_MAX', 100)
+if project:
+    try:
+        cs = memory_db.compute_continuity_score(project)
+        if cs.get('total', 0) > 0:
+            _line = f\"🧭 Continuity {cs['score']}% ({cs['label']})\"
+            if _line_max > 0 and len(_line) <= _line_max:
+                print(_line)
+    except Exception:
+        pass
+" 2>>"$ERR_LOG")
+
+if [ -n "$RESULT" ]; then
+    echo "$RESULT"
+fi
+
+# Track tokens_injected on active session
+INJECTED_CHARS=$(printf '%s' "$RESULT" | wc -c)
+INJECTED_TOKENS=$((INJECTED_CHARS / 4))
+if [ "$INJECTED_TOKENS" -gt 0 ]; then
+    $TS_PY -c "
+import sys, os
+sys.path.insert(0, '$TS_SRC')
+from token_savior import memory_db
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
+if not project:
+    db = memory_db.get_db()
+    row = db.execute('SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1').fetchone()
+    db.close()
+    project = row[0] if row else ''
+if project:
+    db = memory_db.get_db()
+    row = db.execute('SELECT id FROM sessions WHERE project_root=? AND status=? ORDER BY created_at_epoch DESC LIMIT 1', [project, 'active']).fetchone()
+    if row:
+        db.execute('UPDATE sessions SET tokens_injected=? WHERE id=?', [$INJECTED_TOKENS, row[0]])
+        db.commit()
+    db.close()
+" 2>>"$ERR_LOG"
+fi
+
+# TS_HOOK_MINIMAL=1 short-circuit — skip warm-start, capture status,
+# statusline, and weekly housekeeping subshell. Memory Index + Continuity
+# already emitted above are kept.
+if [ "$TS_HOOK_MINIMAL" = "1" ]; then
+    exit 0
+fi
+
+# Warm start: find similar historical sessions by signature and pre-warm PPM
+WARMSTART=$($TS_PY -c "
+import sys, os
+sys.path.insert(0, '$TS_SRC')
+from pathlib import Path
+from token_savior.session_warmstart import SessionWarmStart, compute_signature
+from token_savior.markov_prefetcher import PPMPrefetcher
+from token_savior import memory_db
+
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
+if not project:
+    db = memory_db.get_db()
+    row = db.execute('SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1').fetchone()
+    db.close()
+    project = row[0] if row else ''
+
+try:
+    mode = memory_db.get_current_mode(project_root=project or None)
+    mode_name = mode.get('name', 'code')
+except Exception:
+    mode_name = 'code'
+
+stats_dir = Path(os.path.expanduser('~/.local/share/token-savior'))
+ws = SessionWarmStart(stats_dir)
+
+# Embryo signature — only mode + project known, no tools yet.
+embryo = compute_signature({'tool_counts': {}, 'duration_min': 0, 'turns': 0, 'obs_accessed': 0, 'symbols': [], 'mode': mode_name})
+similar = ws.find_similar_sessions(embryo, project_root=project or None, top_k=3, min_sim=0.3)
+
+if similar:
+    best_sim = similar[0][1]
+    prefetcher = PPMPrefetcher(stats_dir)
+    seeded_pairs = 0
+    for entry, _ in similar:
+        tc = entry.get('tool_counts') or {}
+        top_tools = sorted(tc.items(), key=lambda x: -x[1])[:3]
+        for i in range(len(top_tools) - 1):
+            prefetcher.record_call(top_tools[i][0], '')
+            seeded_pairs += 1
+        if top_tools:
+            prefetcher.record_call(top_tools[-1][0], '')
+    prefetcher.save()
+    print(f'🔥 Warm start: {len(similar)} similar sessions (best: {best_sim:.0%}) — {seeded_pairs} PPM seeds')
+" 2>>"$ERR_LOG")
+
+if [ -n "$WARMSTART" ]; then
+    echo "$WARMSTART"
+fi
+
+# Tool Capture status — show recent sandbox count if table populated
+CAPTURELINE=$($TS_PY -c "
+import sys, os, time
+sys.path.insert(0, '$TS_SRC')
+try:
+    from token_savior import db_core
+    conn = db_core.get_db()
+    row = conn.execute('SELECT COUNT(*) FROM tool_captures').fetchone()
+    total = row[0] if row else 0
+    if total > 0:
+        cutoff = int(time.time()) - 3600
+        recent = conn.execute('SELECT COUNT(*) FROM tool_captures WHERE created_at_epoch > ?', (cutoff,)).fetchone()[0]
+        bytes_total = conn.execute('SELECT COALESCE(SUM(output_bytes), 0) FROM tool_captures').fetchone()[0]
+        kb = bytes_total // 1024
+        _line = f'📦 Tool Capture {total} ({kb}KB, {recent}/h) · capture_search'
+        if int(os.environ.get('TS_SESSION_LINE_MAX', '100') or 100) >= len(_line) > 0:
+            print(_line)
+    conn.close()
+except Exception:
+    pass
+" 2>>"$ERR_LOG")
+if [ -n "$CAPTURELINE" ]; then
+    echo "$CAPTURELINE"
+fi
+
+# Statusline: [mem:N obs · mode:X]
+STATUSLINE=$($TS_PY -c "
+import sys, os
+sys.path.insert(0, '$TS_SRC')
+from token_savior import memory_db
+
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
+db = memory_db.get_db()
+if not project:
+    row = db.execute(
+        'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+    ).fetchone()
+    project = row[0] if row else ''
+count = 0
+if project:
+    count = db.execute(
+        'SELECT COUNT(*) FROM observations WHERE project_root=? AND archived=0',
+        [project],
+    ).fetchone()[0]
+db.close()
+
+mode = memory_db.get_current_mode(project_root=project or None)
+mode_name = mode.get('name', 'code')
+origin = mode.get('origin', 'global')
+try:
+    tracker = memory_db._read_activity_tracker()
+    src = tracker.get('current_mode_source', 'auto')
+    label = 'auto-detected' if src == 'auto' else src
+except Exception:
+    label = origin
+print(f'[mem:{count} obs · mode:{mode_name} · {label}]')
+" 2>>"$ERR_LOG")
+
+if [ -n "$STATUSLINE" ]; then
+    echo "$STATUSLINE"
+fi
+
+# Weekly auto-decay (fire-and-forget, background)
+(
+    FLAG=$TS_DATA/last_decay
+    mkdir -p "$(dirname "$FLAG")"
+    NOW=$(date +%s)
+    LAST=0
+    [ -f "$FLAG" ] && LAST=$(cat "$FLAG" 2>/dev/null || echo 0)
+    AGE=$((NOW - LAST))
+    if [ "$AGE" -ge 604800 ]; then
+        $TS_PY -c "
+import sys, os
+sys.path.insert(0, '$TS_SRC')
+from token_savior import memory_db
+
+project = os.environ.get('CLAUDE_PROJECT_ROOT') or os.environ.get('CLAUDE_PROJECT_DIR') or os.environ.get('PWD', '')
+if not project:
+    db = memory_db.get_db()
+    row = db.execute(
+        'SELECT project_root FROM observations GROUP BY project_root ORDER BY COUNT(*) DESC LIMIT 1'
+    ).fetchone()
+    db.close()
+    if row:
+        project = row[0]
+
+if project:
+    res = memory_db.run_decay(project, dry_run=False)
+    print(f'[decay] archived={res.get(\"archived\",0)} kept={res.get(\"kept\",0)} immune={res.get(\"immune\",0)}', file=sys.stderr)
+    promo = memory_db.run_promotions(project_root='', dry_run=False)
+    if promo.get('count', 0) > 0:
+        print(f'[promote] {promo[\"count\"]} obs elevated', file=sys.stderr)
+" 2>>"$ERR_LOG"
+        echo "$NOW" > "$FLAG"
+    fi
+
+    # Monthly Token Economy ROI garbage collection (30-day interval)
+    ROI_FLAG=$TS_DATA/last_roi_gc
+    LAST_ROI=0
+    [ -f "$ROI_FLAG" ] && LAST_ROI=$(cat "$ROI_FLAG" 2>>"$ERR_LOG" || echo 0)
+    AGE_ROI=$((NOW - LAST_ROI))
+    if [ "$AGE_ROI" -ge 2592000 ]; then
+        $TS_PY -c "
+import sys
+sys.path.insert(0, '$TS_SRC')
+from token_savior import memory_db
+res = memory_db.run_roi_gc(dry_run=False)
+print(f'[roi-gc] archived={res.get(\"archived\",0)} kept={res.get(\"kept\",0)} threshold={res.get(\"threshold\",0)}', file=sys.stderr)
+" 2>>"$ERR_LOG"
+        echo "$NOW" > "$ROI_FLAG"
+    fi
+
+    # Weekly markdown export (fire-and-forget)
+    EXPORT_FLAG=$TS_DATA/last_md_export
+    LAST_EXP=0
+    [ -f "$EXPORT_FLAG" ] && LAST_EXP=$(cat "$EXPORT_FLAG" 2>>"$ERR_LOG" || echo 0)
+    AGE_EXP=$((NOW - LAST_EXP))
+    if [ "$AGE_EXP" -ge 604800 ]; then
+        $TS_PY \
+            $TS_SCRIPTS/export_markdown.py \
+            --output-dir $TS_BACKUP >/dev/null 2>&1
+        echo "$NOW" > "$EXPORT_FLAG"
+    fi
+) &
+
+exit 0

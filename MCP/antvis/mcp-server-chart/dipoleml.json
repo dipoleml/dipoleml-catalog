@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.antvis.mcp-server-chart",
+  "type": "mcp",
+  "name": "MCP Server Chart",
+  "slug": "mcp-server-chart",
+  "vendor": "antvis",
+  "description": "🤖 A visualization mcp & skills contains 25+ visual charts using @antvis. Using for chart generation and data analysis.",
+  "version": "0.9.11",
+  "homepage": "https://github.com/antvis/mcp-server-chart",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "antv",
+    "skills",
+    "visualization"
+  ],
+  "tags": [
+    "antv",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "skills",
+    "visualization"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "antvis",
+    "brandName": "antvis",
+    "source": "https://github.com/antvis.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:40Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "antvis/mcp-server-chart",
+    "url": "https://github.com/antvis/mcp-server-chart",
+    "commit": "e2a8fb7c185e17c75c067817ff1a2acfddf49aa1",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4406,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@antv/mcp-server-chart"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "@antv/mcp-server-chart"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

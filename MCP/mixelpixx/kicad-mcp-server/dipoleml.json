@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.mixelpixx.kicad-mcp-server",
+  "type": "mcp",
+  "name": "Kicad MCP Server",
+  "slug": "kicad-mcp-server",
+  "vendor": "mixelpixx",
+  "description": "KiCAD MCP is a Model Context Protocol (MCP) implementation that enables Large Language Models (LLMs) like DipoleML to directly interact with KiCAD for printed circuit board design.",
+  "version": "2.8.3",
+  "homepage": "https://github.com/mixelpixx/KiCAD-MCP-Server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mixelpixx",
+    "brandName": "mixelpixx",
+    "source": "https://github.com/mixelpixx.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mixelpixx/KiCAD-MCP-Server",
+    "url": "https://github.com/mixelpixx/KiCAD-MCP-Server",
+    "commit": "628d320f4cd51b51e55489fd6f29f20c228e2741",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3003,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:51Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Kicad MCP Server | KiCAD MCP is a Model Context Protocol (MCP) implementation that enables Large Language Models (LLMs) like Claude to directly interact with KiCAD for printed circuit board design.",
+        "after": "Kicad MCP Server | KiCAD MCP is a Model Context Protocol (MCP) implementation that enables Large Language Models (LLMs) like DipoleML to directly interact with KiCAD for printed circuit board design.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node",
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "kicad-mcp",
+      "kicad-mcp-server"
+    ],
+    "env": [
+      "REPORT",
+      "JLCPCB_API_KEY",
+      "JLCPCB_API_SECRET"
+    ],
+    "credentials": [
+      "JLCPCB_API_KEY",
+      "JLCPCB_API_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

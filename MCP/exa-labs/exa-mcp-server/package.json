@@ -1,0 +1,85 @@
+{
+  "name": "exa-mcp-server",
+  "version": "3.4.2",
+  "description": "Connect AI agents to Exa for web search, content fetching, and multi-step research.",
+  "mcpName": "ai.exa/exa",
+  "type": "module",
+  "module": "./src/stdio.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/exa-labs/exa-mcp-server.git"
+  },
+  "bin": {
+    "exa-mcp-server": "dist/stdio.cjs"
+  },
+  "files": [
+    "dist/stdio.cjs",
+    "skills",
+    "plugin.json",
+    "mcp.json"
+  ],
+  "keywords": [
+    "mcp",
+    "search mcp",
+    "model context protocol",
+    "exa",
+    "agent",
+    "search",
+    "websearch",
+    "claude",
+    "ai",
+    "research",
+    "papers",
+    "people"
+  ],
+  "author": "Exa Labs",
+  "license": "MIT",
+  "scripts": {
+    "build": "npm run build:stdio",
+    "build:runtime": "tsc",
+    "build:stdio": "esbuild src/stdio-cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/stdio.cjs --banner:js=\"#!/usr/bin/env node\" && chmod +x dist/stdio.cjs",
+    "build:vercel": "npm install typescript && ./node_modules/.bin/tsc",
+    "setup": "npm ci",
+    "start": "npm run dev",
+    "start:runtime": "node dist/src/runtime-server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "ci": "npm run format:check && npm run typecheck && npm run test",
+    "prepare": "npm run build:stdio",
+    "watch": "./node_modules/.bin/tsc --watch",
+    "dev": "tsx src/stdio-cli.ts",
+    "dev:vercel": "vercel dev",
+    "inspector": "npx @modelcontextprotocol/inspector dist/stdio.cjs",
+    "prepublishOnly": "npm run build:stdio"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "agnost": "^0.2.0",
+    "exa-js": "^2.16.0",
+    "jose": "^6.2.2",
+    "mcp-handler": "^1.0.4",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.36.1",
+    "@vitest/coverage-v8": "4.1.5",
+    "esbuild": "^0.25.12",
+    "prettier": "3.8.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.9.3",
+    "vercel": "^37.0.0",
+    "vitest": "4.1.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "overrides": {
+    "tar": "^7.5.7"
+  }
+}

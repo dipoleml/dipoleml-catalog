@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.metatool-ai.metamcp",
+  "type": "mcp",
+  "name": "Metamcp",
+  "slug": "metamcp",
+  "vendor": "metatool-ai",
+  "description": "MCP Aggregator, Orchestrator, Middleware, Gateway in one docker",
+  "version": "0.0.0",
+  "homepage": "https://github.com/metatool-ai/metamcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "mcp-gateway",
+    "mcp-host",
+    "mcp-middleware",
+    "mcp-to-openapi",
+    "mcp-tools",
+    "model-context-protocol",
+    "model-context-protocol-server",
+    "model-context-protocol-servers"
+  ],
+  "tags": [
+    "mcp",
+    "mcp-gateway",
+    "mcp-host",
+    "mcp-middleware",
+    "mcp-server",
+    "mcp-servers",
+    "mcp-to-openapi",
+    "mcp-tools",
+    "model-context-protocol",
+    "model-context-protocol-server",
+    "model-context-protocol-servers",
+    "open-webui",
+    "openapi",
+    "self-hosted",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "docker",
+    "brandName": "docker",
+    "source": "https://cdn.simpleicons.org/docker",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:17Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "metatool-ai/metamcp",
+    "url": "https://github.com/metatool-ai/metamcp",
+    "commit": "ff4ff2de9d25453c52dcc7be32680b30700a6012",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 2734,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:25:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "metamcp"
+    ],
+    "env": [
+      "API_KEY",
+      "OPENAI_API_KEY",
+      "DATABASE_URL",
+      "APP_URL",
+      "API_ACCESS_TOKEN",
+      "YOUR_API_KEY_HERE",
+      "OIDC_CLIENT_SECRET",
+      "OIDC_DISCOVERY_URL"
+    ],
+    "credentials": [
+      "API_KEY",
+      "OPENAI_API_KEY",
+      "API_ACCESS_TOKEN",
+      "YOUR_API_KEY_HERE",
+      "OIDC_CLIENT_SECRET"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

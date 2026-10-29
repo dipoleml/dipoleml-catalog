@@ -1,0 +1,525 @@
+# Copyright (c) 2024- Datalayer, Inc.
+#
+# BSD 3-Clause License
+
+"""The Jupyter MCP Server sandboxes extension.
+
+Registers the sandbox lifecycle tools (``launch_sandbox``, ``list_sandboxes``,
+``use_sandbox``, ``terminate_sandbox``), routes ``execute_code`` to the active
+sandbox when one is selected, and provides sandbox-backed kernels for
+non-``jupyter-server`` sandbox variants.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Annotated, Any, Literal
+
+from code_sandboxes import normalize_variant
+from mcp.types import ToolAnnotations
+from pydantic import Field
+from reactor import PluginCompatibility, PluginManifest
+from reactor_mcp_server import ToolSpec, Toolset
+
+from jupyter_mcp_sandboxes.manager import CodeSandboxManager
+from jupyter_mcp_sandboxes.tools import (
+    LaunchSandboxTool,
+    ListSandboxesTool,
+    TerminateSandboxTool,
+    UseSandboxTool,
+)
+from jupyter_mcp_server.config import JUPYTER_SERVER_VARIANT, get_config
+from jupyter_mcp_server.extensions import JupyterMCPExtension
+from jupyter_mcp_server.hooks import with_hooks
+from jupyter_mcp_server.results import ToolAnswer, structured
+from jupyter_mcp_server.server_context import ServerContext
+from jupyter_mcp_server.utils import safe_notebook_operation
+
+logger = logging.getLogger(__name__)
+
+
+def _version() -> str:
+    """This distribution's version, as installed.
+
+    Read rather than written down: the manifest is the version reactor lists,
+    and a literal here said `0.1.0` while the wheel said `0.2.5` — so an
+    installed extension identified itself as a release from before the
+    entry-point group it is published on existed.
+
+    A checkout that is not installed has no metadata to read; `0.0.0` is the
+    honest answer, and is what a test importing the module from the source
+    tree sees.
+    """
+    from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+
+    try:
+        return version("jupyter_mcp_sandboxes")
+    except PackageNotFoundError:  # pragma: no cover - a source tree, uninstalled
+        return "0.0.0"
+
+#: What each tool tells a client about itself. Module level, so the
+#: annotations are one fact per tool rather than one per registration.
+LAUNCH_SANDBOX_ANNOTATIONS = ToolAnnotations(
+    title="Launch Sandbox",
+    destructiveHint=True,
+    # Each call launches another sandbox, which costs money; and
+    # a sandbox runs arbitrary code, so its reach is whatever the
+    # provider's is.
+    idempotentHint=False,
+    openWorldHint=True,
+)
+
+LIST_SANDBOXES_ANNOTATIONS = ToolAnnotations(
+    title="List Sandboxes",
+    readOnlyHint=True,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+USE_SANDBOX_ANNOTATIONS = ToolAnnotations(
+    title="Use Sandbox",
+    destructiveHint=True,
+    # Selecting the same sandbox again leaves the same selection.
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+TERMINATE_SANDBOX_ANNOTATIONS = ToolAnnotations(
+    title="Terminate Sandbox",
+    destructiveHint=True,
+    # Terminating one already gone leaves it gone. Safe to retry,
+    # which is what a client needs to know when a call times out
+    # and it cannot tell whether the sandbox went.
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+
+
+class SandboxesExtension(JupyterMCPExtension):
+    """Sandboxes extension for Jupyter MCP Server."""
+
+    def __init__(self) -> None:
+        self._manager = CodeSandboxManager()
+
+    @property
+    def sandboxes(self) -> CodeSandboxManager:
+        """The sandboxes this extension launched, for extensions built on it.
+
+        A downstream extension adding a sandbox tool — a snapshot, a mount —
+        has to act on *this* registry, the one `launch_sandbox` wrote to and
+        `use_sandbox` points into. Building its own would be a second set of
+        sandboxes with the same names, where "the active one" means two
+        different things depending on which tool you called.
+
+        Public rather than reached for: the alternative is downstream code
+        touching ``_manager``, which works until this class holds its
+        sandboxes some other way.
+        """
+        return self._manager
+
+    def manifest(self) -> PluginManifest:
+        return PluginManifest(
+            name="jupyter-mcp-sandboxes",
+            version=_version(),
+            description=(
+                "Launch and use code-sandboxes code sandboxes as an alternative to "
+                "Jupyter kernels for code execution."
+            ),
+            author="Datalayer",
+            tags=["sandbox", "execution"],
+            compatibility=PluginCompatibility(api_version="v1"),
+        )
+
+    def toolsets(self) -> tuple[Toolset, ...]:
+        """`sandboxes`, and named rather than left to default.
+
+        A tool that names no toolset goes in one named after its plugin, so
+        these four were in `jupyter-mcp-sandboxes` — which is a package name,
+        not something a client would put in a URL. Worse, a deployment adding
+        its own sandbox tools under `sandboxes` (the Datalayer gateway
+        attaches contents, takes snapshots and reads an environment
+        catalogue there) split the two: `?only=sandboxes` gave twenty tools
+        that each need a sandbox and no way to launch one.
+
+        One name for one subject. A deployment that adds to it declares
+        `sandboxes` as well, and the tools arrive together.
+        """
+        return (
+            Toolset(
+                name="sandboxes",
+                description="Launch, use and terminate code sandboxes.",
+            ),
+        )
+
+    # -- Kernel factory -----------------------------------------------------
+
+    @staticmethod
+    def _is_reusable(client: Any, log: logging.Logger) -> bool:
+        """Whether the selected client can actually run code.
+
+        A client without ``is_alive`` is trusted (nothing to ask); a check
+        that raises counts as dead — a client that cannot even answer the
+        question is not one to bind a notebook to.
+        """
+        is_alive = getattr(client, "is_alive", None)
+        if is_alive is None:
+            return True
+        try:
+            return bool(is_alive())
+        except Exception:
+            log.warning("Liveness check on the active sandbox failed", exc_info=True)
+            return False
+
+    def get_active_code_sandbox(self, config: Any, log: logging.Logger) -> Any | None:
+        """Return the sandbox selected with ``use_sandbox`` when it is live."""
+        active = self._manager.get_active()
+        if active is None:
+            return None
+        if self._is_reusable(active, log):
+            return active
+        log.warning(
+            "The active sandbox [%s] is not alive; ignoring it",
+            self._manager.get_active_name(),
+        )
+        return None
+
+    def create_new_code_sandbox(self, config: Any, log: logging.Logger) -> Any | None:
+        """Build a fresh sandbox, even when another one is selected."""
+        uses_variant = getattr(config, "uses_sandbox_variant", None)
+        if not (uses_variant and config.uses_sandbox_variant()):
+            return None
+
+        from jupyter_mcp_sandboxes.kernel import create_sandbox_client
+
+        try:
+            sandbox_client = create_sandbox_client(config, log)
+            log.info(
+                "Code sandbox client created and started (variant=%s)",
+                config.sandbox_variant,
+            )
+            return sandbox_client
+        except Exception:
+            log.exception(
+                "Failed to create code sandbox client (variant=%s)", config.sandbox_variant
+            )
+            raise
+
+    def create_code_sandbox(self, config: Any, log: logging.Logger) -> Any | None:
+        """Build a sandbox-backed kernel when a non-jupyter-server variant is set."""
+        # The sandbox the caller selected with `use_sandbox`, when there is
+        # one. Creating a fresh sandbox here would ignore that choice, pay for
+        # a second runtime, and run the cell somewhere other than where the
+        # caller pointed — the notebook binds to this client, so this is also
+        # what makes "assign the sandbox to the notebook" true. A selected
+        # jupyter-server sandbox is equally valid even when the server's
+        # configured variant is the core Jupyter path.
+        active = self.get_active_code_sandbox(config, log)
+        if active is not None:
+            log.info(
+                "Reusing the active sandbox [%s] as the execution backend",
+                self._manager.get_active_name(),
+            )
+            return active
+
+        uses_variant = getattr(config, "uses_sandbox_variant", None)
+        if not (uses_variant and config.uses_sandbox_variant()):
+            return None
+
+        from jupyter_mcp_sandboxes.kernel import create_sandbox_client
+
+        try:
+            sandbox_client = create_sandbox_client(config, log)
+            log.info(
+                "Code sandbox client created and started (variant=%s)",
+                config.sandbox_variant,
+            )
+            return sandbox_client
+        except Exception:
+            log.exception(
+                "Failed to create code sandbox client (variant=%s)", config.sandbox_variant
+            )
+            raise
+
+    # -- execute_code interception -----------------------------------------
+
+    async def intercept_execute_code(
+        self, code: str, timeout: int
+    ) -> list[Any] | None:
+        """Route execute_code to the active sandbox when one is selected."""
+        if not self._manager.get_active_name():
+            return None
+
+        async def _execute_in_active_sandbox() -> list[Any]:
+            return self._manager.execute_on_active(code=code, timeout=timeout)
+
+        return await safe_notebook_operation(_execute_in_active_sandbox, max_retries=1)
+
+    # -- Lifecycle ----------------------------------------------------------
+
+    def on_stop(self) -> None:
+        self._manager.terminate_all()
+
+    # -- The tools this extension offers -------------------------------------
+
+    def tools(self) -> list[ToolSpec]:
+        """The four sandbox lifecycle tools.
+
+        Declared rather than registered: the host collects them, applies
+        whatever other extensions have contributed *to* them, and puts the
+        result on a server. `launch_sandbox` is the one downstream extensions
+        narrow, which they now do by name instead of by loading second.
+        """
+        manager = self._manager
+        server_context = ServerContext.get_instance()
+
+        @structured("sandbox.launch")
+        @with_hooks("launch_sandbox")
+        async def launch_sandbox(
+            sandbox_name: Annotated[
+                str, Field(description="Unique sandbox identifier used by list/use/terminate tools")
+            ],
+            variant: Annotated[
+                Literal[
+                    "eval",
+                    "docker",
+                    "jupyter-server",
+                    "datalayer",
+                    "daytona",
+                    "e2b",
+                    "coreweave",
+                    "cloudflare",
+                    "google-colab",
+                    "kaggle",
+                    "monty",
+                    "modal",
+                ]
+                | None,
+                Field(
+                    description=(
+                        "Sandbox variant to launch. If omitted, defaults to configured "
+                        "SANDBOX_VARIANT when it is not jupyter-server; otherwise "
+                        "falls back to eval."
+                    )
+                ),
+            ] = None,
+            timeout: Annotated[
+                int,
+                Field(description="Default execution timeout in seconds for this sandbox", ge=1),
+            ] = 60,
+            environment: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Optional sandbox environment name (common for "
+                        "datalayer/modal variants). On the datalayer variant "
+                        "this is a platform environment by name, such as "
+                        "ai-agents-env, or an environment somebody built, "
+                        "written 'account/name' — the account being a person's "
+                        "handle or an organization's."
+                    )
+                ),
+            ] = None,
+            environment_version: Annotated[
+                str | int | None,
+                Field(
+                    description=(
+                        "Which version of an 'account/name' environment to "
+                        "launch: its number, such as 3, or a version uid. "
+                        "Leave it unset to get the version its owner promoted, "
+                        "which is what you want unless you were asked for a "
+                        "particular one. Only the datalayer variant has "
+                        "versions; naming one for any other variant is refused "
+                        "rather than quietly ignored."
+                    )
+                ),
+            ] = None,
+            gpu: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Optional GPU flavor / accelerator. Only coreweave, "
+                        "datalayer, daytona, kaggle and modal have a GPU; asking "
+                        "one of the others (e2b, cloudflare, docker, eval, "
+                        "google-colab, jupyter-server, monty) for a GPU is "
+                        "refused rather than quietly run on a CPU, so leave this "
+                        "unset for them. Examples: modal/datalayer T4, A10G, "
+                        "A100, H100; daytona H100, H200, RTX-4090; coreweave "
+                        "H100; kaggle NvidiaTeslaT4, NvidiaTeslaP100, or the "
+                        "aliases T4/P100."
+                    )
+                ),
+            ] = None,
+            server_url: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Code Sandbox proxy URL when using the google-colab or "
+                        "kaggle variant"
+                    )
+                ),
+            ] = None,
+            kernel_id: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Kernel ID when using the google-colab or kaggle variant"
+                    )
+                ),
+            ] = None,
+            proxy_token: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Google Colab code sandbox proxy token when using "
+                        "google-colab variant"
+                    )
+                ),
+            ] = None,
+            channels_url: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Notebook session WebSocket channels URL to derive "
+                        "server_url/kernel_id (google-colab or kaggle variant)"
+                    )
+                ),
+            ] = None,
+            token: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Kaggle API token for the kaggle variant (falls back to "
+                        "KAGGLE_API_TOKEN)"
+                    )
+                ),
+            ] = None,
+            python_version: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Modal Python version override (e.g. 3.12). Only used for modal variant."
+                    )
+                ),
+            ] = None,
+            snapshot_name: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Start from a saved snapshot instead of an empty "
+                        "sandbox, restoring the state it was taken in. Only "
+                        "the datalayer variant has snapshots; naming one for "
+                        "any other variant is refused rather than quietly "
+                        "started empty."
+                    )
+                ),
+            ] = None,
+        ) -> ToolAnswer:
+            """Launch a code sandbox that can be used instead of Jupyter kernels.
+
+            After launch, call use_sandbox to make execute_code run on this sandbox
+            (as an alternative to notebook-bound kernel execution). Works in both
+            MCP_SERVER and JUPYTER_SERVER modes.
+            """
+            configured_variant = get_config().sandbox_variant
+            # The configured variant, unless it is the Jupyter Server this
+            # server already talks to: launching a sandbox to reach that is
+            # not launching a sandbox, so `eval` stands in as the one that
+            # needs nothing.
+            resolved_variant = variant or (
+                configured_variant
+                if normalize_variant(configured_variant) != JUPYTER_SERVER_VARIANT
+                else "eval"
+            )
+
+            return await safe_notebook_operation(
+                lambda: LaunchSandboxTool().execute(
+                    mode=server_context.mode,
+                    code_sandbox_manager=manager,
+                    sandbox_name=sandbox_name,
+                    variant=resolved_variant,
+                    timeout=timeout,
+                    environment=environment,
+                    environment_version=environment_version,
+                    gpu=gpu,
+                    server_url=server_url,
+                    kernel_id=kernel_id,
+                    proxy_token=proxy_token,
+                    channels_url=channels_url,
+                    token=token,
+                    python_version=python_version,
+                    snapshot_name=snapshot_name,
+                )
+            )
+
+        @structured("sandboxes.list")
+        @with_hooks("list_sandboxes")
+        async def list_sandboxes() -> ToolAnswer:
+            """List launched code sandboxes that can be used as alternatives to kernels."""
+            return await safe_notebook_operation(
+                lambda: ListSandboxesTool().execute(
+                    mode=server_context.mode,
+                    code_sandbox_manager=manager,
+                )
+            )
+
+        @structured("sandbox.use")
+        @with_hooks("use_sandbox")
+        async def use_sandbox(
+            sandbox_name: Annotated[
+                str | None,
+                Field(
+                    description=(
+                        "Sandbox name to activate for execute_code. Pass null/empty to"
+                        " disable sandbox routing and return to Jupyter kernels."
+                    )
+                ),
+            ] = None,
+        ) -> ToolAnswer:
+            """Select which launched sandbox execute_code should use instead of kernels."""
+            return await safe_notebook_operation(
+                lambda: UseSandboxTool().execute(
+                    mode=server_context.mode,
+                    code_sandbox_manager=manager,
+                    sandbox_name=sandbox_name,
+                )
+            )
+
+        @structured("sandbox.terminate")
+        @with_hooks("terminate_sandbox")
+        async def terminate_sandbox(
+            sandbox_name: Annotated[
+                str, Field(description="Sandbox name to terminate and unregister")
+            ],
+        ) -> ToolAnswer:
+            """Terminate a launched code sandbox."""
+            return await safe_notebook_operation(
+                lambda: TerminateSandboxTool().execute(
+                    mode=server_context.mode,
+                    code_sandbox_manager=manager,
+                    sandbox_name=sandbox_name,
+                )
+            )
+
+        return [
+            ToolSpec(
+                name="launch_sandbox",
+                handler=launch_sandbox,
+                annotations=LAUNCH_SANDBOX_ANNOTATIONS,
+            ),
+            ToolSpec(
+                name="list_sandboxes",
+                handler=list_sandboxes,
+                annotations=LIST_SANDBOXES_ANNOTATIONS,
+            ),
+            ToolSpec(
+                name="use_sandbox",
+                handler=use_sandbox,
+                annotations=USE_SANDBOX_ANNOTATIONS,
+            ),
+            ToolSpec(
+                name="terminate_sandbox",
+                handler=terminate_sandbox,
+                annotations=TERMINATE_SANDBOX_ANNOTATIONS,
+            ),
+        ]

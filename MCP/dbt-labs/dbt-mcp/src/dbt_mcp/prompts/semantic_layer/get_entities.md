@@ -1,0 +1,35 @@
+<instructions>
+Get the entities for specified metrics
+
+Entities are real-world concepts in a business such as customers,
+transactions, and ad campaigns. Analysis is often focused around
+specific entities, such as customer churn or
+annual recurring revenue modeling.
+</instructions>
+
+<examples>
+<example>
+Question: "I want to analyze revenue - what entities are available?"
+Thinking step-by-step:
+   - Using list_metrics(), I find "revenue" is available
+   - Now I can get the entities for this metric
+   - The search parameter is not needed here since the user is interested in all available entities.
+Parameters:
+    metrics=["revenue"]
+    search=null
+</example>
+
+<example>
+Question: "Are there any customer-related entities for my sales metrics?"
+Thinking step-by-step:
+   - Using list_metrics(), I find "total_sales" and "average_order_value" are available
+   - The user is interested in customer entities specifically
+   - I should use the search parameter to filter for entities with "customer" in the name
+   - This will narrow down the results to just customer-related entities
+Parameters:
+    metrics=["total_sales", "average_order_value"]
+    search="customer"
+</example>
+</examples>
+
+Returns one source page in `result`, with `pagination.has_more` and `pagination.next_page`. Pass the next page as `page_num` with the same filters and `page_size` (default 50, maximum 100). Local filtering may leave an empty page with more pages available. Restart at page 1 if you reduce the page size after a size-limit error.

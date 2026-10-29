@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.designcomputer.mysql-mcp-server",
+  "type": "mcp",
+  "name": "Mysql MCP Server",
+  "slug": "mysql-mcp-server",
+  "vendor": "designcomputer",
+  "description": "A Model Context Protocol (MCP) server that enables secure interaction with MySQL databases",
+  "version": "0.0.0",
+  "homepage": "https://github.com/designcomputer/mysql_mcp_server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "database",
+    "model-context-protocol",
+    "mysql"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "claude-code",
+    "database",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "mysql"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "designcomputer",
+    "brandName": "designcomputer",
+    "source": "https://github.com/designcomputer.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "designcomputer/mysql_mcp_server",
+    "url": "https://github.com/designcomputer/mysql_mcp_server",
+    "commit": "943ce83816372a03e5872be5424ebfcf252aa5ac",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1403,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "mysql_mcp_server"
+    ],
+    "env": [
+      "MCP_TRANSPORT",
+      "MYSQL_HOST",
+      "MYSQL_PORT",
+      "MCP_SSE_HOST",
+      "MCP_SSE_PORT",
+      "MCP_SSE_ALLOWED_HOSTS",
+      "MYSQL_SSH_HOST",
+      "MYSQL_SSH_PORT",
+      "MYSQL_SSH_KEY_PATH",
+      "MYSQL_SSH_REMOTE_HOST",
+      "MYSQL_SSH_REMOTE_PORT",
+      "MYSQL_LOCAL_PORT"
+    ],
+    "credentials": [
+      "MYSQL_SSH_KEY_PATH"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

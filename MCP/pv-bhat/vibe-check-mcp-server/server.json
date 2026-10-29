@@ -1,0 +1,65 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.PV-Bhat/vibe-check-mcp-server",
+  "description": "Metacognitive AI agent oversight: adaptive CPI interrupts for alignment, reflection and safety",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/PV-Bhat/vibe-check-mcp-server",
+    "source": "github"
+  },
+  "version": "2.9.0",
+  "packages": [
+    {
+      "registry_type": "npm",
+      "identifier": "@pv-bhat/vibe-check-mcp",
+      "version": "2.9.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environment_variables": [
+        {
+          "description": "Gemini API key (default provider; at least one provider key is required)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "GEMINI_API_KEY"
+        },
+        {
+          "description": "OpenAI API key (optional provider)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "OPENAI_API_KEY"
+        },
+        {
+          "description": "OpenRouter API key (optional provider)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "OPENROUTER_API_KEY"
+        },
+        {
+          "description": "Anthropic API key (optional provider)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": true,
+          "name": "ANTHROPIC_API_KEY"
+        },
+        {
+          "description": "Provider used when no modelOverride is supplied: gemini | openai | openrouter | anthropic (default: gemini)",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "DEFAULT_LLM_PROVIDER"
+        },
+        {
+          "description": "Model of DEFAULT_LLM_PROVIDER to use when no modelOverride is supplied. Leave unset for the per-provider default (gemini-3.6-flash, gpt-5.6-terra, claude-sonnet-5). Required for openrouter.",
+          "is_required": false,
+          "format": "string",
+          "is_secret": false,
+          "name": "DEFAULT_MODEL"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1045 @@
+# mcporter Changelog
+
+## [0.16.2] - Unreleased
+
+- Patch the development fixture's qs stringify denial-of-service vulnerability (GHSA-6pq8-jhm2-2vcw) with qs 6.16.1, preserving the 48-hour dependency cooldown.
+
+- Classify orderly daemon socket EOF as a transport disconnect so `daemon stop` tolerates shutdown before a reply, while preserving authentication/protocol errors and never replaying tool calls.
+
+- Update es-toolkit to 1.53.0 while preserving Node 24 support and the 48-hour dependency cooldown.
+
+- Add a runnable, isolated deed.page MCP example for publishing static HTML, with private owner-token storage and tested failure handling. Thanks @f-o-x11 (#472).
+
+- Let `--tool` and `tool=` override the tool of a configured `server.tool` selector instead of silently calling the selector's tool, matching the ad-hoc HTTP path and the tool-calling docs. Thanks @KrasimirKralev (#474).
+
+## [0.16.1] - 2026-10-26
+
+**Highlights:** Patch native-build and dependency security vulnerabilities with Bun 1.4.4 and body-parser fixes, and restore silent OAuth refresh for header-only deployments.
+
+- Require Bun 1.4.4 or newer for native MCPorter and generated CLI builds, rejecting affected compiler and release provenance versions; qualify Windows and both macOS architectures before release. Thanks @joshavant (#464).
+- Refresh MCP client/server to 2.4.0 and development tooling, retaining OAuth request correlation, redirect protections, Node 24 support, and the 48-hour dependency cooldown; patch the body-parser fixture vulnerability.
+- Patch URI parsing and IPv6 denial-of-service advisories in development fixtures while preserving the 48-hour dependency cooldown.
+- Reuse saved protected-resource metadata during silent OAuth refresh, preserving header-only deployments and rejecting divergent saved issuers before sending credentials. Thanks @goutamadwant and @nannan00 (#463, #462).
+- Preserve equals signs inside colon-style CLI argument values, including URLs, commands, and JSON, while retaining the `:=` alias. Thanks @Oscar-Williams (#465).
+- Refresh jose and lint/format tooling while preserving Node 24 support and the 48-hour dependency cooldown; isolate daemon elicitation coverage from Windows process-query failures while retaining real process-retirement integration tests.
+- Add a runnable, isolated Keenable MCP example for keyless web search and page fetching. Thanks @ilya-bogin-keenable.
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.16.1), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.16.1.tgz), [release CI](https://github.com/openclaw/mcporter/actions/runs/40438757227), [release rehearsal](https://github.com/openclaw/mcporter/actions/runs/40436920594), and [native assets](https://github.com/openclaw/mcporter/actions/runs/40438471153). npm integrity: `sha512-rVyBLZN/aIV8unDrn6VA5RWzskyM8HDVmsFJ4CfoeX7DFWSVchm1gfw66xkFgTiQHMnp7VVdGwug8PNhOrDQgg==`.
+
+## [0.16.0] - 2026-10-20
+
+**Highlights:** Encrypt OAuth secrets at rest, restore server instructions in listings, and patch a development dependency vulnerability.
+
+- Add opt-in OAuth secret encryption with `MCPORTER_VAULT_PASSWORD`, a required policy, persistent encryption markers, migration on write, and vault/token-cache diagnostics. Older binaries must use a separate state directory after opt-in; see the downgrade instructions. Thanks @alexminza (#425, #408).
+- Show server instructions in `mcporter list <server>` text and JSON output again without `--no-oauth`; the uncached discovery connection closed before the instructions were read. Thanks @KrasimirKralev (#456, #455).
+- Update Vitest and V8 coverage to 5.0.5 and Hono to 4.13.13, fixing the fixture dependency's static-path middleware bypass advisory while preserving Node 24 support and the 48-hour dependency cooldown.
+- Update Rolldown to 1.2.14 for generated CLI bundling, preserving Node 24 support and the 48-hour dependency cooldown.
+- Move macOS CI and release verification to Xcode 27, execute Intel binaries under asserted Rosetta, and enforce the existing macOS 13.0 binary target in packaging, verification, and native CI smoke tests.
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.16.0), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.16.0.tgz), [release CI](https://github.com/openclaw/mcporter/actions/runs/39498117641), [native assets](https://github.com/openclaw/mcporter/actions/runs/39495808273), and [browser Gatekeeper proof](https://github.com/openclaw/mcporter/actions/runs/39496793127). npm integrity: `sha512-CrCc2zcDZ7B8WC1wTQNR1VuHjALnVoHb51Tt1p40c019jAkflZf/PJjqo44l0S15iBAJKa6hOq/zVlgI0Pxh8Q==`.
+
+## [0.15.0] - 2026-10-16
+
+**Highlights:** Keep healthy MCP servers available when another server fails, accept inline ad-hoc flags, add runnable MCP examples, and rehearse releases without publishing.
+
+- Keep `mcporter serve` listing tools from healthy servers when another served server fails to list (for example, one that still needs OAuth); the failure is logged to stderr, and `tools/list` still errors when every served server fails. Thanks @vitalijssilins (#447).
+- Accept `--flag=value` for ad-hoc server options, preserve embedded equals signs, keep ad-hoc calls on the runtime path, and document the supported `--stdio-arg` flag. Thanks @notlakshitha (#443, #444).
+- Add an isolated, runnable FXMacroData MCP example for keyless USD indicators and release calendars. Thanks @roberttidball (#445).
+- Add an opt-in Sem stdio MCP example for local repository navigation with an explicit checkout path. Thanks @rs545837 (#440).
+- Default manual Release runs to a no-publish rehearsal of current main: validate, build, pack and smoke-test npm and both macOS architectures, including credential-free signing contract checks.
+- Explicitly ad-hoc sign native rehearsal binaries before verification so Bun's Intel baseline output cannot retain an invalid upstream signature.
+- Refresh Zod, Express fixtures, Vitest, Node/Bun types, and lint/format tooling while preserving Node 24 support, the 48-hour dependency cooldown, the OAuth client patch, and security overrides.
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.15.0), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.15.0.tgz), [release CI](https://github.com/openclaw/mcporter/actions/runs/38852447046), [native assets](https://github.com/openclaw/mcporter/actions/runs/38851923036), and [browser Gatekeeper proof](https://github.com/openclaw/mcporter/actions/runs/38852027638). npm integrity: `sha512-ts6g/7uhOFzUlKrLyt9yoCAgWyR3ns4kdDA8NkSHzlapc5EzjCNseJkWHplmptQf5zmiSeFr/kSM02LOY7E65w==`.
+
+## [0.14.3] - 2026-10-11
+
+**Highlights:** CLI calls and generated clients preserve arguments and configuration, HTTP streams and daemon recovery are more reliable, and dependency and generated-code security fixes are included.
+
+- Preserve embedded environment placeholders, literal CLI arguments and string-typed call examples; normalize explicit home-relative config paths, print valid IPv6 bridge URLs, validate generated CLI options and import flag values, and honor documented config-list glob/source filters with bounded matching. Thanks @rudycelekli (#429–#436).
+- Update MCP client/server to 2.3.1, legacy SDK fixtures to 1.32.1, Acorn, Rolldown, Vite, and lint/format tooling; fix the development source-map-js denial-of-service advisory while retaining the patched OAuth and redirect behavior, Node 24 support, and the 48-hour dependency cooldown.
+- Keep schema format hints inside generated TypeScript comments, escaping comment closers and line separators in clients and declarations. Thanks @SebTardif (#426).
+- Renew expired daemon views once only after a broker-confirmed rejection before dispatch, retaining configuration authority and preventing replay after replacement or shutdown. Thanks @mbac (#410).
+- Preserve typed request IDs during replay, named arguments after failed proxy discovery, and JSON null result entries. Thanks @rudycelekli (#411, #413, #420).
+- Decode compressed HTTP response streams and preserve session-termination DELETE across 301/302 redirects, including empty-body and streaming cancellation coverage. Thanks @rudycelekli (#416, #419).
+- Preserve JSONC config selection, config-relative working directories, and explicit lifecycle/logging policies in generated CLI artifacts; validate boolean flags and honor required schema defaults. Thanks @rudycelekli (#414, #415, #417, #418).
+- Emit valid TypeScript names for digit-leading servers and tools named `call`, `listTools`, or `new`; skip only `close`/`then` client methods with a warning while keeping unrelated methods and types-only output available. Thanks @rudycelekli (#422).
+- Preserve empty positional arguments after `--` and keep `Infinity`/`-Infinity` as strings instead of sending JSON null. Thanks @rudycelekli (#412, #421).
+- Inspect generated Node/Bun script metadata on Windows through the declared interpreter, keeping native binaries directly executable.
+- Print unknown-server errors from `config get` and `config logout` with one `[mcporter]` prefix. Thanks @KrasimirKralev (#409).
+- Add a runnable, isolated Parallel Search MCP example for anonymous web search and page extraction. Thanks @georgeatparallel (#427).
+- Refresh MCP client/server to 2.3.0, legacy SDK fixtures to 1.32.0, Rolldown, Vite, Vitest and Node types; retain OAuth token correlation, method-preserving same-origin redirects, Node 24 support and the 48-hour dependency cooldown.
+- Update Vite to 8.3.4 while retaining Node 24 support and the 48-hour dependency cooldown.
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.14.3), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.14.3.tgz), [native assets](https://github.com/openclaw/mcporter/actions/runs/38172695771), and [browser Gatekeeper proof](https://github.com/openclaw/mcporter/actions/runs/38172773379). npm integrity: `sha512-4VLoJDj1CXi7qfo+dtvEr/83lEVjhuToz9JC3zLpGPfpta2Al8/jbLVRFLJETutIq5Ord6VnU14cYv1Zx5b0+A==`.
+
+## [0.14.2] - 2026-09-30
+
+**Highlights:** npm installs retain OAuth refresh protection, Windows daemon startup tolerates transient process-query failures, and long help flags remain readable.
+
+- Bundle the patched MCP client in npm releases so installed packages preserve request-correlated OAuth refresh locking; verify the installed tarball in CI and release gates.
+
+- Update the MCP client/server to 2.2.0, legacy SDK fixtures to 1.31.0, Hono to 4.13.10, pnpm to 10.34.6, and lint/format tooling; retain the OAuth correlation patch, Node 24 support, and the 48-hour dependency release-age policy.
+
+- Retry transient Windows process-query failures once before blocking daemon startup or retirement, while retaining strict ownership checks and refusing malformed observations.
+- Refresh MCP clients and fixtures, bundling and test tooling, and Hono; preserve OAuth refresh-token correlation when OAuth overrides a configured Authorization header, Node 24 support, and the 48-hour dependency release-age policy.
+- Size the top-level help's global-flag column to its longest flag, so `--log-level <debug|info|warn|error>` no longer runs into its description. Thanks @KrasimirKralev.
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.14.2), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.14.2.tgz), [native assets](https://github.com/openclaw/mcporter/actions/runs/36905665366), and [browser Gatekeeper proof](https://github.com/openclaw/mcporter/actions/runs/36905989284). npm integrity: `sha512-3ajjKzPLe/39hN582XqMuOw3S9vHQfLpSBq72zVakT03xso3GDXHcht/eVLu/l2MDqulIOtLevnTKreUxymHJQ==`.
+
+## [0.14.1] - 2026-09-24
+
+**Highlights:** Windows background commands stay quiet, and daemon activity logs honor the chosen server aliases.
+
+- Honor `daemon start --log-servers` for each caller-visible server alias, suppressing unselected activity in both stdout and log files even when aliases share a connection.
+- Prevent Windows console flashes during stdio server cleanup and CLI generation by hiding background PowerShell, Bun, and npm subprocesses. Thanks @VladislavEkimtcov and @KalebCole (#398).
+- Refresh eligible dependencies and development tools, including URI normalization and bounded brace parsing security fixes in development fixtures, while preserving Node 24 and the 48-hour dependency release-age policy (#400).
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.14.1), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.14.1.tgz), [native assets](https://github.com/openclaw/mcporter/actions/runs/36004116045), and [browser Gatekeeper proof](https://github.com/openclaw/mcporter/actions/runs/36004115572). npm integrity: `sha512-/6pvMjFPlCtFU3NhzWEV8vj2EwvbY2nisc8XYDwtPiyApj8v6A+B0Va5ul018oqSEkw7BiKCLoazBc4l+8QsdQ==`.
+
+## [0.14.0] - 2026-09-22
+
+**Highlights:** OAuth consent scopes are configurable, generated TypeScript clients preserve complete tool arguments, and cancellation, local state, and generated-code handling are safer.
+
+- Keep server-controlled descriptions and metadata inside generated comments, preventing comment terminators or line breaks from becoming executable client code.
+- Refresh runtime validation, generated-CLI bundling, and development tooling while preserving Node 24 support and the 48-hour dependency release-age policy.
+- Cancel uncached discovery connections on list timeout or runtime close, retire late setup results before completing cleanup, and reject superseded callers without stale connection metadata. Thanks @SebTardif (#383).
+- Emit strict-compatible object-argument clients that forward every tool argument and return `CallResult`, including tools with reserved property names or named output schemas; preserve proxy defaults and validation. Thanks @nathanvale (#378, #379).
+- Avoid repeated warnings for already-ignored `uint32` and `uint64` output-schema annotations while preserving schema metadata, dialect handling, and validation. Thanks @0xCUB3 (#377).
+- Reject non-object `--persist` destinations and invalid `mcpServers` containers with clear errors, preserving the existing file instead of silently losing the new server or replacing invalid data. Thanks @SebTardif (#387).
+- Preserve the saved tool timeout when regenerating a CLI with `--from`, unless `--timeout` explicitly overrides it. Thanks @SebTardif (#384).
+- Bound `--tail-log` reads to the last MiB of regular files, reject special files without blocking even if the path changes during opening, and avoid padding short reads. Thanks @SebTardif (#388).
+- Materialize Chrome compatibility preloads in private, unique directories with exclusive file creation, preventing shared-temp symlink overwrites and cleaning up with the transport. Thanks @SebTardif (#386).
+- Retry transient Windows file-lock release failures without replaying the protected operation or deleting a successor's lock, while keeping permanent failures visible.
+- Discover Claude Desktop's actual config filename and Cursor's default Linux user config, and honor redirected Windows `APPDATA` locations for both clients. Thanks @SebTardif (#382).
+- Verify private Windows daemon and Chrome handoff directories without requiring administrator elevation, while preserving owner and access restrictions. Thanks @yegetables for the report (#380).
+- Resolve the daemon process inventory through `PATH`, allowing retirement and migration on NixOS and other systems without `/bin/ps`. Thanks @tsln1998 (#381).
+- Honor cancellation during HTTP/1.1 request preparation so an already-cancelled MCP request is never sent after body serialization.
+- Report asynchronous recording failures without unhandled rejections and always close the underlying MCP transport when recording writes fail.
+- Accept narrowly normalized loopback redirects from fresh OAuth registrations, including Fastmail's portless localhost response, while preserving the actual callback and stale-client safeguards. Thanks @mikegreiling for the report (#354).
+- Add per-server `oauthRequestedScope` and `config add --oauth-requested-scope` to control OAuth consent scopes across authorization and reauthorization without changing default scope negotiation. Thanks @ronyrus for the report (#356).
+- Start OAuth on an initial unauthenticated HTTP challenge instead of treating missing credentials as a failed refresh; reuse credentials that another flow saved before retrying.
+
+**Verification:** [npm](https://www.npmjs.com/package/mcporter/v/0.14.0), [registry tarball](https://registry.npmjs.org/mcporter/-/mcporter-0.14.0.tgz), [native assets](https://github.com/openclaw/mcporter/actions/runs/35711619529), and [browser Gatekeeper proof](https://github.com/openclaw/mcporter/actions/runs/35712633120). npm integrity: `sha512-R60nKyUcW65WawhVjoESC0HeNibsf+1iqpX0wHPX9P60AFX/DYCBlhS7pDYcuWzeGYqYfZG2Xf5jWWkM74d/+A==`.
+
+## [0.13.13] - 2026-09-14
+
+**Highlights:** Literal and prototype-named keys are preserved through proxies, schemas, and CLI selectors, and configuration diagnostics show the selected path.
+
+- Preserve literal keys through proxies, generated schemas, and canonical JSON, including prototype-named and empty fields; keep distinct cached tool names and require own properties for required arguments.
+- Preserve prototype-named CLI selectors and argument keys across named, JSON, function-call, and positional syntax instead of dropping values or treating them as flag handlers.
+- Show the selected `--config` or `MCPORTER_CONFIG` path in configuration diagnostics instead of reporting only default locations.
+- Recover lost Chrome relay connections by retiring the current MCP child before the next explicit call creates a fresh authenticated connection, preserving setup cleanup and never replaying interrupted tool calls.
+- Verify Vitest 5 on Node 24 and 26 with strict CI engine checks, omit the unsupported non-LTS Node 25 development line while retaining the Node >=24 runtime floor, and ignore Vitest's generated reports.
+- Refresh Zod to 4.6.2 across the runtime and protocol fixtures, plus JOSE and test coverage dependencies, preserving Node 24 support and the 48-hour dependency release-age policy.
+- Refresh Zod, Hono, Node types, and Vite; pin GitHub Actions to verified releases and avoid duplicate CI builds while preserving Node 24 and the 48-hour dependency release-age policy.
+
+## [0.13.12] - 2026-09-11
+
+**Highlights:** OAuth logout preserves unrelated files, and generated CLIs and typed clients keep unusual tool names callable and distinct.
+
+- Clear only recognized OAuth credential files on reset and logout, preserving the configured cache directory and unrelated contents even when imported configuration points it at the home directory. (PR #357, thanks @SebTardif)
+- Generate valid calls for digit-leading, dotted, and prototype-like tool names without renaming shared metadata, and preserve exact tool names and schemas across loose proxy aliases. (PR #353, thanks @MohammedAlkindi)
+- Refresh runtime validation, CLI bundling, Bun types, lint/format tooling, and pnpm action setup while preserving Node 24 support and the 48-hour dependency release-age policy.
+
+## [0.13.11] - 2026-09-11
+
+**Highlights:** OpenClaw relay cold starts get enough time and clear discovery errors, while plain Chrome launches work again for CLI generation and tool discovery.
+
+### Chrome relay
+
+- Allow 20 seconds for OpenClaw relay discovery, give Chrome auto-connect commands a 300-second cumulative startup deadline, and report discovery failures without guessing port 18799 or poisoning the retained browser owner. Preserve actionable discovery errors through daemon IPC and document canonical configuration for relay settings that must survive daemon respawns. (PR #358)
+- Restore CLI generation and tool discovery for plain `chrome-devtools-mcp` launches without requiring an existing-Chrome owner, while retaining canonical ownership checks for auto-connect and refusing direct browser selectors and ambiguous wrappers. (PR #352)
+
+## [0.13.10] - 2026-09-05
+
+**Highlights:** Generated CLIs keep the intended server when a config is supplied, and daemon launch failures report the executable and OS error immediately.
+
+- Preserve explicit inline server definitions during CLI generation when `--config` is also supplied, so unrelated or same-name configured servers cannot replace the tool-discovery target. (PR #350)
+- Report detached daemon launch failures with the executable and OS error instead of crashing the parent CLI or waiting for a readiness timeout. (PRs #347 and #351, thanks @SebTardif)
+- Refresh generated CLI bundling and URI parsing dependencies and upgrade test coverage tooling to Vitest 5, preserving Node 24 support and the 48-hour dependency release-age policy. (PR #349)
+
+## [0.13.9] - 2026-09-05
+
+**Highlight:** One daemon per OS user now serves every configuration. Ordinary CLI invocations and generated CLIs reuse the same retained MCP connections and a single canonical Chrome owner instead of racing competing per-config hosts. The new protocol requires a one-time `mcporter daemon migrate` after upgrading all clients.
+
+### Daemon
+
+- Serve every resolved configuration as an immutable view of one shared OS-user daemon, so ordinary and generated clients reuse the same retained connections and one canonical Chrome owner; configuration filenames, working directories, and HOME/XDG overrides no longer select another production daemon. (PR #346)
+- Add `mcporter daemon migrate` to inspect live legacy per-config daemons, stop them after a confirmed drain, and upgrade current-user-owned `0755` state directories to `0700`; ordinary startup refuses legacy permissions with migration guidance instead of changing them silently. (PR #346)
+- Return protocol errors, daemon-generation changes, and expired view handles to the caller rather than replaying a request whose outcome is uncertain, and keep active or uncertain work safe from idle shutdown. (PR #346)
+- Keep list and serve visibility and tool filters local to each registered view, and scope OAuth vaults, refresh locks, and browser suppression to each connection while HTTP aliases retain separate credential identities. (PR #346)
+
+### Chrome relay
+
+- Decide daemon freshness from effective per-server relay settings, so unset policy, equivalent default controls, and fully overridden process values no longer restart a compatible daemon. Meaningful policy, profile, endpoint, credential rotation, and discovery inputs remain part of the retained relay identity, and key rotation or a changed discovery identity returns an owner conflict instead of silently replacing the host. (PR #345)
+
+### OAuth
+
+- Keep OAuth running when macOS `open` or Windows `rundll32` cannot start, so the printed authorization URL remains usable. (PR #341, thanks @SebTardif)
+
+### Reliability
+
+- Remove temporary environment overrides when a later value fails validation or resolution, preventing failed setup from affecting subsequent MCP connections. (PR #342, thanks @oodadoudou)
+
+### Maintenance
+
+- Refresh runtime schema validation, query parsing, generated CLI bundling, and development tooling, including Zod's default-factory cycle-walk and reserved-key parsing fixes plus bounded `tsx` transform caching, while preserving Node 24 support and the 48-hour dependency release-age policy. (PRs #340 and #343)
+- Cover stored-credential validation guards for OAuth with additional tests. (PR #331, thanks @KrasimirKralev)
+
+## [0.13.8] - 2026-08-28
+
+**Highlight:** Generated CLIs now handle unusual schema names without startup errors or argument collisions, and direct calls preserve dotted tool names and HTTP query parameters.
+
+### CLI
+
+- Generate valid, distinct flags and property accesses for uppercase, numeric, separator-only, and colliding schema names; preserve explicit `--no-` arguments and nullable-array item types; normalize output schema titles into TypeScript identifiers. (PR #332, integrated in #339, thanks @Yigtwxx)
+- Preserve dotted tool names and HTTP selector query parameters, including configured-server headers and OAuth settings. (PR #333, thanks @Yigtwxx)
+- Preserve top-level daemon idle timeout settings when adding, removing, or copying config server entries. (PR #337)
+- Reject unsupported `${env:VAR}` placeholders with actionable syntax guidance instead of passing them literally to servers. (PR #324, thanks @goutamadwant)
+- Canonically serialize HTTP URLs without corrupting query values or encoded paths. (PR #325, thanks @vincentkoc)
+
+### OAuth
+
+- Normalize imported token expiry while preserving explicit absolute expiry timestamps, so delayed imports do not extend stale credentials. (PR #335, thanks @feniix)
+
+### Reliability
+
+- Schedule long deadlines in bounded timer slices and bucket daemon progress intervals, preserving timeout and idle budgets without excessive timer allocations. (PRs #326 and #330, thanks @vincentkoc)
+- Keep text normalization linear for long inputs and parse documentation heading HTML safely. (PRs #327 and #329, thanks @vincentkoc)
+
+### Maintenance
+
+- Refresh runtime, build, test, and lint dependencies plus GitHub Actions caching while preserving the 48-hour dependency release-age policy. (PR #336)
+- Isolate fixture startup and guarantee subprocess cleanup in integration tests. (PR #338)
+- Modernize hashing APIs while preserving existing relay fingerprints, credential identifiers, and refresh-lock keys. (PR #328, thanks @vincentkoc)
+- Honor `TMPDIR` when staging native releases so large artifacts can be built on external storage.
+
+## [0.13.7] - 2026-08-14
+
+### OAuth
+
+- Keep MCP transport headers out of OAuth discovery and send an identifying User-Agent from the HTTP/1.1 SSE compatibility path, preventing misleading 403 responses from header-sensitive load balancers. (Issues #320 and #321)
+
+### Maintenance
+
+- Retry transient Homebrew tap workflow API failures and propagation gaps with bounded backoff while preserving request-correlated release proof.
+
+## [0.13.6] - 2026-08-13
+
+### CLI
+
+- Report connection failures once at the prepared-call boundary instead of duplicating the same offline diagnostic during auto-correction.
+
+### Daemon
+
+- Allow up to 45 seconds for cold starts in automatic and explicit daemon launches, with one slow-start hint for Chrome relay discovery and actionable foreground logging guidance on timeout.
+
+### OAuth
+
+- Keep the SDK's automatic post-401 token redemption inside the cross-process refresh lock, so simultaneous rejected requests adopt one rotated token generation instead of replaying and revoking the shared token family. (Issue #307)
+
+## [0.13.5] - 2026-08-13
+
+### CLI
+
+- Discover OpenClaw's active Chrome extension relay endpoint automatically, while preserving the explicit environment override and legacy `127.0.0.1:18799` fallback.
+
+## [0.13.4] - 2026-08-11
+
+**Highlight:** OAuth token refresh is now serialized across processes — two
+mcporter processes sharing a credential can no longer race the same refresh
+token into a provider-side replay revocation.
+
+### OAuth
+
+- Serialize the refresh transaction across processes with per-credential locks: waiters re-read persisted state and adopt the winner, a successful rotation persists before it is returned, dead lock holders are recovered, and unrelated credentials stay concurrent. Twelve concurrent callers now perform exactly one redemption where the previous behavior produced seven refreshes and six replays (#306, thanks @feniix)
+- Let the SDK dynamically register a new client when expired tokens exist without stored client metadata, instead of failing preflight before interactive authorization could begin (found during #306 review)
+
+### Maintenance
+
+- Track context7's protocol-era move to 2026-07-28 in the live conformance suite, verified against the real server (#304)
+
+## [0.13.3] - 2026-08-09
+
+### CLI
+
+- Keep legacy HTTP list and call operations moving when standalone SSE response headers remain pending. A server that accepted the SSE socket but withheld its response headers would stall the first list or call until the outer command timeout, because a fetch promise does not settle until headers arrive. Readiness is now capped at 250 ms; the SSE request is not cancelled, so delayed server-to-client messages still arrive (PR #282, thanks @Quack6765)
+- Describe the accepted `clientInfo` shape in `vault set` help, covering the string-array fields, timestamp fields, and preserved provider metadata that the validator already enforces (PR #302, thanks @Yigtwxx)
+
+### Maintenance
+
+- Refresh the TypeScript toolchain.
+
+## [0.13.2] - 2026-08-08
+
+### CLI
+
+- Accept `--params` as an alias for JSON call arguments and reject undeclared long-form tool flags before dispatch.
+
+### OAuth
+
+- Preserve refreshable dynamic OAuth client registrations across fresh callback ports, replacing an obsolete redirect registration only when interactive authorization is required. (Issue #290, thanks @elecnix)
+
+## [0.13.1] - 2026-08-08
+
+### CLI
+
+- Authenticate OpenClaw extension-backed Chrome control with Browser Relay Authentication v2 over one retained loopback socket from HMAC challenge through CDP upgrade, never transmitting the host key or retrying legacy relay auth, while preserving configurable `prefer` / `require` / `off` routing and the OS-protected one-use child handoff.
+- Tear down both sides of streamed `mcporter serve --http` responses on client aborts or body errors, preventing orphaned readers. (PR #280, thanks @SebTardif)
+
+### Daemon
+
+- Invalidate keep-alive Chrome DevTools state when relay policy, URL, timeout, OpenClaw credential paths, or the derived relay `keyId` change, keep `require` fail-closed across retries, and expose the last safe relay decision in `mcporter daemon status`.
+- Keep the daemon alive after asynchronous log-file ENOSPC/EIO failures by handling writer errors immediately and falling back to console logging. (PR #280, thanks @SebTardif)
+
+### OAuth
+
+- Honor `MCPORTER_OAUTH_NO_BROWSER` across serve/daemon OAuth flows, fail once with actionable reauthorization guidance without logging authorization URLs, and restart daemons when the normalized setting changes. (PR #284 / issue #283, thanks @vitalijssilins)
+- Accept RFC 7591 dynamic-client-registration arrays and timestamps in `mcporter vault set` while preserving null-compatible partial client information and provider metadata. (PR #288 / issue #286, thanks @feniix)
+- Sanitize malformed `mcporter vault set` JSON diagnostics and reject non-finite `expires_at` / `expiresAt` token values before persistence. (Follow-up to PR #287, thanks @Yigtwxx)
+
+### Tooling
+
+- Refresh pnpm, GitHub Actions runtimes, and mature security overrides for fast-uri, Hono, ip-address, and nanoid.
+- Remove the obsolete scoped-commit helper and use standard Git commands in isolated worktrees.
+
+## [0.13.0] - 2026-08-02
+
+### MCP 2.0
+
+- Support MCP protocol revision `2026-07-28` — the stateless core, `server/discover` negotiation, per-request identity, and multi round-trip requests — while continuing to speak every legacy revision from `2024-10-07` to `2025-11-25`.
+- Negotiate each server automatically: probe with `server/discover`, fall back to the legacy `initialize` handshake, and keep stdio probing in-process instead of spawning a second server.
+- Add per-server `protocolVersion` / `protocol_version` overrides for `auto`, `legacy`, and pinned `2026-07-28` connections, surfaced by `mcporter list <server> --verbose`.
+- Bridge both generations at once through `mcporter serve`: a single endpoint answers 2026-07-28 and 2025-era clients, preserving primitive tool output schemas and projecting structured results per era.
+- Support interactive form and URL elicitation in terminals across legacy and 2026-07-28 multi-round-trip servers, with immediate declines and a terminal hint in headless or daemon-managed contexts.
+- Attribute elicitation prompts and public handler callbacks to their requesting server, and neutralize terminal control sequences in server-supplied prompt text.
+- Migrate the runtime and serve bridges to the MCP TypeScript SDK v2 client and server packages, keeping SDK v1 only as a legacy test fixture.
+
+### CLI
+
+- Keep legacy SSE fallback on legacy negotiation and preserve pinned modern-version negotiation errors instead of masking them with a secondary SSE failure.
+- Recover legacy stdio servers that exit on modern discovery by retrying initialization once with a fresh legacy-mode process.
+- Use the SDK's 60-second stdio discovery timeout for slow-starting modern servers, configurable with `MCPORTER_STDIO_PROBE_TIMEOUT_MS`.
+- Keep listing and calling usable when a server advertises the same tool name twice or two names that map to one proxy method.
+- Follow `resources/list` cursors automatically so paginated MCP resources are returned in full, and stop when a server repeats its cursor instead of churning duplicate pages.
+- Raise Node's untouched Happy-Eyeballs connect-attempt timeout from 250 ms to 1500 ms while preserving explicit user overrides, including quoted `NODE_OPTIONS` values.
+- Restore bounded stdio process-tree teardown with pre-close PID capture, SIGTERM/SIGKILL escalation, and explicit stream destruction.
+- Cancel in-flight connection handshakes during `runtime.close()` instead of waiting for the full negotiation timeout.
+- Close bridge subscription handlers before the HTTP listener so active `subscriptions/listen` streams cannot deadlock shutdown.
+- Canonicalize decoded bridge server paths so percent-encoded aliases share one handler instead of allocating permanent duplicates.
+- Preserve protocol-version pins and supported snake_case config aliases when generating or regenerating standalone CLIs.
+- Normalize `--compile` bundle targets consistently instead of returning a platform-native path only when an extension was supplied.
+- Resolve bundled dependency roots for packages whose `package.json` is hidden behind export maps, avoiding an unnecessary npm fallback.
+
+### Daemon
+
+- Treat the daemon socket timeout as an idle liveness budget refreshed by progress frames, so interactive OAuth can outlive 30 seconds without restarting the daemon and opening a duplicate prompt. (PR #241, thanks @umutkeltek)
+- Keep daemon protocol v1 and v2 interoperable while returning daemon-owned operation timeouts as non-retryable errors. (PR #241, thanks @umutkeltek)
+
+### Record and replay
+
+- Keep replay recordings usable across MCP protocol-version and mcporter client-version changes.
+- Preserve transport capabilities and request metadata through recording wrappers so modern HTTP cancellation remains stream-based.
+- Replay accepted modern elicitation rounds with the caller's handler instead of unconditionally declining them.
+- Re-emit recorded progress, logging, and list-change notifications during replay in their recorded order relative to responses.
+
+### OAuth
+
+- Validate RFC 9207 authorization-response issuers before redeeming callback codes, with server-specific mismatch errors, and preserve that validation while OAuth traffic is wrapped in recording mode.
+- Bind persisted tokens and client registrations to their authorization-server issuer across interactive and silent refresh flows, discarding mismatches before credentials are transmitted and stamping successful refreshes.
+- Add per-server `oauthClientMetadataUrl` / `oauth_client_metadata_url` configuration for Client ID Metadata Documents, with SDK-managed DCR fallback.
+- Reject invalid Client ID Metadata Document configuration before binding the loopback OAuth callback listener.
+- Stop reflecting authorization-server callback errors into executable HTML or terminal-facing error messages.
+- Validate imported and persisted OAuth credential shapes so malformed issuer stamps trigger reauthorization instead of runtime crashes.
+
+### TypeScript API
+
+- Export connection metadata and the named option/result types reachable through the package-root API.
+
+### Testing
+
+- Add committed MCP 2025-11-25 and 2026-07-28 fixture servers with end-to-end CLI and bridge coverage over stdio and Streamable HTTP.
+- Add an opt-in live conformance suite covering four protocol revisions against public servers, scheduled weekly rather than gating pull requests.
+- Enforce coverage thresholds in CI, publishing the summary and report from the Linux job.
+- Stop the test suite writing into the developer's real `~/.mcporter` by isolating `HOME` and every XDG root.
+
+### Docs
+
+- Rewrite the README around a verified quick start and move protocol and daemon details into focused guides.
+
+### Tooling / Dependencies
+
+- Refresh Acorn, Rolldown, Vite, Oxlint, Oxfmt, Node types, and security overrides within the repository's release-age policy.
+- Resolve notarization profiles from the dedicated managed release keychain when packaging signed standalone binaries.
+
+## [0.12.4] - 2026-08-02
+
+### CLI
+
+- Stop reading embedded digits (ports, durations, hostnames, request ids) as HTTP 401 auth signals in connection-error classification, and let known status codes win over message text, so unreachable servers are no longer promoted to `auth: "oauth"`. (PR #248, thanks @Yigtwxx)
+- Route `chrome-devtools-mcp --autoConnect` through a paired OpenClaw Chrome-extension relay when one is live on this host, eliminating Chrome's per-session "Allow remote debugging?" dialog; falls back to plain auto-connect otherwise (`MCPORTER_DISABLE_CHROME_DEVTOOLS_RELAY=1` to opt out).
+- Correct the documented call timeout to 60 seconds and distinguish its `MCPORTER_CALL_TIMEOUT` and `--timeout` overrides from the 30-second list timeout. (PR #230, thanks @KrasimirKralev)
+- Isolate long-lived SSE receive streams from ordinary HTTP requests so byte-idle servers cannot stall tool listing and calls. (PR #234, thanks @umutkeltek)
+
+### OAuth
+
+- Open the Windows OAuth browser via shell-free `rundll32 url.dll,FileProtocolHandler` instead of a `cmd.exe` command string, so quote- or ampersand-bearing authorization URLs cannot run shell side effects. (PR #242, thanks @SebTardif)
+- Serialize interactive OAuth authorization per provider/session: concurrent 401s (background SSE reconnect plus a bridged request) now join one pending PKCE transaction instead of opening duplicate prompts, and keep-alive daemons no longer restart and replay operations on auth failures. (Issue #247, thanks @mkaput)
+- Recover rotating refresh tokens after transient OAuth refresh failures without clearing a concurrently persisted winner, and clear only the exact rejected token on `invalid_grant`. (PR #227, thanks @feniix)
+- Treat a configured server URL change as a new OAuth trust boundary, clearing cached credentials permanently even if the URL is later reverted. (Issue #231, thanks @sourman)
+
+### Distribution
+
+- Replace the broken v0.12.3 standalone artifact path with exact-tag arm64 and x86_64 macOS builds that require Foundation Developer ID signing, hardened runtime, timestamping, Bun JIT entitlements, notarization, strict native execution proof, basename-only checksums, and exact provenance/inventory verification before GitHub, npm, or Homebrew publication.
+
+### Tests
+
+- Isolate OAuth callback and session tests behind temporary HOME and XDG roots, with a regression sentinel proving ambient credentials stay untouched.
+
+### Tooling / Dependencies
+
+- Refresh compatible Rolldown, Oxlint, Oxfmt, tsx, and TypeScript-linting dependencies while retaining the Vitest-compatible Vite 8.1.4 peer line.
+
+## [0.12.3] - 2026-07-01
+
+### CLI
+
+- Fix list signatures and call examples for typed arrays, keeping number, boolean, object, and unknown array values type-correct. (Issue #221, thanks @VincXiong)
+
+### Tooling / Dependencies
+
+- Refresh compatible runtime, bundling, type-checking, lint, and security-override dependencies while preserving the Node and pnpm toolchain.
+
+## [0.12.2] - 2026-06-27
+
+### CLI
+
+- Prevent large piped CLI output from being truncated during forced shutdown, while keeping stalled readers bounded and treating broken pipes as normal shell behavior. (Issue #214, thanks @badmoo)
+- Resolve configured and ad-hoc HTTP tool selectors consistently so targeted list and call commands keep server names separate from MCP tool names. (Issue #218, thanks @xinFu3576 and @TurboTheTurtle)
+
+## [0.12.1] - 2026-06-26
+
+### CLI
+
+- Add `key=@path` and `--key @path` call arguments for exact UTF-8 file values, with `@@` escaping for literal leading `@`. (Issue #212, thanks @andr-ec)
+- Preserve replacement daemon socket and metadata ownership while a superseded daemon shuts down, preventing repeated keep-alive restarts and Chrome remote-debugging permission prompts.
+
+### Config
+
+- Skip imported server entries with unresolvable editor-specific environment placeholders, and allow later valid duplicates to take effect without relaxing validation for local config. (PR #209, thanks @Loveacup)
+
+### OAuth
+
+- Treat corrupt cached OAuth tokens and client metadata as missing so connections can re-authenticate, while keeping corrupt callback state data fail-closed. (Issue #207, thanks @KrasimirKralev)
+
+### Tooling / Dependencies
+
+- Refresh development dependencies and security overrides, including Vite, esbuild, and Hono.
+
+## [0.12.0] - 2026-06-10
+
+### OAuth
+
+- Add cache-friendly `disableOAuth` support across headless runtime, CLI, daemon, proxy, and `callOnce` paths so callers can suppress interactive OAuth without losing connection reuse. (Issues #197, #199, #201, thanks @feniix)
+- Recover cleanly from renamed OAuth server entries, invalid refresh tokens, and stale dynamic client registrations without reusing unrelated same-URL credentials.
+- Prevent concurrent OAuth vault updates from briefly exposing empty lock files and losing credential entries under load.
+
+### CLI
+
+- Add per-server Streamable HTTP paths for `mcporter serve` at `/mcp/<server>`, exposing one keep-alive server with original tool names while preserving aggregate `/mcp` namespacing. (PR #194, thanks @zm2231)
+- Add `mcporter record` and `mcporter replay` helpers for capturing and replaying MCP JSON-RPC traffic, with server filters and daemon-safe manual env setup. (PR #192, thanks @LDMB123)
+- Prevent direct daemon starts from rebinding over an already-running healthy daemon, avoiding orphaned keep-alive processes during foreground or launch races. (PR #195, thanks @zm2231)
+- Return a non-zero exit code for explicit `mcporter list <unknown-server>` failures while preserving aggregate list health checks by default. (Issue #203, thanks @theo674)
+- Reconcile keep-alive daemon metadata with the responding process and serialize daemon startup across parallel clients, preventing duplicate orphaned daemons. (Issue #191, thanks @dtmsyi)
+- Keep CloudBase MCP alive by default so device-code authentication can finish polling and persist credentials after returning `AUTH_PENDING`. (PR #193, thanks @sevzq)
+- Keep daemon-managed stdio servers warm across repeated `mcporter list` requests instead of treating non-interactive tool listing as a throwaway process. (Issue #188, thanks @robertoronderosjr)
+
+### Tooling / Dependencies
+
+- Refresh development dependencies and satisfy the stricter `oxlint` check.
+
+## [0.11.3] - 2026-05-21
+
+- Fall back to `~/.mcporter/mcporter.json[c]` when `XDG_CONFIG_HOME` points at an empty mcporter config directory, preventing embedders from accidentally hiding the user server registry. (Issue #184, thanks @ChrisBot2026)
+
+## [0.11.2] - 2026-05-21
+
+### CLI
+
+- Add `mcporter list --status`, `--exit-code`, and `--quiet` for concise server health checks without introducing a separate health command.
+- Make `generate-cli --bundle` artifacts deterministic by removing bundle-only paths/timestamps from embedded metadata and sorting generated tool/schema output. (Issue #180, thanks @imroc)
+- Let daemon-managed OAuth servers reuse cached credentials for tool calls and tool listing after token expiry. (PR #182 / issue #181, thanks @bradhallett)
+- Avoid restarting browser OAuth when an already-connected server has a still-valid cached access token. (Issue #179, thanks @jaigew and @StanAngeloff)
+- Add the documented top-level `daemonIdleTimeoutMs` config to shut down inactive keep-alive daemons. (Issue #174, thanks @jarek083)
+
+## [0.11.1] - 2026-05-14
+
+### CLI
+
+- Make `generate-cli --runtime node --bundle <name>.mjs` emit an ES module bundle with a local `require` shim, fixing `.mjs` artifacts that previously crashed at startup.
+- Classify generated `.mjs` and `.cjs` outputs as bundle artifacts in embedded metadata instead of reporting them as binaries.
+- Avoid leaving implicit `<server>.ts` template files in the current directory when generating bundle-only artifacts without `--output`.
+- Print generated CLI help with a trailing newline so subsequent shell output no longer glues onto the help footer.
+- Point generated CLI metadata and npm package metadata at `openclaw/mcporter`.
+- Document the existing `generate-cli --timeout`, `--minify`, and `--no-minify` flags in `generate-cli --help`.
+- Suppress expected Rolldown unresolved-import warnings for Node built-ins during successful generated CLI bundling.
+
+## [0.11.0] - 2026-05-14
+
+### Config
+
+- Support `auth: "refreshable_bearer"` with explicit `refresh` settings so cached OAuth tokens can be refreshed before HTTP connects or injected into stdio env vars. (Issue #173, thanks @tokyo-s)
+- Add `httpFetch: "node-http1"` for HTTP MCP servers whose providers reject Node's built-in `fetch`, and auto-apply it to Sunsama's endpoint. (Issue #158, thanks @mattash)
+- Resolve `${VAR}` and `${VAR:-fallback}` placeholders across string-valued server config fields such as `baseUrl`, `command`/`args`, `tokenCacheDir`, and pre-registered OAuth fields while keeping headers/env/bearer-token placeholders lazy until runtime. (PR #161 / issue #157, thanks @zxyasfas)
+- Add `mcporter vault set <server>` and `mcporter vault clear <server>` so headless deployments can seed or clear OAuth vault credentials without reproducing mcporter's internal vault-key format. (Issue #156)
+
+### CLI
+
+- Add `mcporter serve`, exposing daemon-managed keep-alive servers as one MCP bridge with readable `server__tool` names for stdio and Streamable HTTP clients. (PR #172, thanks @zm2231)
+- Prefer MCP `structuredContent` nested inside JSON-RPC result envelopes so `mcporter call --output json` stays parseable for dual text/structured tool responses. (Issue #168, thanks @mar-zh)
+- Serialize read-modify-write config and OAuth vault updates, and write JSON/cache metadata atomically to avoid lost entries under parallel invocations. (Issue #167, thanks @alexminza)
+- Patch `chrome-devtools-mcp --autoConnect` launches at runtime so `mcporter call chrome-devtools.list_pages` can keep using a logged-in Chrome profile while upstream DevTools-window detection can hang on busy profiles.
+
+### OAuth
+
+- Add headless OAuth login support via `--no-browser`, `--browser none`, and `MCPORTER_OAUTH_NO_BROWSER`, emitting parseable authorization URLs for remote auth flows. (PR #171 / issue #169, thanks @feniix)
+- Proactively complete OAuth for configured HTTP servers that allow unauthenticated `initialize`/`listTools` but require credentials for tool calls, and close the local callback server promptly after browser authorization. (PR #159, thanks @Spacefish)
+- Refresh expired cached OAuth access tokens during non-interactive `mcporter list` without opening a browser or clearing cached credentials when refresh fails. (Issue #166, thanks @chrisabad)
+
+## [0.10.2] - 2026-05-09
+
+### CLI
+
+- Keep keep-alive daemon retry diagnostics on stderr so `mcporter call --output json` stdout stays parseable after a daemon recovery. (PR #163 / issue #160, thanks @clawSean)
+- Increase the default OAuth browser wait from 60 seconds to 5 minutes so hosted MCP sign-ins have enough time for account and permission review.
+- Skip the redundant daemon `status` preflight for warm keep-alive access, cutting one socket round-trip from each routed list/call/resource request while preserving stale-config and dead-daemon recovery.
+- Route explicit default keep-alive calls like `chrome-devtools.list_pages` through a daemon-only fast path, avoiding full runtime startup on warm calls.
+- Further reduce warm keep-alive call startup by avoiding runtime/config schema imports on CLI boot and using a narrower daemon call path for simple explicit calls.
+- Keep single-server `mcporter list` non-interactive by reusing cached OAuth without launching new auth flows, and clamp oversized OAuth startup errors so HTML responses do not flood stdout/stderr.
+- Label non-timeout `mcporter list <server>` failures as unavailable instead of timed out.
+- Return concise/structured `mcporter resource` errors for servers that do not implement MCP resources instead of dumping SDK stack traces.
+- Refresh Context7 examples for the live `resolve-library-id` and `query-docs` schemas.
+- Make `generate-cli --help`, `inspect-cli --help`, and `emit-ts --help` print command help before flag parsing.
+- Auto-correct near-miss tool names when a server reports an unknown tool as MCP `isError` content instead of throwing.
+- Keep auto-correct diagnostics on stderr for `mcporter call --output json/raw` so stdout stays parseable.
+- Make generated CLIs keep `--output json` parseable for plain text MCP results by falling back to the raw JSON envelope.
+
+### Config
+
+- Preserve existing stdio executable paths that contain spaces instead of
+  splitting them as inline command strings, so app bundle helpers like Hopper's
+  MCP server can be configured directly.
+
+### Tooling
+
+- Build `dist/` once before the Vitest suite instead of letting parallel integration tests rebuild it mid-run.
+
+## [0.10.1] - 2026-05-04
+
+### CLI
+
+- Fix Bun-compiled standalone binaries so `generate-cli --compile` can compile generated CLIs from empty directories by staging the matching published `mcporter` package dependencies when no local package tree is available.
+
+### Tests
+
+- Add an opt-in standalone Bun release-binary smoke for the empty-directory generated CLI compile path.
+
+## [0.10.0] - 2026-05-04
+
+### CLI
+
+- Return a non-zero exit code when MCP tool results are marked `isError`, and preserve that status through the forced-exit cleanup path. (PR #154 / issue #153, thanks @jlapenna)
+- Give forced-exit cleanup a short stdout/stderr flush window so large JSON output is not truncated when `mcporter` is run from `child_process`. (PR #151 / issue #145, thanks @yuhp)
+- Treat `key:=value` as a compatibility alias for `key=value`, avoiding malformed keys such as `price:`. (PR #150 / issue #100, thanks @solomonneas)
+- Restore `mcporter call --key value` / `--key=value` tool arguments, including JSON array/object coercion, `--json -` stdin payloads, schema-aware bare string-to-array wrapping, and kebab-case to camelCase field mapping. (Issues #119 and #126)
+- Quote generated `emit-ts` members for tool names that are not valid TypeScript identifiers. (PR #149 / issue #30, thanks @solomonneas)
+- Resolve relative stdio args in generated CLI bundles against the generated script location instead of the caller's current directory. (PR #148 / issue #56, thanks @solomonneas)
+- Print OAuth manual-completion URLs at the default warning log level so headless users can copy them. (PR #143 / issue #139, thanks @stainlu)
+- Support repeatable `--header KEY=value` flags for ad-hoc HTTP servers and persisted ad-hoc entries. (Issue #117)
+- Let generated CLIs use `--raw` without also passing required flags, and parse array flags containing JSON object items. (Issues #102 and #103)
+- Preserve `auth: "oauth"` when an ad-hoc HTTP server is OAuth-promoted and saved with `--persist`. (Issue #82)
+- Let non-interactive `mcporter list` use existing OAuth token caches for HTTP servers even when older configs are missing `auth: "oauth"`. (Issue #137)
+- Fail OAuth flows immediately when the server never creates an authorization URL, instead of waiting for a browser callback that cannot arrive. (Issue #115)
+- Support `mcporter list server.tool --schema` to print a single tool's schema instead of the whole server. (Issue #116)
+- Surface MCP server `instructions` from the initialize response in single-server `mcporter list` text and JSON output. (Issue #76)
+- Add compact `mcporter list <server> --brief` / `--signatures` output for scanning signatures without doc blocks, examples, or schemas. (PR #144, thanks @yuhp)
+- Launch Bun-compiled macOS daemon children through `nohup` so Homebrew binaries can start keep-alive daemons in the background on macOS 26. (Issue #66)
+- Let generated CLIs use the keep-alive daemon for embedded servers with `lifecycle: "keep-alive"`, preserving stdio server state across separate generated-CLI invocations. (Issue #101)
+- Add `mcporter resource <server> [uri]` for listing and reading MCP resources, including keep-alive daemon routing. (Issue #134)
+
+### Config
+
+- Honor XDG Base Directory env vars for mcporter-owned config, data, cache, and state paths while preserving the legacy `~/.mcporter` fallback when XDG vars are unset. `MCPORTER_DAEMON_DIR`, `MCPORTER_CONFIG`, `--config`, and per-server `tokenCacheDir` remain explicit overrides. (Issue #155)
+- Support pre-registered OAuth clients via `oauthClientId`/`oauthClientSecretEnv` and token endpoint auth method overrides for providers without dynamic client registration. (Issue #132)
+- Respect configured stdio `cwd` values, including relative paths resolved from the config file and `~` home expansion. (PR #147 / issue #146, thanks @solomonneas)
+
+### Tooling / Dependencies
+
+- Updated `zod` to 4.4.3.
+
+## [0.9.0] - 2026-04-18
+
+### CLI
+
+- Add per-server exact-name tool filtering with `allowedTools` and `blockedTools`, including config serialization and runtime call/list enforcement. (Rebuild of PR #39, thanks @tonylampada)
+- Escalate stuck stdio child-process shutdowns after close timeouts instead of treating the timeout as a clean exit. (PR #39, thanks @tonylampada)
+- Quote OAuth browser URLs when launching `cmd.exe` on Windows, preserving query parameters such as `redirect_uri`. (PR #136, thanks @cosminilie)
+- Document OAuth-protected server config setup with `mcporter config add --auth oauth` and `mcporter auth`. (PR #34, thanks @prateek)
+- Respect schema-declared string parameters when coercing numeric-looking `mcporter call` key=value arguments, so Slack timestamps like `thread_ts` stay strings. (PR #141, thanks @Hamzaa6296)
+
+## [0.8.1] - 2026-03-29
+
+### CLI
+
+- Bun-compiled/Homebrew binaries now embed the package version before boot, so `mcporter --version` reports the real release (for example `0.8.1`) instead of falling back to `0.0.0-dev`.
+
+### Tests
+
+- Added regression coverage for the Bun compile wrapper so future release builds keep the embedded runtime version intact.
+
+### Tooling / Dependencies
+
+- npm publishes now use an explicit package allowlist, so local release tarballs/checksum files do not get bundled into the published package.
+
+## [0.8.0] - 2026-03-29
+
+### CLI
+
+- Preserve OAuth flow vs post-auth transport failures so invalid OAuth/provider errors surface directly, while real legacy 404/405 transport mismatches still fall back to SSE correctly. (PR #97, thanks @mavam)
+- Ignore static `Authorization` headers once OAuth is active so imported editor configs cannot override fresh OAuth tokens. (PR #123, thanks @ahonn)
+- Keep `mcporter call --output json` parseable by emitting valid JSON even when the command falls back to raw output. (PR #128, thanks @armanddp)
+- Render `resource` content blocks in call output helpers instead of dropping them, including markdown resources and JSON text payloads. (PR #124, thanks @mvanhorn)
+- Preserve full JSON/error payloads when `data` is just one field instead of collapsing the response to `data` alone. (PR #106, thanks @AielloChan)
+- Generated CLIs now parse object-valued flags as JSON and render object placeholders/examples with JSON-shaped help text, so tools like Jira `fields` no longer receive raw strings. (PR #114, thanks @v2nic)
+- Deduplicate concurrent keep-alive daemon restarts per server so repeated fatal errors only force-close the cached daemon transport once before retrying. (PR #125, thanks @zm2231)
+- `mcporter config add` now accepts plural `--args` as an alias for repeated stdio arguments, matching common CLI muscle memory. (PR #93, thanks @Jah-yee)
+- Preserve default imports when `mcporter config add` writes a config file, instead of forcing `"imports": []`.
+- OAuth: avoid crashing on headless Linux when `xdg-open` is unavailable; clear stale dynamic-port client registrations; close callback server if stale-client persistence reads fail. (PR #72, thanks @mgonto)
+- Added optional `oauthScope`/`oauth_scope` config override as an escape hatch for providers that require explicit scopes.
+- OAuth wait/redirect now share one deferred to eliminate authorization race windows and preserve stable close-path errors, including wait-before-redirect and repeated-redirect flows. (PR #70, thanks @monotykamary)
+- `createCallResult().json()` now collects all parseable JSON entries from MCP content arrays (single item stays backward-compatible), and raw inspect depth now stays readable without unbounded traversal. (PR #91, thanks @Blankdlh)
+- Added `--raw-strings` (numeric coercion off) and `--no-coerce` (all coercion off) for `mcporter call` argument parsing so IDs/codes can stay literal strings. (PR #59, thanks @nobrainer-tech)
+- Added `CallResult.images()` plus opt-in `mcporter call --save-images <dir>` so image content blocks can be persisted without changing existing stdout output contracts. (PR #61, thanks @daniella-11ways)
+- OAuth transport retries now classify HTTP 405 as HTTP (not auth) and OAuth promotion applies to configured HTTP servers too, so post-auth fallback flows no longer drop credentials on 405-only endpoints. (PR #48, thanks @caseyg)
+- Config loading now parses project and explicit config files as JSONC, so `mcporter.json` / `mcporter.jsonc` can include comments and trailing commas. (PR #42, thanks @aryasaatvik)
+- Added generated `mcporter.schema.json` plus `pnpm generate:schema` for IDE autocomplete/validation, including `$schema` and `oauthScope`/`oauth_scope` coverage. (PR #43, thanks @aryasaatvik)
+
+### Tooling / Dependencies
+
+- Updated dependencies to latest releases (including MCP SDK, Rolldown RC, Zod, Biome, Oxlint, Vitest, Bun types).
+- Synced `biome.json` schema URL to Biome `2.4.5`.
+
+## [0.7.3] - 2025-12-29
+
+### CLI
+
+- Fixed generated CLIs to read Commander.js option values via camelCased properties so snake_case tool schemas map correctly. (Thanks @rawwerks, PR #28)
+- Coerce generated CLI array arguments based on JSON Schema item types (including integer arrays). (Thanks @rawwerks, PR #27)
+- `mcporter generate-cli` supports `--include-tools` / `--exclude-tools` to generate CLIs for a subset of server tools. (Thanks @zackleman, PR #24)
+
+### Tests
+
+- Added regression coverage for typed array parsing in generated CLIs.
+- Added regression coverage for snake_case, camelCase, and numeric option names in generated CLIs.
+- Increased the Bun bundler integration-test timeout to reduce flakes on slower runners.
+
+### Tooling / Dependencies
+
+- Updated dependency set (SDK, Rolldown, Zod, Biome, Oxlint, Bun types).
+- Synced the Biome schema URL to the current CLI version.
+
+## [0.7.1] - 2025-12-08
+
+### Daemon
+
+- Track config file mtimes for every loaded layer (home + project or explicit) in daemon metadata and auto-restart when any layer changes, so newly added keep-alive servers are picked up without manual restarts. Includes regression tests for stale-daemon detection.
+
+## [0.7.0] - 2025-12-06
+
+### CLI
+
+- Centralized OAuth credentials in a shared vault (`~/.mcporter/credentials.json`) while still honoring per-server `tokenCacheDir` when present; legacy per-server caches are migrated automatically.
+- `mcporter auth --reset` now clears the vault and legacy caches without crashing on corrupted credential files, making re-auth reliable for servers like Gmail.
+- StdIO servers that expose a separate auth subcommand (e.g., Gmail MCP) can now declare `oauthCommand.args`; `mcporter auth <server>` will spawn that helper and wait for browser completion, so Gmail auth now works without running npx manually.
+- Raw output now prints full strings without Node’s 10k-character truncation (`util.inspect` uses `maxStringLength: null`), so large MCP responses and plans are preserved end-to-end.
+- Added regression coverage to ensure future raw output changes cannot reintroduce truncation.
+
+## [0.6.6] - 2025-11-28
+
+### CLI
+
+- Prevented ENOENT crashes when no config file exists anywhere by only passing an explicit `--config`/`MCPORTER_CONFIG` path to the runtime; implicit defaults now fall back cleanly across list/config/daemon flows.
+
+## [0.6.5] - 2025-11-26
+
+### CLI
+
+- `mcporter call|auth|list help/--help` now print the command-specific usage text instead of attempting to run a server, matching the footer’s “mcporter <command> --help” hint.
+- Added a hidden `list-tools` alias for `mcporter list` to preserve older muscle memory and avoid “Unknown MCP server” errors when copied from legacy docs.
+- Ad-hoc HTTP flows now accept `--insecure` as a hidden synonym for `--allow-http`, making plain-HTTP testing flags match common intuition. `--sse` also aliases `--http-url` to keep older examples working.
+
+### Security / Dependencies
+
+- Override transitive `body-parser` to 2.2.1 (CVE-2025-13466) via pnpm overrides.
+
+## [0.6.4] - 2025-11-25
+
+### CLI
+
+- `mcporter list` now uses cached OAuth access tokens (if present) for the all-servers view without opening browser windows, so previously authorized servers no longer show spurious “auth required” in non-interactive listings.
+- `pnpm test --filter <pattern>` now works by translating to a Vitest file pattern, avoiding the prior “Unknown option --filter” error.
+
+## [0.6.3] - 2025-11-22
+
+### Runtime & CLI
+
+- Updated to `@modelcontextprotocol/sdk` 1.22.0; inline stdio test server now uses Zod schemas to remain compatible with the SDK’s JSON Schema conversion path.
+
+### Runtime
+
+- `listTools` now follows SDK pagination, looping through `nextCursor` so long catalogs return complete tool lists.
+
+### Configuration
+
+- Claude imports now preserve root-fallback parsing for legacy `.claude.json` and `.claude/mcp.json` files while treating `.claude/settings*.json` as container-only configs, preventing metadata fields like `statusLine` from being misdetected as MCP servers.
+- Added regression coverage for Claude settings and mcp.json imports to guard the root-fallback behavior.
+
+## [0.6.2] - 2025-11-18
+
+### Runtime
+
+- Propagate `--timeout` / `MCPORTER_CALL_TIMEOUT` into MCP tool calls (SDK `timeout`, `resetTimeoutOnProgress`, `maxTotalTimeout`) so long-running requests are no longer capped by the SDK’s 60s default.
+
+### CLI
+
+- `mcporter generate-cli` once again treats single-token `--command` values (e.g., `./scripts/server.ts`) as STDIO transports instead of trying to coerce them into HTTP URLs, restoring the pre-0.6.1 behavior for ad-hoc scripts.
+- Global flag parsing moved into `cli-factory` for consistent log-level/oauth-timeout handling across commands.
+- `daemon` host/client hardened and covered with new tests; idle eviction and restart paths verified.
+
+### Configuration
+
+- Reintroduced support for `OPENCODE_CONFIG_DIR` so OpenCode imports continue to honor the documented directory override alongside `OPENCODE_CONFIG`.
+- Platform-aware defaults for Cursor/Claude/Windsurf/VS Code/OpenCode configs now dedupe paths and include Windows-specific locations.
+
+### Platform resilience (Windows/WSL)
+
+- Added `fs-helpers` that treat chmod/copy failures on NTFS/DrvFs as best-effort so CLI generation keeps working on WSL mounts.
+- Documented Windows/WSL workflows: install/test from ext4 copies, remount guidance for /mnt/c, and syncing tips.
+
+### StdIO MCP coverage
+
+- Added stdio e2e tests using in-repo filesystem & memory MCP fixtures to ensure list/call works via execPath.
+
+### Content extraction
+
+- `createCallResult` now reads nested `raw.content`/`raw.structuredContent` so tools that wrap responses render text/markdown/json correctly; new unit tests cover text joining, markdown, and JSON.
+
+## [0.6.1] - 2025-11-17
+
+### CLI
+
+- `mcporter list --verbose` now surfaces every config path that registers the target server (primary first, then duplicates) in both text and JSON output, making it easier to trace where a name is coming from.
+- JSON list payloads include a new `sources` array when `--verbose` is set, mirroring the on-screen path list for programmatic consumers.
+- Verbose source listings now tag the import kind (cursor/vscode/codex, etc.) and explicitly label the primary entry vs. shadowed duplicates.
+
+### Runtime
+
+## [0.6.0] - 2025-11-16
+
+### Configuration
+
+- Default config resolution now layers the system config (`~/.mcporter/mcporter.json[c]`) before the project config (`config/mcporter.json`), so globally installed MCP servers remain available inside repos while allowing per-project overrides.
+- `--config` and `MCPORTER_CONFIG` continue to select a single file without merging for explicit workflows.
+- `mcporter config add --scope home|project` lets you choose the write target explicitly (project remains the default; `--persist <path>` still wins when provided).
+
+## [0.5.11] - 2025-11-16
+
+### Code generation & metadata
+
+- Quick start examples in generated CLIs now derive from actual embedded tools (up to three), showing real command names/flags instead of generic placeholders.
+
+## [0.5.10] - 2025-11-16
+
+### Code generation & metadata
+
+- Generated CLIs now present the canonical kebab-cased tool names in help while accepting underscore aliases at runtime, eliminating the “unknown command” errors when copying names directly from server tool lists.
+
+## [0.5.9] - 2025-11-15
+
+### CLI
+
+- `mcporter list` suppresses raw STDIO stderr dumps when enumerating all configured servers, keeping the summary output readable while still surfacing per-server health statuses.
+- `mcporter config <subcommand> --help` (and `mcporter config help <subcommand>`) now display detailed usage, flags, and examples for every config subcommand instead of returning a placeholder message. Inline `--help` tokens are intercepted before executing the command, so flows like `mcporter config add --help` no longer throw usage errors.
+- `mcporter config doctor` prints the project and system config paths before reporting diagnostics, making it obvious which files were inspected when tracking down configuration issues.
+
+## [0.5.8] - 2025-11-15
+
+### CLI & runtime
+
+- STDIO transports now interpolate `${VAR}`/`$env:VAR` tokens in the configured command and arguments before spawning child processes, so chrome-devtools inherits the live `CHROME_DEVTOOLS_URL` value instead of receiving the literal placeholder.
+- Keep-alive detection skips any STDIO server whose command/args reference `CHROME_DEVTOOLS_URL`, ensuring daemon mode relaunches chrome-devtools for each Oracle browser session instead of pinning a stale port.
+- Command arguments that escape placeholders as `\${VAR}` (common when using `String.raw` in TypeScript config helpers) now trim the backslash after interpolation so downstream servers receive clean URLs.
+
+### CLI
+
+- Ad-hoc STDIO invocations that start with `npx -y <package>` now infer the npm package name (stripping versions and ignoring arguments after `--`) instead of producing slugs like `npx-y`, so repeated `mcporter list|call` runs automatically reuse a readable server key without passing `--name`.
+- Quoted inline commands such as `mcporter list "npx -y xcodebuildmcp"` now auto-detect the ad-hoc STDIO transport, so you can skip `--stdio` entirely when probing MCP packages via `npx`.
+
+## [0.5.7] - 2025-11-14
+
+### CLI
+
+- Added `mcporter daemon restart`, a stop+start convenience that reuses logging flags so agents can bounce the keep-alive daemon with a single command.
+- Added `list_tools` as a hidden shortcut for `mcporter list <server>`, so `chrome-devtools.list_tools` (and similar selectors) print the tool catalog instantly without requiring a real MCP tool.
+- Warn when colon-style arguments omit a value (e.g., `command:`) and suggest quoting/`--args` JSON so agents don’t accidentally send `undefined` to STDIO servers.
+
+## [0.5.6] - 2025-11-11
+
+### CLI & runtime
+
+- Reset cached keep-alive connections whenever STDIO transports hit fatal errors (timeouts, closed pipes, daemon restarts, etc.), so chrome-devtools automatically recovers after you close Chrome instead of requiring `mcporter daemon stop`.
+- Daemon-routed calls now log a restart notice and automatically retry once after closing the stale transport, providing self-healing behavior when Chrome or other keep-alive servers crash mid-call.
+
+## [0.5.5] - 2025-11-11
+
+### CLI & runtime
+
+- Added hidden agent shortcuts: `mcporter describe <server>` now aliases `mcporter list`, and calling `<server>.help` automatically falls back to the list output when a server lacks a `help` tool (also wired into the legacy `pnpm mcp call` path) so agents always get a readable summary.
+
+## [0.5.4] - 2025-11-10
+
+### CLI & runtime
+
+- Propagate the CLI’s per-call timeout (defaults to 60s or `--timeout`) through the keep-alive daemon, so chrome-devtools and other persistent STDIO servers stop as soon as the caller times out.
+- `Runtime.callTool` now honors `timeoutMs` directly, ensuring TanStack MCP clients and the CLI share a single source of truth for cancellation even outside the daemon.
+- Ad-hoc STDIO servers launched via `mcporter call "npx …"` (or `--stdio`) inherit the same keep-alive heuristics and canonical names as config-defined entries, so `MCPORTER_DISABLE_KEEPALIVE=chrome-devtools` and similar overrides work without passing `--name`.
+
+### Tests
+
+- Added regression coverage (`tests/daemon-client-timeout.test.ts`, `tests/runtime-call-timeout.test.ts`, and updated keep-alive suites) to guard timeout propagation and canonical keep-alive detection.
+
+## [0.5.3] - 2025-11-10
+
+### CLI & runtime
+
+- Fixed Claude imports so `mcporter list` merges project-scoped servers from `.claude.json` (matching the current workspace) and ignores metadata-only keys like `tipsHistory`/`cachedStatsigGates`, resolving GitHub issues #6 and #7.
+- OpenCode imports now read only the documented `mcp` container (no root-level fallback), matching the current OpenCode schema and preventing stray metadata from being misinterpreted as servers.
+
+## [0.5.2] - 2025-11-10
+
+### CLI & runtime
+
+- `mcporter call "<stdio command>" ...` now auto-detects ad-hoc STDIO servers, so you can skip `--stdio/--stdio-arg` entirely and just quote the command you want to run.
+- When a server exposes exactly one tool, `mcporter call` infers it automatically (and prints a dim log), letting one-tool servers like Vercel Domains run with only their arguments.
+- STDIO transports now inherit your current shell environment by default, so ad-hoc commands see the same variables as your terminal; keep `--env KEY=value` for explicit overrides.
+
+### Fixes
+
+- `mcporter config list` and `mcporter config doctor` no longer crash when the project config is missing or contains malformed JSON; we log a single warning and keep going, matching the behavior of the top-level `mcporter list`.
+
+## [0.5.1] - 2025-11-10
+
+### CLI & runtime
+
+- Added a per-login daemon that auto-starts when keep-alive MCP servers (e.g., Chrome DevTools, Mobile MCP, Playwright) are invoked. The daemon keeps STDIO transports alive across agents, exposes `mcporter daemon <start|status|stop>`, and supports idle shutdown plus manual restarts.
+- Keep-alive detection now honors the `lifecycle` config flag/env overrides and also inspects STDIO command signatures, so renaming `chrome-devtools` (or other stateful servers) no longer disables the daemon accidentally.
+- Introduced daemon logging controls (`mcporter daemon start --log|--log-file`, `--log-servers`, `MCPORTER_DAEMON_LOG*` env vars, and per-server `logging.daemon.enabled`). `mcporter daemon status` reports the active log path, and a new `tests/daemon.integration.test.ts` suite keeps the end-to-end flow covered.
+
+### Fixes
+
+- `mcporter list` (and every CLI entry point) once again treats missing project configs as empty instead of throwing ENOENT, matching the 0.4.x behavior when you run the CLI outside a repo.
+
+## [0.5.0] - 2025-11-10
+
+### CLI & runtime
+
+- **Daemonized keep-alive servers.** A new per-login daemon automatically spins up whenever keep-alive MCP servers (Chrome DevTools, Mobile MCP, Playwright, etc.) are invoked. It keeps STDIO transports warm across agents, exposes `mcporter daemon <start|status|stop>`, supports idle shutdowns/manual restarts, and respects the `lifecycle` config flag plus STDIO command metadata so renamed servers stay eligible.
+- Fixed `createKeepAliveRuntime` so the daemon wrapper’s `listTools` implementation matches the base `Runtime` signature; `pnpm build` (and any command that shells out to `pnpm build`) succeeds again.
+- Cursor imports now cover both workspace and user `.cursor/mcp.json` files plus the platform-specific `Cursor/User/mcp.json` directories, and the VS Code/Windsurf walkers dedupe paths so editor-managed MCP servers are auto-discovered consistently across macOS, Linux, and Windows.
+- Windows installs now enumerate `.cursor/mcp.json`, `%USERPROFILE%\\.cursor\\mcp.json`, `%APPDATA%\\Cursor\\User\\mcp.json`, `.vscode/mcp.json`, and the Windsurf/Codeium directories automatically, while STDIO transports on Windows tear down entire process trees via `powershell.exe Get-CimInstance Win32_Process` to avoid orphaned child servers.
+
+## [0.4.5] - 2025-11-10
+
+### CLI & runtime
+
+- Fixed the npm `bin` entry so it points to `dist/cli.js` without a leading `./`, keeping the executable in the published tarball and restoring `npx mcporter` functionality. Also bumped the embedded runtime version to 0.4.4 so the CLI reports the correct release.
+- Added `MCPORTER_CONFIG` plus a home-directory fallback (`~/.mcporter/mcporter.json[c]`) so the CLI automatically finds your system-wide config when a project file is missing.
+
+### Docs
+
+- Consolidated the external MCP import matrix into `docs/import.md`, removing the short-lived `docs/mcp-import.md` duplication, and clarified the release checklist to stop immediately on failing tests or lint warnings.
+
+## [0.4.3] - 2025-11-10
+
+### CLI & runtime
+
+- Added OpenCode imports (project `opencode.json[c]`, `OPENCODE_CONFIG_DIR`, user config, and the `OPENCODE_CONFIG` override) plus JSONC parsing so `mcporter list/config` can auto-discover servers defined in OpenCode.
+- Claude Code imports now honor `.claude/settings.local.json` and `.claude/settings.json` ahead of the legacy `mcp.json`, and we skip entries that lack a URL/command (e.g., permissions blocks) so malformed settings no longer break the merge.
+
+### Docs
+
+- Documented the full import matrix (including OpenCode + Claude settings hierarchy) directly in `docs/import.md` and `docs/config.md`.
+
+## [0.4.2] - 2025-11-09
+
+### CLI & runtime
+
+- `mcporter list` (and other commands that load imports) now skip empty or malformed Claude Desktop / Cursor / Codex config files instead of throwing, so a blank `claude_desktop_config.json` no longer blocks the rest of the imports.
+- Bundled sample config adds the Mobile Next MCP definition, making it available out of the box when you run `mcporter list` before customizing your own config.
+
+## [0.4.1] - 2025-11-08
+
+### CLI & runtime
+
+- Fixed the fallback when `config/mcporter.json` is missing so `mcporter list` continues to import Cursor/Claude/Codex/etc. configs even when you run the CLI outside a repo that defines its own config, matching the 0.3.x behavior.
+- Added regression coverage that exercises the “no config file” path to ensure future changes keep importing user-level MCP servers.
+
+## [0.4.0] - 2025-11-08
+
+### CLI & runtime
+
+- `mcporter config list` now displays only local entries by default, appends a color-aware summary of every imported config (path, counts, sample names), and still lets you pass `--source import`/`--json` for the merged view.
+- `mcporter config get`, `remove`, and `logout` now use the same fuzzy matching/suggestion logic as `mcporter list`/`call`, auto-correcting near-miss names and emitting “Did you mean …?” hints when ambiguity remains.
+
+## [0.3.6] - 2025-11-08
+
+### CLI & runtime
+
+- `mcporter list` now prints copy/pasteable examples for ad-hoc servers by repeating the HTTP URL (with quoting) so the commands shown under `Examples:` actually work before you persist the definition.
+
+### Code generation
+
+- Staged the actual dependency directories (`commander`, `mcporter`) directly into the Bun bundler workspace so `npx mcporter generate-cli "npx -y chrome-devtools-mcp" --compile` succeeds even when npm hoists dependencies outside the package (fixes the regression some users still saw with 0.3.5).
+
+## [0.3.5] - 2025-11-08
+
+### Code generation
+
+- Ensure the Bun bundler resolves `commander`/`mcporter` even when `npx mcporter generate-cli … --compile` runs inside an empty temp directory by symlinking mcporter’s own `node_modules` into the staging workspace before invoking `bun build`. This keeps the “one weird trick” workflow working post-0.3.4 without requiring extra installs.
+
+## [0.3.4] - 2025-11-08
+
+### CLI & runtime
+
+- Added a global `--oauth-timeout <ms>` flag (and the matching `MCPORTER_OAUTH_TIMEOUT_MS` override) so long-running OAuth handshakes can be shortened during debugging; the runtime now logs a clear warning and tears down the flow once the limit is reached, ensuring `mcporter list/call/auth` always exit.
+
+### Docs
+
+- Documented the new OAuth timeout flag/env var across the README and tmux/hang-debug guides so release checklists and manual repro steps call out the faster escape hatch.
+
+## [0.3.3] - 2025-11-07
+
+### Code generation
+
+- When a server definition omits `description`, `mcporter generate-cli` now asks the MCP server for its own `instructions`/`serverInfo.title` during tool discovery and embeds that value, so generated CLIs introduce themselves with the real server description instead of the generic “Standalone CLI…” fallback.
+- Embedded tool listings inside generated CLIs now show each command’s flag signature (no `usage:` prefix) separated by blank lines, and per-command `--help` output inherits the same colorized usage/option styling as the main `mcporter` binary for readability on rich TTYs.
+- Added a `--bundler rolldown|bun` flag to `mcporter generate-cli`, defaulting to Rolldown but allowing Bun’s bundler (when paired with `--runtime bun`) for teams that want to stay entirely inside the Bun toolchain. The generator now records the chosen bundler in artifact metadata and enforces the Bun-only constraint so reproduction via `--from` stays deterministic.
+- When Bun is installed (and therefore selected as the runtime), `mcporter generate-cli` now automatically switches the bundler to Bun as well—no need to pass `--bundler bun` manually—while keeping Rolldown as the default for Node runtimes.
+- Bundling with Bun copies the generated template into mcporter’s install tree before invoking `bun build`, ensuring local `commander`/`mcporter` dependencies resolve even when the user runs the generator from an empty temp directory.
+
+## [0.3.2] - 2025-11-07
+
+### CLI
+
+- Embedded the CLI version so Homebrew/Bun builds respond to `mcporter --version` even when `package.json` is unavailable.
+- Revamped `mcporter --help` to mirror the richer list/call formatting (name + summary rows, grouped sections, quick-start examples, and ANSI colors when TTYs are detected).
+- Fixed `mcporter list` so it no longer errors when `config/mcporter.json` is absent—fresh installs now run without creating config files, and a regression test guards the optional-config flow.
+- Generated standalone CLIs now print the full help menu (same grouped layout as the main CLI) when invoked without arguments, matching the behavior of `mcporter` itself.
+
+### Code generation
+
+- Generated binaries now default to the current working directory (using the inferred server name) when `--compile` is provided without a path, and automatically append a numeric suffix when the target already exists.
+- Standalone CLIs inherit the improved help layout (color-aware title, grouped command summaries, embedded tool listings, and quick-start snippets) so generated artifacts read the same way as the main CLI.
+- Swapped the bundler from esbuild to Rolldown for both JS and Bun targets, removing the fragile per-architecture esbuild binaries while keeping aliasing for local dependencies and honoring `--minify` via Rolldown’s native minifier.
+- Improved `generate-cli` so inline stdio commands (e.g., `"npx chrome-devtools-mcp"`) parse correctly even when invoked from empty directories.
+
+### Code generation
+
+- `readPackageMetadata()` now tolerates missing `package.json` files; when invoked from a directory without a manifest it falls back to mcporter’s own version string, so `generate-cli` works even when you call it via `npx` in an empty folder.
+
+## [0.3.1] - 2025-11-07
+
+### CLI & runtime
+
+- Short-circuited global `--help` / `--version` handling so these flags no longer fall through command inference and always print immediately, regardless of which command the user typed first.
+- Added regression coverage for the new shortcuts and kept the existing `runCli` helper exported so tests (and downstream tools) can exercise argument parsing without forking the entire process.
+
+### Code generation & metadata
+
+- Fixed `mcporter generate-cli --bundle/--compile` in empty directories by aliasing `commander`/`mcporter` imports to the CLI’s own installation so esbuild always resolves dependencies. Verified with a new fixture that bundles from temp dirs without `node_modules` (fixes #1).
+- Added an end-to-end integration test that runs `node dist/cli.js generate-cli` twice—once for bundling and once for `--compile`—as well as a GitHub Actions step that installs Bun so CI exercises the compiled binary path on every PR.
+
+## [0.3.0] - 2025-11-06
+
+### CLI & runtime
+
+- Added configurable log levels (`--log-level` / `MCPORTER_LOG_LEVEL`) that default to `warn`, promoting noisy transport fallbacks to warnings so critical issues still surface.
+- Forced the CLI to exit cleanly after shutdown (opt out with `MCPORTER_NO_FORCE_EXIT`) and patched `StdioClientTransport` so stdio MCP servers no longer leave Node handles hanging; stderr from stdio servers is buffered and replayed via `MCPORTER_STDIO_LOGS=1` or whenever a server exits with a non-zero status.
+
+### Discovery, calling, and ad-hoc workflows
+
+- Rebuilt `mcporter list`: spinner updates stream live, summaries print only after discovery completes, and single-server views now render TypeScript-style doc blocks, inline examples, inferred return hints, and compact `// optional (N): …` summaries. The CLI guarantees at least five parameters before truncating, introduced a single `--all-parameters` switch (replacing the `--required-only` / `--include-optional` pair), and shares its formatter with `mcporter generate-cli` so signatures are consistent everywhere.
+- Verb inference and parser upgrades let bare server names dispatch to `list`, dotted invocations jump straight to `call`, colon-delimited flags (`key:value` / `key: value`) sit alongside `key=value`, and the JavaScript-like call syntax now supports unlabeled positional arguments plus typo correction heuristics when tool names are close but not exact.
+- Ad-hoc workflows are significantly safer: `--http-url` / `--stdio` definitions (with `--env`, `--cwd`, `--name`, `--persist`) work across `list`, `call`, and `auth`, mcporter reuses existing config entries when a URL matches (preserving OAuth tokens / redirect URIs), and `mcporter auth <url>` piggybacks on the same resolver to persist entries or retry when a server flips modes mid-flight.
+- Hardened OAuth detection automatically promotes ad-hoc HTTP servers that return 401/403 to `auth: "oauth"`, broadens the unauthorized heuristic for Supabase/Vercel/GitHub-style responses, and performs a one-time retry whenever a server switches into OAuth mode while you are connecting.
+
+### Code generation & metadata
+
+- Generated CLIs now embed their metadata (generator version, resolved server definition, invocation flags) behind a hidden `__mcporter_inspect` command. `mcporter inspect-cli` / `mcporter generate-cli --from <artifact>` read directly from the artifact, while legacy `.metadata.json` sidecars remain as a fallback for older binaries.
+- Shared the TypeScript signature formatter between `mcporter list` and `mcporter generate-cli`, ensuring command summaries, CLI hints, and generator help stay pixel-perfect and are backed by new snapshot/unit tests.
+- Introduced `mcporter emit-ts`, a codegen command that emits `.d.ts` tool interfaces or ready-to-run client wrappers (`--mode types|client`, `--include-optional`) using the same doc/comment data that powers the CLI, so agents/tests can consume MCP servers with strong TypeScript types.
+- `mcporter generate-cli` now accepts inline stdio commands via `--command "npx -y package@latest"` or by quoting the command as the first positional argument, automatically splits the command/args, infers a friendly name from scripts or package scopes, and documents the chrome-devtools one-liner in the README; additional unit tests cover HTTP, stdio, scoped package, and positional shorthand flows.
+
+### Documentation & references
+
+- Added `docs/tool-calling.md`, `docs/call-syntax.md`, and `docs/call-heuristic.md` to capture every invocation style (flags, function expressions, inferred verbs) plus the typo-correction rules.
+- Expanded the ad-hoc/OAuth story across `README.md`, `docs/adhoc.md`, `docs/local.md`, `docs/known-issues.md`, and `docs/supabase-auth-issue.md`, detailing when servers auto-promote to OAuth, how retries behave, and how to persist generated definitions safely.
+- Updated the README, CLI reference, and generator docs to cover the new `--all-parameters` flag, list formatter, metadata embedding, the `mcporter emit-ts` workflow, and refreshed branding so the CLI and docs consistently introduce the project as **MCPorter**.
+- Tightened `docs/RELEASE.md` with a zero-warning policy so `pnpm check`, `pnpm test`, `npm pack --dry-run`, and friends must run clean before publishing.
+- `mcporter call` now rejects unknown long flags like `--source` instead of silently treating them as positional tool arguments; use `key=value`, `--args`, or `--` for literal `--value` positionals (PR #35, thanks @beverm2391).
+
+## [0.2.0] - 2025-11-06
+
+- Added non-blocking `mcporter list` output with per-server status and parallel discovery.
+- Introduced `mcporter auth <server>` helper (and library API support) so OAuth flows don’t hang list calls.
+- Set the default list timeout to 30 s (configurable via `MCPORTER_LIST_TIMEOUT`).
+- Tuned runtime connection handling to avoid launching OAuth flows when auto-authorization is disabled and to reuse cached clients safely.
+- Added `mcporter auth <server> --reset` to wipe cached credentials before rerunning OAuth.
+- `mcporter list` now prints `[source: …]` (and `Source:` in single-server mode) for servers imported from other configs so you can see whether an entry came from Cursor, Claude, etc.
+- Added a `--timeout <ms>` flag to `mcporter list` to override the per-server discovery timeout without touching environment variables.
+
+- Generated CLIs now show full command signatures in help and support `--compile` without leaving template/bundle intermediates.
+- StdIO-backed MCP servers now receive resolved environment overrides, so API keys flow through to launched processes like `obsidian-mcp-server`.
+- Hardened the CLI generator to surface enum defaults/metadata and added regression tests around the new helper utilities.
+- Generated artifacts now emit `<artifact>.metadata.json` files plus `mcporter inspect-cli` / `mcporter regenerate-cli` workflows (with `--dry-run` and overrides, now handled via `generate-cli --from <artifact>`) so binaries can be refreshed after upgrading mcporter.
+- Fixed `mcporter call <server> <tool>` so the second positional is treated as the tool name instead of triggering the "Argument must be key=value" error, accepted `tool=`/`command=` selectors now play nicely with additional key=value payloads, and added a default call timeout (configurable via `MCPORTER_CALL_TIMEOUT` or `--timeout`) that tears down the MCP transport—clearing internal timers and ignoring blank env overrides—so long-running or completed tools can’t leave the CLI hanging open.
+
+## [0.1.0]
+
+- Initial release.
+
+## [0.6.2] - 2025-11-18
+
+### Platform resilience (Windows/WSL)
+
+- Added `fs-helpers` that treat chmod/copy failures on NTFS/DrvFs as best-effort so CLI generation keeps working on WSL mounts.
+- Documented Windows/WSL workflows: install/test from ext4 copies, remount guidance for /mnt/c, and syncing tips.
+
+### CLI/runtime
+
+- Global flag parsing moved into `cli-factory` for consistent log-level/oauth-timeout handling across commands.
+- `daemon` host/client hardened and covered with new tests; idle eviction and restart paths verified.
+- Imports now include platform-aware defaults for Cursor/Claude/Windsurf/VS Code/OpenCode configs with path dedupe.
+
+### StdIO MCP coverage
+
+- Added stdio e2e tests using in-repo filesystem & memory MCP fixtures to ensure list/call works via execPath.
+
+### Content extraction
+
+- `createCallResult` now reads nested `raw.content`/`raw.structuredContent` so tools that wrap responses render text/markdown/json correctly; new unit tests cover text joining, markdown, and JSON.
+
+### Docs
+
+- New `docs/windows.md` with WSL/NTFS tips; added to docs index.

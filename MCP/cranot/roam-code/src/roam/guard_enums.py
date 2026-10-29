@@ -1,0 +1,194 @@
+"""Closed-enum vocabulary shared across the Roam Guard substrate.
+
+Single source of truth for the verdict / mode / risk / policy / check-status
+values that flow through:
+
+  * verdict engine (`roam.verdict.compute_verdict`)
+  * verification contract (`roam.verification_contract.build_verification_contract`)
+  * AgentChangeProofBundle v1 schema (`schemas/agent_change_proof_bundle.v1.json`)
+  * GitHub Check Run mapping (`roam.github_check.VERDICT_TO_CONCLUSION`)
+  * markdown render (`roam.proof_bundle.render_markdown`)
+  * CLI choice constraints (Click `--mode`, `--policy-profile`, etc.)
+
+Before this module these enums lived in 4 different files. Drift led to
+desync — e.g. adding a new verdict required touching verdict.py + the
+schema JSON + the github_check mapping separately. Now everything imports
+from here.
+
+The schema JSON STILL hard-codes the values (JSON Schema doesn't run
+Python); the lint `test_guard_enums_match_schema` keeps them in sync.
+"""
+
+from __future__ import annotations
+
+# ---- verdict closed enum + precedence ----
+
+VERDICTS: tuple[str, ...] = (
+    "pass",
+    "pass_with_warnings",
+    "needs_review",
+    "blocked",
+)
+VERDICT_PRECEDENCE: dict[str, int] = {v: i for i, v in enumerate(VERDICTS)}
+
+# Higher index = more severe. blocked > needs_review > pass_with_warnings > pass.
+
+
+# ---- modes ----
+
+MODES: tuple[str, ...] = (
+    "read_only",
+    "safe_edit",
+    "migration",
+    "autonomous_pr",
+)
+
+
+# ---- policy profiles ----
+
+POLICY_PROFILES: tuple[str, ...] = (
+    "startup",
+    "regulated",
+)
+
+
+# ---- risk levels ----
+
+RISK_LEVELS: tuple[str, ...] = (
+    "low",
+    "medium",
+    "high",
+)
+
+
+# ---- executed check statuses ----
+
+CHECK_STATUSES: tuple[str, ...] = (
+    "pass",
+    "fail",
+    "error",
+    # W1441 — a tests_run record that carries NO status field at all.
+    # Previously such records silently defaulted to "pass", which let an
+    # agent-authored bundle read as green without any recorded outcome
+    # (fail-open). "unverified" names the honest state: the record exists
+    # but proves nothing; it can never satisfy a required check.
+    "unverified",
+)
+
+
+# ---- reason codes (verdict.reasons[].code) ----
+
+REASON_CODES: frozenset[str] = frozenset(
+    {
+        # blocked
+        "required_check_not_run",
+        "required_checks_not_run",  # aggregated form
+        "required_check_failed",
+        "required_checks_failed",
+        # W1441 — a required check matched only by a status-less
+        # (unverified) tests_run record: the record exists but proves
+        # nothing, so the requirement is not satisfied.
+        "required_check_unverified",
+        # W1447 — a required check matched only by a record whose status
+        # is not in CHECK_STATUSES at all (``null``, ``"skipped"``,
+        # ``"Unverified"``, or anything an author invents). Satisfaction
+        # is an ALLOWLIST on "pass", so an unrecognised status can never
+        # satisfy a requirement; this code names why it was refused
+        # rather than reporting the check as simply not run.
+        "required_check_status_invalid",
+        # W1443 — cross-family review obligations (orchestration graph
+        # 1b/4b). The mapping in `verdict._REVIEW_STATUS_BLOCKERS` is
+        # total and one-to-one over the verifier's status vocabulary, so
+        # no failure mode can reach a caller unclassified.
+        "plan_critique_not_run",
+        "done_verdict_not_run",
+        "review_receipt_missing",
+        "review_receipt_malformed",
+        "review_wrong_phase",
+        "review_artifact_stale",
+        "cross_family_violation",
+        "review_family_unresolved",
+        "review_rejected",
+        "review_errored",
+        # W1445 — warning tier: a same-family review is valid but measurably
+        # narrower in coverage; the proof passes and the limit is recorded.
+        "review_same_family_coverage",
+        "policy_violation",
+        "ledger_integrity_failure",
+        "mcp_redaction_required",
+        # The change set itself could not be determined (git refused, timed
+        # out, or is absent) and the bundle declared no files either. Every
+        # other input is derived from the change set, so an empty `required`
+        # list makes "all required passed" vacuously true. Without this code
+        # an unreadable repo and a repo that legitimately required nothing
+        # both printed `pass` and exited 0.
+        "change_set_unanalyzable",
+        # needs_review
+        "high_risk_path",
+        "out_of_scope_edit",
+        "missing_test_for_high_risk",
+        # pass_with_warnings
+        "optimizer_warning",
+        "optimizer_warnings",
+        "scope_finding",
+        "scope_findings",
+        "mcp_tool_finding",
+        # pass
+        "all_required_passed",
+        # Also pass -- but the pass is VACUOUS: no rule in the active pack
+        # matched any changed file, so `required` is empty for a reason that
+        # is not "nothing needed checking". Measured: a byte-identical edit
+        # blocks under `src/` and passed with `all_required_passed` over a
+        # zero denominator under `mypkg/`. The verdict value is unchanged;
+        # only the sentence is.
+        "no_rule_matched_for_changed_files",
+    }
+)
+
+
+# ---- verdict UX surfaces (icons + display titles) ----
+
+VERDICT_ICONS: dict[str, str] = {
+    "pass": "✅",
+    "pass_with_warnings": "⚠️",
+    "needs_review": "👀",
+    "blocked": "🛑",
+}
+
+VERDICT_TITLES: dict[str, str] = {
+    "pass": "Roam Guard — pass",
+    "pass_with_warnings": "Roam Guard — warnings",
+    "needs_review": "Roam Guard — review required",
+    "blocked": "Roam Guard — blocked",
+}
+
+# GitHub Check Run conclusion mapping.
+VERDICT_TO_GH_CONCLUSION: dict[str, str] = {
+    "pass": "success",
+    "pass_with_warnings": "neutral",
+    "needs_review": "action_required",
+    "blocked": "failure",
+}
+
+# Compact ASCII icons for text-mode tables (avoid emoji width issues).
+VERDICT_ICONS_ASCII: dict[str, str] = {
+    "pass": "✓",
+    "pass_with_warnings": "⚠",
+    "needs_review": "?",
+    "blocked": "✗",
+}
+
+
+# ---- CI exit codes ----
+
+VERDICT_EXIT_CODES: dict[str, int] = {
+    "pass": 0,
+    "pass_with_warnings": 0,  # non-blocking in non-strict mode
+    "needs_review": 4,
+    "blocked": 5,
+}
+
+
+def exit_code_for(verdict_value: str) -> int:
+    """Map verdict → CI-friendly exit code."""
+    return VERDICT_EXIT_CODES.get(verdict_value, 1)

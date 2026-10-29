@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.fidetolabs.qanat",
+  "type": "mcp",
+  "name": "Qanat",
+  "slug": "qanat",
+  "vendor": "fidetolabs",
+  "description": "A data platform for investment research. Ingests financial data sources and computes point-in-time financial metrics for valuation and screening. Delivered as an MCP server.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/fidetolabs/qanat",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "alpha-research",
+    "backtesting",
+    "duckdb",
+    "model-context-protocol",
+    "quant",
+    "quantitative-finance",
+    "trading-toolkit"
+  ],
+  "tags": [
+    "alpha-research",
+    "backtesting",
+    "duckdb",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "quant",
+    "quantitative-finance",
+    "trading-toolkit"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "fidetolabs",
+    "brandName": "fidetolabs",
+    "source": "https://github.com/fidetolabs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "fidetolabs/qanat",
+    "url": "https://github.com/fidetolabs/qanat",
+    "commit": "30a347dcdaf6b276bc576515efdba79c69bae87c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 324,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "qanat-fdtl"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

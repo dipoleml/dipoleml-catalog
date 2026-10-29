@@ -1,0 +1,18 @@
+kind: Task
+metadata:
+  labels:
+    suite: core
+    readonly: "true"
+    project: kubernetes
+  annotations:
+    project-name: "Kubernetes"
+    project-url: "https://kubernetes.io"
+  name: nodes-top
+  difficulty: easy
+steps:
+  setup:
+  verify:
+    contains: "master"
+  cleanup:
+  prompt:
+    inline: "Check the resource usage of the master nodes in the cluster."

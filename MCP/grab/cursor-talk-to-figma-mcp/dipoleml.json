@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.grab.cursor-talk-to-figma-mcp",
+  "type": "mcp",
+  "name": "Cursor Talk to Figma MCP",
+  "slug": "cursor-talk-to-figma-mcp",
+  "vendor": "grab",
+  "description": "TalkToFigma: MCP integration between AI Agent (Cursor, DipoleML, Codex) and Figma, allowing Agentic AI to communicate with Figma for reading designs and modifying them programmatically.",
+  "version": "0.3.5",
+  "homepage": "https://github.com/grab/cursor-talk-to-figma-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agentic",
+    "agentic-ai",
+    "automation",
+    "codex",
+    "cursor",
+    "design",
+    "figma",
+    "generative-ai"
+  ],
+  "tags": [
+    "agent",
+    "agentic",
+    "agentic-ai",
+    "ai",
+    "ai-agents",
+    "automation",
+    "claude-code",
+    "codex",
+    "cursor",
+    "design",
+    "figma",
+    "generative-ai",
+    "llm",
+    "llms",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "figma",
+    "brandName": "figma",
+    "source": "https://cdn.simpleicons.org/figma",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "grab/cursor-talk-to-figma-mcp",
+    "url": "https://github.com/grab/cursor-talk-to-figma-mcp",
+    "commit": "ddd90f3a6d454ea0b2fc29f1b084f50fd062b880",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7076,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Cursor Talk to Figma MCP | TalkToFigma: MCP integration between AI Agent (Cursor, Claude Code, Codex) and Figma, allowing Agentic AI to communicate with Figma for reading designs and modifying them programmatically.",
+        "after": "Cursor Talk to Figma MCP | TalkToFigma: MCP integration between AI Agent (Cursor, DipoleML, Codex) and Figma, allowing Agentic AI to communicate with Figma for reading designs and modifying them programmatically.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "bunx",
+      "args": [
+        "cursor-talk-to-figma-mcp@latest"
+      ]
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "cursor-talk-to-figma-mcp"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "dist/server.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "cursor-talk-to-figma-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

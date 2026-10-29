@@ -1,0 +1,66 @@
+"""JSON Schema parameter descriptions for Semantic Layer MCP tools."""
+
+from dbt_mcp.dbt_admin.param_descriptions import PAGINATION_LIMIT
+
+# Reuse Admin API wording for semantic query row limits (single source of truth).
+QUERY_RESULT_LIMIT = PAGINATION_LIMIT
+
+
+SEMANTIC_SEARCH_METRICS = (
+    "Filter metrics by substring match against the metric name. "
+    "Accepts either a single substring or a list of substrings; when a list "
+    "is provided, metrics matching any of the substrings are returned "
+    "(deduplicated)."
+)
+
+SEMANTIC_SEARCH_SAVED_QUERIES = (
+    "Filter saved queries by substring match on name, label, or description"
+)
+
+SEMANTIC_METRICS = "Metric names from list_metrics to query or inspect"
+
+SEMANTIC_SEARCH_DIMENSIONS = "Filter dimensions by substring match on name (omit to return all for these metrics)"
+
+SEMANTIC_SEARCH_ENTITIES = (
+    "Filter entities by substring match on name (omit to return all for these metrics)"
+)
+
+SEMANTIC_GROUP_BY = (
+    "Group by dimensions, time dimensions, or entities; each item has "
+    '`name`, `type` (`"dimension"`, `"time_dimension"`, or `"entity"`), '
+    "and optional `grain` for time dimensions"
+)
+
+SEMANTIC_ORDER_BY = (
+    "Sort keys; each item has `name`, `descending` (default false), and optional "
+    "`grain` for time dimensions (overrides the grain from group_by; falls back to "
+    "the matching group_by grain when omitted); items may be metric names or "
+    "group_by fields"
+)
+
+SEMANTIC_WHERE = (
+    "Semantic Layer filter; use {{ Dimension('name') }}, "
+    "{{ TimeDimension('name', 'grain') }}, {{ Entity('name') }}; dates as yyyy-mm-dd"
+)
+
+SEMANTIC_DIMENSION = (
+    "The dimension name to retrieve values for "
+    "(e.g. `customer__country`, `order__status`)"
+)
+
+SEMANTIC_DIMENSION_VALUES_LIMIT = (
+    "Maximum number of distinct values to return (default 100). "
+    "If the result is truncated, the response `truncated` field will be True — "
+    "increase this limit to retrieve more values."
+)
+
+SEMANTIC_META_FILTER = (
+    "Filter metrics by their config.meta key-value pairs. "
+    "Only metrics whose metadata contains all specified key-value pairs are returned. "
+    'Example: {"agent_accessible": true} returns only metrics where '
+    "config.meta.agent_accessible is true. "
+    'Use JSON booleans (true/false), not strings — "true" and "false" strings '
+    "are normalized to booleans automatically. "
+    "Use this to narrow a broad listing before the size budget is evaluated, "
+    "so that the metadata column is preserved in the response."
+)

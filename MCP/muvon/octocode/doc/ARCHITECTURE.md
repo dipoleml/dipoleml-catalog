@@ -1,0 +1,196 @@
+# Architecture
+
+## Core Components
+
+Octocode is built with a modular architecture that separates concerns and enables efficient code analysis and search.
+
+### Module Structure
+
+The codebase is organized into the following core modules:
+
+- **`config`** - Configuration management with template-based defaults
+- **`constants`** - Application constants and shared values
+- **`embedding`** - Thin wrapper over octolib's embedding module: re-exports types, adds retrying batch generation and mode-aware query embedding
+- **`indexer`** - Tree-sitter based code parsing and semantic extraction
+- **`llm`** - Thin wrapper over octolib's LLM module: `LlmClient::from_config()` / `with_model()`
+- **`lock`** - Process synchronization and concurrent operation management
+- **`mcp`** - Model Context Protocol server implementation (rmcp SDK)
+  - Server handles protocol framing; tool providers in `semantic_code.rs`, `graphrag.rs`, `lsp/`, `watcher.rs`
+- **`reranker`** - Search result reranking (voyage, cohere, jina, fastembed)
+- **`state`** - Application state management
+- **`storage`** - Per-project database path resolution under `~/.local/share/octocode/<project-hash>/`
+- **`store`** - LanceDB operations: block types, table handles, batch conversion, vector index optimization
+- **`utils`** - Shared utilities and helper functions
+- **`grep`** - Structural code search using ast-grep patterns (AST-aware pattern matching)
+- **`watcher_config`** - File watching configuration and patterns
+- **`language`** - Project file-association overrides for language detection
+- **`reasoning`** - PageIndex-style LLM re-ranking fused with hybrid results
+
+### 1. Indexer Engine (`src/indexer/`)
+- **Multi-language code parser** using Tree-sitter
+- **AST extraction** for semantic understanding
+- **Symbol detection** (functions, classes, imports, exports)
+- **Chunk-based processing** for large files
+- **Safe symlink handling** - Prevents infinite recursion by disabling symlink following
+- **Intelligent file discovery** with .gitignore and .noindex pattern support
+- **Language-specific parsers** for 17 programming and markup languages
+### 2. Embedding System (`src/embedding/`)
+- **Multiple providers**: Jina AI, Voyage AI, Google, OpenAI, OpenRouter, OctoHub, Together (cloud)
+- **Feature-gated local providers**: FastEmbed, HuggingFace (require `fastembed`/`huggingface` features)
+- **Dynamic model discovery** - No hardcoded model-dimension mappings
+- **Provider validation** - Fail-fast during provider creation for invalid models
+- **Batch processing** for efficient embedding generation
+- **Provider auto-detection** from model string format (`provider:model`)
+- **Input type support** for query vs document optimization
+- **Thin wrapper** around octolib's embedding module (all providers live there)
+
+### 3. Vector Database (`src/storage.rs`, `src/store/`)
+- **Lance columnar database** for fast similarity search
+- **RaBitQ quantization** - ~32x vector compression with minimal quality loss (configurable)
+- **Intelligent vector index optimization** - Automatic parameter tuning
+- **Growth-aware indexing** - Recreates indexes as datasets grow
+- **Efficient storage** (~10KB per file)
+- **Fast retrieval** with similarity thresholds
+- **Metadata indexing** for filtering
+- **Batch operations** for optimal performance
+
+### 4. Structural Graph and GraphRAG (`src/indexer/graphrag/`)
+
+- **Always-on MCP graph** built lazily from current source with Tree-sitter
+- **File and symbol nodes** with owner-aware method identities
+- **Deterministic relationships** for containment, imports, calls, inheritance, and implementations
+- **Conservative resolution** that prefers scoped/imported targets and drops ambiguous call targets
+- **In-memory caching** guarded by a repository metadata stamp; MCP watcher events also invalidate the cache when in-process indexing is enabled
+- **Optional persisted enrichment** for semantic file lookup, AI descriptions, and broader file-level architectural relationships
+- **No symbol embeddings or symbol LLM processing**; live AST symbols remain authoritative
+
+### 5. Search Engine
+- **Semantic similarity search** using vector embeddings
+- **Hybrid search** combining vector similarity with keyword matching (configurable weights)
+- **Result reranking** - Optional reranker model (voyage, cohere, jina, fastembed) for improved relevance
+- **Multi-mode search** (code, docs, text, commits, all)
+- **Configurable similarity thresholds**
+- **Contextual Retrieval** - Optional AI-enriched chunk context for improved search quality (`src/indexer/contextual.rs`)
+
+### 5a. Commit Search (`src/indexer/commits/`)
+- **Git commit indexing** with AI-generated descriptions
+- **Lazy loading** - Commits indexed on first search, not during `octocode index`
+- **Semantic search** over commit messages, changed files, and AI descriptions
+- **Detail levels** - Signatures (compact), partial (default), full (complete message + all files)
+
+### 6. MCP Server (`src/mcp/`)
+- **Model Context Protocol** server implementation using rmcp SDK
+- **Dual mode support** - Stdin (default) and Streamable HTTP modes (`--bind` flag)
+- **Tool providers**: Semantic code search, GraphRAG queries, LSP integration, file watcher
+- **Intelligent file watching** with debouncing and ignore pattern support
+- **Process management** to prevent concurrent indexing operations
+- **LSP integration** - Language Server Protocol for go-to-definition, hover, find references, completion
+- **Debug mode** with enhanced logging and performance monitoring
+- **Multi-repository mode** (`--multi`) serving every git repo one level under `--path` from a single endpoint
+
+### 7. Git Integration
+- **Smart commit message generation** using AI
+- **Staged changes analysis**
+- **Code review assistant** with best practices checking
+- **AI diff analysis** with risk assessment and structured change cards
+- **AI code explanation** with architectural focus
+- **Release management** with AI-powered version calculation
+- **Codebase statistics** with index health monitoring
+- **Multiple LLM support** via octolib providers (OpenRouter, OpenAI, Anthropic, Google, DeepSeek, local)
+
+### 8. Code Formatting (`src/commands/format/`)
+- **EditorConfig integration** for consistent formatting
+- **Multi-language support** with language-specific formatters
+- **Batch processing** for efficient formatting operations
+
+## Knowledge Graph Structure
+
+### Nodes
+
+The live graph contains:
+
+- **File nodes**, identified by their repository-relative path
+- **Symbol nodes**, normally identified as `path/to/file::symbol` or `path/to/file::Owner::method`
+- **Line-qualified IDs** only when true overloads would otherwise collide
+
+Symbols and owners come directly from the current Tree-sitter AST. They are not persisted or embedded. When indexed GraphRAG is enabled, persisted file descriptions and file-level nodes may be overlaid only when their source files still exist.
+
+### Relationships
+
+The deterministic live graph emits:
+
+- **`contains`**: File to declared symbol
+- **`imports`**: File to resolved imported file
+- **`calls`**: Calling symbol to conservatively resolved callable symbol
+- **`extends`**: Declared type to its resolved parent type
+- **`implements`**: Declared type to its resolved interface or trait
+
+Optional persisted enrichment can add broader file-level relationship types such as `uses`, `configures`, and architectural or design-pattern relationships.
+
+### Graph Operations
+
+- **Search**: Lexically seed current file/symbol nodes; add semantic file seeds when persisted GraphRAG is available
+- **Get Node**: Retrieve a file or symbol node
+- **Get Relationships**: Find all connections for a node
+- **Find Path**: Discover connection paths between two nodes
+- **Overview**: Get high-level graph statistics
+
+## Data Flow
+
+1. **Always-on MCP graph**:
+   ```
+   Current Source → Repository Stamp → Tree-sitter Parse → File/Symbol Graph → MCP Operations
+                            │                                      ↑
+                            └── unchanged → reuse in-memory cache ─┘
+   ```
+
+2. **Optional indexed enrichment**:
+   ```
+   Indexed Files → File Embeddings → Optional LLM Analysis → Persisted File Graph
+                                                              ↓
+   MCP Request → Live Graph + Current Persisted File Overlay → Response
+   ```
+
+The live graph detects repository metadata changes on the next graph request. When `index.mcp_index = true`, watcher events invalidate it immediately as part of the normal debounce pipeline.
+
+## Supported Languages
+
+| Language | Extensions | Parser Features |
+|----------|------------|----------------|
+| **Rust** | `.rs` | Full AST parsing, pub/use detection, module structure |
+| **Python** | `.py` | Import/class/function extraction, docstring parsing |
+| **JavaScript** | `.js`, `.jsx` | ES6 imports/exports, function declarations |
+| **TypeScript** | `.ts`, `.tsx` | Type definitions, interface extraction, modules |
+| **Go** | `.go` | Package/import analysis, function extraction |
+| **Java** | `.java` | Class, interface, method, inheritance, and implementation extraction |
+| **PHP** | `.php` | Class/function extraction, namespace support |
+| **C++** | `.cpp`, `.hpp`, `.h`, `.c`, `.cc`, `.cxx`, `.c++`, `.hxx`, `.cppm`, `.ixx`, `.mxx`, `.ccm`, `.cxxm` | Include analysis, class/function extraction |
+| **Ruby** | `.rb` | Class/module extraction, method definitions |
+| **Elixir** | `.ex`, `.exs` | Module, protocol, function, macro, and dependency extraction |
+| **JSON** | `.json` | Structure analysis, key extraction |
+| **Bash** | `.sh`, `.bash` | Function and variable extraction |
+| **CSS** | `.css`, `.scss`, `.sass` | Selector and rule extraction |
+| **Lua** | `.lua` | Function and module extraction |
+| **Swift** | `.swift` | Type, protocol, function, and method extraction |
+| **Svelte** | `.svelte` | Component structure, script/style extraction |
+| **Markdown** | `.md`, `.markdown` | Document section indexing, header extraction |
+
+## Performance Characteristics
+
+### Indexing Performance
+- **Speed**: 100-500 files/second (varies by file size and complexity)
+- **Memory**: ~50MB base + ~1KB per indexed file
+- **Storage**: ~10KB per file in Lance database
+- **Scalability**: Tested with codebases up to 100k+ files
+
+### Search Performance
+- **Latency**: <100ms for most queries
+- **Throughput**: 1000+ queries/second
+- **Memory**: Constant memory usage regardless of result size
+- **Accuracy**: High semantic relevance with configurable thresholds
+
+### Optimization Strategies
+- **Chunking**: Configurable chunk sizes for different file types
+- **Batch Processing**: Efficient embedding generation
+- **Caching**: Vector embeddings cached for reuse
+- **Incremental Updates**: Only index changed files

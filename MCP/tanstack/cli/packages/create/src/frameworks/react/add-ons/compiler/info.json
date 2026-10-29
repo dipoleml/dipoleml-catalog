@@ -1,0 +1,12 @@
+{
+  "name": "Compiler",
+  "phase": "setup",
+  "description": "Auto-memoize components and hooks (fewer re-renders, no manual useMemo/useCallback).",
+  "link": "https://react.dev/learn/react-compiler",
+  "modes": ["code-router", "file-router"],
+  "type": "add-on",
+  "category": "tooling",
+  "color": "#61DAFB",
+  "priority": 50,
+  "routes": []
+}

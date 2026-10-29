@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cco-metrics-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-11",
+  "workers_dev": true,
+  "observability": {
+    "enabled": false
+  },
+  "d1_databases": [
+    {
+      "binding": "METRICS_DB",
+      "database_name": "cco-metrics",
+      "database_id": "6b2dfb25-df97-4e96-a118-0f35f99e26d0",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

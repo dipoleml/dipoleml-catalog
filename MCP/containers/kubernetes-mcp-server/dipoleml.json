@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.containers.kubernetes-mcp-server",
+  "type": "mcp",
+  "name": "Kubernetes MCP Server",
+  "slug": "kubernetes-mcp-server",
+  "vendor": "containers",
+  "description": "Model Context Protocol (MCP) server for Kubernetes and OpenShift",
+  "version": "0.0.0",
+  "homepage": "https://github.com/containers/kubernetes-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "containers",
+    "context",
+    "kubernetes",
+    "kubernetes-mcp",
+    "model",
+    "modelcontextprotocol",
+    "openshift",
+    "protocol"
+  ],
+  "tags": [
+    "containers",
+    "context",
+    "kubernetes",
+    "kubernetes-mcp",
+    "mcp",
+    "model",
+    "modelcontextprotocol",
+    "openshift",
+    "protocol"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "kubernetes",
+    "brandName": "kubernetes",
+    "source": "https://cdn.simpleicons.org/kubernetes",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:48Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "containers/kubernetes-mcp-server",
+    "url": "https://github.com/containers/kubernetes-mcp-server",
+    "commit": "4d542ac0b1175233dca22d95ad8a8f55d6950974",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 2196,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:46:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "KEYCLOAK_OIDC_SETUP",
+      "IMPORTANT"
+    ],
+    "credentials": [
+      "KEYCLOAK_OIDC_SETUP"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,405 @@
+# Copyright 2025-2026 activeing123
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""`mcptoon report` — the whole savings account on one screen.
+
+Every other surface answers one slice of "how much does this save?": the footer
+gives the tool half, `skills stats` gives the skill half, `bench` gives the
+calibers, `usage` gives the call count. This command is the one place they are
+added up, because a user asking "so how much am I actually saving?" should not
+have to run four commands and reconcile four numbers in their head — which is
+exactly how the 2026-09-26 "same machine, four numbers" confusion happened.
+
+The design rule is the same one `docs/calibers.md` states: **every number is
+labelled with the question it answers, and nothing is invented.** In particular
+there is no "cumulative context saved" figure, because mcptoon does not count how
+many turns an agent has run — a number that would need that count would be a
+guess dressed as a measurement. What *is* counted (calls routed, result tokens
+through the gateway) is reported as counted.
+"""
+
+from __future__ import annotations
+
+__all__ = ["build", "render", "run"]
+
+
+def _tool_section(facts: dict) -> dict:
+    """The MCP-tools half, from `footer.facts()` — the shared caliber."""
+    full = int(facts.get("tokens_full") or 0)
+    return {
+        "count": int(facts.get("tools") or 0),
+        "servers": int(facts.get("servers") or 0),
+        "full_tokens": full,
+        "gateway_tokens": facts.get("gateway_tokens"),
+        "gateway_pct": facts.get("gateway_pct"),
+        "slim_tokens": int(facts.get("tokens_slim") or 0),
+        "slim_pct": float(facts.get("savings_pct") or 0.0),
+        "name_index_tokens": int(facts.get("name_index_tokens") or 0) or None,
+    }
+
+
+def _skill_section(roots, query: str, k: int) -> dict:
+    """The skills half, from the same helpers `mcptoon bench` uses."""
+    from .bench import _skill_rows, _tokenizer
+
+    encode, _cal, _exact = _tokenizer()
+    rows, n_skills, dupes, note = _skill_rows(encode, roots, query, k)
+    by_label = {label: toks for label, toks in rows}
+    full = by_label.get("native: every SKILL.md, full text")
+    pointer = by_label.get("skills manifest (pointer)")
+    resolve = next((t for lab, t in rows if lab.startswith("skills resolve")), None)
+    return {
+        "count": n_skills,
+        "full_tokens": full,
+        "pointer_tokens": pointer,
+        "resolve_tokens": resolve,
+        "duplicates_skipped": dupes,
+        "note": note,
+    }
+
+
+def _native_tool_count() -> int:
+    """How many tools mcptoon itself exposes under the default compact exposure."""
+    try:
+        from .native_tools import native_tools
+        return len(native_tools())
+    except Exception:
+        return 0
+
+
+def _mode_section() -> dict:
+    """Which delivery mode is running, and which is cheapest.
+
+    A savings report that lists "99%" without saying *whether this machine is in
+    a mode that actually saves anything* is the exact confusion this answers: a
+    fresh install sits in `direct` (installed, not wired) and saves nothing. All
+    read-only and cache-only, so the report stays cheap.
+    """
+    try:
+        from . import mode as mode_mod
+        d = mode_mod.detect()
+        sec = {"current": d["mode"], "cheapest": "cli",
+               "gateway_registered": d["gateway_registered"]}
+        # Expose the fix, not just the diagnosis, so a script reading report --json
+        # can act (which mode + the one command) instead of parsing prose.
+        try:
+            rec = mode_mod.recommend()
+            sec["recommended"] = rec.get("recommended")
+            sec["one_action"] = rec.get("one_action")
+        except Exception:
+            pass
+        return sec
+    except Exception:
+        return {"current": None, "cheapest": "cli", "gateway_registered": False}
+
+
+def build(query: str = "make a PDF", k: int = 5) -> dict:
+    """Assemble every savings figure, each with the caliber it is measured on."""
+    from . import footer as footer_mod
+    from . import usage as usage_mod
+    from .bench import _roots_from, _tokenizer
+
+    _encode, caliber, exact = _tokenizer()
+    facts = footer_mod.facts()
+
+    tools = _tool_section(facts)
+    skills = _skill_section(_roots_from([]), query, k)
+
+    usage = usage_mod.get_usage_stats()
+
+    # Per-turn context: the two halves added, on the same tiktoken caliber.
+    native_total = (tools["full_tokens"] or 0) + (skills["full_tokens"] or 0)
+    slim_total = ((tools["gateway_tokens"] or tools["slim_tokens"] or 0)
+                  + (skills["pointer_tokens"] or 0))
+    per_turn_pct = (round((native_total - slim_total) / native_total * 100, 1)
+                    if native_total and slim_total and native_total > slim_total
+                    else None)
+
+    return {
+        "caliber": caliber,
+        "exact": exact,
+        "note": footer_mod.note(facts) if hasattr(footer_mod, "note") else "",
+        "delivery_mode": footer_mod.current_mode(),
+        "tools": tools,
+        "tools_exposed": _native_tool_count(),
+        "skills": skills,
+        "mode": _mode_section(),
+        # The CLI-caliber saving, split out so ⑤ can name it separately from the
+        # gateway-equivalent estimate. None off the CLI path.
+        "cli_credit": footer_mod.cli_credit(facts),
+        "cumulative": (lambda est: {
+            "calls": est[0] if est else 0,
+            "gateway_equiv": est[1] if est else 0,
+        })(footer_mod._cumulative_estimate(facts)),
+        "per_turn": {
+            "native_tokens": native_total,
+            "after_tokens": slim_total,
+            "saved_tokens": max(0, native_total - slim_total),
+            "saved_pct": per_turn_pct,
+        },
+        "calls": {
+            "total": usage["total_calls"],
+            "window": usage["window_calls"],
+            "success_rate": usage["success_rate"],
+            "result_tokens_lifetime": usage["lifetime_result_tokens"],
+            "first_call_ts": usage.get("first_call_ts"),
+        },
+    }
+
+
+def _fmt(n) -> str:
+    return f"{int(n):,}" if isinstance(n, (int, float)) and n is not None else "—"
+
+
+def _row(label: str, tokens, suffix: str = "", width: int = 22) -> str:
+    """One `label   tokens   suffix` line — never an f-string with nested quotes."""
+    return f"     {label:<{width}}{_fmt(tokens):>12}{suffix}"
+
+
+def _history_span(first_ts, total, lng: str = "en") -> str:
+    """A one-line "since <date> · N days · ~M calls/day" from the first-call stamp.
+
+    Returns "" when there is nothing to date (no timestamp, or a nonsensical one).
+    The per-day rate is floored to a whole number and never shown for a span under
+    a day — dividing by zero days would invent a rate, and a same-day install has
+    no meaningful "per day" yet.
+    """
+    if not isinstance(first_ts, (int, float)) or first_ts <= 0:
+        return ""
+    from datetime import datetime
+
+    zh = lng == "zh"
+    try:
+        first = datetime.fromtimestamp(first_ts)
+    except (OSError, OverflowError, ValueError):
+        return ""
+    days = max(0, (datetime.now() - first).days)
+    date_str = first.strftime("%Y-%m-%d")
+    if zh:
+        base = f"自 {date_str} 起 · 已 {days} 天"
+        if days >= 1 and total:
+            base += f" · 平均每天约 {int(total // days):,} 次"
+    else:
+        base = f"since {date_str} · {days} day(s)"
+        if days >= 1 and total:
+            base += f" · ~{int(total // days):,} calls/day"
+    return base
+
+
+def render(data: dict, lng: str = "en") -> str:
+    """The report as pasteable text. One language, no escape codes."""
+    from . import footer as footer_mod
+
+    zh = lng == "zh"
+    t, s, pt, c = data["tools"], data["skills"], data["per_turn"], data["calls"]
+    L = []
+    a = L.append
+
+    def L_(en: str, zh_text: str) -> str:
+        return zh_text if zh else en
+
+    a(L_("mcptoon savings report", "mcptoon 省 token 全账")
+      + f"  ·  {data['caliber']}")
+    a("")
+    # A direct machine (installed, not wired) saves nothing yet. Section ⑥ at the
+    # bottom says so, but a reader who stops at the big numbers never reaches it —
+    # put the caveat up top too, so the report is not read as a live tally.
+    if (data.get("mode") or {}).get("current") in ("direct", "serve-alongside"):
+        if (data.get("mode") or {}).get("current") == "serve-alongside":
+            a(L_("⚠ serve-alongside (gateway wired, direct entries not taken over): "
+                 "you save 0 right now — the hosts still load every schema directly. "
+                 "The figures below are what you WOULD save after `mcptoon sync --takeover`.",
+                 "⚠ serve（网关已接，但直连条目没被接管）：此刻一分没省 —— 宿主还在每轮"
+                 "直接加载全部 schema。下面的数字是接管后能省的量。"))
+        else:
+            a(L_("⚠ direct mode (installed, not wired): you save 0 right now — the "
+                 "figures below are what you WOULD save once wired.",
+                 "⚠ 直连模式（装了没接）：此刻一分没省 —— 下面的数字是接上后能省的量。"))
+        a("")
+
+    # ① tools
+    gw = t["gateway_tokens"]
+    a(L_("① MCP tools", "① MCP 工具")
+      + f"  —  {_fmt(t['count'])} " + L_("tools", "个工具")
+      + f" / {_fmt(t['servers'])} " + L_("servers", "个服务器"))
+    if data["tools_exposed"]:
+        a(_row(L_("tools the agent sees", "agent 看到的工具数"), data["tools_exposed"])
+          + "   " + L_(f"(down from {_fmt(t['count'])})", f"（原 {_fmt(t['count'])} 个）"))
+    a(_row(L_("every full schema", "完整 schema"), t["full_tokens"]))
+    if gw:
+        # Floored, whole-number — same rule as the footer/status/skills rows. `.0f`
+        # on the pre-rounded float turned 99.6% into "100%", disagreeing with the
+        # pointer row two lines below (reported 2026-10-17).
+        _gwp = footer_mod.display_pct(t["full_tokens"] - gw, t["full_tokens"])
+        a(_row(L_("gateway (what loads)", "网关实际加载"), gw, f"   ↓ {_gwp}%")
+          + "   " + L_("(default compact exposure)", "（默认 compact 暴露）"))
+    _slp = footer_mod.display_pct(t["full_tokens"] - t["slim_tokens"], t["full_tokens"])
+    a(_row(L_("manifest --slim", "瘦身 schema"), t["slim_tokens"], f"   ↓ {_slp}%"))
+    a("")
+
+    # ② skills
+    a(L_("② Agent skills", "② 技能")
+      + f"  —  {_fmt(s['count'])} " + L_("skills", "个技能"))
+    a(_row(L_("every SKILL.md", "全部 SKILL.md"), s["full_tokens"]))
+    if s["pointer_tokens"]:
+        # Floored via the shared helper: 39/1,030,628 rounds to a "100%" that reads
+        # as a typo, and the footer must not print a different number for the same
+        # pair — see `footer.floor_pct`.
+        p = footer_mod.floor_pct((s["full_tokens"] or 0) - s["pointer_tokens"],
+                                 s["full_tokens"] or 0)
+        a(_row(L_("resident pointer", "常驻指针"), s["pointer_tokens"],
+               f"   ↓ {p:.2f}%" if p is not None else ""))
+    if s["resolve_tokens"]:
+        # Also floored, for the same reason the pointer row is: `99.9%` was a
+        # hardcoded string that could drift from the numbers beside it.
+        r = footer_mod.floor_pct((s["full_tokens"] or 0) - s["resolve_tokens"],
+                                 s["full_tokens"] or 0, places=1)
+        a(_row(L_("one resolve (k=5)", "一次检索 (k=5)"), s["resolve_tokens"],
+               f"   ↓ {r:.1f}%" if r is not None else ""))
+    a("")
+
+    # ③ per turn
+    a(L_("③ Per-turn context (①+②)", "③ 每轮上下文合计（①+②）"))
+    a(_row(L_("native", "完整"), pt["native_tokens"]))
+    a(_row(L_("after mcptoon", "装 mcptoon 后"), pt["after_tokens"],
+           f"   ↓ {pt['saved_pct']:.1f}%" if pt["saved_pct"] is not None else ""))
+    a("")
+
+    # ④ call-result compression (on by default since 2026-09-26)
+    a(L_("④ Call-result compression (on by default)", "④ 对话结果压缩（默认开启）"))
+    a("     " + L_("structure-aware: shrinks redundant results, keeps every key",
+                   "结构感知：压缩冗余结果，保留全部键名"))
+    a("     " + L_("originals recoverable via mcptoon_retrieve; turn off: config set compress off",
+                   "原文可经 mcptoon_retrieve 取回；关闭：config set compress off"))
+    a("")
+
+    # ⑤ cumulative
+    a(L_("⑤ Cumulative (counted, since install)", "⑤ 累计（自安装，真实计数）"))
+    a(_row(L_("calls routed", "累计转发调用"), c["total"],
+           f"   ({c['success_rate']} ok)" if c["total"] else ""))
+    a(_row(L_("result tokens through", "累计处理结果 token"), c["result_tokens_lifetime"]))
+    # The span, so a lifetime total becomes something the user can feel. A raw
+    # count of 2,920 says nothing about how long they have trusted the tool; "over
+    # 14 days, ~209 calls/day" does. Only shown when there is history to date.
+    span = _history_span(c.get("first_call_ts"), c.get("total"), lng)
+    if span:
+        a("     " + span)
+    # Two calibers, kept apart on purpose. The "≈ gateway-equivalent" figure is a
+    # lower-bound estimate (calls × the serve per-turn saving) — a serve story. On
+    # a CLI machine the *real, countable* saving is different: every call avoided
+    # loading the whole catalog. Naming only the gateway-equivalent at a CLI user
+    # credits them for a saving they do not actually bank that way, which is the
+    # whole complaint this split answers.
+    cc = data.get("cli_credit")
+    if cc:
+        a(_row(L_("CLI: full catalog never resident", "CLI：全量目录从不常驻"),
+               cc.get("resident_avoided")))
+        a("     " + L_(
+            "real: each call skips the whole schema set; this is the CLI saving, counted",
+            "真实：每次调用都跳过整套 schema；这才是 CLI 的省，可计数"))
+    cum = data.get("cumulative") or {}
+    if cum.get("gateway_equiv"):
+        a(_row(L_("≈ gateway-equivalent (serve caliber)", "≈ 网关等效量（serve 口径）"),
+               cum["gateway_equiv"]))
+        a("     " + L_(
+            "lower-bound estimate: calls × serve per-turn saving, not the CLI figure above",
+            "下界估算：调用次数 × serve 每轮省量，不是上面那个 CLI 实数"))
+    a("     " + L_("note: turns are not counted, so no cumulative-turn figure is invented",
+                   "注：不统计『轮数』，故不编造累计轮次节省"))
+    a("")
+
+    # ⑥ delivery mode — the "is this actually saving me anything?" answer. The
+    # 99% above is definition-side and only realised in `cli`/`serve`; a fresh
+    # install sits in `direct` and saves nothing, which the numbers above cannot
+    # say on their own.
+    md = data.get("mode") or {}
+    cur = md.get("current")
+    if cur:
+        _mlabel = {
+            "cli": L_("CLI (shell) — cheapest, zero resident cost",
+                      "CLI 模式（最省 · 零常驻）"),
+            "serve": L_("serve (MCP gateway) — small fixed per-turn cost",
+                        "serve 模式（原生集成 · 每轮小固定开销）"),
+            "serve-alongside": L_("serve-alongside (gateway wired, direct entries not "
+                                  "taken over) — saves nothing yet",
+                                  "serve 模式（网关已接 · 未接管直连条目 · 还没省）"),
+            "direct": L_("direct (not wired) — most expensive, saves nothing yet",
+                         "直连模式（最贵 · 装了没接）"),
+            "empty": L_("no servers configured yet", "未配置任何 MCP 服务器"),
+        }.get(cur, cur)
+        a(L_("⑥ Delivery mode", "⑥ 当前交付模式") + f"  —  {_mlabel}")
+        if cur == "direct":
+            a("     " + L_("→ run `mcptoon sync --self` (serve) or use `mcptoon call` (cli); see `mcptoon mode`",
+                           "→ 跑 `mcptoon sync --self`（serve）或改用 `mcptoon call`（cli）；详见 `mcptoon mode`"))
+        elif cur == "serve-alongside":
+            a("     " + L_("→ run `mcptoon sync --takeover` to route the direct entries through the gateway; see `mcptoon mode`",
+                           "→ 跑 `mcptoon sync --takeover` 把直连条目改为走网关；详见 `mcptoon mode`"))
+        elif cur == "cli":
+            a("     " + L_("CLI: idle 0 tokens; the ⑤ 'CLI' row is your real, counted saving",
+                           "CLI：闲置 0 token；⑤ 里那行『CLI』才是你的真实可计数省量"))
+            a("     " + L_("cheapest mode is CLI (idle 0, pay only on use); see `mcptoon mode`",
+                           "最省的是 CLI（闲置 0、按需才花）；详见 `mcptoon mode`"))
+        else:
+            a("     " + L_("cheapest mode is CLI (idle 0, pay only on use); see `mcptoon mode`",
+                           "最省的是 CLI（闲置 0、按需才花）；详见 `mcptoon mode`"))
+        a("")
+
+    if data.get("note"):
+        a("note: " + data["note"])
+    return "\n".join(L)
+
+
+def run(rest: list[str], fmt: str = "auto", head_n: int = 0, max_chars: int = 0,
+        full: bool = False) -> None:
+    """CLI entry: `mcptoon report [--query Q] [-k N] [--json]`.
+
+    `head_n`/`max_chars`/`full` are the global output flags, forwarded so they are
+    not silently ignored on this command (its `skills` list is what `--head` caps).
+    """
+    query = "make a PDF"
+    k = 5
+    for i, a in enumerate(rest):
+        if a == "--query" and i + 1 < len(rest):
+            query = rest[i + 1]
+        elif a.startswith("--query="):
+            query = a.split("=", 1)[1]
+        elif a == "-k" and i + 1 < len(rest):
+            try:
+                k = int(rest[i + 1])
+            except ValueError:
+                pass
+        elif a.startswith("-k="):
+            try:
+                k = int(a.split("=", 1)[1])
+            except ValueError:
+                pass
+
+    data = build(query=query, k=k)
+    if fmt == "json":
+        # Through `render` rather than `json.dumps` so the global output flags work
+        # here; `fmt="json"` keeps it machine-readable (no default cap).
+        from . import output
+        print(output.render(data, fmt="json", head_n=head_n, max_chars=max_chars,
+                            full=full))
+        return
+    from . import config as cfg
+    print(render(data, lng=cfg.resolve_lang()))
+    # This report is an aggregate (counts and totals), not a record list, so
+    # `--head` has nothing to cap here. Say so rather than accept the flag and do
+    # nothing — a silently ignored flag reads as success. Only when one was asked
+    # for.
+    if head_n and head_n > 0:
+        print()
+        print(f"  note: --head {head_n} does not apply to this report "
+              f"(it is an aggregate, not a list).")

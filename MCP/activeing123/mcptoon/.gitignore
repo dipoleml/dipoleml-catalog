@@ -1,0 +1,121 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (local)
+.mcptoon.json
+
+# Build artifacts
+dist/
+*.egg-info/
+
+# Temp scripts
+_*.py
+_*.json
+_*.ps1
+_*.sh
+_*.bat
+preview.html
+# Exception: __main__.py is NOT a temp script
+!src/mcptoon/__main__.py
+# 2026-10-02 事故：上面 `_*.py` 把 `src/mcptoon/_toon/__init__.py` 一并吃掉了，于是
+# v0.8.6 少打一个文件进 wheel，`mcptoon --version` 直接 ImportError（PyPI 上已坏）。
+# 包目录的前导下划线是包名的一部分，不是临时脚本 —— 名字带下划线的包要显式放行。
+!src/mcptoon/_toon/
+
+# Scratch workspace: task briefs, probe scripts and throwaway venvs. Nothing
+# here ships, and it only ever showed up as untracked noise in `git status`.
+.scratch/
+
+# Old README versions
+readme-v*.md
+readme-preview*.html
+
+# Unfinished README rewrites (marketing drafts, not for the public repo).
+# 2026-09-18: four full README rewrites sat untracked in the working tree and
+# kept `git status` noisy. A rewrite is not a shipping artifact until it is
+# applied to README.md itself; until then it is scratch, like readme-v*.md above.
+README.*-draft*.md
+# 2026-09-22: the drafts also used `.vN` / `.proposed` naming, which the glob
+# above missed, so they showed up as 20 phantom "new files" in `git status`.
+# Enumerated so the real README.md / README.zh-CN.md stay tracked.
+README.v*.md
+README.zh-CN.v*.md
+README.proposed.md
+README.zh-CN.proposed.md
+# 2026-09-27: the same draft pattern applies to DEVELOPERS.md — a stale v6 draft
+# (v0.7.21 / 1254 tests / 27 modules) sat untracked and would ship wrong numbers.
+DEVELOPERS.v*.md
+readme_preview*.html
+
+# Internal docs (not for public repo)
+docs/new-docs-overview.html
+PROJECT_STATUS.md
+TASK_SPEC.md
+INCREMENTAL_PLAN.md
+HANDOFF.md
+GROWTH.md
+CONTEXT.md
+.daily_progress.json
+assets/badge_preview.html
+reddit_post.md
+docs/archive/
+REDBLUE_TEAM_ANALYSIS.md
+RELEASE_PLAN.md
+VERSION_STRATEGY.md
+_handle_result.txt
+_*.txt
+PROJECT_MAP.json
+PROJECT_MAP.md
+ECOSYSTEM.md
+docs/adr/
+docs/hn-post-draft.md
+docs/hn-post-preview.html
+docs/product-hunt-launch.md
+docs/devto-zero-deps.md
+docs/global-community-strategy.md
+docs/reddit-strategy.md
+
+# Exception: ROADMAP.md is tracked (product roadmap)
+!ROADMAP.md
+
+# Private layer (local handlers, not for public release)
+local/
+
+# Preview artifacts
+readme_preview.html
+
+# 2026-10-02: 手工改 YAML 时留下的备份，别再被 git add -A 卷进去
+SKILL.md.bak-*
+
+# 2026-10-26: 本地门禁/发布状态缓存 —— 里面是本机绝对路径（C:\Users\...）
+# 属于本机 ops 区，不进公开树。check_privacy.py --tree 会扫「未跟踪但没被
+# ignore 的文件」，不 ignore 的话每次提交前都被它拦（正是要拦的那类）。
+docs/.gate.json
+docs/.state/

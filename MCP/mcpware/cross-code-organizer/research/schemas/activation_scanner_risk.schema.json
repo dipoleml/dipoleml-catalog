@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mcpware.dev/schemas/activation-scanner-risk.schema.json",
+  "title": "Activation Scanner Risk Object",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "decision",
+    "risk_score",
+    "risk_reasons",
+    "activation_score",
+    "text_baseline_score",
+    "static_score",
+    "sae_features",
+    "evidence_spans",
+    "scanner_version",
+    "artifact_id",
+    "artifact_path",
+    "model_id",
+    "sensor_model",
+    "sae",
+    "mode",
+    "training_data",
+    "activation_details",
+    "thresholds",
+    "decision_policy",
+    "elapsed_seconds"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["allow", "warn", "block", "quarantine"]
+    },
+    "risk_score": {
+      "$ref": "#/$defs/score"
+    },
+    "risk_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "activation_score": {
+      "$ref": "#/$defs/score"
+    },
+    "text_baseline_score": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/score"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "static_score": {
+      "$ref": "#/$defs/score"
+    },
+    "sae_features": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sae_feature"
+      }
+    },
+    "evidence_spans": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_span"
+      }
+    },
+    "scanner_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "type": ["string", "null"]
+    },
+    "sensor_model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sae": {
+      "type": ["string", "null"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["cached_probe_runtime"]
+    },
+    "training_data": {
+      "type": ["object", "null"]
+    },
+    "activation_details": {
+      "type": "object",
+      "required": ["feature_kind", "extractor", "feature_elapsed_seconds", "feature_details", "layer_policy"],
+      "properties": {
+        "feature_kind": {
+          "type": "string"
+        },
+        "extractor": {
+          "type": "string",
+          "enum": ["raw", "sae"]
+        },
+        "feature_elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "feature_details": {
+          "type": "object"
+        },
+        "layer_policy": {
+          "type": ["object", "null"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "thresholds": {
+      "type": "object",
+      "required": ["warn", "block"],
+      "properties": {
+        "warn": {
+          "$ref": "#/$defs/score"
+        },
+        "block": {
+          "$ref": "#/$defs/score"
+        }
+      },
+      "additionalProperties": true
+    },
+    "decision_policy": {
+      "type": "object",
+      "required": ["name", "block_requires", "static_block_bundles", "policy_reasons"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "block_requires": {
+          "type": "string",
+          "minLength": 1
+        },
+        "static_block_bundles": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "policy_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "elapsed_seconds": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "evidence_span": {
+      "type": "object",
+      "required": ["id", "severity", "reason", "matched_text", "start", "end", "context"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "matched_text": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "sae_feature": {
+      "type": "object",
+      "required": ["feature_index", "activation_value", "probe_weight", "contribution"],
+      "properties": {
+        "feature_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activation_value": {
+          "type": "number"
+        },
+        "probe_weight": {
+          "type": "number"
+        },
+        "contribution": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

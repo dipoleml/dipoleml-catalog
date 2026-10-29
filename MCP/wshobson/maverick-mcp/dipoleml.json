@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.wshobson.maverick-mcp",
+  "type": "mcp",
+  "name": "Maverick MCP",
+  "slug": "maverick-mcp",
+  "vendor": "wshobson",
+  "description": "Stock market MCP server for Yahoo Finance data, technical analysis, portfolio tracking, and Python backtesting. Runs locally with no API key for core tools.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/wshobson/maverick-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "backtesting",
+    "fastmcp",
+    "finance",
+    "financial-analysis",
+    "model-context-protocol",
+    "portfolio-tracking",
+    "quantitative-finance"
+  ],
+  "tags": [
+    "ai-agents",
+    "anthropic",
+    "backtesting",
+    "claude",
+    "fastmcp",
+    "finance",
+    "financial-analysis",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "portfolio-tracking",
+    "python",
+    "quantitative-finance",
+    "stock-analysis",
+    "stock-market",
+    "stock-screening",
+    "stocks",
+    "technical-analysis",
+    "yfinance"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "wshobson",
+    "brandName": "wshobson",
+    "source": "https://github.com/wshobson.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "wshobson/maverick-mcp",
+    "url": "https://github.com/wshobson/maverick-mcp",
+    "commit": "da70d074dcdac5fb21e3b2e6383cfebf391f28b5",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 713,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:27:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "maverick-mcp-server"
+    ],
+    "env": [
+      "DATABASE_URL",
+      "POSTGRES_URL",
+      "REDIS_HOST",
+      "LLM_API_KEY",
+      "LLM_BASE_URL",
+      "EXA_API_KEY",
+      "SEARXNG_BASE_URL"
+    ],
+    "credentials": [
+      "LLM_API_KEY",
+      "EXA_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

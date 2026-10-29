@@ -1,0 +1,50 @@
+.env
+!.env.example
+
+# Node/TypeScript
+node_modules/
+build/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs
+logs/
+*.log
+
+# OS/IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local research, presentations, and superseded notes
+/FinanceMCP_项目介绍.pptx
+/pain-method-gain.html
+/streamable-http-prompt.txt
+/论文.md
+/论文_计算机应用.md
+/港股模块说明.md
+/tushare-interfaces.md
+/DEPLOYMENT_MODES.md
+/SMITHERY_DEPLOYMENT.md
+/LOGGING_GUIDE.md
+/build-setup.js
+
+# Browser automation and local validation artifacts
+/.playwright-mcp/
+/playwright-report/
+/test-results/
+/final-report-*.png
+/devtools/
+/docs/qveris-finance-capabilities.json
+/docs/qveris-interface-coverage.md

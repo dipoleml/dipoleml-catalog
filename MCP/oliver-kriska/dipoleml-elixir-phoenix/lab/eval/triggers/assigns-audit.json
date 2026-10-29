@@ -1,0 +1,17 @@
+{
+  "skill": "assigns-audit",
+  "should_trigger": [
+    "Audit my dashboard LiveView socket assigns for memory usage",
+    "Find which assigns aren't being used in my user form",
+    "Which assigns should be temporary_assigns instead?",
+    "My event list LiveView assigns keep growing",
+    "Inventory all assigns and flag which need to use streams"
+  ],
+  "should_not_trigger": [
+    "How should I structure my LiveView components?",
+    "My form submission is broken",
+    "Audit my project for overall health",
+    "Show me LiveView lifecycle best practices",
+    "Performance is slow in my dashboard"
+  ]
+}

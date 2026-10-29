@@ -1,0 +1,429 @@
+import type { TelemetryBaseEvent, TelemetryCommonProperties, TelemetryEvent } from "./types.js";
+import { LogId } from "@mongodb-js/mcp-core";
+import { detectContainerEnv as detectContainerEnvImpl } from "./containerEnv.js";
+import type { LoggerBase } from "@mongodb-js/mcp-core";
+import type { ApiClient } from "@mongodb-js/mcp-atlas-api-client";
+import { ApiClientError } from "@mongodb-js/mcp-atlas-api-client";
+import { EventCache } from "./eventCache.js";
+import type { IDeviceId, IKeychain, ITelemetry, ServerMetadata } from "@mongodb-js/mcp-types";
+import { EventEmitter } from "events";
+import { Timer } from "./timer.js";
+
+import type { TelemetryEvents } from "@mongodb-js/mcp-types";
+
+export type { TelemetryEvents };
+
+type SendResult = {
+    status: "success" | "rate-limited" | "error" | "empty";
+    error?: Error;
+};
+
+/**
+ * Configuration for the {@link Telemetry} pipeline.
+ */
+export type TelemetryConfig = {
+    /** Logger used by the telemetry pipeline for its own diagnostics. */
+    logger: LoggerBase;
+
+    /** Device id source, resolved asynchronously during setup. */
+    deviceId: IDeviceId;
+
+    /**
+     * API client used to send events. Always required — the pipeline would
+     * otherwise buffer events in the cache forever. When no Atlas credentials
+     * are configured, callers should still pass an unauthenticated
+     * `ApiClient`; it will route telemetry through the unauth endpoint.
+     */
+    apiClient: ApiClient;
+
+    /** Secrets source used when redacting events prior to sending. */
+    keychain: IKeychain;
+
+    /**
+     * The user's telemetry preference. When set to `false`, no events are
+     * cached or sent. The DO_NOT_TRACK environment variable is always honored
+     * on top of this setting, so callers don't need to check it themselves.
+     */
+    enabled: boolean;
+
+    /**
+     * Server name/version and related metadata. The default
+     * {@link AtlasTelemetry.getCommonProperties} implementation maps this to
+     * telemetry fields; extend the class and override that method (calling
+     * `super`) to add host-specific properties.
+     */
+    serverMetadata: ServerMetadata;
+
+    /**
+     * Optional override for the underlying event cache. Defaults to a new
+     * cache owned exclusively by this pipeline, so events are only ever sent
+     * through the pipeline (and API client) that emitted them. Holds events
+     * that already include this pipeline's common properties.
+     */
+    eventCache?: EventCache<TelemetryEvent<TelemetryCommonProperties>>;
+};
+
+/** The timeout for individual send requests in milliseconds. */
+const SEND_TIMEOUT_MS = 5_000;
+
+/** How long close() waits for a final flush before giving up. */
+const CLOSE_TIMEOUT_MS = 5_000;
+
+/** Maximum number of events sent per batch. */
+export const BATCH_SIZE = 32;
+
+/** Delay between send attempts under normal conditions. */
+export const SEND_INTERVAL_MS = 30_000;
+
+/** Initial backoff delay after a 429 response. */
+export const INITIAL_BACKOFF_MS = 60_000;
+
+/** Maximum backoff delay (1 hour). */
+export const MAX_BACKOFF_MS = 3_600_000;
+
+/**
+ * Calculates the next backoff duration, doubling the current value up to MAX_BACKOFF_MS.
+ */
+export function nextBackoffMs(currentMs: number): number {
+    return Math.min(currentMs * 2, MAX_BACKOFF_MS);
+}
+
+/** Resolves when `signal` aborts, immediately if it already has. */
+function whenAborted(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+}
+
+export class AtlasTelemetry implements ITelemetry {
+    /** Resolves when the setup is complete or a timeout occurs */
+    public setupPromise: Promise<[string, boolean]> | undefined;
+    public readonly events: EventEmitter<TelemetryEvents> = new EventEmitter();
+
+    protected readonly logger: LoggerBase;
+    protected readonly apiClient: ApiClient;
+    protected readonly keychain: IKeychain;
+    protected readonly enabled: boolean;
+    protected readonly serverMetadata: ServerMetadata;
+    /**
+     * device_id and is_container_env, resolved during setup. Subclass overrides
+     * of {@link getCommonProperties} should call `super` to include these.
+     */
+    private readonly pipelineCommonProperties: Partial<TelemetryCommonProperties>;
+    private readonly eventCache: EventCache<TelemetryEvent<TelemetryCommonProperties>>;
+    protected readonly deviceId: IDeviceId;
+    private backoffMs: number = INITIAL_BACKOFF_MS;
+    private readonly timer = new Timer();
+    private closed = false;
+
+    protected constructor(config: TelemetryConfig) {
+        this.logger = config.logger;
+        this.apiClient = config.apiClient;
+        this.keychain = config.keychain;
+        this.enabled = config.enabled;
+        this.serverMetadata = config.serverMetadata;
+        this.eventCache = config.eventCache ?? new EventCache<TelemetryEvent<TelemetryCommonProperties>>();
+        this.deviceId = config.deviceId;
+        this.pipelineCommonProperties = {};
+    }
+
+    static create(this: typeof AtlasTelemetry, config: TelemetryConfig): AtlasTelemetry {
+        const instance = new this(config);
+        void instance.setup();
+        return instance;
+    }
+
+    /**
+     * Detects whether the process is running inside a container. Override in a
+     * subclass for non-Node runtimes or custom detection. Defaults to
+     * inspecting `/proc` and environment variables on Linux.
+     */
+    protected detectContainerEnv(): Promise<boolean> {
+        return detectContainerEnvImpl();
+    }
+
+    public async setup(): Promise<void> {
+        if (!this.isTelemetryEnabled()) {
+            this.logger.info({
+                id: LogId.telemetryEmitFailure,
+                context: "telemetry",
+                message: "Telemetry is disabled.",
+                noRedaction: true,
+            });
+            return;
+        }
+
+        this.setupPromise = Promise.all([this.deviceId.get(), this.detectContainerEnv()]);
+        const [deviceIdValue, containerEnv] = await this.setupPromise;
+
+        this.pipelineCommonProperties.device_id = deviceIdValue;
+        this.pipelineCommonProperties.is_container_env = containerEnv ? "true" : "false";
+
+        this.scheduleSend();
+    }
+
+    public async close(): Promise<void> {
+        // Set before cancelling so that a setup() still in flight cannot schedule a new send afterwards.
+        this.closed = true;
+        this.timer.cancel();
+
+        // The whole close is best-effort and bounded by CLOSE_TIMEOUT_MS: waiting for
+        // setup (so events emitted before it finished make it into the cache) and the
+        // final flush share the same budget, so a hung setup cannot block shutdown.
+        const signal = AbortSignal.timeout(CLOSE_TIMEOUT_MS);
+        await Promise.race([this.whenReady(), whenAborted(signal)]);
+
+        this.logger.debug({
+            id: LogId.telemetryClose,
+            message: `Closing telemetry, attempting to flush up to ${BATCH_SIZE} of ${this.eventCache.size} remaining events`,
+            context: "telemetry",
+        });
+
+        // Drain the whole cache, not just one batch, so shutdown does not strand
+        // events beyond BATCH_SIZE. Raced against the deadline because a concurrent
+        // late drain holds the cache lock without observing this signal.
+        await Promise.race([this.drainCache(), whenAborted(signal)]);
+    }
+
+    /**
+     * Merges the common properties into the events and caches them for
+     * sending via the background timer.
+     *
+     * The merge is deferred until setup has resolved `device_id` and
+     * `is_container_env`. Callbacks chained on an already-settled promise run
+     * in registration order, so events are cached in the order they were emitted.
+     *
+     * Events cached after {@link close} are flushed immediately, since the timer is gone.
+     */
+    public emitEvents(events: TelemetryBaseEvent[]): void {
+        if (!this.isTelemetryEnabled()) {
+            this.events.emit("events-skipped");
+            return;
+        }
+        this.whenReady()
+            .then(async () => {
+                const commonProperties = this.getCommonProperties();
+                this.eventCache.appendEvents(
+                    events.map((event) => ({
+                        ...event,
+                        properties: { ...commonProperties, ...event.properties },
+                    }))
+                );
+
+                // Checked after the append, not when emitEvents was called: a slow
+                // setup can defer the append past close(), which then flushed an
+                // empty cache and left the timer cancelled. The cache serializes
+                // sends, so draining here cannot double-send against close().
+                if (this.closed) {
+                    await this.drainCache();
+                }
+            })
+            .catch((error: unknown) => {
+                // Telemetry must never take the process down via an unhandled rejection,
+                // e.g. when a getCommonProperties override throws.
+                this.logger.debug({
+                    id: LogId.telemetryEmitFailure,
+                    context: "telemetry",
+                    message: `Error caching telemetry events: ${error instanceof Error ? error.message : String(error)}`,
+                    noRedaction: true,
+                });
+            });
+    }
+
+    /**
+     * Resolves once setup has completed (or immediately if setup never ran).
+     * Never rejects — a failed setup must not turn emitEvents into an unhandled rejection.
+     */
+    private whenReady(): Promise<void> {
+        return (this.setupPromise ?? Promise.resolve()).then(
+            () => undefined,
+            () => undefined
+        );
+    }
+
+    /**
+     * Returns common properties merged onto every event at emit time, so each
+     * event carries the identity of the pipeline that produced it. Defaults to
+     * server/platform metadata plus pipeline-resolved `device_id` and
+     * `is_container_env`. Extend {@link AtlasTelemetry} and override this
+     * method (calling `super`) to add host-specific properties; those must be
+     * available before the events that should carry them are emitted.
+     */
+    public getCommonProperties(): TelemetryCommonProperties {
+        return {
+            ...this.pipelineCommonProperties,
+            mcp_server_version: this.serverMetadata.version,
+            mcp_server_name: this.serverMetadata.mcpServerName,
+            platform: (typeof process !== "undefined" && process.platform) || "browser",
+            arch: (typeof process !== "undefined" && process.arch) || "unknown",
+            os_type: (typeof process !== "undefined" && process.platform) || "unknown",
+            os_version: (typeof process !== "undefined" && process.version) || "unknown",
+        };
+    }
+
+    /**
+     * Checks if telemetry is currently enabled.
+     *
+     * Follows the Console Do Not Track standard
+     * by respecting the DO_NOT_TRACK environment variable. The env check is
+     * done on every call so an operator can opt out mid-process.
+     */
+    public isTelemetryEnabled(): boolean {
+        if (!this.enabled) {
+            return false;
+        }
+
+        // In browser environments, we don't have access to the process object, so we default to true.
+        if (typeof process === "undefined" || !process.env) {
+            return true;
+        }
+
+        // In Node.js environments, we check the DO_NOT_TRACK environment variable.
+        return !("DO_NOT_TRACK" in process.env);
+    }
+
+    /**
+     * Schedules the next send attempt. Replaces any previously scheduled send.
+     * No-op once close() has been called.
+     */
+    private scheduleSend(delayMs: number = SEND_INTERVAL_MS): void {
+        if (this.closed) {
+            return;
+        }
+        this.timer.schedule(() => {
+            void this.sendBatchAndReschedule();
+        }, delayMs);
+    }
+
+    /**
+     * Sends a batch and reschedules the next attempt based on the result.
+     */
+    private async sendBatchAndReschedule(): Promise<void> {
+        const result = await this.sendBatch();
+        const delay = this.getNextDelay(result);
+        this.scheduleSend(delay);
+    }
+
+    /**
+     * Determines the next send delay based on the result of the last batch.
+     * On rate-limit: uses and advances exponential backoff.
+     * On success: resets backoff and returns the normal interval.
+     * On error/empty: returns the normal interval without changing backoff state.
+     */
+    private getNextDelay(result: SendResult): number {
+        if (result.status === "rate-limited") {
+            const delay = this.backoffMs;
+            this.backoffMs = nextBackoffMs(this.backoffMs);
+            this.logger.debug({
+                id: LogId.telemetryRateLimited,
+                context: "telemetry",
+                message: `Rate limited. Backing off for ${delay}ms, next backoff will be ${this.backoffMs}ms`,
+                noRedaction: true,
+            });
+            return delay;
+        }
+
+        if (result.status === "success") {
+            this.backoffMs = INITIAL_BACKOFF_MS;
+        }
+
+        return SEND_INTERVAL_MS;
+    }
+
+    /**
+     * Sends the events cached at entry, a batch at a time, stopping on a failed
+     * batch. Bounded to that entry size so events appended during the drain (which
+     * trigger their own drain) cannot keep this loop running.
+     *
+     * No signal is threaded through: each batch gets its own send timeout, so a
+     * slow (but successful) batch cannot abort the batches after it.
+     */
+    private async drainCache(): Promise<void> {
+        const maxBatches = Math.ceil(this.eventCache.size / BATCH_SIZE);
+        for (let batch = 0; batch < maxBatches; batch++) {
+            if (this.eventCache.size === 0) {
+                return;
+            }
+            const result = await this.sendBatch();
+            if (result.status !== "success") {
+                return;
+            }
+        }
+    }
+
+    /**
+     * Sends up to BATCH_SIZE oldest events from the cache.
+     * On success the sent events are removed; on failure they stay in the cache.
+     * Does not reschedule — the caller decides what to do next.
+     */
+    private async sendBatch({ signal }: { signal?: AbortSignal } = {}): Promise<SendResult> {
+        if (this.eventCache.size === 0) {
+            return { status: "empty" };
+        }
+
+        const result = await this.eventCache.processOldestBatch(BATCH_SIZE, async (events) => {
+            this.logger.debug({
+                id: LogId.telemetryEmitStart,
+                context: "telemetry",
+                message: `Attempting to send ${events.length} events`,
+            });
+
+            const sendResult = await this.sendEvents({ client: this.apiClient, events, signal });
+
+            if (sendResult.status !== "success") {
+                if (sendResult.status !== "rate-limited") {
+                    this.logger.debug({
+                        id: LogId.telemetryEmitFailure,
+                        context: "telemetry",
+                        message: `Error sending telemetry: ${sendResult.error?.message ?? "unknown error"}`,
+                        noRedaction: true,
+                    });
+                }
+                this.events.emit("events-send-failed");
+                return { removeProcessed: false, result: sendResult };
+            }
+
+            this.logger.debug({
+                id: LogId.telemetryEmitSuccess,
+                context: "telemetry",
+                message: `Sent ${events.length} events successfully`,
+            });
+            this.events.emit("events-emitted");
+            return { removeProcessed: true, result: sendResult };
+        });
+
+        return result ?? { status: "empty" };
+    }
+
+    /**
+     * Sends events through the API client after redacting sensitive data.
+     */
+    private async sendEvents({
+        client,
+        events,
+        signal,
+    }: {
+        client: ApiClient;
+        events: TelemetryEvent<TelemetryCommonProperties>[];
+        signal?: AbortSignal;
+    }): Promise<SendResult> {
+        try {
+            const effectiveSignal = signal ?? AbortSignal.timeout(SEND_TIMEOUT_MS);
+            const redact = <T>(value: T): T => this.keychain?.redact(value) ?? value;
+            await client.sendEvents(
+                events.map((event) => ({ ...event, properties: redact(event.properties) })),
+                { signal: effectiveSignal }
+            );
+            return { status: "success" };
+        } catch (error) {
+            if (error instanceof ApiClientError && error.response.status === 429) {
+                return { status: "rate-limited", error };
+            }
+            return {
+                status: "error",
+                error: error instanceof Error ? error : new Error(String(error)),
+            };
+        }
+    }
+}

@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cross-Code Organizer (CCO)</title>
+  <link rel="stylesheet" href="/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-hdr">
+        <div class="sidebar-logo" id="harnessLogo">
+          <span class="harness-logo-icon" id="harnessLogoIcon">✳️</span>
+        </div>
+        <span class="sidebar-title" id="sidebarTitle">Cross-Code Organizer (CCO)</span>
+        <span style="flex:1"></span>
+        <button class="theme-btn" id="treeViewBtn" type="button" title="Toggle tree view (shows filesystem structure)">🌲</button>
+        <button class="theme-btn" id="collapseAllBtn" type="button" title="Collapse all scopes">▤</button>
+        <button class="theme-btn" id="themeToggle" type="button">◐</button>
+      </div>
+
+      <button class="sidebar-security-btn" id="securityScanBtn" type="button">
+        <span class="sec-btn-icon" aria-hidden="true">🛡️</span>
+        <span class="sec-btn-label">Security Scan</span>
+        <span class="sec-btn-badge hidden" id="securityScanBadge" aria-hidden="true"></span>
+      </button>
+      <button class="sidebar-security-btn sidebar-doctor-btn" id="doctorBtn" type="button">
+        <span class="sec-btn-icon" aria-hidden="true">🧹</span>
+        <span class="sec-btn-label">Harness Doctor</span>
+        <span class="sec-btn-badge hidden" id="doctorBadge" aria-hidden="true"></span>
+      </button>
+      <input class="sidebar-search" id="searchInput" type="text" placeholder="Search...">
+
+      <div class="sidebar-tree" id="sidebarTree"></div>
+      <div class="sidebar-footer">
+        <button class="sidebar-export-btn" id="exportBtn" type="button">☁ Backup Center</button>
+        <a href="https://github.com/mcpware/cross-code-organizer" target="_blank" rel="noopener">⭐ Star me on GitHub</a>
+        <a href="https://github.com/mcpware/cross-code-organizer/issues" target="_blank" rel="noopener">💡 Bug? Feedback? Same-day fix promise</a>
+        <span class="sidebar-footer-hint" id="sidebarFooterHint">Scanning selected harness...</span>
+      </div>
+    </div>
+
+    <div class="resizer" id="resizerLeft"></div>
+
+    <div class="main-content" id="mainContent">
+      <div class="content-hdr">
+        <div class="content-hdr-top">
+          <span class="content-title" id="contentTitle">Organizer</span>
+          <span class="content-scope-tag" id="contentScopeTag">global</span>
+          <div class="content-inherit" id="contentInherit"></div>
+          <button class="export-btn inherit-toggle-btn" id="inheritToggleBtn" type="button" title="Show items resolved by each category's official scope rules">✦ Show Effective</button>
+          <button class="export-btn ctx-budget-btn" id="ctxBudgetBtn" type="button" title="Show context token budget for this scope">Context Budget</button>
+          <button class="export-btn ctx-budget-btn" id="mcpControlsBtn" type="button" title="Manage which MCP servers are disabled in this project">MCP Controls</button>
+        </div>
+        <div class="filter-bar" id="pills"></div>
+        <div class="rule-bar hidden" id="ruleBar">
+          <div class="rule-bar-toggle" id="ruleBarToggle"><span class="ctx-toggle-arrow">▸</span> How does each category inherit?</div>
+          <div class="rule-bar-content hidden" id="ruleBarContent"></div>
+        </div>
+      </div>
+
+      <div class="item-list" id="itemList"></div>
+      <div class="empty-state" id="loading">Scanning selected harness...</div>
+    </div>
+
+    <div class="resizer" id="resizerRight"></div>
+
+    <div class="detail hidden" id="detailPanel">
+      <div class="detail-top">
+        <h2 id="detailTitle">Select an item</h2>
+        <button class="detail-x" id="detailClose" type="button">✕</button>
+      </div>
+
+      <div class="detail-crumb" id="detailCrumb">
+        <span class="crumb-pill">No item selected</span>
+      </div>
+
+      <div class="d-cost-breakdown hidden" id="costBreakdown">
+        <div class="d-cost-header">
+          <span class="d-cost-total" id="costTotal">—</span>
+          <span class="d-cost-duration" id="costDuration"></span>
+        </div>
+        <div class="d-cost-models" id="costModels"></div>
+        <button class="d-btn d-btn-back" id="costBackBtn" type="button">← Back to Detail</button>
+      </div>
+
+      <div class="detail-body">
+        <!-- Frontmatter config — dynamically populated per category -->
+        <div class="d-item-config hidden" id="detailItemConfig"></div>
+
+        <!-- Collapsible metadata -->
+        <div class="d-meta-toggle" id="detailMetaToggle">
+          <span class="d-meta-arrow">▸</span> Metadata <span class="d-meta-hint">(scope, size, dates…)</span>
+        </div>
+        <div class="d-meta-body hidden" id="detailMetaBody">
+          <div class="d-info-grid">
+            <div class="d-info-cell">
+              <span class="d-info-label">Scope</span>
+              <span class="d-info-val" id="detailScope">—</span>
+            </div>
+            <div class="d-info-cell">
+              <span class="d-info-label">Type</span>
+              <span class="d-info-val" id="detailType">—</span>
+            </div>
+            <div class="d-info-cell">
+              <span class="d-info-label">Size</span>
+              <span class="d-info-val" id="detailSize">—</span>
+            </div>
+          </div>
+
+          <div class="d-desc-wrap">
+            <span class="d-info-label">Description</span>
+            <div class="d-desc" id="detailDesc">Select an item to inspect its metadata and preview.</div>
+          </div>
+
+          <div class="d-effective-wrap hidden" id="detailEffective">
+            <span class="d-info-label">Why it applies</span>
+            <div class="d-effective" id="detailEffectiveText">—</div>
+          </div>
+
+          <div class="d-info-grid" id="detailDates">
+            <div class="d-info-cell">
+              <span class="d-info-label">Created</span>
+              <span class="d-info-val">—</span>
+            </div>
+            <div class="d-info-cell">
+              <span class="d-info-label">Modified</span>
+              <span class="d-info-val">—</span>
+            </div>
+          </div>
+
+          <div class="d-path" id="detailPath">—</div>
+        </div>
+
+        <div class="d-field d-field-preview">
+          <div class="d-preview" id="previewContent">Select an item to preview</div>
+          <div class="d-inline-editor hidden" id="inlineEditor">
+            <textarea id="inlineEditorContent" spellcheck="false" aria-label="Markdown content"></textarea>
+            <div class="d-inline-editor-actions">
+              <span class="d-inline-editor-hint">Edits the complete Markdown file</span>
+              <button class="d-btn" id="inlineEditorCancel" type="button">Cancel</button>
+              <button class="d-btn d-btn-save" id="inlineEditorSave" type="button">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-cc-actions hidden" id="detailCcActions">
+        <div class="d-label" id="detailPromptLabel">Harness Prompt</div>
+        <div class="cc-btn-row" id="ccBtnRow"></div>
+      </div>
+      <div class="detail-footer">
+        <button class="d-btn d-btn-edit" id="detailEdit" type="button">Edit here</button>
+        <button class="d-btn d-btn-open" id="detailOpen" type="button">Open in Editor</button>
+        <button class="d-btn d-btn-move" id="detailMove" type="button">Move to...</button>
+        <button class="d-btn d-btn-del" id="detailDelete" type="button">Delete</button>
+      </div>
+    </div>
+
+    <div class="detail hidden" id="ctxBudgetPanel">
+      <div class="detail-top">
+        <h2 id="ctxBudgetTitle">Context Budget</h2>
+        <button class="detail-x" id="ctxBudgetClose" type="button">✕</button>
+      </div>
+
+      <div class="ctx-budget-summary" id="ctxBudgetSummary">
+        <div class="ctx-budget-bar-row">
+          <div class="ctx-budget-bar-wrap" id="ctxBudgetBarWrap">
+            <div class="ctx-budget-bar" id="ctxBudgetBar"></div>
+            <div class="ctx-budget-bar-deferred" id="ctxBudgetBarDeferred"></div>
+            <div class="ctx-budget-tooltip hidden" id="ctxBudgetTooltip"></div>
+          </div>
+          <div class="ctx-window-toggle" id="ctxWindowToggle">
+            <button class="ctx-win-btn active" data-limit="200000">200K</button>
+            <button class="ctx-win-btn" data-limit="1000000">1M</button>
+            <div class="ctx-window-tooltip">Select your context window size to see the estimation</div>
+          </div>
+        </div>
+        <div class="ctx-budget-total" id="ctxBudgetTotal">—</div>
+      </div>
+
+      <div class="ctx-budget-body" id="ctxBudgetBody">
+        <div class="ctx-budget-loading">Counting tokens...</div>
+      </div>
+
+      <div class="ctx-budget-footer">
+        <div class="ctx-budget-note" id="ctxBudgetNote">
+          Token counts are estimates. System overhead is estimated from known baselines.
+        </div>
+      </div>
+    </div>
+
+    <div class="resizer" id="resizerSecurity"></div>
+
+    <div class="detail hidden" id="securityPanel">
+      <div class="detail-top">
+        <h2 id="securityTitle">🛡️ Security Scan</h2>
+        <button class="d-btn d-btn-move security-rescan-btn hidden" id="securityRescanBtn" type="button">Rescan</button>
+        <button class="detail-x" id="securityClose" type="button">✕</button>
+      </div>
+
+      <div class="security-body" id="securityBody">
+        <div class="security-intro" id="securityIntro">
+          <p>Scan your MCP servers for prompt injection, tool poisoning, credential exposure, and other security threats.</p>
+          <p class="security-note">This connects to each MCP server to inspect tool definitions — the actual attack surface.</p>
+          <button class="d-btn d-btn-move security-start-btn" id="securityStartBtn" type="button">Start Security Scan</button>
+        </div>
+        <div class="security-progress hidden" id="securityProgress">
+          <div class="security-progress-text" id="securityProgressText">Connecting to MCP servers...</div>
+          <div class="security-progress-bar-wrap">
+            <div class="security-progress-bar" id="securityProgressBar"></div>
+          </div>
+        </div>
+        <div class="security-results hidden" id="securityResults"></div>
+      </div>
+
+      <div class="security-footer hidden" id="securityFooter">
+        <div class="security-footer-note" id="securityFooterNote"></div>
+      </div>
+    </div>
+
+    <div class="detail hidden" id="mcpControlsPanel">
+      <div class="detail-top">
+        <h2 id="mcpControlsTitle">MCP Controls</h2>
+        <button class="detail-x" id="mcpControlsClose" type="button">✕</button>
+      </div>
+      <div class="mcp-controls-body" id="mcpControlsBody">
+        <div class="ctx-budget-loading">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export modal removed — export goes directly to ~/.claude/exports/ -->
+
+  <div class="modal-bg hidden" id="doctorModal">
+    <div class="modal doctor-modal" role="dialog" aria-modal="true" aria-labelledby="doctorTitle">
+      <div class="doctor-hdr">
+        <div>
+          <span class="wn-label">Local control plane</span>
+          <h3 id="doctorTitle">Harness Doctor</h3>
+          <p class="modal-sub">See what actually loads, clean verified duplicates, and copy portable skills between harnesses.</p>
+        </div>
+        <button class="detail-x" id="doctorClose" type="button" aria-label="Close">✕</button>
+      </div>
+
+      <div class="doctor-body">
+        <section class="doctor-section doctor-overview" id="doctorOverview">
+          <div class="doctor-loading">Auditing the selected scope…</div>
+        </section>
+
+        <section class="doctor-section">
+          <div class="doctor-section-hdr">
+            <div>
+              <h4>Effective Context Map</h4>
+              <p>Declared sources and setting precedence for this scope.</p>
+            </div>
+          </div>
+          <div class="doctor-context-map" id="doctorContextMap"></div>
+        </section>
+
+        <section class="doctor-section">
+          <div class="doctor-section-hdr">
+            <div>
+              <h4>Findings & reversible repair</h4>
+              <p>Automatic repair is offered only for byte-identical duplicates in the same scope.</p>
+            </div>
+          </div>
+          <div class="doctor-findings" id="doctorFindings"></div>
+        </section>
+
+        <section class="doctor-section">
+          <div class="doctor-section-hdr">
+            <div>
+              <h4>Cross-harness migration</h4>
+              <p>Copy SKILL.md bundles without deleting the source. Existing targets are never overwritten by default.</p>
+            </div>
+          </div>
+          <div class="doctor-migration-controls">
+            <label for="doctorMigrationTarget">Target harness</label>
+            <select id="doctorMigrationTarget" class="bkp-select"></select>
+            <button class="d-btn d-btn-open" id="doctorMigrationPreview" type="button">Preview</button>
+          </div>
+          <div class="doctor-migration" id="doctorMigration"></div>
+        </section>
+
+        <section class="doctor-section doctor-privacy">
+          <div class="doctor-section-hdr">
+            <div>
+              <h4>Anonymous monthly metrics</h4>
+              <p>Off by default. When enabled, submits a deduplicated rotating activity signal each UTC month. Detailed event totals stay on this machine.</p>
+            </div>
+            <label class="bkp-toggle" for="doctorMetricsEnabled">
+              <input type="checkbox" id="doctorMetricsEnabled">
+              <span class="bkp-toggle-track"></span>
+              <span class="bkp-toggle-label" id="doctorMetricsLabel">Off</span>
+            </label>
+          </div>
+          <div class="doctor-privacy-detail" id="doctorPrivacyDetail"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg hidden" id="dragConfirmModal">
+    <div class="modal">
+      <h3>Confirm Move</h3>
+      <div class="modal-sub">This will move the file in your selected harness config</div>
+      <div class="move-preview" id="dcPreview"></div>
+      <div class="modal-btns">
+        <button class="d-btn d-btn-open" id="dcCancel" type="button">Cancel</button>
+        <button class="d-btn d-btn-move" id="dcConfirm" type="button">Yes, move it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg hidden" id="moveModal">
+    <div class="modal">
+      <h3>Move to...</h3>
+      <div class="modal-sub">Select destination scope</div>
+      <div class="move-warning hidden" id="moveWarning"></div>
+      <div class="modal-body" id="moveDestList"></div>
+      <div class="modal-btns">
+        <button class="d-btn d-btn-open" id="moveCancel" type="button">Cancel</button>
+        <button class="d-btn d-btn-move" id="moveConfirm" type="button" disabled>Move here</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-bg hidden" id="deleteModal">
+    <div class="modal">
+      <h3>Delete Item</h3>
+      <div class="modal-sub">This will permanently delete the file from disk</div>
+      <div class="move-preview" id="deletePreview"></div>
+      <div class="modal-btns">
+        <button class="d-btn d-btn-open" id="deleteCancel" type="button">Cancel</button>
+        <button class="d-btn d-btn-del modal-danger" id="deleteConfirm" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── What's New Modal ─────────────────────────────────────── -->
+  <div class="modal-bg hidden" id="whatsNewModal">
+    <div class="modal wn-modal" role="dialog" aria-modal="true" aria-labelledby="wnTitle">
+      <div class="wn-hdr">
+        <div class="wn-hdr-inner">
+          <span class="wn-label">What's New</span>
+          <h3 id="wnTitle" class="wn-title"></h3>
+          <p class="wn-tagline" id="wnTagline"></p>
+        </div>
+        <button class="detail-x" id="wnClose" type="button" aria-label="Close">✕</button>
+      </div>
+      <ul class="wn-list" id="wnList"></ul>
+      <div class="wn-footer">
+        <button class="d-btn d-btn-move wn-got-it" id="wnGotIt" type="button">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Backup Center Modal ──────────────────────────────────── -->
+  <div class="modal-bg hidden" id="backupModal">
+    <div class="modal bkp-modal" role="dialog" aria-modal="true" aria-labelledby="bkpTitle">
+
+      <!-- Header -->
+      <div class="bkp-hdr">
+        <div class="bkp-hdr-left">
+          <h3 id="bkpTitle">Backup Center</h3>
+          <span class="bkp-last-run" id="bkpLastRun">Loading...</span>
+        </div>
+        <button class="detail-x" id="backupModalClose" type="button" aria-label="Close">✕</button>
+      </div>
+
+      <!-- Section 1: Items Backed Up -->
+      <section class="bkp-section">
+        <div class="bkp-section-hdr">
+          <span class="bkp-section-title">Items Backed Up</span>
+          <span class="bkp-total-badge" id="bkpTotalBadge">—</span>
+        </div>
+        <div class="bkp-pills" id="bkpPills">
+          <span class="bkp-pill-loading">Loading scan data...</span>
+        </div>
+      </section>
+
+      <!-- Section 2: GitHub Sync -->
+      <section class="bkp-section">
+        <div class="bkp-section-hdr">
+          <span class="bkp-section-title">GitHub Sync</span>
+          <span class="bkp-conn-indicator" id="bkpConnIndicator" data-status="unknown">
+            <span class="bkp-conn-dot"></span>
+            <span class="bkp-conn-label" id="bkpConnLabel">Checking...</span>
+          </span>
+        </div>
+        <!-- Normal view -->
+        <div id="bkpSyncView">
+          <div class="bkp-sync-row">
+            <span class="bkp-remote-url" id="bkpRemoteUrl" title="">—</span>
+            <button class="d-btn d-btn-move bkp-sync-btn" id="bkpSyncNow" type="button">Sync Now</button>
+          </div>
+          <div class="bkp-last-commit">
+            <span class="bkp-commit-msg" id="bkpCommitMsg">—</span>
+            <span class="bkp-commit-time" id="bkpCommitTime"></span>
+          </div>
+          <div class="bkp-sync-log hidden" id="bkpSyncLog"></div>
+        </div>
+        <!-- Configure remote (hidden by default) -->
+        <div id="bkpRemoteEdit" class="hidden">
+          <div class="bkp-remote-edit-row">
+            <input class="bkp-remote-input" id="bkpRemoteInput" type="text" placeholder="git@github.com:you/claude-backup.git" spellcheck="false">
+          </div>
+          <div class="bkp-remote-edit-btns">
+            <button class="d-btn d-btn-move" id="bkpRemoteSave" type="button">Save</button>
+            <button class="d-btn d-btn-open" id="bkpRemoteCancel" type="button">Cancel</button>
+          </div>
+        </div>
+        <button class="bkp-configure-link" id="bkpConfigRemote" type="button">Configure remote...</button>
+      </section>
+
+      <!-- Section 3: Schedule -->
+      <section class="bkp-section">
+        <div class="bkp-section-hdr">
+          <span class="bkp-section-title">Auto-Backup</span>
+          <label class="bkp-toggle" for="bkpSchedEnabled">
+            <input type="checkbox" id="bkpSchedEnabled">
+            <span class="bkp-toggle-track"></span>
+            <span class="bkp-toggle-label" id="bkpSchedEnabledLabel">Not installed</span>
+          </label>
+        </div>
+        <div class="bkp-sched-body" id="bkpSchedBody">
+          <div class="bkp-sched-info">
+            <span class="bkp-sched-desc" id="bkpSchedDesc">—</span>
+            <span class="bkp-sched-next" id="bkpSchedNext"></span>
+          </div>
+          <div class="bkp-sched-interval">
+            <span class="bkp-field-label">Interval</span>
+            <div class="bkp-interval-row">
+              <select class="bkp-select" id="bkpInterval" aria-label="Backup interval in hours">
+                <option value="1">Every 1 h</option>
+                <option value="2">Every 2 h</option>
+                <option value="4" selected>Every 4 h</option>
+                <option value="8">Every 8 h</option>
+                <option value="12">Every 12 h</option>
+                <option value="24">Every 24 h</option>
+              </select>
+              <button class="export-btn" id="bkpApplyInterval" type="button">Apply</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 4: Actions -->
+      <div class="bkp-actions">
+        <button class="d-btn d-btn-move bkp-primary-btn" id="bkpRunNow" type="button">Back Up Now</button>
+        <button class="d-btn d-btn-open bkp-ghost-btn" id="bkpSnapshotExport" type="button">Snapshot Export</button>
+        <button class="d-btn d-btn-open bkp-ghost-btn" id="bkpOpenFolder" type="button">Open Backup Folder</button>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="bulk-bar hidden" id="bulkBar">
+    <span class="bulk-count" id="bulkCount">0 selected</span>
+    <button class="d-btn d-btn-move bulk-btn" id="bulkMove" type="button">Move all</button>
+    <button class="d-btn d-btn-del bulk-btn" id="bulkDelete" type="button">Delete all</button>
+    <button class="d-btn d-btn-open bulk-btn" id="bulkClear" type="button">Clear</button>
+  </div>
+
+  <div class="toast hidden" id="toast"><span id="toastMsg">Done</span></div>
+
+  <script src="/effective.mjs"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

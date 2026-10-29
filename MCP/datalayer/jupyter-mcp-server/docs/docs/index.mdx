@@ -1,0 +1,52 @@
+---
+title: Overview
+sidebar_position: 1
+hide_table_of_contents: false
+slug: /
+---
+
+# Jupyter MCP Server
+
+**Jupyter MCP Server** is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server implementation that enables **real-time** interaction with 📓 Jupyter Notebooks, allowing AI to edit, document and execute code for data analysis, visualization etc.
+
+It is compatible with any [Jupyter](https://jupyter.org) deployment (local, JupyterHub, ...) and with [Datalayer](https://datalayer.ai) hosted Notebooks.
+
+Jupyter MCP Server is open source (BDS-3-Clause license) and can be run locally. This site
+documents installation, transports, configuration, and operation of the
+self-hosted server. For hosted endpoint setup, authentication, permissions,
+operation, and tested client configurations, see the
+[Datalayer MCP guide](https://datalayer.ai/docs/access-mcp) and its
+[client configuration section](https://datalayer.ai/docs/access-mcp#configure-your-client).
+Jupyter MCP Server supports both STDIO and Streamable HTTP and is compatible
+with any client that implements either transport.
+
+:::info
+
+Key features include:
+
+- ⚡ **Real-time control:** Instantly view notebook changes as they happen.
+- 🔁 **Smart execution:** Automatically adjusts when a cell run fails thanks to cell output feedback.
+- 🧠 **Context-aware:** Understands the entire notebook context for more relevant interactions.
+- 📊 **Multimodal support:** Support different output types, including images, plots, and text.
+- 📁 **Multi-notebook support:** Seamlessly switch between multiple notebooks.
+- 🎛️ **JupyterLab integration:** Enhanced UI integration like automatic notebook opening.
+- 🤝 **MCP-compatible:** Works with any client that supports STDIO or Streamable HTTP. See the [tested client guides](https://datalayer.ai/docs/access-mcp#configure-your-client).
+
+**Free and open source, BSD 3-Clause** — install it in your own Jupyter, no
+account needed. Built and maintained by [**Datalayer**](https://datalayer.ai),
+where the same durable execution powers always-on Notebooks that humans and AI
+agents work in together.
+
+[![Discover Datalayer](https://img.shields.io/badge/Discover%20Datalayer-datalayer.ai-1ABC9C?style=for-the-badge&logo=jupyter&logoColor=white&labelColor=0E7C6B)](https://datalayer.ai)
+
+:::
+
+<div style={{textAlign: 'center', margin: '2rem 0'}}>
+  <a href="./getting_started" className="button button--primary button--lg">
+    Getting Started
+  </a>
+</div>
+
+![Jupyter MCP Server Demo](https://images.datalayer.io/products/jupyter-mcp-server/mcp-demo-multimodal.gif)
+
+[![Install from PyPI](https://img.shields.io/badge/pip%20install-jupyter__mcp__server-306998?style=for-the-badge&logo=python&logoColor=white&labelColor=1E4064)](https://pypi.org/project/jupyter-mcp-server)

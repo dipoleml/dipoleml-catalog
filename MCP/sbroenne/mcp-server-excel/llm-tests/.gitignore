@@ -1,0 +1,17 @@
+# LLM Test Artifacts
+output/
+TestResults/
+aitest-reports/
+
+# Python artifacts
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local configuration
+.env
+.env.*
+
+# uv
+.uv/

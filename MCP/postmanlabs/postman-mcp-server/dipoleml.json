@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.postmanlabs.postman-mcp-server",
+  "type": "mcp",
+  "name": "Postman MCP Server",
+  "slug": "postman-mcp-server",
+  "vendor": "postmanlabs",
+  "description": "Postman MCP Server — connect AI agents (DipoleML, Cursor, VS Code Copilot, Gemini CLI) to your Postman collections, OpenAPI specs, and environments via Model Context Protocol (MCP)",
+  "version": "2.14.0",
+  "homepage": "https://github.com/postmanlabs/postman-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "api-testing",
+    "copilot",
+    "cursor",
+    "gemini",
+    "model-context-protocol",
+    "postman",
+    "rest-api",
+    "vscode"
+  ],
+  "tags": [
+    "agent",
+    "ai",
+    "ai-agents",
+    "api-testing",
+    "claude",
+    "claude-code",
+    "copilot",
+    "cursor",
+    "gemini",
+    "llm",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "postman",
+    "rest-api",
+    "vscode"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "postmanlabs",
+    "brandName": "postmanlabs",
+    "source": "https://github.com/postmanlabs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "postmanlabs/postman-mcp-server",
+    "url": "https://github.com/postmanlabs/postman-mcp-server",
+    "commit": "a56d18bd98b8dc57b07562c43717890175563e88",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 325,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": [
+      {
+        "file": "dipoleml.json",
+        "before": "Postman MCP Server | Postman MCP Server — connect AI agents (Claude Code, Cursor, VS Code Copilot, Gemini CLI) to your Postman collections, OpenAPI specs, and environments via Model Context Protocol (MCP)",
+        "after": "Postman MCP Server | Postman MCP Server — connect AI agents (DipoleML, Cursor, VS Code Copilot, Gemini CLI) to your Postman collections, OpenAPI specs, and environments via Model Context Protocol (MCP)",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@postman/postman-mcp-server"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "dist/src/index.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0"
+    ],
+    "packages": [
+      "@postman/postman-mcp-server"
+    ],
+    "env": [
+      "POSTMAN_API_KEY",
+      "POSTMAN_API_BASE_URL",
+      "SUPPORT"
+    ],
+    "credentials": [
+      "POSTMAN_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

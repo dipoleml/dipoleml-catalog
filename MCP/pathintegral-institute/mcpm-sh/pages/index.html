@@ -1,0 +1,934 @@
+---
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCPM - MCP Manager | mcpm.sh</title>
+    
+    <!-- Primary Meta Tags -->
+    <meta name="title" content="MCPM - MCP Manager | mcpm.sh">
+    <meta name="description" content="Open source, community-driven, forever free. A Homebrew-like service for managing Model Context Protocol (MCP) servers across clients.">
+    <meta name="keywords" content="MCPM, Model Context Protocol, AI, machine learning, open source, CLI, package manager">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://mcpm.sh/">
+    <meta property="og:title" content="MCPM - MCP Manager | mcpm.sh">
+    <meta property="og:description" content="Open source, community-driven, forever free. A Homebrew-like service for managing Model Context Protocol (MCP) servers across clients.">
+    <meta property="og:image" content="https://mcpm.sh/assets/images/mcpm-social.png">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://mcpm.sh/">
+    <meta property="twitter:title" content="MCPM - MCP Manager | mcpm.sh">
+    <meta property="twitter:description" content="Open source, community-driven, forever free. A Homebrew-like service for managing Model Context Protocol (MCP) servers across clients.">
+    <meta property="twitter:image" content="https://mcpm.sh/assets/images/mcpm-social.png">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    {% include favicon.html %}
+    <style>
+        {% include colors.css %}
+        {% include common.css %}
+        
+        /* Modern redesign styles */
+        :root {
+            --primary-bg: #0a0e13;
+            --secondary-bg: #151b22;
+            --surface-bg: #1e2429;
+            --surface-elevated: #252d34;
+            --accent-primary: #00d9ff;
+            --accent-secondary: #00b8d4;
+            --accent-tertiary: #0097b3;
+            --text-primary: #ffffff;
+            --text-secondary: #b3bac1;
+            --text-muted: #6b7280;
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-accent: rgba(0, 217, 255, 0.2);
+            --gradient-primary: linear-gradient(135deg, #00d9ff 0%, #0097b3 100%);
+            --gradient-secondary: linear-gradient(135deg, #1e2429 0%, #252d34 100%);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+            --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+            --animation-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--primary-bg);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* Background gradient and particle effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(0, 217, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 184, 212, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(0, 151, 179, 0.08) 0%, transparent 50%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Hero section */
+        .hero {
+            text-align: center;
+            padding: 4rem 0 6rem;
+            position: relative;
+        }
+
+        .hero::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+        }
+
+        .hero-title {
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 800;
+            margin: 0 0 1rem;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        .hero-subtitle {
+            font-size: clamp(1.125rem, 2.5vw, 1.5rem);
+            color: var(--text-secondary);
+            margin: 0 0 2rem;
+            font-weight: 400;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero-description {
+            font-size: 1.125rem;
+            color: var(--text-muted);
+            max-width: 800px;
+            margin: 0 auto 3rem;
+            line-height: 1.6;
+        }
+
+        /* Terminal demo */
+        .terminal-demo {
+            max-width: 600px;
+            margin: 0 auto 4rem;
+            background: var(--surface-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .terminal-header {
+            background: var(--surface-elevated);
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .terminal-button {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .terminal-button.close { background: #ff5f57; }
+        .terminal-button.minimize { background: #febc2e; }
+        .terminal-button.maximize { background: #28ca42; }
+
+        .terminal-title {
+            margin-left: 1rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .terminal-content {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+
+        .terminal-line {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .terminal-prompt {
+            color: var(--accent-primary);
+            margin-right: 0.5rem;
+        }
+
+        .terminal-command {
+            color: var(--text-primary);
+        }
+
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--accent-primary);
+            margin-left: 2px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Installation section */
+        .install-section {
+            background: var(--surface-bg);
+            border-radius: 16px;
+            padding: 2rem;
+            margin: 4rem 0;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-subtle);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .install-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
+        }
+
+        .install-title {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 0 0 2rem;
+            text-align: center;
+            color: var(--text-primary);
+        }
+
+        .install-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            background: var(--surface-elevated);
+            padding: 0.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .install-tab {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+
+        .install-tab:hover {
+            background: rgba(0, 217, 255, 0.1);
+            color: var(--accent-primary);
+        }
+
+        .install-tab.active {
+            background: var(--accent-primary);
+            color: var(--primary-bg);
+            box-shadow: 0 4px 12px rgba(0, 217, 255, 0.3);
+        }
+
+        .install-content {
+            display: none;
+        }
+
+        .install-content.active {
+            display: block;
+            animation: fadeInUp 0.3s ease;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .code-snippet {
+            background: var(--primary-bg);
+            border: 1px solid var(--border-accent);
+            border-radius: 12px;
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            position: relative;
+            overflow-x: auto;
+        }
+
+        .code-snippet::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--gradient-primary);
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 0.5rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.75rem;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent-primary);
+            color: var(--primary-bg);
+            border-color: var(--accent-primary);
+        }
+
+        /* Features grid */
+        .features-section {
+            padding: 6rem 0;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin: 0 0 3rem;
+            color: var(--text-primary);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .feature-card {
+            background: var(--surface-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s var(--animation-bounce);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-primary);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: var(--shadow-xl);
+            border-color: var(--border-accent);
+        }
+
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-primary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            color: var(--primary-bg);
+            font-size: 1.5rem;
+        }
+
+        .feature-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin: 0 0 1rem;
+            color: var(--text-primary);
+        }
+
+        .feature-description {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+            line-height: 1.6;
+        }
+
+        .feature-code {
+            background: var(--primary-bg);
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-primary);
+            position: relative;
+        }
+
+        /* Clients section */
+        .clients-section {
+            background: var(--surface-bg);
+            border-radius: 24px;
+            padding: 3rem;
+            margin: 4rem 0;
+            border: 1px solid var(--border-subtle);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .clients-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
+        }
+
+        .clients-title {
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            margin: 0 0 2rem;
+            color: var(--text-primary);
+        }
+
+        .clients-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .client-item {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .client-item:hover {
+            transform: translateY(-4px);
+            border-color: var(--border-accent);
+            box-shadow: 0 8px 25px rgba(0, 217, 255, 0.1);
+        }
+
+        .client-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .client-description {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        /* CTA section */
+        .cta-section {
+            text-align: center;
+            padding: 6rem 0;
+            background: var(--surface-bg);
+            border-radius: 24px;
+            margin: 4rem 0;
+            border: 1px solid var(--border-subtle);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .cta-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
+        }
+
+        .cta-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0 0 1rem;
+            color: var(--text-primary);
+        }
+
+        .cta-description {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            margin: 0 0 2rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: var(--gradient-primary);
+            color: var(--primary-bg);
+            box-shadow: 0 4px 15px rgba(0, 217, 255, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 217, 255, 0.6);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--accent-primary);
+            border: 2px solid var(--accent-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--accent-primary);
+            color: var(--primary-bg);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 0 1rem;
+            }
+            
+            .hero {
+                padding: 2rem 0 4rem;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+            
+            .install-tabs {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+            
+            .clients-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .cta-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+
+        /* Scroll animations */
+        .animate-on-scroll {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.6s ease;
+        }
+
+        .animate-on-scroll.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    {% include nav.html %}
+    <main>
+        <div class="container">
+            <!-- Hero Section -->
+            <section class="hero">
+                <h1 class="hero-title">MCPM</h1>
+                <p class="hero-subtitle">The Modern MCP Server Manager</p>
+                <p class="hero-description">
+                    Open source, community-driven, forever free. A powerful CLI tool for managing 
+                    Model Context Protocol servers with global configuration, profile-based organization, 
+                    and seamless client integration.
+                </p>
+                
+                <!-- Terminal Demo -->
+                <div class="terminal-demo">
+                    <div class="terminal-header">
+                        <div class="terminal-button close"></div>
+                        <div class="terminal-button minimize"></div>
+                        <div class="terminal-button maximize"></div>
+                        <div class="terminal-title">Terminal</div>
+                    </div>
+                    <div class="terminal-content">
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">$</span>
+                            <span class="terminal-command">mcpm search</span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">$</span>
+                            <span class="terminal-command">mcpm install mcp-server-browse</span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">$</span>
+                            <span class="terminal-command">mcpm profile create work</span>
+                        </div>
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">$</span>
+                            <span class="terminal-command" id="typing-command"></span>
+                            <span class="terminal-cursor"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Installation Section -->
+            <section class="install-section animate-on-scroll">
+                <h2 class="install-title">Quick Installation</h2>
+                <div class="install-tabs">
+                    <button class="install-tab active" data-tab="script">Shell Script</button>
+                    <button class="install-tab" data-tab="brew">Homebrew</button>
+                    <button class="install-tab" data-tab="pipx">pipx</button>
+                    <button class="install-tab" data-tab="pip">pip</button>
+                </div>
+                
+                <div class="install-content active" id="script-content">
+                    <div class="code-snippet">
+                        <button class="copy-btn" data-copy="curl -sSL https://mcpm.sh/install | bash">Copy</button>
+                        <code>$ curl -sSL https://mcpm.sh/install | bash</code>
+                    </div>
+                </div>
+                
+                <div class="install-content" id="brew-content">
+                    <div class="code-snippet">
+                        <button class="copy-btn" data-copy="brew install mcpm">Copy</button>
+                        <code>$ brew install mcpm</code>
+                    </div>
+                </div>
+                
+                <div class="install-content" id="pipx-content">
+                    <div class="code-snippet">
+                        <button class="copy-btn" data-copy="pipx install mcpm">Copy</button>
+                        <code>$ pipx install mcpm</code>
+                    </div>
+                </div>
+                
+                <div class="install-content" id="pip-content">
+                    <div class="code-snippet">
+                        <button class="copy-btn" data-copy="pip install mcpm">Copy</button>
+                        <code>$ pip install mcpm</code>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Features Section -->
+            <section class="features-section animate-on-scroll">
+                <h2 class="section-title">Core Features</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🔍</div>
+                        <h3 class="feature-title">Server Discovery</h3>
+                        <p class="feature-description">Search and discover MCP servers from our curated registry</p>
+                        <div class="feature-code">$ mcpm search [query]</div>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">📦</div>
+                        <h3 class="feature-title">Global Installation</h3>
+                        <p class="feature-description">Install servers once, use everywhere with global configuration</p>
+                        <div class="feature-code">$ mcpm install server-name</div>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">🏷️</div>
+                        <h3 class="feature-title">Profile Management</h3>
+                        <p class="feature-description">Organize servers with profiles for different workflows</p>
+                        <div class="feature-code">$ mcpm profile create work</div>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">🔧</div>
+                        <h3 class="feature-title">Client Integration</h3>
+                        <p class="feature-description">Seamless integration with popular MCP clients</p>
+                        <div class="feature-code">$ mcpm client edit cursor</div>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">▶️</div>
+                        <h3 class="feature-title">Direct Execution</h3>
+                        <p class="feature-description">Run servers directly for testing and debugging</p>
+                        <div class="feature-code">$ mcpm run server-name</div>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">🌐</div>
+                        <h3 class="feature-title">Server Sharing</h3>
+                        <p class="feature-description">Share servers securely with remote access tunnels</p>
+                        <div class="feature-code">$ mcpm share server-name</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Supported Clients -->
+            <section class="clients-section animate-on-scroll">
+                <h2 class="clients-title">Supported Clients</h2>
+                <p style="text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 1.1rem;">
+                    MCPM works with <strong>any MCP client</strong> by configuring servers to use <code style="background: var(--primary-bg); padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--accent-primary);">mcpm run server-name</code>
+                </p>
+                <div class="clients-grid">
+                    <div class="client-item">
+                        <div class="client-name">Claude Desktop</div>
+                        <div class="client-description">Anthropic's AI assistant</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Claude Code</div>
+                        <div class="client-description">Anthropic's agentic coding CLI</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Cursor</div>
+                        <div class="client-description">AI-enhanced code editor</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Windsurf</div>
+                        <div class="client-description">Agentic IDE</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">VSCode</div>
+                        <div class="client-description">Visual Studio Code</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Continue</div>
+                        <div class="client-description">AI coding assistant extension</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Cline</div>
+                        <div class="client-description">Autonomous coding agent</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Roo Code</div>
+                        <div class="client-description">AI coding assistant</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">OpenCode</div>
+                        <div class="client-description">AI coding agent CLI · per-server enable/disable</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Goose CLI</div>
+                        <div class="client-description">Block's open-source AI agent · per-server enable/disable</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">5ire</div>
+                        <div class="client-description">Cross-platform AI assistant</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Gemini CLI</div>
+                        <div class="client-description">Google's AI coding agent</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Codex CLI</div>
+                        <div class="client-description">OpenAI's coding agent CLI</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Qwen CLI</div>
+                        <div class="client-description">Alibaba's AI coding agent</div>
+                    </div>
+                    <div class="client-item">
+                        <div class="client-name">Trae</div>
+                        <div class="client-description">ByteDance's AI IDE</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Call to Action -->
+            <section class="cta-section animate-on-scroll">
+                <h2 class="cta-title">Ready to Get Started?</h2>
+                <p class="cta-description">
+                    Join thousands of developers already using MCPM to manage their MCP servers efficiently.
+                </p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/pathintegral-institute/mcpm.sh" class="btn btn-primary">
+                        📖 View Documentation
+                    </a>
+                    <a href="https://github.com/pathintegral-institute/mcpm.sh" class="btn btn-secondary">
+                        ⭐ Star on GitHub
+                    </a>
+                </div>
+            </section>
+        </div>
+    </main>
+    
+    {% include footer.html %}
+    {% include github-corner.html %}
+    
+    <script>
+        // Typing animation for terminal
+        const commands = [
+            "mcpm profile add work server",
+            "mcpm client edit cursor", 
+            "mcpm run server-name",
+            "mcpm share server-name"
+        ];
+        
+        let commandIndex = 0;
+        let charIndex = 0;
+        let isDeleting = false;
+        
+        function typeCommand() {
+            const currentCommand = commands[commandIndex];
+            const typingElement = document.getElementById('typing-command');
+            
+            if (isDeleting) {
+                typingElement.textContent = currentCommand.substring(0, charIndex - 1);
+                charIndex--;
+            } else {
+                typingElement.textContent = currentCommand.substring(0, charIndex + 1);
+                charIndex++;
+            }
+            
+            let typeSpeed = isDeleting ? 50 : 100;
+            
+            if (!isDeleting && charIndex === currentCommand.length) {
+                typeSpeed = 2000;
+                isDeleting = true;
+            } else if (isDeleting && charIndex === 0) {
+                isDeleting = false;
+                commandIndex = (commandIndex + 1) % commands.length;
+                typeSpeed = 500;
+            }
+            
+            setTimeout(typeCommand, typeSpeed);
+        }
+        
+        // Installation tabs
+        document.querySelectorAll('.install-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                const tabName = this.dataset.tab;
+                
+                // Update active tab
+                document.querySelectorAll('.install-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                // Update active content
+                document.querySelectorAll('.install-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(tabName + '-content').classList.add('active');
+            });
+        });
+        
+        // Copy functionality
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const textToCopy = this.dataset.copy;
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    const originalText = this.textContent;
+                    this.textContent = 'Copied!';
+                    this.style.background = 'var(--accent-primary)';
+                    this.style.color = 'var(--primary-bg)';
+                    
+                    setTimeout(() => {
+                        this.textContent = originalText;
+                        this.style.background = '';
+                        this.style.color = '';
+                    }, 2000);
+                });
+            });
+        });
+        
+        // Scroll animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+        
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+        
+        document.querySelectorAll('.animate-on-scroll').forEach(el => {
+            observer.observe(el);
+        });
+        
+        // Start typing animation
+        setTimeout(typeCommand, 1000);
+    </script>
+</body>
+</html>

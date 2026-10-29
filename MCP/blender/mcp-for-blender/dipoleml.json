@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.blender.mcp-for-blender",
+  "type": "mcp",
+  "name": "MCP for Blender",
+  "slug": "mcp-for-blender",
+  "vendor": "blender",
+  "description": "Community plugin to control Blender 3D with any LLM of your choice. Not affiliated with the official Blender Foundation.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ahujasid/mcp-for-blender",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "3d-modeling",
+    "blender",
+    "blender-addon",
+    "blender-mcp",
+    "generative-ai",
+    "model-context-protocol"
+  ],
+  "tags": [
+    "3d-modeling",
+    "ai",
+    "blender",
+    "blender-addon",
+    "blender-mcp",
+    "claude",
+    "generative-ai",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "blender",
+    "brandName": "blender",
+    "source": "https://cdn.simpleicons.org/blender",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-28T23:04:24Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "ahujasid/mcp-for-blender",
+    "url": "https://github.com/ahujasid/mcp-for-blender",
+    "commit": "8782963ba87a4c90482198bd7c7e17219ac3a0f7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 32612,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "mcp-for-blender"
+    ],
+    "env": [
+      "BLENDER_HOST",
+      "BLENDER_PORT",
+      "BLENDERMCP_SKETCHFAB_API_KEY",
+      "BLENDERMCP_POLYPIZZA_API_KEY",
+      "BLENDERMCP_HYPER3D_API_KEY",
+      "BLENDERMCP_HUNYUAN3D_SECRET_ID",
+      "BLENDERMCP_HUNYUAN3D_SECRET_KEY",
+      "BLENDERMCP_HUNYUAN3D_API_URL",
+      "BLENDERMCP_MESHY_API_KEY",
+      "BLENDERMCP_TRIPO_API_KEY"
+    ],
+    "credentials": [
+      "BLENDERMCP_SKETCHFAB_API_KEY",
+      "BLENDERMCP_POLYPIZZA_API_KEY",
+      "BLENDERMCP_HYPER3D_API_KEY",
+      "BLENDERMCP_HUNYUAN3D_SECRET_ID",
+      "BLENDERMCP_HUNYUAN3D_SECRET_KEY",
+      "BLENDERMCP_MESHY_API_KEY",
+      "BLENDERMCP_TRIPO_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

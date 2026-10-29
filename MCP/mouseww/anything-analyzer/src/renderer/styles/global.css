@@ -1,0 +1,144 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-content);
+  font-family: var(--font-sans);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  /* 右侧留出 2px 安全距离，避免与窗口 resize handle 重叠 */
+  border-right: 2px solid transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-disabled);
+  border-radius: 5px;
+  /* 用透明 border 收缩可视区域，thumb 实际绘制宽度 ≈ 6px，但点击区域是完整 10px */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ---- Markdown content styling (used in ReportView) ---- */
+.report-markdown-content h1 {
+  font-size: var(--font-size-2xl);
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 20px 0 10px;
+}
+
+.report-markdown-content h2 {
+  font-size: var(--font-size-lg);
+  color: var(--text-primary);
+  font-weight: 600;
+  margin: 16px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.report-markdown-content h3 {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.report-markdown-content p {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: var(--line-height-relaxed);
+  margin-bottom: var(--space-lg);
+}
+
+.report-markdown-content ul,
+.report-markdown-content ol {
+  padding-left: 20px;
+  margin-bottom: var(--space-lg);
+}
+
+.report-markdown-content li {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: var(--line-height-relaxed);
+  margin-bottom: var(--space-xs);
+}
+
+.report-markdown-content code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--color-warning);
+}
+
+.report-markdown-content pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-button);
+  padding: 10px 14px;
+  margin: 10px 0;
+  overflow-x: auto;
+}
+
+.report-markdown-content pre code {
+  background: none;
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.report-markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+
+.report-markdown-content th,
+.report-markdown-content td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+.report-markdown-content th {
+  background: var(--color-surface);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.report-markdown-content blockquote {
+  border-left: 3px solid var(--color-border-hover);
+  padding: 4px 12px;
+  margin: 10px 0;
+  color: var(--text-muted);
+}
+
+.report-markdown-content a {
+  color: var(--color-info);
+  text-decoration: none;
+}
+
+.report-markdown-content a:hover {
+  text-decoration: underline;
+}

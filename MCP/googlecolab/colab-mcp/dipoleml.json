@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.googlecolab.colab-mcp",
+  "type": "mcp",
+  "name": "Colab MCP",
+  "slug": "colab-mcp",
+  "vendor": "googlecolab",
+  "description": "An MCP server for interacting with Google Colab",
+  "version": "0.0.0",
+  "homepage": "https://github.com/googlecolab/colab-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "googlecolab/colab-mcp",
+    "url": "https://github.com/googlecolab/colab-mcp",
+    "commit": "b9ab3899e0f1fa493390b1fd6d54aa2e464ecdf1",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1369,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:04Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "colab-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

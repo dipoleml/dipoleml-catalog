@@ -1,0 +1,2461 @@
+/**
+ * @fileoverview Obsidian Local REST API service. Wraps every upstream HTTP
+ * endpoint we use, builds the right URL/headers/body for the consolidated
+ * `target` discriminator, and classifies errors for the framework.
+ * @module services/obsidian/obsidian-service
+ */
+
+import type { Context } from '@cyanheads/mcp-ts-core';
+import {
+  configurationError,
+  conflict,
+  forbidden,
+  JsonRpcErrorCode,
+  McpError,
+  notFound,
+  serviceUnavailable,
+  unauthorized,
+  validationError,
+} from '@cyanheads/mcp-ts-core/errors';
+import { httpStatusToErrorCode, withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { Agent, type Dispatcher, type RequestInit, fetch as undiciFetch } from 'undici';
+import { getServerConfig, type ServerConfig } from '@/config/server-config.js';
+import { assertTreeDepth, createJsonLogicEvaluation, readsContent } from './jsonlogic-evaluator.js';
+import type { NoteContext } from './jsonlogic-worker.js';
+import {
+  canonicalContent,
+  flattenDocumentMap,
+  flattenHeadingTree,
+  hasIntegerKey,
+  inNoteOrder,
+  isIntegerKey,
+  type PatchFormat,
+  patchFormatFor,
+  type RawDocumentMapV2,
+  relativeHeadingLevels,
+  v1HeadingBody,
+  v1PatchHeaders,
+  v2Instruction,
+  type Within,
+} from './patch-instruction.js';
+import { PathPolicy } from './path-policy.js';
+import {
+  atxHeadingMarkers,
+  blockKinds,
+  isIsolatedBlockId,
+  listHeadingPaths,
+  sectionBody,
+  sectionLevel,
+} from './section-extractor.js';
+import type {
+  ApiExtension,
+  DocumentMap,
+  FileListing,
+  NoteJson,
+  NoteTarget,
+  ObsidianCommand,
+  ObsidianTag,
+  OmnisearchHit,
+  PatchInstruction,
+  PathTarget,
+  StructuredSearchHit,
+  TextSearchHit,
+  VaultStatus,
+} from './types.js';
+
+type UndiciResponse = Awaited<ReturnType<typeof undiciFetch>>;
+
+/**
+ * The HTTP fetch contract this service depends on. Defaults to undici's
+ * `fetch`; tests inject a stub here instead of mocking the `undici` module
+ * (Bun's runtime treats `undici` as a builtin, so `vi.mock('undici')` has no
+ * effect under `bunx vitest`).
+ *
+ * `tls` is Bun's per-request TLS option. It is absent from undici's own
+ * `RequestInit`, and declared here because the two runtimes read the
+ * relaxation off different places — see `#tlsInit`.
+ */
+export type ObsidianFetch = (
+  url: string,
+  init: RequestInit & {
+    dispatcher?: Dispatcher;
+    signal?: AbortSignal;
+    tls?: { rejectUnauthorized: boolean };
+  },
+) => Promise<UndiciResponse>;
+
+interface UpstreamErrorBody {
+  errorCode?: number;
+  message?: string;
+  [k: string]: unknown;
+}
+
+/**
+ * Upstream "list files" payload. The plugin returns a flat `files` array where
+ * directory entries end with `/`. Callers split into files vs. directories.
+ */
+interface RawFileListing {
+  files: string[];
+}
+
+/**
+ * Upstream `GET /` payload. `apiExtensions` is the authenticated-only list of
+ * registered API-extension manifests — each entry is a full `PluginManifest`
+ * spread plus `routes`/`mcpTools`, of which only the identity trio is kept. It
+ * is absent from the plugin's OpenAPI spec, so its entries are typed loosely
+ * and checked at runtime; the documented fields are trusted as declared.
+ */
+interface RawVaultStatus {
+  apiExtensions?: Array<{ id?: unknown; name?: unknown; version?: unknown }>;
+  authenticated?: boolean;
+  manifest?: { id: string; name: string; version: string };
+  service: string;
+  status: string;
+  versions?: { obsidian?: string; self?: string };
+}
+
+interface RawTagsListing {
+  tags: ObsidianTag[];
+  totalDirectTags?: number;
+  totalFileTags?: number;
+}
+
+/**
+ * Upstream `POST /search/simple/` payload. `match.source` names the subject a
+ * span indexes; plugin 5.0.3 and later send it, older builds omit it.
+ */
+interface RawSimpleSearchHit {
+  filename: string;
+  matches: RawSimpleSearchMatch[];
+  score?: number;
+}
+
+interface RawSimpleSearchMatch {
+  context: string;
+  match: { start: number; end: number; source?: 'filename' | 'content' };
+}
+
+/** A text-search span with its `context` offsets resolved and its subject known. */
+interface ResolvedSpan {
+  context: string;
+  match: { start: number; end: number; contextStart: number; contextEnd: number };
+  subject: 'body' | 'filename';
+}
+
+interface RawStructuredSearchHit {
+  filename: string;
+  result: unknown;
+}
+
+/**
+ * A hit of the scoped context fetch: the plugin's per-note JSONLogic context
+ * (`getFileMetadataObject`, plugin 5.x). `path` is not read — the gated
+ * `filename` stands in for it. The link fields are absent on plugins that
+ * predate them; a malformed one fails the path-policy filter that reads it.
+ */
+interface RawNoteContextHit {
+  filename: string;
+  result: {
+    backlinks?: string[];
+    content: string;
+    frontmatter: Record<string, unknown>;
+    links?: string[];
+    stat: { ctime: number; mtime: number; size: number };
+    tags: string[];
+    unresolvedLinks?: string[];
+  };
+}
+
+/** A readable note's context, as a scoped JSONLogic search evaluates it. */
+type ScopedNote = NoteContext & Pick<RawNoteContextHit['result'], 'stat' | 'tags'>;
+
+/**
+ * Most note-body bytes (by `stat.size`) a scoped JSONLogic search fetches and
+ * evaluates at once. Each batch costs one upstream search, during which the
+ * plugin reads every vault note's body, since the body-fetch tree names
+ * `content`; so this trades those vault-wide reads against how much of the
+ * readable vault sits in memory.
+ */
+const CONTENT_BATCH_BYTES = 32 * 1024 * 1024;
+
+/** Split `notes`, in order, into runs whose bodies total at most {@link CONTENT_BATCH_BYTES}; a larger note gets a run of its own. */
+function contentBatches(notes: readonly ScopedNote[]): ScopedNote[][] {
+  const batches: ScopedNote[][] = [];
+  let current: ScopedNote[] = [];
+  let bytes = 0;
+  for (const note of notes) {
+    if (current.length > 0 && bytes + note.stat.size > CONTENT_BATCH_BYTES) {
+      batches.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(note);
+    bytes += note.stat.size;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+/**
+ * How long a stored scoped JSONLogic walk outlives its last read. A scoped
+ * evaluation reads every readable note, so a walk's later pages are served
+ * from the hit list its first page stored rather than evaluated again.
+ */
+const WALK_TTL_MS = 5 * 60_000;
+
+/** Most characters all stored walks hold together, each its tree plus its serialized hits; the least recently read goes first. */
+const WALK_STORE_CHARS = 32 * 1024 * 1024;
+
+/** A scoped JSONLogic walk's full hit list, kept for the pages after its first. */
+interface StoredWalk {
+  chars: number;
+  expiresAt: number;
+  hits: StructuredSearchHit[];
+  /** The serialized tree that produced `hits`; a later page must send the same one. */
+  tree: string;
+}
+
+/** Size of a stored walk: its serialized tree plus its serialized hits, counted until it passes `limit`. */
+function walkChars(tree: string, hits: readonly StructuredSearchHit[], limit: number): number {
+  let total = tree.length;
+  for (const hit of hits) {
+    if (total > limit) break;
+    total += hit.filename.length + JSON.stringify(hit.result).length;
+  }
+  return total;
+}
+
+/**
+ * Upstream Omnisearch payload. The plugin returns one of these per file; we
+ * rename `path` to `filename` on the way out so `PathPolicy.filterReadable`
+ * can match the shape, and drop `vault` since this server is single-vault.
+ */
+interface RawOmnisearchHit {
+  basename: string;
+  excerpt: string;
+  foundWords: string[];
+  matches: Array<{ match: string; offset: number }>;
+  path: string;
+  score: number;
+  vault?: string;
+}
+
+/** Per-call timeout for the startup probe — covers the 4-tuple TCP handshake + a tiny GET. */
+const OMNISEARCH_PROBE_TIMEOUT_MS = 500;
+
+/**
+ * Ceiling on the capability probe. It runs only *after* an upstream error has
+ * already come back, so it delays a response the caller is waiting on — a
+ * diagnostic is not worth another full request timeout.
+ */
+const CAPABILITY_PROBE_TIMEOUT_MS = 2_000;
+
+/** Manifest id of the extension that re-adds `/periodic/` on plugin v5.0.2+. */
+const PERIODIC_EXTENSION_ID = 'local-rest-api-periodic-notes';
+
+/** First Local REST API version that ships without the built-in `/periodic/` routes. */
+const PERIODIC_ROUTES_REMOVED_IN = [5, 0, 2] as const;
+
+const OMNISEARCH_DEFAULT_PORT = '51361';
+
+const NOTE_JSON_ACCEPT = 'application/vnd.olrapi.note+json';
+const DOCUMENT_MAP_ACCEPT = 'application/vnd.olrapi.document-map+json';
+const JSONLOGIC_CT = 'application/vnd.olrapi.jsonlogic+json';
+
+/**
+ * The header naming the markdown-patch format a request speaks, sent on every
+ * request whose shape depends on it: section-targeted PATCHes and the document
+ * map. Which value goes out is negotiated per plugin install
+ * (`#markdownPatchFormat`), and stating it rather than inheriting the plugin's
+ * default keeps a future default flip from moving the format underneath this
+ * client. Plugin v4.x predates the header and ignores it.
+ */
+const MARKDOWN_PATCH_VERSION_HEADER = 'Markdown-Patch-Version';
+
+/** Content type of a markdown-patch 2.0 JSON instruction body. */
+const PATCH_INSTRUCTION_CT = 'application/vnd.olrapi.patch-instruction+json';
+
+/** Delimiter joining ancestor headings into a single PATCH heading target. */
+const HEADING_DELIMITER = '::';
+
+/**
+ * Methods safe to retry on transient errors. POST/PATCH are excluded — a
+ * successful upstream write with a lost response would double-apply on retry
+ * (duplicate `append`, re-run Obsidian command).
+ */
+const RETRY_SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'PUT', 'DELETE']);
+
+/**
+ * Codes a TLS stack reports when it refuses the server's certificate. Both
+ * runtimes use OpenSSL's names. The first four were each produced on Bun 1.4.0
+ * and Node 26.5.0 (a self-signed leaf, an untrusted issuer, a SAN mismatch, an
+ * expired leaf); the rest are the same verifier's documented neighbours.
+ */
+const CERTIFICATE_REJECTION_CODES: ReadonlySet<string> = new Set([
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+]);
+
+/**
+ * Codes for a connection that failed before any response. Node reports errno
+ * names plus undici's own (`UND_ERR_SOCKET` is a socket closed with no bytes);
+ * Bun reports a refused connection as the non-errno `ConnectionRefused` and the
+ * others by errno name. Refused, host-not-found, and reset were produced on
+ * both runtimes; the unreachable-network and connect-timeout codes are the same
+ * failure reached over a route that drops packets instead of refusing them.
+ */
+const CONNECTION_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'ECONNREFUSED',
+  'ConnectionRefused',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNRESET',
+  'UND_ERR_SOCKET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+/**
+ * Route prefixes that address a note. An error on one of these echoes the
+ * caller's note under `data.path`; no other route carries a vault path.
+ */
+const NOTE_ROUTE_PREFIXES = ['/vault/', '/open/', '/active/', '/periodic/'] as const;
+
+export class ObsidianService {
+  readonly #config: ServerConfig;
+  readonly #dispatcher: Dispatcher;
+  readonly #fetch: ObsidianFetch;
+  readonly #policy: PathPolicy;
+  readonly #omnisearchUrl: string;
+
+  /**
+   * Memoized capability probe, consulted only when an error response is
+   * ambiguous without it. Holds the in-flight promise so concurrent failures
+   * share one request; a failed probe is evicted so a later failure can try
+   * again rather than inheriting a transient outage forever.
+   */
+  #capabilities: Promise<VaultStatus | undefined> | undefined;
+
+  /**
+   * The markdown-patch format the installed plugin speaks, read once from its
+   * capability report. Holds the in-flight promise so concurrent writes share
+   * one read; a failed read is evicted so the next write tries again.
+   */
+  #patchFormat: Promise<PatchFormat> | undefined;
+
+  /** Stored scoped JSONLogic walks by id, least recently read first (`pageJsonLogic`). */
+  readonly #walks = new Map<string, StoredWalk>();
+  #walkChars = 0;
+
+  /**
+   * @param config - Validated server config (api key, base URL, TLS, timeouts).
+   * @param fetchImpl - Optional fetch override for tests. Defaults to undici's
+   *   `fetch`, which honors the constructed TLS dispatcher in production.
+   */
+  constructor(config: ServerConfig, fetchImpl?: ObsidianFetch) {
+    this.#config = config;
+    this.#policy = new PathPolicy(config);
+    this.#omnisearchUrl = deriveOmnisearchUrl(config);
+    /**
+     * Node honors this dispatcher option and ignores the per-request `tls` one;
+     * Bun's `fetch` does the reverse. Both are sent on every request (see
+     * `#tlsInit`), so one code path covers both runtimes with no runtime sniff.
+     */
+    this.#dispatcher = new Agent({
+      connect: { rejectUnauthorized: config.verifySsl },
+      headersTimeout: config.requestTimeoutMs,
+      bodyTimeout: config.requestTimeoutMs,
+    });
+    this.#fetch = fetchImpl ?? (undiciFetch as ObsidianFetch);
+  }
+
+  /** Path-policy accessor for tools that filter results or check scope themselves. */
+  get policy(): PathPolicy {
+    return this.#policy;
+  }
+
+  /** Resolved Omnisearch URL (derived from baseUrl or OBSIDIAN_OMNISEARCH_URL override). */
+  get omnisearchUrl(): string {
+    return this.#omnisearchUrl;
+  }
+
+  /**
+   * Close the undici dispatcher, releasing its keep-alive sockets to the Local
+   * REST API and Omnisearch. Wired through `createApp({ teardown })`; waits for
+   * in-flight requests to settle rather than aborting them.
+   *
+   * Bun resolves `undici` to a built-in shim whose `Agent` is an inert object
+   * with no `close` — Bun's `fetch` pools sockets itself and ignores the
+   * dispatcher — so there is nothing to release there.
+   */
+  async close(): Promise<void> {
+    const dispatcher: Partial<Pick<Dispatcher, 'close'>> = this.#dispatcher;
+    await dispatcher.close?.();
+  }
+
+  // ── Status ───────────────────────────────────────────────────────────────
+
+  /**
+   * The plugin's root capability report: reachability, versions, manifest, and
+   * the registered API extensions.
+   *
+   * Sent authenticated. `GET /` never 401s — it answers `200` either way and
+   * self-reports `authenticated`, which is a direct string comparison against
+   * the configured key upstream — so the misconfigured-key case still returns
+   * the full reachability payload with `authenticated: false` rather than
+   * throwing. `apiExtensions` appears only on the authenticated response,
+   * which is why the request carries the key at all.
+   */
+  async getStatus(ctx: Context): Promise<VaultStatus> {
+    const res = await this.#request(ctx, '/', { method: 'GET' });
+    return normalizeVaultStatus((await res.json()) as RawVaultStatus);
+  }
+
+  // ── Notes ────────────────────────────────────────────────────────────────
+
+  async getNoteContent(ctx: Context, target: NoteTarget): Promise<string> {
+    if (target.type === 'path') {
+      this.#policy.assertReadable(target.path, target.resolvedFrom);
+      const url = this.#targetToPath(target);
+      const res = await this.#request(ctx, url, {
+        method: 'GET',
+        headers: { Accept: 'text/markdown' },
+        noteRead: true,
+      });
+      return await res.text();
+    }
+    /**
+     * Non-path target with restrictions: route via JSON to learn the resolved
+     * path, gate it, then return the content. Costs a single JSON fetch
+     * instead of the markdown one — only paid by users who configured a path
+     * scope.
+     */
+    if (!this.#policy.isUnrestricted) {
+      const note = await this.getNoteJson(ctx, target);
+      return note.content;
+    }
+    const url = this.#targetToPath(target);
+    const res = await this.#request(ctx, url, {
+      method: 'GET',
+      headers: { Accept: 'text/markdown' },
+    });
+    return await res.text();
+  }
+
+  async getNoteJson(ctx: Context, target: NoteTarget): Promise<NoteJson> {
+    if (target.type === 'path') {
+      this.#policy.assertReadable(target.path, target.resolvedFrom);
+    }
+    const note = await this.#rawGetNoteJson(ctx, target);
+    if (target.type !== 'path') {
+      const pinned = this.pinTarget(target, note.path);
+      this.#policy.assertReadable(pinned.path, pinned.resolvedFrom);
+    }
+    return note;
+  }
+
+  /**
+   * Pin `target` to the note it names right now. A path target comes back as
+   * sent; an `active` or `periodic` target is resolved upstream (read-gated)
+   * and comes back as a path target for that note, so every later call acts on
+   * the same file however the target moves in between.
+   */
+  async resolveTarget(ctx: Context, target: NoteTarget): Promise<PathTarget> {
+    if (target.type === 'path') return target;
+    return this.pinTarget(target, (await this.getNoteJson(ctx, target)).path);
+  }
+
+  /**
+   * `target` as a path target for `path`, the note a read of `target` returned.
+   * A path target already names its note and comes back as sent. A pinned
+   * `active` / `periodic` target carries the target's label as `resolvedFrom`,
+   * the identifier `no_active_file` and `periodic_not_found` use, so a
+   * `path_forbidden` denial on it names the target rather than the note.
+   */
+  pinTarget(target: NoteTarget, path: string): PathTarget {
+    if (target.type === 'path') return target;
+    return { type: 'path', path, resolvedFrom: displayPath(this.#targetToPath(target)) };
+  }
+
+  /**
+   * The note's headings, block ids, and frontmatter field names. An `active` /
+   * `periodic` target is resolved once (read-gated, a denial named by the
+   * target's label) and the map read from the resolved `/vault/` path, which
+   * the plugin's `/active/` and `/periodic/…` routes delegate to anyway, so the
+   * map describes the note the resolution returned even if the target moves.
+   */
+  async getDocumentMap(ctx: Context, target: NoteTarget): Promise<DocumentMap> {
+    if (target.type !== 'path') {
+      return this.#rawGetDocumentMap(ctx, await this.resolveTarget(ctx, target));
+    }
+    this.#policy.assertReadable(target.path, target.resolvedFrom);
+    return this.#rawGetDocumentMap(ctx, target);
+  }
+
+  async writeNote(
+    ctx: Context,
+    target: NoteTarget,
+    content: string,
+    contentType: 'markdown' | 'json' = 'markdown',
+  ): Promise<void> {
+    const safe = await this.#gateAsWrite(ctx, target);
+    const url = this.#targetToPath(safe);
+    await this.#request(ctx, url, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType === 'json' ? 'application/json' : 'text/markdown' },
+      body: content,
+    });
+  }
+
+  async appendToNote(
+    ctx: Context,
+    target: NoteTarget,
+    content: string,
+    contentType: 'markdown' | 'json' = 'markdown',
+  ): Promise<void> {
+    const safe = await this.#gateAsWrite(ctx, target);
+    const url = this.#targetToPath(safe);
+    await this.#request(ctx, url, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType === 'json' ? 'application/json' : 'text/markdown' },
+      body: content,
+    });
+  }
+
+  /**
+   * Apply a section-targeted PATCH in the markdown-patch format the plugin
+   * speaks: a 2.0 JSON instruction on Local REST API 5.x and later, 1.x
+   * request headers on 4.x and for the table-row writes 2.0 cannot express
+   * (`#wireFormat`). Returns the section locator the edit was actually
+   * applied to — identical to `instruction.target` unless a bare heading leaf
+   * was expanded to its full `Parent::Child` path (see `#resolveHeadingTarget`),
+   * which callers echo back so an agent can see where the write landed.
+   */
+  async patchNote(
+    ctx: Context,
+    target: NoteTarget,
+    content: string,
+    instruction: PatchInstruction,
+  ): Promise<string> {
+    const safe = await this.#gateAsWrite(ctx, target);
+    const url = this.#targetToPath(safe);
+    const format = await this.#wireFormat(ctx, safe, instruction);
+    const { target: resolvedTarget, note } = await this.#resolveHeadingTarget(
+      ctx,
+      safe,
+      instruction,
+      format,
+    );
+    const resolved = { ...instruction, target: resolvedTarget };
+    if (format === '1') {
+      await this.#request(ctx, url, {
+        method: 'PATCH',
+        headers: v1PatchHeaders(resolved),
+        body:
+          note === undefined || resolved.contentType === 'json'
+            ? content
+            : v1HeadingBody(resolved, content, note),
+      });
+      return resolvedTarget;
+    }
+    const continuation = await this.#listContinuation(ctx, safe, resolved, content);
+    const body = continuation
+      ? v2Instruction(resolved, continuation.content, continuation.within)
+      : v2Instruction(resolved, await this.#sectionRelativeContent(ctx, safe, resolved, content));
+    await this.#request(ctx, url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': PATCH_INSTRUCTION_CT, [MARKDOWN_PATCH_VERSION_HEADER]: '2' },
+      body: JSON.stringify(body),
+    });
+    return resolvedTarget;
+  }
+
+  async deleteNote(ctx: Context, target: NoteTarget): Promise<void> {
+    const safe = await this.#gateAsWrite(ctx, target);
+    const url = this.#targetToPath(safe);
+    await this.#request(ctx, url, { method: 'DELETE' });
+  }
+
+  /**
+   * Byte size of a note at `target`, derived from the HEAD `Content-Length`
+   * header. Returns `null` on 404 — distinct from a 0-byte file.
+   *
+   * Source-of-truth rule for note byte sizes across mutating tools:
+   *   1. HEAD `Content-Length` (this method)       — when no GET is in flight.
+   *   2. `Buffer.byteLength(deliveredContent)`     — when a GET happens anyway (free).
+   *   3. `note.stat.size` from the JSON envelope   — REJECTED: shares the upstream
+   *      `getAbstractFileByPath` cache path with the rest of the envelope, so it
+   *      can't act as an independent cross-check (cache-desync scenario in
+   *      coddingtonbear/obsidian-local-rest-api#237). Always prefer delivered
+   *      bytes or HEAD over the metadata field.
+   *
+   * Bypasses retries (a 404 is the answer, not a transient failure) and
+   * gates readable on path targets before issuing the HEAD.
+   */
+  async tryGetSize(ctx: Context, target: NoteTarget): Promise<number | null> {
+    if (target.type === 'path') {
+      this.#policy.assertReadable(target.path, target.resolvedFrom);
+    }
+    const url = this.#targetToPath(target);
+    const requestUrl = `${this.#config.baseUrl}${url}`;
+    const res = await this.#send(ctx, requestUrl, {
+      method: 'HEAD',
+      headers: { Authorization: `Bearer ${this.#config.apiKey}` },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      await this.#throwForStatus(res, url, ctx, { method: 'HEAD', requestedUrl: requestUrl });
+    }
+    this.#assertNotDirectory(res, url);
+    return parseContentLength(res, url);
+  }
+
+  /**
+   * Like `tryGetSize`, but throws `note_missing` on 404 — for verification
+   * reads that come *after* a write where the file is expected to exist.
+   */
+  async getSize(ctx: Context, target: NoteTarget): Promise<number> {
+    const size = await this.tryGetSize(ctx, target);
+    if (size === null) {
+      const display = target.type === 'path' ? target.path : '(target)';
+      throw notFound(`Note not found: ${display}`, {
+        path: display,
+        reason: 'note_missing',
+      });
+    }
+    return size;
+  }
+
+  // ── Listings ─────────────────────────────────────────────────────────────
+
+  async listFiles(ctx: Context, dirPath?: string): Promise<FileListing> {
+    let url = '/vault/';
+    let normalized = '';
+    if (dirPath) {
+      normalized = dirPath.replace(/^\/+|\/+$/g, '');
+      if (normalized) url = `/vault/${encodeVaultPath(normalized)}/`;
+    }
+    /**
+     * The root and folders on the way to the read scope list so a nested scope
+     * can be browsed to; any other out-of-scope folder is refused before the
+     * upstream call. Entries are filtered here rather than in callers, so every
+     * consumer of a listing — the `obsidian_list_notes` walk and the
+     * case-fallback probe alike — sees only readable entries and ancestors.
+     */
+    if (normalized) {
+      this.#policy.assertListable(normalized);
+    }
+    const res = await this.#request(ctx, url, { method: 'GET', listRead: true });
+    const listing = (await res.json()) as RawFileListing;
+    if (!this.#policy.restrictsReads) return listing;
+    return { files: this.#policy.filterListing(normalized, listing.files) };
+  }
+
+  /**
+   * Vault tags with usage counts, hierarchical parents included. Unscoped, the
+   * plugin's `/tags/` with its occurrence counts. That payload carries no
+   * per-note attribution, so under OBSIDIAN_READ_PATHS the tags are read from
+   * the readable notes' contexts instead (one upstream search, no bodies), and
+   * each one counts the readable notes carrying it or a tag nested under it.
+   */
+  async listTags(ctx: Context): Promise<ObsidianTag[]> {
+    if (this.#policy.restrictsReads) {
+      return countTagsPerNote(await this.#readableNoteContexts(ctx));
+    }
+    const res = await this.#request(ctx, '/tags/', { method: 'GET' });
+    const body = (await res.json()) as RawTagsListing;
+    return body.tags ?? [];
+  }
+
+  async listCommands(ctx: Context): Promise<ObsidianCommand[]> {
+    const res = await this.#request(ctx, '/commands/', { method: 'GET' });
+    const body = (await res.json()) as { commands: ObsidianCommand[] };
+    return body.commands ?? [];
+  }
+
+  // ── Search ───────────────────────────────────────────────────────────────
+
+  /**
+   * Text search. Each upstream span gets its `context` offsets resolved
+   * (`contextRelativeSpan`), then a multi-token query's spans are merged into
+   * match locations (`mergeIntoLocations`).
+   *
+   * The upstream materializes one context window per matching note before it
+   * responds, so an oversized `contextLength` on a broad query exhausts V8's
+   * string capacity and comes back as an opaque 500 — caught here and
+   * re-thrown typed, the way `searchOmnisearch` re-throws its own reachability
+   * failure.
+   */
+  async searchText(ctx: Context, query: string, contextLength = 100): Promise<TextSearchHit[]> {
+    const params = new URLSearchParams({ query, contextLength: String(contextLength) });
+    let res: UndiciResponse;
+    try {
+      res = await this.#request(ctx, `/search/simple/?${params}`, { method: 'POST' });
+    } catch (err) {
+      if (!isStringCapacityOverflow(err)) throw err;
+      /**
+       * Built fresh rather than decorated: `contextLength` is the actionable
+       * fact and only this frame knows it. `cause` keeps the caught error —
+       * and through it the upstream body `#throwForStatus` attached — on the
+       * server side for the log record.
+       */
+      throw validationError(
+        `The Local REST API ran out of string capacity assembling match contexts for this search (contextLength ${contextLength}). It builds a context window for every matching note before responding, so the ceiling tracks contextLength multiplied by the number of matches rather than either alone.`,
+        {
+          reason: 'context_length_too_large',
+          contextLength,
+        },
+        { cause: err },
+      );
+    }
+    const raw = (await res.json()) as RawSimpleSearchHit[];
+    const tokens = queryTokens(query);
+    // Upstream returns a constant `score` that carries no ranking signal for
+    // text mode — drop it on the way out so consumers don't mistake it for
+    // relevance. Omnisearch is the source of real BM25 ranking.
+    return raw.map((h) => ({
+      filename: h.filename,
+      matches: mergeIntoLocations(
+        h.matches.map((m) => contextRelativeSpan(m, h.filename, contextLength, tokens)),
+        tokens.length,
+        contextLength,
+      ).map(({ context, match }) => ({ context, match })),
+    }));
+  }
+
+  /**
+   * JSONLogic search. Unscoped, the tree goes to the plugin unchanged. Under
+   * OBSIDIAN_READ_PATHS the plugin would evaluate it against every note in
+   * the vault, so the tree stays here instead: the readable notes' contexts
+   * are fetched and the tree is evaluated over those alone
+   * (`createJsonLogicEvaluation`), the way the plugin evaluates it. No hit,
+   * result, or error then reads a note outside the read scope; which note a
+   * link resolves to is still Obsidian's vault-wide resolution, so `links`,
+   * `backlinks`, and `unresolvedLinks` can change when a note outside the
+   * scope is created or removed.
+   *
+   * The plugin hands a tree note bodies only when its JSON holds the string
+   * `"content"` (`readsContent`); such a tree gets them here too, fetched
+   * and evaluated in batches of at most `CONTENT_BATCH_BYTES` so a broad
+   * scope never holds every readable body at once.
+   */
+  async searchJsonLogic(
+    ctx: Context,
+    logic: Record<string, unknown>,
+  ): Promise<StructuredSearchHit[]> {
+    if (this.#policy.restrictsReads) {
+      assertTreeDepth(logic);
+      const evaluation = createJsonLogicEvaluation(logic, { signal: ctx.signal });
+      const notes = await this.#readableNoteContexts(ctx);
+      if (!readsContent(logic)) return evaluation.evaluate(notes);
+      const hits: StructuredSearchHit[] = [];
+      for (const batch of contentBatches(notes)) {
+        const bodies = await this.#noteBodies(ctx, batch);
+        const withBodies = batch.map((note) => ({ ...note, content: bodies.get(note.path) ?? '' }));
+        hits.push(...(await evaluation.evaluate(withBodies)));
+      }
+      return hits;
+    }
+    const res = await this.#postJsonLogic(ctx, logic);
+    return (await res.json()) as RawStructuredSearchHit[];
+  }
+
+  /**
+   * A JSONLogic search for a caller paging through its hits `pageSize` at a
+   * time. Unscoped, it is `searchJsonLogic`. Under OBSIDIAN_READ_PATHS a call
+   * without `walk` evaluates fresh and, when the hits run past one page,
+   * stores the full ordered hit list under a new walk id, returned as `walk`;
+   * a call naming that id with the same tree is served from the stored list
+   * without evaluating. The store belongs to this service, whose read scope
+   * is fixed at construction, so a list is only read under the scope that
+   * produced it. Anything else — an expired, evicted, or unknown id, or a
+   * different tree — evaluates fresh, and a call cancelled before it answers
+   * stores nothing.
+   */
+  async pageJsonLogic(
+    ctx: Context,
+    logic: Record<string, unknown>,
+    walk: string | undefined,
+    pageSize: number,
+  ): Promise<{ hits: StructuredSearchHit[]; walk?: string }> {
+    if (!this.#policy.restrictsReads) return { hits: await this.searchJsonLogic(ctx, logic) };
+    // Before serializing it: a tree deep enough overflows `JSON.stringify`'s stack under Bun.
+    assertTreeDepth(logic);
+    const tree = JSON.stringify(logic);
+    const stored = walk === undefined ? undefined : this.#walks.get(walk);
+    if (walk !== undefined && stored?.tree === tree && stored.expiresAt > Date.now()) {
+      // Re-inserted so the map stays in last-read order.
+      this.#walks.delete(walk);
+      this.#walks.set(walk, { ...stored, expiresAt: Date.now() + WALK_TTL_MS });
+      return { hits: stored.hits, walk };
+    }
+    const hits = await this.searchJsonLogic(ctx, logic);
+    const id =
+      hits.length > pageSize && !ctx.signal.aborted ? this.#storeWalk(tree, hits) : undefined;
+    return id === undefined ? { hits } : { hits, walk: id };
+  }
+
+  /**
+   * Store a walk's hits under a fresh id, first dropping expired walks and,
+   * while the store would pass {@link WALK_STORE_CHARS}, the least recently
+   * read. A walk larger than the whole store is not kept.
+   */
+  #storeWalk(tree: string, hits: StructuredSearchHit[]): string | undefined {
+    const chars = walkChars(tree, hits, WALK_STORE_CHARS);
+    if (chars > WALK_STORE_CHARS) return;
+    const now = Date.now();
+    // Every walk lives WALK_TTL_MS past its last read, so expired walks lead the last-read order.
+    for (const [id, old] of this.#walks) {
+      if (old.expiresAt > now && this.#walkChars + chars <= WALK_STORE_CHARS) break;
+      this.#walks.delete(id);
+      this.#walkChars -= old.chars;
+    }
+    const id = crypto.randomUUID();
+    this.#walks.set(id, { tree, hits, chars, expiresAt: now + WALK_TTL_MS });
+    this.#walkChars += chars;
+    return id;
+  }
+
+  /** One upstream JSONLogic search: `tree` posted to `/search/`. */
+  #postJsonLogic(ctx: Context, tree: unknown): Promise<UndiciResponse> {
+    return this.#request(ctx, '/search/', {
+      method: 'POST',
+      headers: { 'Content-Type': JSONLOGIC_CT },
+      body: JSON.stringify(tree),
+    });
+  }
+
+  /**
+   * The readable notes' JSONLogic contexts, bodies left empty as the plugin
+   * leaves them, in vault order, from one upstream search whose tree is the
+   * server's own: a `regexp` guard on the path (`PathPolicy.readScopePattern`)
+   * narrows what the plugin returns, and `filterReadable` decides what is
+   * kept. Each context carries only the fields the plugin documents, its link
+   * fields reduced to readable entries.
+   */
+  async #readableNoteContexts(ctx: Context): Promise<ScopedNote[]> {
+    const guard = {
+      if: [{ regexp: [this.#policy.readScopePattern(), { var: 'path' }] }, { var: '' }, null],
+    };
+    const res = await this.#postJsonLogic(ctx, guard);
+    const hits = (await res.json()) as RawNoteContextHit[];
+    return this.#policy.filterReadable(hits).map(({ filename, result }) => ({
+      tags: result.tags,
+      frontmatter: result.frontmatter,
+      stat: result.stat,
+      path: filename,
+      content: result.content,
+      links: result.links && this.#policy.keepReadable(result.links),
+      backlinks: result.backlinks && this.#policy.keepReadable(result.backlinks),
+      unresolvedLinks: result.unresolvedLinks && this.#policy.keepReadable(result.unresolvedLinks),
+    }));
+  }
+
+  /**
+   * Bodies of `notes`, already-gated contexts, by path, from one upstream
+   * search for exactly those paths. A body for any other path is dropped; an
+   * empty body is absent, as the plugin's search drops a falsy result.
+   */
+  async #noteBodies(ctx: Context, notes: readonly ScopedNote[]): Promise<Map<string, string>> {
+    const paths = notes.map((note) => note.path);
+    const guard = { if: [{ in: [{ var: 'path' }, paths] }, { var: 'content' }, null] };
+    const res = await this.#postJsonLogic(ctx, guard);
+    const wanted = new Set(paths);
+    const bodies = new Map<string, string>();
+    for (const hit of (await res.json()) as Array<{ filename: string; result: string }>) {
+      if (wanted.has(hit.filename)) bodies.set(hit.filename, hit.result);
+    }
+    return bodies;
+  }
+
+  /**
+   * One-shot startup probe for the Omnisearch plugin's HTTP endpoint. Returns
+   * `true` only when the response is `HTTP 200`, declares `application/json`,
+   * and the body parses as a JSON array — unrouted paths on the Omnisearch
+   * server also return `200` with an empty body, so status alone is
+   * insufficient. The entry point passes the return value into the
+   * `obsidian_search_notes` factory to decide whether to expose the
+   * `omnisearch` mode.
+   */
+  async probeOmnisearch(signal?: AbortSignal): Promise<boolean> {
+    const probeSignal = signal ?? AbortSignal.timeout(OMNISEARCH_PROBE_TIMEOUT_MS);
+    const url = `${this.#omnisearchUrl}/search?q=`;
+    try {
+      const res = await this.#fetch(url, {
+        method: 'GET',
+        dispatcher: this.#dispatcher,
+        ...this.#tlsInit(url),
+        signal: probeSignal,
+      });
+      if (!res.ok) return false;
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!contentType.toLowerCase().includes('application/json')) return false;
+      const body = await res.json().catch(() => undefined);
+      return Array.isArray(body);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Query the Omnisearch HTTP endpoint. Normalizes the response on the way
+   * out: decodes HTML entities + `<br>` → `\n` in `excerpt`, renames `path`
+   * to `filename`, and drops `vault`. Throws `omnisearch_unreachable`
+   * (ServiceUnavailable) on network failures or non-2xx responses — the
+   * plugin can shut down mid-session (Obsidian quits, plugin disabled), and
+   * the tool needs a distinct signal from the upstream's success cases.
+   */
+  async searchOmnisearch(ctx: Context, query: string): Promise<OmnisearchHit[]> {
+    const url = `${this.#omnisearchUrl}/search?q=${encodeURIComponent(query)}`;
+    let res: UndiciResponse;
+    try {
+      res = await this.#fetch(url, {
+        method: 'GET',
+        dispatcher: this.#dispatcher,
+        ...this.#tlsInit(url),
+        signal: ctx.signal,
+      });
+    } catch (err) {
+      if (ctx.signal?.aborted) throw err;
+      throw serviceUnavailable(
+        `Omnisearch unreachable at ${this.#omnisearchUrl}. The plugin may have stopped (Obsidian quit, plugin disabled, or mobile session).`,
+        {
+          reason: 'omnisearch_unreachable',
+          url: this.#omnisearchUrl,
+        },
+        { cause: err },
+      );
+    }
+    if (!res.ok) {
+      throw serviceUnavailable(
+        `Omnisearch returned HTTP ${res.status} at ${this.#omnisearchUrl}.`,
+        {
+          reason: 'omnisearch_unreachable',
+          url: this.#omnisearchUrl,
+          status: res.status,
+        },
+      );
+    }
+    const body = (await res.json()) as RawOmnisearchHit[];
+    return body.map(normalizeOmnisearchHit);
+  }
+
+  // ── UI / commands ────────────────────────────────────────────────────────
+
+  async executeCommand(ctx: Context, commandId: string): Promise<void> {
+    await this.#request(ctx, `/commands/${encodeURIComponent(commandId)}/`, { method: 'POST' });
+  }
+
+  /**
+   * Open a file in the Obsidian UI.
+   *
+   * Obsidian materializes the file when the path does not exist, so the call
+   * is only a read when the caller has established that the file is already
+   * there. `createIfMissing` marks the create-capable variant and gates it as
+   * a write, which is what makes `OBSIDIAN_READ_ONLY` and
+   * `OBSIDIAN_WRITE_PATHS` constrain it — the creation happens inside Obsidian
+   * and never passes through any other write check.
+   */
+  async openInUi(
+    ctx: Context,
+    path: string,
+    opts?: { newLeaf?: boolean; createIfMissing?: boolean },
+  ): Promise<void> {
+    if (opts?.createIfMissing) {
+      this.#policy.assertWritable(path);
+    } else {
+      this.#policy.assertReadable(path);
+    }
+    const params = new URLSearchParams();
+    if (opts?.newLeaf) params.set('newLeaf', 'true');
+    const qs = params.toString();
+    await this.#request(ctx, `/open/${encodeVaultPath(path)}${qs ? `?${qs}` : ''}`, {
+      method: 'POST',
+    });
+  }
+
+  // ── Internals ────────────────────────────────────────────────────────────
+
+  /**
+   * Resolve a write target to a gated path target. For path inputs, gates
+   * `target.path` as a write before any upstream call. For non-path inputs
+   * (`active` / `periodic`) when restrictions are active, a JSON resolution
+   * fetch happens first (without gating, since the user has write authority
+   * on the resolved path or fails here), then the resolved path is gated.
+   */
+  async #gateAsWrite(ctx: Context, target: NoteTarget): Promise<NoteTarget> {
+    if (target.type === 'path') {
+      this.#policy.assertWritable(target.path, target.resolvedFrom);
+      return target;
+    }
+    if (this.#policy.isUnrestricted) {
+      return target;
+    }
+    const pinned = this.pinTarget(target, (await this.#rawGetNoteJson(ctx, target)).path);
+    this.#policy.assertWritable(pinned.path, pinned.resolvedFrom);
+    return pinned;
+  }
+
+  /** Raw NoteJson fetch — bypasses path-policy. Used by gate helpers to learn the resolved path. */
+  async #rawGetNoteJson(ctx: Context, target: NoteTarget): Promise<NoteJson> {
+    const url = this.#targetToPath(target);
+    const res = await this.#request(ctx, url, {
+      method: 'GET',
+      headers: { Accept: NOTE_JSON_ACCEPT },
+      noteRead: true,
+    });
+    return (await res.json()) as NoteJson;
+  }
+
+  /**
+   * Raw document-map fetch — bypasses path-policy. Caller must gate. On 2.0 the
+   * nested map is flattened to the 1.x shape this server has always returned.
+   *
+   * Headings are listed in note order. Both formats build their headings from
+   * object keys, so JavaScript lists an integer-like name (`2025`) ahead of its
+   * siblings — the 2.0 tree at every depth, the 1.x map at the top level. Only
+   * then is the note read, and its heading scan (`listHeadingPaths`, the same
+   * parse the map uses) supplies the order.
+   */
+  async #rawGetDocumentMap(ctx: Context, target: NoteTarget): Promise<DocumentMap> {
+    const url = this.#targetToPath(target);
+    const format = await this.#markdownPatchFormat(ctx);
+    if (format === '1') {
+      const map = await this.#fetchDocumentMap<DocumentMap>(ctx, url, format);
+      if (!map.headings.some(isIntegerKey)) return map;
+      return { ...map, headings: await this.#inNoteOrder(ctx, target, map.headings) };
+    }
+    const raw = await this.#fetchDocumentMap<RawDocumentMapV2>(ctx, url, format);
+    const map = flattenDocumentMap(raw);
+    if (!hasIntegerKey(raw.headings)) return map;
+    return { ...map, headings: await this.#inNoteOrder(ctx, target, map.headings) };
+  }
+
+  /** `paths` in the order the note's own headings run, read from the note. */
+  async #inNoteOrder(ctx: Context, target: NoteTarget, paths: string[]): Promise<string[]> {
+    const { content } = await this.#rawGetNoteJson(ctx, target);
+    return inNoteOrder(paths, listHeadingPaths(content));
+  }
+
+  /** The document map in `format`'s own shape: flat `::`-joined paths for 1.x, the nested tree for 2.0. */
+  async #fetchDocumentMap<T extends DocumentMap | RawDocumentMapV2>(
+    ctx: Context,
+    url: string,
+    format: PatchFormat,
+  ): Promise<T> {
+    const res = await this.#request(ctx, url, {
+      method: 'GET',
+      headers: { Accept: DOCUMENT_MAP_ACCEPT, [MARKDOWN_PATCH_VERSION_HEADER]: format },
+      noteRead: true,
+    });
+    return (await res.json()) as T;
+  }
+
+  /**
+   * The markdown-patch format the installed plugin speaks, from `versions.self`
+   * in its `GET /` capability report: 2.0 from Local REST API 5.0 on, 1.x
+   * before. Read once per service. A report that cannot be read fails the
+   * calling write with its classified error — the format is never guessed.
+   *
+   * The report is shared with `#vaultCapabilities`: whichever reads it first
+   * serves the other.
+   */
+  async #markdownPatchFormat(ctx: Context): Promise<PatchFormat> {
+    this.#patchFormat ??= this.#negotiatePatchFormat(ctx);
+    const pending = this.#patchFormat;
+    try {
+      return await pending;
+    } catch (err) {
+      if (this.#patchFormat === pending) this.#patchFormat = undefined;
+      throw err;
+    }
+  }
+
+  /**
+   * The format one PATCH goes out in: the plugin's (`#markdownPatchFormat`),
+   * except for two table-row writes that 2.0 cannot express, which go out as
+   * 1.x — plugin 5.x still accepts it.
+   *
+   * - Rows under a heading. 2.0 takes table rows only through a block target
+   *   (a heading write carries its payload in `content`, never `value`); the
+   *   1.x engine appends them to the table that ends the section.
+   * - Rows through an isolated block id — `^id` on its own line after a blank
+   *   line, the way Obsidian places a table's id. 2.0 resolves the id to that
+   *   marker line's own paragraph rather than the table above it, so the write
+   *   fails upstream with "block … is not a table" (markdown-patch 2.0.0,
+   *   `patchTableRows`); the 1.x engine resolves it to the table. Telling the
+   *   shapes apart needs the note, so a block row write on 2.0 reads it once.
+   */
+  async #wireFormat(
+    ctx: Context,
+    target: NoteTarget,
+    instruction: PatchInstruction,
+  ): Promise<PatchFormat> {
+    const format = await this.#markdownPatchFormat(ctx);
+    if (
+      format === '1' ||
+      instruction.targetType === 'frontmatter' ||
+      instruction.contentType !== 'json'
+    ) {
+      return format;
+    }
+    if (instruction.targetType === 'heading') return '1';
+    const { content } = await this.#rawGetNoteJson(ctx, target);
+    return isIsolatedBlockId(content, instruction.target) ? '1' : format;
+  }
+
+  async #negotiatePatchFormat(ctx: Context): Promise<PatchFormat> {
+    const status = (await this.#capabilities) ?? (await this.getStatus(ctx));
+    this.#capabilities ??= Promise.resolve(status);
+    return patchFormatFor(status.versions?.self);
+  }
+
+  /**
+   * The body block a 2.0 heading append or prepend continues, with the content
+   * reduced for a literal splice — or `undefined` for every other write, which
+   * goes out as a plain content write.
+   *
+   * 2.0 separates a plain heading append from the section's last block with a
+   * blank line (a prepend from its first), which turns a tight list loose when
+   * the content is one more item (issue #145). When the content opens with a
+   * list item and the section's own body ends (prepend: opens) with a list,
+   * the write addresses that list `within` the section, and 2.0 splices the
+   * item flush against it, as 1.x placed it. The write stays plain when:
+   *
+   * - a prepend's content ends in anything but a list — its last block meets
+   *   the section's list, and flush against it a paragraph or HTML block would
+   *   take that list in;
+   * - the content carries an ATX heading, which a literal splice would neither
+   *   re-level nor check against the section (`#sectionRelativeContent`);
+   * - an append's section has sub-headings, below which a plain append lands;
+   * - the section already holds the content and duplicates are refused — a
+   *   `within` write searches only the list, the plain one the whole section.
+   *
+   * The note is read only once the content qualifies.
+   */
+  async #listContinuation(
+    ctx: Context,
+    target: NoteTarget,
+    instruction: PatchInstruction,
+    content: string,
+  ): Promise<{ content: string; within: Within } | undefined> {
+    const { operation } = instruction;
+    if (instruction.targetType !== 'heading' || instruction.contentType === 'json') return;
+    if (operation === 'replace') return;
+    const reduced = canonicalContent(content);
+    const blocks = blockKinds(reduced);
+    if (blocks[0] !== 'list' || (operation === 'prepend' && blocks.at(-1) !== 'list')) return;
+    if (atxHeadingMarkers(reduced).markers.length > 0) return;
+
+    const { content: note } = await this.#rawGetNoteJson(ctx, target);
+    const body = sectionBody(note, instruction.target);
+    if (!body || (operation === 'append' && body.subsections)) return;
+    if ((operation === 'append' ? body.blocks.at(-1) : body.blocks[0]) !== 'list') return;
+    if (!instruction.applyIfContentPreexists && body.content.includes(reduced.trim())) return;
+    return { content: reduced, within: operation === 'append' ? -1 : 0 };
+  }
+
+  /**
+   * Heading content with its `#` levels rewritten to the section-relative ones
+   * markdown-patch 2.0 reads (see `relativeHeadingLevels`), so the note gets
+   * the levels the caller wrote, as it did under 1.x. The section's level comes
+   * from the note itself, read only when the content carries an ATX heading.
+   * Every other payload passes through as written, and so does content for a
+   * section the note lacks and the write will not create, which the plugin
+   * then reports missing.
+   */
+  async #sectionRelativeContent(
+    ctx: Context,
+    target: NoteTarget,
+    instruction: PatchInstruction,
+    content: string,
+  ): Promise<string> {
+    if (instruction.targetType !== 'heading' || instruction.contentType === 'json') return content;
+    const fragment = atxHeadingMarkers(content);
+    if (fragment.markers.length === 0) return content;
+
+    const { content: note } = await this.#rawGetNoteJson(ctx, target);
+    const level = sectionLevel(
+      note,
+      instruction.target,
+      instruction.createTargetIfMissing === true,
+    );
+    if (level === undefined) return content;
+    const relative = relativeHeadingLevels(fragment, level);
+    if (relative.ok) return relative.content;
+
+    /**
+     * The recovery names the calls that do work, so it is built here: the
+     * parent section and the target's level are only known from this note.
+     */
+    const display = displayPath(this.#targetToPath(target));
+    const parent = instruction.target.split(HEADING_DELIMITER).slice(0, -1).join(HEADING_DELIMITER);
+    const elsewhere = parent
+      ? `Append it to the parent section with obsidian_append_to_note with \`section: '${parent}'\`, or to the end of the note with obsidian_append_to_note without \`section\``
+      : 'Append it to the end of the note with obsidian_append_to_note without `section`';
+    throw validationError(
+      `Heading '${relative.heading}' in the content is level ${relative.level}, so it cannot sit inside section '${instruction.target}' (level ${level}) of ${display}: a section write keeps its content inside the section.`,
+      {
+        path: display,
+        reason: 'heading_outside_section',
+        recovery: {
+          hint: `${elsewhere}; to keep it inside '${instruction.target}', write it at level ${level + 1} or deeper.`,
+        },
+      },
+    );
+  }
+
+  /**
+   * Resolve a heading PATCH target against the note's document map so a bare
+   * leaf name reaches the same section on writes that it already reaches on
+   * reads. `extractSection` matches a heading at any depth, so an agent that
+   * read `## Sibling` by its bare name carries that name to a write, where
+   * upstream targeting wants the whole `Parent::Child` chain. Locators that
+   * already carry the delimiter pass through unexpanded; non-heading targets
+   * skip resolution entirely.
+   *
+   * The resolved path must then name exactly one heading. The 1.x map the
+   * PATCH resolves against keys headings by full path, so a path that repeats
+   * in the note is listed once, at its last occurrence — the PATCH would land
+   * on the last repeat while a section read returns the first. A write to a
+   * repeated path is rejected as ambiguous. The count comes from the plugin's
+   * own parse (`#headingIndex`) wherever the plugin serves one, so the map the
+   * PATCH resolves against is also the one that counts its repeats. On 1.x the
+   * note read for that count comes back as `note`, for `v1HeadingBody`.
+   */
+  async #resolveHeadingTarget(
+    ctx: Context,
+    target: NoteTarget,
+    instruction: PatchInstruction,
+    format: PatchFormat,
+  ): Promise<{ note: string | undefined; target: string }> {
+    if (instruction.targetType !== 'heading')
+      return { target: instruction.target, note: undefined };
+    const { headings, occurrences, note } = await this.#headingIndex(ctx, target, format);
+    const resolved = instruction.target.includes(HEADING_DELIMITER)
+      ? instruction.target
+      : this.#expandHeadingLeaf(target, instruction.target, headings);
+
+    const repeats = occurrences.filter((p) => p === resolved);
+    if (repeats.length <= 1) return { target: resolved, note };
+
+    const display = displayPath(this.#targetToPath(target));
+    const named =
+      resolved === instruction.target ? `'${resolved}'` : `'${instruction.target}' (${resolved})`;
+    throw conflict(
+      `Heading ${named} occurs ${repeats.length} times in ${display}, so a section write cannot tell which one to edit.`,
+      {
+        path: display,
+        reason: 'ambiguous_section',
+        candidates: repeats,
+        recovery: {
+          hint: `Every heading in \`candidates\` has the same full path, so no section locator picks one. Rename all but one of them so each path is unique — obsidian_replace_in_note can rewrite a heading line — then retry. obsidian_get_note with format "section" reads the first occurrence.`,
+        },
+      },
+    );
+  }
+
+  /**
+   * The note's heading paths as the plugin parses them, in one request:
+   * `headings` lists each distinct path the way the 1.x document map does
+   * (what a leaf expands against), and `occurrences` lists every heading,
+   * repeats included (what the repeat count reads).
+   *
+   * On 2.0 both come from the document map, whose tree keeps a key per repeat;
+   * flattened with the repeat suffixes stripped and collapsed, it is the 1.x
+   * `headings` array exactly, since both formats read the same parser's
+   * top-level heading tokens. Plugin v4.x serves only the 1.x array, which
+   * cannot count repeats, so there the note body is fetched and scanned
+   * locally (`listHeadingPaths`), which finds headings with the same `marked`
+   * lexing the map does. That note text comes back as `note`.
+   *
+   * Both lists run in note order, as `#rawGetDocumentMap` explains, so the
+   * `candidates` an ambiguity error names, and the first one its hint offers,
+   * follow the note.
+   */
+  async #headingIndex(
+    ctx: Context,
+    target: NoteTarget,
+    format: PatchFormat,
+  ): Promise<{ headings: string[]; note?: string; occurrences: string[] }> {
+    const url = this.#targetToPath(target);
+    if (format === '1') {
+      const map = await this.#fetchDocumentMap<DocumentMap>(ctx, url, format);
+      const { content } = await this.#rawGetNoteJson(ctx, target);
+      const occurrences = listHeadingPaths(content);
+      return { headings: inNoteOrder(map.headings, occurrences), note: content, occurrences };
+    }
+    const map = await this.#fetchDocumentMap<RawDocumentMapV2>(ctx, url, format);
+    const flat = flattenHeadingTree(map.headings);
+    const occurrences = hasIntegerKey(map.headings)
+      ? await this.#inNoteOrder(ctx, target, flat)
+      : flat;
+    return { headings: [...new Set(occurrences)].filter(Boolean), occurrences };
+  }
+
+  /**
+   * Expand a bare heading leaf against the note's heading paths. Resolution
+   * order: an exact entry wins (preserving upstream's own interpretation),
+   * then a unique leaf match is expanded, then several leaf matches are
+   * rejected as ambiguous rather than silently writing to the first. A leaf
+   * absent from the paths passes through untouched so `Create-Target-If-Missing`
+   * still creates it and the upstream's own target-miss error still surfaces.
+   */
+  #expandHeadingLeaf(target: NoteTarget, leaf: string, headings: string[]): string {
+    if (headings.includes(leaf)) return leaf;
+
+    const matches = headings.filter((h) => h.split(HEADING_DELIMITER).pop() === leaf);
+    const [first] = matches;
+    if (first === undefined) return leaf;
+    if (matches.length === 1) return first;
+
+    const display = displayPath(this.#targetToPath(target));
+    throw conflict(
+      `Heading '${leaf}' is ambiguous in ${display} — ${matches.length} headings share that name: ${matches.join(', ')}.`,
+      {
+        path: display,
+        reason: 'ambiguous_section',
+        candidates: matches,
+        recovery: {
+          hint: `Re-issue the call with one of the full heading paths in \`candidates\` as \`section.target\` (e.g. "${first}"). obsidian_get_note with format "document-map" lists every heading path in this note.`,
+        },
+      },
+    );
+  }
+
+  #targetToPath(target: NoteTarget): string {
+    switch (target.type) {
+      case 'path':
+        return `/vault/${encodeVaultPath(target.path)}`;
+      case 'active':
+        return '/active/';
+      case 'periodic': {
+        if (target.date) {
+          const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(target.date);
+          if (!m) {
+            throw validationError(`Invalid date '${target.date}', expected YYYY-MM-DD.`);
+          }
+          const [, y, mo, d] = m;
+          return `/periodic/${target.period}/${y}/${mo}/${d}/`;
+        }
+        return `/periodic/${target.period}/`;
+      }
+    }
+  }
+
+  /**
+   * The TLS relaxation for one request, scoped to that request.
+   *
+   * `OBSIDIAN_VERIFY_SSL=false` exists because the Local REST API's always-on
+   * HTTPS port ships a self-signed certificate, so the relaxation belongs on
+   * the requests that reach it and nowhere else — a process-wide
+   * `NODE_TLS_REJECT_UNAUTHORIZED=0` would also disable verification for every
+   * unrelated HTTPS call the process makes (a JWKS fetch, say). Issue #131.
+   *
+   * Verified on Bun 1.4.0: Bun's `fetch` honors this per-request `tls` option
+   * and ignores the dispatcher, while Node's undici honors the dispatcher's
+   * `connect.rejectUnauthorized` and ignores `tls`. Sending both unconditionally
+   * is therefore correct on both, with no runtime sniffing. A plain-HTTP URL
+   * gets neither — there is no certificate to relax, and the Omnisearch leg is
+   * plain HTTP even when the vault endpoint is not.
+   *
+   * The scheme is matched case-insensitively because that is what it is: a URL
+   * schema accepts `HTTPS://…` and keeps the caller's spelling, so an exact
+   * `startsWith` reads a configured `HTTPS://` base URL as plain HTTP and
+   * withholds the relaxation the operator asked for.
+   */
+  #tlsInit(url: string): { tls?: { rejectUnauthorized: boolean } } {
+    if (this.#config.verifySsl || !/^https:/i.test(url)) return {};
+    return { tls: { rejectUnauthorized: false } };
+  }
+
+  /**
+   * One request to the Local REST API — the single attempt `#request` hands
+   * to `withRetry`, and `tryGetSize`'s HEAD — with the dispatcher, the scoped
+   * TLS relaxation, and the caller's signal attached.
+   *
+   * A rejected `fetch` is classified here, inside the attempt, because the
+   * attempt is where the retry decision is made: a certificate rejection comes
+   * back as a non-transient `ConfigurationError` and `withRetry` rethrows it
+   * on the spot, while an unreachable plugin comes back as a transient
+   * `ServiceUnavailable` and keeps its retries (issues #133 and #136). A
+   * rejection that is neither passes through untouched, and so does anything
+   * thrown after the caller aborted — a cancellation is not a network fault.
+   */
+  async #send(
+    ctx: Context,
+    url: string,
+    init: { method: string; headers: Record<string, string>; body?: string },
+  ): Promise<UndiciResponse> {
+    try {
+      return await this.#fetch(url, {
+        ...init,
+        dispatcher: this.#dispatcher,
+        ...this.#tlsInit(url),
+        signal: ctx.signal,
+      });
+    } catch (err) {
+      if (ctx.signal?.aborted) throw err;
+      throw classifyFetchRejection(err) ?? err;
+    }
+  }
+
+  #request(
+    ctx: Context,
+    pathAndQuery: string,
+    init: {
+      method: string;
+      headers?: Record<string, string>;
+      body?: string;
+      /** Set on requests that expect a single note back — enables the directory guard. */
+      noteRead?: boolean;
+      /**
+       * Set on requests that expect a folder listing back — enables the file
+       * guard, and picks the folder-oriented 404 reason. Carried as an explicit
+       * flag rather than sniffed from the URL's trailing slash: which builder
+       * issued the request is a fact this file already has, and inferring it
+       * from the wire shape would re-derive it one layer too late.
+       */
+      listRead?: boolean;
+    },
+  ): Promise<UndiciResponse> {
+    const url = `${this.#config.baseUrl}${pathAndQuery}`;
+    const headers: Record<string, string> = {
+      ...(init.headers ?? {}),
+      Authorization: `Bearer ${this.#config.apiKey}`,
+    };
+
+    const exec = async (): Promise<UndiciResponse> => {
+      const res = await this.#send(ctx, url, {
+        method: init.method,
+        headers,
+        ...(init.body !== undefined ? { body: init.body } : {}),
+      });
+      if (!res.ok) {
+        await this.#throwForStatus(res, pathAndQuery, ctx, {
+          method: init.method,
+          listRead: init.listRead,
+          requestedUrl: url,
+        });
+      }
+      if (init.noteRead) {
+        this.#assertNotDirectory(res, pathAndQuery);
+      }
+      if (init.listRead) {
+        this.#assertNotFile(res, pathAndQuery);
+      }
+      return res;
+    };
+
+    if (!RETRY_SAFE_METHODS.has(init.method.toUpperCase())) {
+      return exec();
+    }
+
+    return withRetry(exec, {
+      operation: `obsidian.${init.method} ${pathAndQuery}`,
+      context: {
+        requestId: ctx.requestId,
+        timestamp: ctx.timestamp,
+        ...(ctx.tenantId !== undefined ? { tenantId: ctx.tenantId } : {}),
+        ...(ctx.traceId !== undefined ? { traceId: ctx.traceId } : {}),
+        ...(ctx.spanId !== undefined ? { spanId: ctx.spanId } : {}),
+      },
+      baseDelayMs: 200,
+      maxRetries: 3,
+      signal: ctx.signal,
+    });
+  }
+
+  /**
+   * Reject a `2xx` note read that actually served a folder listing. The Local
+   * REST API answers `GET`/`HEAD /vault/<dir>` with `200` and a JSON listing
+   * for every `Accept` type, so status never distinguishes a directory from a
+   * note and each read projection fails differently downstream — the markdown
+   * one silently returns the listing as note body, the JSON ones fail schema
+   * validation with no reason attached.
+   *
+   * The discriminator is a pair of response headers, verified against Local
+   * REST API v5.0.3: a file read always carries `Content-Disposition:
+   * attachment; filename="…"` (whatever its own media type — a vault `.json`
+   * file reports `application/json` too, which is why content type alone can't
+   * decide it), while the folder listing carries no such header and is always
+   * `application/json`. Scoped to `/vault/` because that is the only route
+   * where a path can name a directory; `/active/` and `/periodic/` always
+   * resolve to one file.
+   */
+  #assertNotDirectory(res: UndiciResponse, path: string): void {
+    if (!path.startsWith('/vault/')) return;
+    if (res.headers.get('content-disposition') !== null) return;
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase();
+    if (!contentType.includes('application/json')) return;
+    const display = displayPath(path);
+    throw validationError(`${display} is a directory, not a note.`, {
+      path: display,
+      reason: 'path_is_directory',
+    });
+  }
+
+  /**
+   * Reject a `2xx` folder listing that actually served a file. The inverse of
+   * `#assertNotDirectory`, read off the same header: a trailing slash is a
+   * no-op upstream, so `GET /vault/<file>/` answers `200`
+   * with the file's own body and `Content-Disposition: attachment`. Without
+   * this guard the body reaches `res.json()`, which throws an untyped
+   * `SyntaxError` on markdown and — worse — succeeds on a vault `.json` file,
+   * handing the walk a listing with no `files` array.
+   */
+  #assertNotFile(res: UndiciResponse, path: string): void {
+    if (!path.startsWith('/vault/')) return;
+    if (res.headers.get('content-disposition') === null) return;
+    const display = displayPath(path);
+    throw validationError(`${display} is a file, not a directory.`, {
+      path: display,
+      reason: 'path_is_file',
+    });
+  }
+
+  /**
+   * The plugin's capability report, fetched at most once per service instance
+   * and only when a failure is ambiguous without it — never as a startup probe.
+   *
+   * Deliberately not routed through `#request`: this runs while a caller is
+   * already waiting on a failed request, so it takes neither the retry budget
+   * nor the full request timeout. Every failure resolves to `undefined`, which
+   * callers must read as "unknown" and fall back on — a diagnostic must never
+   * sink the response it was issued to diagnose.
+   *
+   * The cache never expires, and does not need to: it is read only to word an
+   * error on a call that already failed. Installing the missing extension
+   * mid-session makes the route resolve, so no 404 arrives to be classified.
+   * A report the markdown-patch negotiation already read (`#markdownPatchFormat`)
+   * seeds it, so the two share one `GET /`.
+   */
+  async #vaultCapabilities(ctx: Context): Promise<VaultStatus | undefined> {
+    this.#capabilities ??= this.#probeCapabilities(ctx);
+    const capabilities = await this.#capabilities;
+    if (!capabilities) this.#capabilities = undefined;
+    return capabilities;
+  }
+
+  async #probeCapabilities(ctx: Context): Promise<VaultStatus | undefined> {
+    const deadline = AbortSignal.timeout(CAPABILITY_PROBE_TIMEOUT_MS);
+    try {
+      const url = `${this.#config.baseUrl}/`;
+      const res = await this.#fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${this.#config.apiKey}` },
+        dispatcher: this.#dispatcher,
+        ...this.#tlsInit(url),
+        signal: ctx.signal ? AbortSignal.any([ctx.signal, deadline]) : deadline,
+      });
+      if (!res.ok) return;
+      return normalizeVaultStatus((await res.json()) as RawVaultStatus);
+    } catch {
+      return;
+    }
+  }
+
+  /**
+   * Classify an upstream error response and throw.
+   *
+   * **Containment invariant.** Four things leave this method on the wire and
+   * nothing else: a message authored in this file, the caller's own identifier
+   * (`data.path` on a note route, `data.commandId` on a command, neither on a
+   * route that carries no caller input — see `callerIdentifier`), the HTTP
+   * status (`data.status`, default branch), and the calling tool's own
+   * contract `reason` (whose `recovery` the framework fills at the handler
+   * boundary). The upstream's response body never
+   * crosses, in any branch, under any key.
+   *
+   * That is stricter than redaction, deliberately. The Local REST API
+   * interleaves genuine diagnostics with vault data in one string: a rejected
+   * JSONLogic tree names the note the plugin was evaluating when it gave up
+   * (`(while processing <path>)`) and, when `regexp`'s operands are reversed,
+   * quotes that note's body back as the pattern it failed to compile; 5xx
+   * bodies relay Node `fs` errors carrying the vault's absolute on-disk
+   * location. `PathPolicy` gates the success path only, so none of that is
+   * scoped to what the caller may read. The two halves cannot be separated
+   * reliably — the pattern echo is delimited by characters the note body may
+   * itself contain, so any parse that keeps "the diagnostic half" fails open
+   * on exactly the input a caller controls, and failing open is the wrong
+   * direction for a containment control. So containment wins: the upstream
+   * text is read here only to *classify*, and what the caller receives is this
+   * file's own account of the failure. A misclassification therefore costs
+   * accuracy, never containment.
+   *
+   * The body is not discarded. It rides as `cause`, which the framework's
+   * error handler walks into the log record and neither client surface
+   * serializes — `ErrorOptions` makes `cause` non-enumerable, the tool error
+   * envelope is built from `code`/`message`/`data` alone, and so is the
+   * JSON-RPC error object the SDK emits for resources.
+   *
+   * `opts.requestedUrl` — the absolute URL actually fetched — rides the same
+   * channel for the same reason. `path` stays the vault route both call sites
+   * supply: the branches below classify on its prefix and `displayPath()`
+   * renders it as the caller wrote it, while the base URL is deployment detail
+   * that has no place on the wire. It does belong in the log, though, since a
+   * malformed `OBSIDIAN_BASE_URL` is otherwise invisible behind a clean-looking
+   * 404 (issue #122).
+   *
+   * `opts.method` is classification input only: the same upstream status and
+   * wording mean different things on a whole-file write than elsewhere.
+   *
+   * Issues #104, #116, #122, and #159.
+   */
+  async #throwForStatus(
+    res: UndiciResponse,
+    path: string,
+    ctx: Context,
+    opts: { method: string; listRead?: boolean | undefined; requestedUrl: string },
+  ): Promise<never> {
+    const text = await this.#readBodySafe(res);
+    const body = parseJsonObject(text);
+    const display = displayPath(path);
+    /** Classification input and log payload only — never a wire value. */
+    const upstreamMsg = typeof body?.message === 'string' ? body.message : text.trim();
+    const cause = new UpstreamErrorText(upstreamMsg, opts.requestedUrl);
+    const data = (reason?: string) => ({
+      ...callerIdentifier(path),
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    const contentPreexists = () =>
+      validationError(
+        `The supplied content already appears at the target in ${display}. Pass \`applyIfContentPreexists: true\` to force-apply, or change the content.`,
+        data('content_preexists'),
+        { cause },
+      );
+    const sectionTargetMissing = () =>
+      validationError(
+        `Section target not found in ${display}. Use \`obsidian_get_note\` with \`format: "document-map"\` to list available headings, blocks, and frontmatter fields, then retry with one of those locators.`,
+        data('section_target_missing'),
+        { cause },
+      );
+
+    switch (res.status) {
+      case 401:
+        throw unauthorized(
+          'Obsidian Local REST API rejected the API key. Verify OBSIDIAN_API_KEY matches the value in Obsidian → Settings → Local REST API.',
+          data(),
+          { cause },
+        );
+      case 403:
+        throw forbidden(
+          'Obsidian Local REST API forbids this request. Check the plugin permissions.',
+          data(),
+          { cause },
+        );
+      case 404: {
+        /**
+         * A markdown-patch 2.0 PATCH whose section is not in the note answers
+         * 404 like a missing note, told apart only by the engine's wording —
+         * as does a `within` write whose body block the note no longer has.
+         * The 1.x format reports the same miss as a 400 (below).
+         */
+        if (
+          /\bcould not resolve (?:heading|block|frontmatter) target\b|`within` index -?\d+ is out of range\b/i.test(
+            upstreamMsg,
+          )
+        ) {
+          throw sectionTargetMissing();
+        }
+        if (path.startsWith('/active/')) {
+          throw notFound(
+            'No file is currently active in Obsidian — open a file in the app first.',
+            data('no_active_file'),
+            { cause },
+          );
+        }
+        if (path.startsWith('/periodic/')) {
+          /**
+           * Two different failures answer identically here. Local REST API
+           * v5.0.2 removed the built-in `/periodic/` routes — a request against
+           * a version past that, with no companion extension registered to
+           * re-add them, gets Express's route-miss 404, byte-identical to the
+           * plugin's own "that note does not exist". Only the capability report
+           * separates them, and an unreadable one keeps the older, weaker
+           * reading rather than asserting a cause it cannot see.
+           */
+          if (periodicRoutesAbsent(await this.#vaultCapabilities(ctx))) {
+            throw notFound(
+              `This vault's Local REST API serves no /periodic/ routes: plugin v5.0.2 removed them, and the companion extension that restores them (${PERIODIC_EXTENSION_ID}) is not registered here.`,
+              data('periodic_unsupported'),
+              { cause },
+            );
+          }
+          const dateMatch = /\/(\d{4})\/(\d{2})\/(\d{2})\/?$/.exec(path);
+          const suffix = dateMatch ? ` for ${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : '';
+          throw notFound(
+            `No ${periodOf(path)} note found${suffix}. Check that the Periodic Notes plugin is enabled and the note exists.`,
+            data('periodic_not_found'),
+            { cause },
+          );
+        }
+        if (path.startsWith('/commands/')) {
+          throw notFound(
+            `Unknown Obsidian command: ${display}. Use \`obsidian_list_commands\` to discover valid command IDs.`,
+            data('command_unknown'),
+            { cause },
+          );
+        }
+        /**
+         * A folder listing 404s for two reasons the upstream does not
+         * separate: the folder is not there, or it is there and holds no
+         * files — the plugin computes the listing from loaded vault files, so
+         * an empty folder never reports. The recovery names both; the reason
+         * at least keeps the object right, where `note_missing` sent a caller
+         * who just listed a folder off to look for a note.
+         */
+        if (opts.listRead) {
+          throw notFound(`Directory not found: ${display}`, data('directory_missing'), { cause });
+        }
+        throw notFound(`Not found: ${display}`, data('note_missing'), { cause });
+      }
+      case 405:
+        throw validationError(
+          `${display} cannot accept this method (often: the path is a directory, not a file).`,
+          data('path_is_directory'),
+          { cause },
+        );
+      case 400: {
+        /**
+         * A malformed JSONLogic tree is rejected by the plugin's query parser
+         * with a bare 400. Keyed on the exact route rather than the message,
+         * because the upstream wording varies with which parse stage failed
+         * and `/search/simple/` (text mode) shares the `/search/` prefix
+         * without sharing the cause.
+         *
+         * The uncompilable-`regexp` case is named separately: it is the
+         * ordinary failure of a hand-written backlink query, and it is also
+         * the one whose upstream text quotes a note body. Classifying it here
+         * keeps the diagnostic a caller needs without relaying the pattern
+         * that carries it. The `logic_invalid` contract recovery supplies the
+         * operand order, and the framework mirrors it onto both surfaces.
+         */
+        if (routeOf(path) === '/search/') {
+          throw validationError(
+            /invalid regular expression/i.test(upstreamMsg)
+              ? 'The Local REST API could not compile a `regexp` operand in the JSONLogic tree. `regexp` takes `[PATTERN, VALUE]` — with the operands reversed, the note field is compiled as the pattern.'
+              : 'The Local REST API could not evaluate the JSONLogic tree.',
+            data('logic_invalid'),
+            { cause },
+          );
+        }
+        // Content-preexists is a more specific case nested inside the broader
+        // "could not be applied" family — branch on it first so retries with
+        // identical content surface the right reason and recovery (toggle
+        // `applyIfContentPreexists`) instead of the general patch-rejection copy.
+        if (/content-already-preexists-in-target/i.test(upstreamMsg)) {
+          throw contentPreexists();
+        }
+        // The 1.x engine names a section the note lacks with the `invalid-target`
+        // reason token; 2.0 answers the same miss with a 404 (above).
+        if (/\binvalid-target\b/i.test(upstreamMsg)) {
+          throw sectionTargetMissing();
+        }
+        /**
+         * Every other patch refusal: the content does not fit a target that
+         * exists. Each shape gets this file's own sentence, picked from the 1.x
+         * reason token or the 2.0 engine's wording; the upstream text itself is
+         * read only to choose, per the containment invariant above.
+         */
+        const rejection = patchRejection(upstreamMsg, body?.errorCode);
+        if (rejection !== undefined) {
+          throw validationError(
+            `The Local REST API could not apply the patch to ${display}${rejection ? `: ${rejection}` : ''}.`,
+            data('patch_rejected'),
+            { cause },
+          );
+        }
+        // Periodic Notes plugin returns 400 with "Specified period is not enabled"
+        // when the requested period (daily/weekly/monthly/...) is disabled in the
+        // user's plugin settings. Distinct from periodic_not_found (404) — caller
+        // can enable it or fall back to an explicit path target.
+        if (path.startsWith('/periodic/') && /\bnot enabled\b/i.test(upstreamMsg)) {
+          throw validationError(
+            `The ${periodOf(path)} period is not enabled in Obsidian's Periodic Notes plugin settings. Enable it there, or address the note by an explicit vault path instead.`,
+            data('periodic_disabled'),
+            { cause },
+          );
+        }
+        throw validationError(
+          `Obsidian Local REST API rejected the request to ${display} as malformed (HTTP 400).`,
+          data(),
+          { cause },
+        );
+      }
+      default: {
+        // markdown-patch 2.0 refuses duplicate content with a 409; 1.x with the 400 above.
+        if (res.status === 409 && /\balready contains the content\b/i.test(upstreamMsg)) {
+          throw contentPreexists();
+        }
+        /**
+         * A whole-file `PUT` or `POST` creates the note through Obsidian's
+         * `Vault.create` whenever the vault index, which is case-sensitive,
+         * holds no file under that exact name — and `Vault.create` throws
+         * "File already exists." when the disk does. On a case-insensitive
+         * filesystem that is a note whose name differs only in letter case;
+         * a file Obsidian does not index (a dot-file) refuses the same way.
+         * The plugin relays it as a 500 whose message ends in that sentence
+         * on a line of its own; the phrase inside other text (a filesystem
+         * `EEXIST` naming another path) is a different failure. A `Conflict`
+         * keeps it out of the retry loop: the next attempt meets the same
+         * file. The tools name the existing note from the folder listing.
+         */
+        if (
+          res.status === 500 &&
+          (opts.method === 'PUT' || opts.method === 'POST') &&
+          path.startsWith('/vault/') &&
+          /(?:^|\n)[ \t]*file already exists\.?\s*$/i.test(upstreamMsg)
+        ) {
+          throw conflict(
+            `Obsidian refused to create ${display}: a file already exists on disk at that path under different letter case, or one Obsidian does not index.`,
+            data('case_variant_exists'),
+            { cause },
+          );
+        }
+        /**
+         * Unhandled 4xx and all 5xx. `httpStatusToErrorCode` supplies the same
+         * canonical mapping `httpErrorFromResponse` would (the whole 5xx range
+         * except 504 → ServiceUnavailable, 504 → Timeout) without that
+         * helper's response-derived extras: it builds its message from the
+         * upstream's reason phrase and mirrors the body onto
+         * `data.body`/`data.responseBody`, which is the #104 leak.
+         *
+         * Two `data` fields are re-attached by hand because both steer
+         * `withRetry` and neither carries vault content:
+         *
+         * - `retryAfter` is a duration the backoff paces itself against, so
+         *   dropping it with the rest would quietly change retry timing.
+         * - `retryable: false` on a 501 is the in-band opt-out. 501 shares
+         *   ServiceUnavailable's transient code, so without the flag a method
+         *   the plugin does not implement would burn the full retry budget on
+         *   a result that cannot change.
+         */
+        const retryAfter = res.headers.get('retry-after');
+        throw new McpError(
+          httpStatusToErrorCode(res.status) ?? JsonRpcErrorCode.InternalError,
+          `Obsidian Local REST API returned HTTP ${res.status}.`,
+          {
+            ...data(),
+            status: res.status,
+            ...(retryAfter !== null ? { retryAfter } : {}),
+            ...(res.status === 501 ? { retryable: false } : {}),
+          },
+          { cause },
+        );
+      }
+    }
+  }
+
+  async #readBodySafe(res: UndiciResponse): Promise<string> {
+    try {
+      return await res.text();
+    } catch {
+      return '';
+    }
+  }
+}
+
+/**
+ * Count, per tag, the notes carrying it or a tag nested under it. Each note's
+ * `tags` is the plugin's per-note tag list — strings, deduplicated, `#`
+ * stripped, not parent-expanded — so one note carrying `work/a` and `work/b`
+ * adds 1 to `work`, and an untagged note adds nothing. Tags come back in
+ * order of first appearance.
+ */
+function countTagsPerNote(notes: readonly Pick<ScopedNote, 'tags'>[]): ObsidianTag[] {
+  const counts = new Map<string, number>();
+  for (const { tags } of notes) {
+    const noteTags = new Set<string>();
+    for (const tag of tags) {
+      const parts = tag.split('/');
+      for (let depth = 1; depth <= parts.length; depth++) {
+        noteTags.add(parts.slice(0, depth).join('/'));
+      }
+    }
+    for (const name of noteTags) {
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts, ([name, count]) => ({ name, count }));
+}
+
+/**
+ * Encode a vault-relative path for the URL. Splits on `/` and `\` (so
+ * Windows-style separators are honored), URL-encodes each segment, and
+ * rejoins with `/` since the Local REST API plugin expects forward slashes.
+ *
+ * Rejects `.` and `..` segments here rather than relying on the upstream Local
+ * REST API plugin to normalize them — `PathPolicy` short-circuits to "allow"
+ * when `OBSIDIAN_READ_PATHS` is unset, and `..` is unreserved per RFC 3986 so
+ * `encodeURIComponent` leaves it intact. This is the single chokepoint before
+ * URL construction, so guard vault escape here. Backslash is treated as a
+ * separator so `..\..\etc` traverses identically to `../../etc` and can't
+ * sneak past as a single opaque segment.
+ */
+export function encodeVaultPath(path: string): string {
+  const segments = path.split(/[/\\]/).filter((seg) => seg.length > 0);
+  for (const seg of segments) {
+    if (seg === '.' || seg === '..') {
+      /**
+       * Recovery is written inline rather than left to the framework's
+       * contract fill: this free function is also reached from definitions
+       * that declare no `path_traversal` entry, and the guidance is the same
+       * static sentence every contract declares for it.
+       */
+      throw validationError(`Path traversal not allowed: '${path}'`, {
+        path,
+        reason: 'path_traversal',
+        recovery: {
+          hint: 'Supply a vault-relative path with no `.` or `..` segments, e.g. "Projects/Note.md". Use obsidian_list_notes to browse the vault.',
+        },
+      });
+    }
+  }
+  return segments.map((seg) => encodeURIComponent(seg)).join('/');
+}
+
+/**
+ * The query as Obsidian's `prepareSimpleSearch` reads it: split on whitespace,
+ * case-folded, each distinct token required. Quotes are ordinary characters.
+ */
+function queryTokens(query: string): string[] {
+  return [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))];
+}
+
+const isHighSurrogate = (cu: number) => cu >= 0xd800 && cu <= 0xdbff;
+const isLowSurrogate = (cu: number) => cu >= 0xdc00 && cu <= 0xdfff;
+
+/**
+ * Locate the match span inside the `context` window the upstream ships with
+ * it, and name the subject its `start`/`end` index.
+ *
+ * There are two subjects. For a **body match** the subject is the note text
+ * and the window is `body.slice(max(0, start - contextLength), end + contextLength)`,
+ * so the span sits `min(start, contextLength)` characters into `context`. For a
+ * **filename match** the subject is the note's basename and the plugin returns
+ * that basename whole as `context`, so the span sits at `start` — which runs
+ * past `min(start, contextLength)` as soon as the name is longer than the
+ * window. A single hit's `matches[]` can carry both kinds.
+ *
+ * `match.source` (`"filename"` / `"content"`, plugin 5.0.3+) names the subject
+ * outright. Without it, `context === basename` is the cheap separator, but it
+ * is not decisive: a body window whose left edge is trimmed can coincide with
+ * the basename (a note whose own name is quoted in its body), and then the two
+ * readings disagree. Where they do, the text settles it — the correct reading
+ * reproduces the match — and an inconclusive check keeps the filename reading.
+ *
+ * Plugin 5.1.0+ widens a body window by one code unit rather than split a
+ * surrogate pair (`widenToCodePointBoundaries`), so the window can start one
+ * character before `start - contextLength` — see `bodyWindowOffset`.
+ */
+function contextRelativeSpan(
+  m: RawSimpleSearchMatch,
+  filename: string,
+  contextLength: number,
+  tokens: string[],
+): ResolvedSpan {
+  const { start, end, source } = m.match;
+  const span = end - start;
+  const at = (subject: ResolvedSpan['subject'], i: number): ResolvedSpan => ({
+    context: m.context,
+    match: { start, end, contextStart: i, contextEnd: i + span },
+    subject,
+  });
+  /**
+   * The matched text is a run of coalesced token occurrences, so it opens with
+   * one token and closes with one. A reading shifted by a character fails
+   * that: upstream reports every occurrence, so a token beginning one
+   * character early, or ending one character late, would have been coalesced
+   * into this span already.
+   */
+  const reproduces = (i: number) => {
+    const slice = m.context.slice(i, i + span).toLowerCase();
+    return (
+      slice.length === span &&
+      tokens.some((t) => slice.startsWith(t)) &&
+      tokens.some((t) => slice.endsWith(t))
+    );
+  };
+  if (source === 'filename') return at('filename', start);
+  const bodyStart = bodyWindowOffset(m, contextLength, reproduces);
+  if (source === 'content') return at('body', bodyStart);
+
+  const basename = (filename.split('/').pop() ?? filename).replace(/\.[^./]+$/, '');
+  if (m.context !== basename) return at('body', bodyStart);
+  if (start === bodyStart) return at('filename', start);
+  return reproduces(start) || !reproduces(bodyStart)
+    ? at('filename', start)
+    : at('body', bodyStart);
+}
+
+/**
+ * Where a body match sits in its window: `min(start, contextLength)`, or one
+ * further when upstream widened the left edge to keep a surrogate pair whole.
+ *
+ * The widening happens only when the window is not clipped at the note start
+ * and its unwidened edge fell on a low surrogate, and it leaves a window that
+ * opens on a whole pair. A window that simply begins on a pair looks the same
+ * from `context` alone, so between the two candidate offsets the one that
+ * reproduces the match wins; a tie keeps the unwidened reading, which is also
+ * correct for plugins that predate the widening.
+ */
+function bodyWindowOffset(
+  m: RawSimpleSearchMatch,
+  contextLength: number,
+  reproduces: (i: number) => boolean,
+): number {
+  const base = Math.min(m.match.start, contextLength);
+  if (m.match.start <= contextLength) return base;
+  if (!isHighSurrogate(m.context.charCodeAt(0)) || !isLowSurrogate(m.context.charCodeAt(1))) {
+    return base;
+  }
+  return !reproduces(base) && reproduces(base + 1) ? base + 1 : base;
+}
+
+/**
+ * Merge a hit's spans into match locations. `prepareSimpleSearch` reports one
+ * span per token occurrence and coalesces only spans that touch, so each word
+ * of a phrase arrives as its own span with a near-identical window.
+ *
+ * Walking the spans in upstream order, a location takes the next span when all
+ * of these hold:
+ *
+ * - Same subject. Body and basename offsets have different origins.
+ * - `next.start - location.end ≤ 2 × contextLength`, which is when the two
+ *   windows overlap or abut. The union window is then contiguous and no longer
+ *   than the two it replaces, so a merge never grows the response.
+ * - The location does not already hold that span's case-folded text. Without
+ *   this bound a common token chains transitively across a whole note into a
+ *   single unbounded window that counts once against `maxMatchesPerHit`.
+ * - The windows agree on the text they share. The stitch is computed from
+ *   each window's real extent, so it follows edge clipping and surrogate
+ *   widening; a disagreement means the offsets are wrong, and refusing beats
+ *   fabricating note text.
+ *
+ * A query with a single distinct token is left alone, so single-word results
+ * keep one match per occurrence.
+ */
+function mergeIntoLocations(
+  spans: ResolvedSpan[],
+  distinctTokens: number,
+  contextLength: number,
+): ResolvedSpan[] {
+  if (distinctTokens < 2) return spans;
+  const locations: ResolvedSpan[] = [];
+  let current: { location: ResolvedSpan; texts: Set<string> } | undefined;
+  for (const span of spans) {
+    const text = matchedText(span);
+    if (current && !current.texts.has(text)) {
+      const joined = joinLocation(current.location, span, contextLength);
+      if (joined) {
+        current.location = joined;
+        current.texts.add(text);
+        continue;
+      }
+    }
+    if (current) locations.push(current.location);
+    current = { location: span, texts: new Set([text]) };
+  }
+  if (current) locations.push(current.location);
+  return locations;
+}
+
+function matchedText(span: ResolvedSpan): string {
+  return span.context.slice(span.match.contextStart, span.match.contextEnd).toLowerCase();
+}
+
+/** `location` extended through `next`, or `undefined` when the two may not merge. */
+function joinLocation(
+  location: ResolvedSpan,
+  next: ResolvedSpan,
+  contextLength: number,
+): ResolvedSpan | undefined {
+  if (next.subject !== location.subject) return;
+  const gap = next.match.start - location.match.end;
+  if (gap < 0 || gap > 2 * contextLength) return;
+  /** Subject offsets of each window's first character. */
+  const left = location.match.start - location.match.contextStart;
+  const nextLeft = next.match.start - next.match.contextStart;
+  const offset = nextLeft - left;
+  const shared = location.context.length - offset;
+  if (offset < 0 || shared < 0) return;
+  const head = next.context.slice(0, shared);
+  if (location.context.slice(offset, offset + head.length) !== head) return;
+  return {
+    context: location.context + next.context.slice(shared),
+    match: {
+      start: location.match.start,
+      end: next.match.end,
+      contextStart: location.match.contextStart,
+      contextEnd: next.match.end - left,
+    },
+    subject: location.subject,
+  };
+}
+
+/**
+ * The upstream error body and the URL it answered, carried as the `cause` of
+ * everything `#throwForStatus` throws.
+ *
+ * `cause` is the one channel that reaches the server's logs without reaching
+ * the client, which is what lets the containment invariant hold while the
+ * text stays available for debugging and for the classifiers below. Both facts
+ * go in the `Error` message so the framework's cause-chain extractor records
+ * them. Each is also kept as its own field: the classifiers match on `text`
+ * alone, so a request URL can never satisfy a pattern meant for the body.
+ */
+class UpstreamErrorText extends Error {
+  constructor(
+    readonly text: string,
+    readonly requestedUrl: string,
+  ) {
+    super([text, `[requested: ${requestedUrl}]`].filter(Boolean).join(' '));
+    this.name = 'UpstreamErrorText';
+  }
+}
+
+/**
+ * The upstream body behind an error, when `#throwForStatus` raised it. Walks
+ * the `cause` chain rather than reading one level: `withRetry` re-wraps an
+ * exhausted error, so on a retry-safe method the carrier sits a level deeper
+ * than the throw site left it.
+ */
+function upstreamTextOf(err: unknown): string | undefined {
+  let current: unknown = err;
+  for (let depth = 0; depth < 4; depth++) {
+    if (current instanceof UpstreamErrorText) return current.text;
+    if (!(current instanceof Error)) return;
+    current = current.cause;
+  }
+  return;
+}
+
+/**
+ * True for the V8 `RangeError: Invalid string length` the Local REST API
+ * surfaces (as an opaque HTTP 500) when it cannot concatenate the response.
+ * Read off the `cause` carrier: since the containment invariant on
+ * `#throwForStatus`, the upstream text appears on neither the message nor
+ * `data`, and this is the only place it survives.
+ */
+function isStringCapacityOverflow(err: unknown): boolean {
+  return /invalid string length/i.test(upstreamTextOf(err) ?? '');
+}
+
+/**
+ * Normalize the upstream `GET /` payload. `apiExtensions` entries arrive as a
+ * whole `PluginManifest` spread plus the extension's `routes` and `mcpTools`;
+ * only the identity trio is kept, since that is all either the capability
+ * check or a calling agent reads.
+ */
+function normalizeVaultStatus(raw: RawVaultStatus): VaultStatus {
+  const extensions = raw.apiExtensions?.flatMap((e): ApiExtension[] =>
+    typeof e.id === 'string'
+      ? [
+          {
+            id: e.id,
+            ...(typeof e.name === 'string' ? { name: e.name } : {}),
+            ...(typeof e.version === 'string' ? { version: e.version } : {}),
+          },
+        ]
+      : [],
+  );
+  return {
+    /** Absent means the plugin did not accept the key, which is not authenticated. */
+    authenticated: raw.authenticated === true,
+    service: raw.service,
+    status: raw.status,
+    ...(raw.versions ? { versions: raw.versions } : {}),
+    ...(raw.manifest ? { manifest: raw.manifest } : {}),
+    ...(extensions ? { apiExtensions: extensions } : {}),
+  };
+}
+
+/**
+ * True when this plugin build cannot serve `/periodic/` at all: version past
+ * the removal, and the companion extension absent from a capability report
+ * that actually listed its extensions.
+ *
+ * The version is the deciding factor, not extension presence — `apiExtensions`
+ * predates the removal and reads empty on older builds that still route
+ * `/periodic/` natively. A missing `apiExtensions` key means the report was
+ * unauthenticated (the plugin omits it there) and so says nothing either way.
+ */
+function periodicRoutesAbsent(capabilities: VaultStatus | undefined): boolean {
+  const extensions = capabilities?.apiExtensions;
+  if (!extensions) return false;
+  if (!atLeastVersion(capabilities.versions?.self, PERIODIC_ROUTES_REMOVED_IN)) return false;
+  return !extensions.some((e) => e.id === PERIODIC_EXTENSION_ID);
+}
+
+/** Dotted-version comparison against a numeric floor. Unparseable reads as "below". */
+function atLeastVersion(version: string | undefined, floor: readonly number[]): boolean {
+  if (!version) return false;
+  const parts = version.split('.').map((p) => Number.parseInt(p, 10));
+  for (const [i, bound] of floor.entries()) {
+    const part = parts[i];
+    if (part === undefined || Number.isNaN(part)) return false;
+    if (part !== bound) return part > bound;
+  }
+  return true;
+}
+
+/** The period segment of a `/periodic/…` request path, for message copy. */
+function periodOf(urlPath: string): string {
+  return /^\/periodic\/(daily|weekly|monthly|quarterly|yearly)\//.exec(urlPath)?.[1] ?? 'periodic';
+}
+
+/**
+ * Why the plugin refused a patch, in this file's words: `''` for a refusal it
+ * cannot place more precisely, `undefined` when the response is not a patch
+ * refusal at all. A refusal is the plugin's `PatchFailed` (40080, both
+ * formats) or 2.0's `InvalidPatchInstruction` (40081), recognized by code or by
+ * `PatchFailed`'s fixed wording. The detail is chosen from the 1.x engine's
+ * reason token or the 2.0 engine's message; neither is ever returned.
+ */
+function patchRejection(upstreamMsg: string, errorCode: unknown): string | undefined {
+  const refused =
+    errorCode === 40080 || errorCode === 40081 || /\bcould not be applied\b/i.test(upstreamMsg);
+  if (!refused) return;
+  if (/\bis not a table\b/i.test(upstreamMsg)) {
+    return 'the target is not a table, so it cannot take table rows';
+  }
+  /**
+   * The 1.x engine reports a row whose cell count does not match the table
+   * under this same token — its table writer rethrows every failure as "not a
+   * table" — so the sentence names both.
+   */
+  if (/content-type-invalid-for-target/i.test(upstreamMsg)) {
+    return "the target is not a table, or a row's cell count does not match the table's column count";
+  }
+  if (/table-content-incorrect-column-count|\bcell\(s\);.*\bcolumn\(s\)/i.test(upstreamMsg)) {
+    return "a row's cell count does not match the table's column count";
+  }
+  if (/content-not-mergeable|\bnot mergeable\b|\bcannot be merged\b/i.test(upstreamMsg)) {
+    return "the value cannot be merged with the field's current value — append and prepend need two lists, two objects, or two strings";
+  }
+  if (errorCode === 40081 || /\bcontent-type-invalid\b/i.test(upstreamMsg)) {
+    return 'the content does not have the shape this target takes';
+  }
+  return '';
+}
+
+/** The request path with its query string dropped — the route alone. */
+function routeOf(urlPath: string): string {
+  return urlPath.split('?')[0] ?? urlPath;
+}
+
+/**
+ * The caller's identifier for an error on `urlPath`, keyed by the input it
+ * echoes — the same convention `nameRegex` and `contextLength` follow. A note
+ * route carries the note as `path`; `/commands/<id>/` carries the ID as
+ * `commandId`, which is what `obsidian_execute_command` calls it. Every other
+ * route (`/`, `/tags/`, `/commands/`, `/search/`, `/search/simple/`) carries
+ * no caller identifier, so it gets no key — `path` there used to hold the
+ * route string itself, which names no note (issue #130).
+ */
+function callerIdentifier(
+  urlPath: string,
+): { path: string } | { commandId: string } | Record<string, never> {
+  if (NOTE_ROUTE_PREFIXES.some((prefix) => urlPath.startsWith(prefix))) {
+    return { path: displayPath(urlPath) };
+  }
+  if (/^\/commands\/[^/]+\/?$/.test(routeOf(urlPath))) {
+    return { commandId: displayPath(urlPath) };
+  }
+  return {};
+}
+
+/**
+ * Classify a rejected `fetch` — one that produced no response at all — or
+ * return `undefined` to leave it as thrown.
+ *
+ * The two runtimes put the code in different places: Bun on the thrown error
+ * itself, Node's undici one level down on `cause` under a bare `TypeError:
+ * fetch failed`. Both levels are read, and the result is built from the code
+ * alone, so a Bun and a Node rejection produce the same message and `data`.
+ * Neither the runtime's own text nor the URL it names reaches the wire; the
+ * rejection rides as `cause`, the channel `#throwForStatus` uses for the same
+ * reason.
+ *
+ * The recovery hint is written inline, as `encodeVaultPath` writes
+ * `path_traversal`'s: both failures are the operator's to fix and reachable
+ * from every tool and resource — including the two resources that declare no
+ * `errors[]` for the framework's contract fill to resolve against.
+ */
+function classifyFetchRejection(err: unknown): McpError | undefined {
+  const codes = [err, err instanceof Error ? err.cause : undefined].flatMap((e) => {
+    const code = (e as { code?: unknown } | null | undefined)?.code;
+    return typeof code === 'string' ? [code] : [];
+  });
+
+  const certificate = codes.find((code) => CERTIFICATE_REJECTION_CODES.has(code));
+  if (certificate !== undefined) {
+    return configurationError(
+      `The Obsidian Local REST API's TLS certificate failed verification (${certificate}).`,
+      {
+        reason: 'certificate_rejected',
+        recovery: {
+          hint: "OBSIDIAN_VERIFY_SSL=true accepts only a certificate this runtime trusts, and the Local REST API's HTTPS port serves a self-signed one by default. Set OBSIDIAN_VERIFY_SSL=false, or point OBSIDIAN_BASE_URL at the plugin's plain-HTTP port (27123 by default).",
+        },
+      },
+      { cause: err },
+    );
+  }
+  if (codes.some((code) => CONNECTION_FAILURE_CODES.has(code))) {
+    return serviceUnavailable(
+      'Could not connect to the Obsidian Local REST API.',
+      {
+        reason: 'obsidian_unreachable',
+        recovery: {
+          hint: 'Confirm Obsidian is running with the Local REST API plugin enabled, and that OBSIDIAN_BASE_URL names the host and port the plugin listens on.',
+        },
+      },
+      { cause: err },
+    );
+  }
+  return;
+}
+
+/**
+ * Convert an internal URL path (e.g. `/vault/Projects/My%20Note.md`) to the
+ * vault-relative form a caller would recognize. Used in error messages so the
+ * user sees the same path they sent in.
+ */
+function displayPath(urlPath: string): string {
+  if (urlPath.startsWith('/active/')) return '(active file)';
+  const noQuery = routeOf(urlPath);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(noQuery);
+  } catch {
+    decoded = noQuery;
+  }
+  const periodic =
+    /^\/periodic\/(daily|weekly|monthly|quarterly|yearly)\/(?:(\d{4})\/(\d{2})\/(\d{2})\/?)?$/.exec(
+      decoded,
+    );
+  if (periodic) {
+    const [, period, y, mo, d] = periodic;
+    return y && mo && d
+      ? `${period} note for ${y}-${mo}-${d}`
+      : `${period} note for the current period`;
+  }
+  for (const prefix of ['/vault/', '/open/', '/commands/']) {
+    if (decoded.startsWith(prefix)) {
+      return decoded.slice(prefix.length).replace(/\/+$/, '') || decoded;
+    }
+  }
+  return decoded;
+}
+
+/**
+ * Read the `Content-Length` header from a HEAD response and parse it as a
+ * non-negative integer byte count. Throws when the upstream omits the header
+ * or returns a non-numeric value — the size helpers don't fall back to GET.
+ */
+function parseContentLength(res: UndiciResponse, url: string): number {
+  const raw = res.headers.get('content-length');
+  if (raw === null) {
+    throw new Error(
+      `Obsidian Local REST API HEAD response missing Content-Length header for ${url}.`,
+    );
+  }
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`Obsidian Local REST API returned invalid Content-Length '${raw}' for ${url}.`);
+  }
+  return n;
+}
+
+/**
+ * Resolve the Omnisearch URL. Override wins. Otherwise: take the host from
+ * `OBSIDIAN_BASE_URL`, force `http:` (Omnisearch is HTTP-only), swap port
+ * `27123/27124` → `51361`. `127.0.0.1` is mapped to `localhost` since
+ * Omnisearch's current Node listener binds IPv4 only but the platform's
+ * loopback resolver is flexible — `localhost` insulates us if a future
+ * build switches binding. Falls back to `http://localhost:51361` on any
+ * URL parse failure (config validation catches malformed `baseUrl`, so this
+ * is belt-and-suspenders).
+ */
+function deriveOmnisearchUrl(config: ServerConfig): string {
+  if (config.omnisearchUrl) return config.omnisearchUrl.replace(/\/+$/, '');
+  try {
+    const u = new URL(config.baseUrl);
+    const host = u.hostname === '127.0.0.1' ? 'localhost' : u.hostname;
+    return `http://${host}:${OMNISEARCH_DEFAULT_PORT}`;
+  } catch {
+    return `http://localhost:${OMNISEARCH_DEFAULT_PORT}`;
+  }
+}
+
+function normalizeOmnisearchHit(raw: RawOmnisearchHit): OmnisearchHit {
+  return {
+    basename: raw.basename,
+    excerpt: cleanExcerpt(raw.excerpt),
+    filename: raw.path,
+    foundWords: raw.foundWords,
+    matches: raw.matches,
+    score: raw.score,
+  };
+}
+
+/**
+ * Normalize Omnisearch's excerpt HTML: `<br>` → `\n`, decode the entities
+ * the upstream actually emits (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#039;`,
+ * `&apos;`, plus numeric `&#NNN;` / `&#xNN;`). `<mark>` tags are preserved —
+ * they highlight the match span and are interpretable as emphasis.
+ */
+function cleanExcerpt(excerpt: string): string {
+  return excerpt
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => safeCodePoint(parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => safeCodePoint(Number(n)))
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function safeCodePoint(cp: number): string {
+  if (!Number.isInteger(cp) || cp < 0 || cp > 0x10ffff) return '';
+  return String.fromCodePoint(cp);
+}
+
+function parseJsonObject(text: string): UpstreamErrorBody | undefined {
+  if (!text) return;
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' ? (v as UpstreamErrorBody) : undefined;
+  } catch {
+    return;
+  }
+}
+
+let _service: ObsidianService | undefined;
+
+export function initObsidianService(
+  config: ServerConfig = getServerConfig(),
+  fetchImpl?: ObsidianFetch,
+): void {
+  _service = new ObsidianService(config, fetchImpl);
+}
+
+/** Test-only: directly install an instance (e.g., one backed by a stub fetch). */
+export function setObsidianService(service: ObsidianService | undefined): void {
+  _service = service;
+}
+
+export function getObsidianService(): ObsidianService {
+  if (!_service) {
+    throw new Error('ObsidianService not initialized — call initObsidianService() in setup().');
+  }
+  return _service;
+}

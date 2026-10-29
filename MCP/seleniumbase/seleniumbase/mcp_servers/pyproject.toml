@@ -1,0 +1,81 @@
+[project]
+name = "seleniumbase-mcp"
+version = "1.5.4dev0"
+description = "MCP server exposing SeleniumBase CDP Mode as tools for MCP clients."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "mcp[cli]>=2.3.0,<3.0.0",
+    "seleniumbase",
+]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "seleniumbase",
+    "sbase",
+    "selenium",
+    "webdriver",
+    "browser-automation",
+    "web-scraping",
+    "cdp",
+    "chrome-devtools-protocol",
+    "claude",
+    "claude-desktop",
+    "claude-code",
+    "ai-agent",
+    "llm-tools",
+    "testing",
+    "stealth",
+    "bot-detection",
+    "captcha",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Utilities",
+]
+authors = [{ name = "Michael Mintz", email = "mdmintz@gmail.com" }]
+maintainers = [{ name = "Michael Mintz" }]
+
+[project.urls]
+Homepage = "https://github.com/seleniumbase/SeleniumBase"
+Source = "https://github.com/seleniumbase/SeleniumBase/tree/master/mcp_servers"
+Repository = "https://github.com/seleniumbase/SeleniumBase"
+Documentation = "https://github.com/seleniumbase/SeleniumBase/blob/master/mcp_servers/README.md"
+Issues = "https://github.com/seleniumbase/SeleniumBase/issues"
+SeleniumBase = "https://github.com/seleniumbase/SeleniumBase"
+
+# This folder lives inside the SeleniumBase repo itself. The line below
+# tells `uv sync` / `uv run` (run from inside this folder) to resolve
+# "seleniumbase" from the local checkout one directory up, in editable
+# mode, instead of fetching a release from PyPI.
+[tool.uv.sources]
+seleniumbase = { path = "..", editable = true }
+
+[build-system]
+requires = ["setuptools>=70.2.0", "wheel>=0.44.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+seleniumbase-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server"]
+
+[tool.setuptools.exclude-package-data]
+"*" = [".venv*", "build*", "dist*", "uv.lock"]

@@ -1,0 +1,723 @@
+# Releases
+
+## Latest Release
+
+See the latest release notes on the [GitHub Releases page](https://github.com/datalayer/jupyter-mcp-server/releases).
+
+## Jupyter MCP Server 2.2
+
+**Extensions are built on [`reactor_mcp_server`](https://pypi.org/project/reactor-mcp-server/) now.** The mechanism this
+server grew for itself — a base class, a manager, an entry-point group — is
+released as a foundation any MCP server can use, and this one uses it. Nothing
+changes for a client: the same tools, the same calls, the same transports.
+
+### A tool is declared, not registered
+
+An extension used to be handed the server and register functions on it. It now
+*offers* its tools, and the server collects them:
+
+```python
+class MyExtension(JupyterMCPExtension):
+    @tool()
+    async def my_tool(self, argument: str) -> str:
+        """What it does."""
+        return "…"
+```
+
+What that buys is the next part.
+
+### Extending another extension's tool is something you say
+
+An extension that wanted to narrow somebody else's tool had exactly one lever:
+register a tool of the same name and be loaded **second**, because the SDK keeps
+the first registration. Whether it worked depended on how two distributions'
+entry point names happened to sort — it worked where it was written and
+silently did nothing elsewhere.
+
+```python
+def tool_extensions(self):
+    return (("launch_sandbox", ToolExtension(
+        wrap=on_datalayer,
+        description="Launch a sandbox on Datalayer.",
+    )),)
+```
+
+Applied by name, in a declared order, whichever order the extensions loaded
+in — and the result is one tool rather than two with the same name.
+
+### Toolsets, and a URL that picks them
+
+Tools belong to a named toolset. A host serving through the foundation's
+application lets a client choose in the URL it connects to —
+`/mcp?sandboxes` — and an extension whose toolset nobody asked for is never
+registered at all.
+
+### Breaking changes
+
+| Was | Is |
+|---|---|
+| `JupyterMCPExtension.register_tools(mcp)` | `tools()`, or `@tool`-decorated methods |
+| entry-point group `jupyter_mcp_server.extensions` | `reactor.mcp.extensions` |
+| narrow a tool by re-registering its name, sorted later | `tool_extensions()` |
+
+`jupyter-mcp-sandboxes` 0.2.4 is migrated with it.
+
+### 2.2.1
+
+**This server's own tools are contributions too.** `use_notebook`,
+`execute_cell`, `list_notebooks` and the other seventeen are offered by a
+built-in extension, in the `notebooks` toolset. Two things follow: an
+extension can narrow one by naming it in `tool_extensions()`, instead of
+reaching into the running server's tool manager to take the original off and
+register a replacement; and a host that builds a server per toolset selection
+builds one that *has* them — `/mcp?only=notebooks` is the notebook tools and
+nothing else.
+
+**`on_start()` is called.** Nothing started the extension platform, so it was
+a hook the documentation described and no entry point ever reached — an
+extension that registered an execution hook there registered it nowhere. It
+fires where the tools are registered, after the command line has been read.
+
+**`jupyter-mcp-sandboxes` 0.2.5** names its toolset `sandboxes`. A tool that
+names no toolset goes in one named after its plugin, so the four lifecycle
+tools were in `jupyter-mcp-sandboxes` — a package name, not something a
+client would put in a URL — and a deployment adding its own sandbox tools
+under `sandboxes` split the two: `?only=sandboxes` answered with tools that
+each need a sandbox and no way to launch one.
+
+### 2.2.2
+
+Documentation, and one fix in the bundled extension. The server package is
+unchanged.
+
+**One extensions page.** `operations/extensions` and `architecture/extensions`
+were two accounts of the same mechanism, and the older outranked the newer in
+a search. They are one page now, in
+[Architecture](/architecture/extensions): writing an extension, and how this
+server's own tools, the sandboxes extension and a third-party one are built
+on exactly that.
+
+**The generated reference stops claiming a decorator that is not there.**
+Every tool page ended "Registered by the `@mcp.tool` decorator on …",
+including the four offered as `ToolSpec` values. The sourcemap records how a
+tool was declared and each page says that.
+
+**`jupyter-mcp-sandboxes` 0.2.6** reads its manifest version from the
+distribution. It said `0.1.0` while the wheel said `0.2.5`, so an installed
+extension identified itself to the plugin platform as a release from before
+the entry-point group it is published on existed. Its README named that old
+group too, which produced an extension nothing discovers.
+
+## Jupyter MCP Server 2.1
+
+Most of 2.1 is about the same thing: **a server does work a client cannot see,
+and the failures that follow are quiet ones.** Nothing here changes an existing
+tool call, and the command line, the configuration and the transports are
+unchanged.
+
+### A dead kernel is now reported, not replaced
+
+When a kernel died the server quietly started another. Every variable, import
+and definition of the session went with the old one, the notebook's state was
+not what the agent believed it was, and nothing said so — the next
+`execute_cell` simply behaved as though the session had always been empty.
+
+A fresh kernel is often exactly what somebody wants, so the behaviour is not
+gone; it is **off by default** and named:
+
+```
+The kernel of 'analysis.ipynb' is gone, and its session — every variable,
+import and definition — went with it. Call restart_notebook to start a fresh
+one, or enable the 'kernel.auto-restart' capability to have replacements
+started automatically.
+```
+
+To keep the old behaviour:
+
+```bash
+jupyter-mcp-server start --capability kernel.auto-restart
+```
+
+Attaching a kernel for the *first* time is not a restart and is never refused,
+and `restart_notebook` is never blocked — it is a caller asking for exactly
+this. See [Capabilities](/operations/capabilities).
+
+### Addressing a cell that has moved
+
+A cell index is a *position*, and a position stops being true the moment
+anyone inserts a cell above it. In a notebook a person and an agent are both
+working in, that is constantly — and the failure is silent, because an index
+stays valid; it just stops meaning the same cell.
+
+Every result now says which cell it acted on:
+
+```json
+{ "_meta": { "io.jupyter-mcp/cell_id": "a1b2c3d4" } }
+```
+
+and every cell tool accepts that id in place of an index:
+
+```
+overwrite_cell_source(cell_id: "a1b2c3d4", cell_source: "…")
+```
+
+Given both, the id wins. An id that is no longer in the notebook is an **error
+naming it**, never a quiet fall back to the index it arrived with. For
+`delete_cell`, every id is checked before any cell is deleted, so one bad id
+fails the call rather than half-deleting a notebook.
+
+:::note
+
+Cell ids arrived in nbformat 4.5. A notebook saved before that has none, and
+the server reports none rather than inventing one — an id generated on read
+differs on the next read, so it would name a cell only until somebody looked
+again. Addressing by index still works.
+
+:::
+
+See [Cell ids](/operations/cell-ids).
+
+### Tools say whether they are safe to repeat
+
+All tools now answer `idempotentHint` and `openWorldHint`. The direction that
+matters is the unsafe one: `idempotentHint: true` on `insert_cell` or
+`delete_cell` would invite a client to retry a timed-out call and insert the
+cell twice, or delete a second, different cell. Positional edits and restarts
+say `false`; setting a value says `true`; only the three tools that run
+arbitrary code are open-world.
+
+`tools/list` is also **sorted by name** now, so a client that caches the list
+stops seeing changes that are not changes.
+
+### Results carry data as well as text
+
+Every tool result now carries `structuredContent` beside its text, built in one
+place. A tab-separated listing also comes back as rows keyed by its header, so
+an agent wanting one field stops splitting text and hoping the columns have not
+moved. Text is never dropped: a result with structure and no content is
+invisible to a client that has not adopted the former.
+
+The three listings carry cache hints ([SEP-2549](https://modelcontextprotocol.io/seps/2549-TTL-for-list-results)).
+Nothing that changes carries one — a cell read or an edit answers something
+that has just moved, and a stale hint is worse than none.
+
+Every tool also advertises an **output schema**, so a client can learn what a
+tool returns without calling it, and the server validates what it built
+against that schema on every call. See [Results](/operations/results) for the
+shapes, the `kind` of every tool, and what arrives in `_meta`.
+
+### Auditing, for deployments that need it
+
+`JUPYTER_MCP_AUDIT_SINK_CLASS` names a class and every tool call reaches it.
+A sink that fails never fails the call it was describing, and says so at
+`ERROR` every time — a silently dropped audit record looks exactly like
+nothing having happened. See [Audit](/operations/audit).
+
+### For extension authors
+
+Two things changed, and both were bugs you may have worked around.
+
+**Extensions register after the server is configured**, not at import. They
+used to register while the command line was still being parsed, so an
+extension asking what the server was pointed at got the default however it had
+been invoked. If you read `sys.argv` to find out, you can stop.
+
+**Extensions register in name order.** `importlib.metadata` returns entry
+points in whatever order the installation produced — it varies between a wheel
+and an editable install — and registration is not independent: the SDK keeps
+the *original* when a tool name is registered twice, so an extension replacing
+another's tool silently did nothing if it happened to run first.
+
+Extensions can also declare capabilities now. See
+[Extensions](/architecture/extensions).
+
+**`jupyter-mcp-spaces` no longer ships from this repository.** The extension
+for the `datalayer` document provider now lives in the Datalayer gateway that
+serves it, where the code it talks to already lives. Nothing about how it is
+loaded changed — it is the same `jupyter_mcp_server.extensions` entry-point
+group — so a deployment that gets it from the gateway sees the same tools.
+Only `pip install ./ext/spaces` against a checkout of this repository has gone
+away; there is no replacement package to install here.
+
+### Conformance
+
+The server is tested against the
+[MCP conformance suite](https://www.npmjs.com/package/@modelcontextprotocol/conformance)
+on every pull request, at each protocol version it serves. Known gaps are
+listed by name in `tests/conformance-baseline.yaml`; a new failure blocks the
+merge.
+
+## Jupyter MCP Server 2.0: Built on MCP 2
+
+Version 2.0.0 moves the server to the
+[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) **2**, the SDK's
+first major release, and requires `mcp >= 2, < 3`. The major version bump is about
+that dependency: the server itself keeps its command line, its configuration, its
+tools and its behaviour.
+
+| Your `jupyter-mcp-server` | Install                 |
+| ------------------------- | ----------------------- |
+| **>= 2.0.0**              | `mcp >= 2` (automatic)  |
+| **< 2.0.0**               | `mcp < 2` (automatic)   |
+
+```bash
+# Move to 2.0
+pip install -U "jupyter-mcp-server>=2.0.0"
+
+# Stay on the 1.x line, for an environment that still needs mcp 1
+pip install "jupyter-mcp-server<2"
+```
+
+:::tip[Nothing changes for users and MCP clients]
+
+`jupyter-mcp-server start`, every option, every environment variable, the Jupyter
+Server extension and its `/mcp` endpoint, the 22 tools and the `jupyter_cite` prompt
+are all as they were. MCP clients keep connecting the same way: the protocol version
+is negotiated with each client, and older clients are still served. Tool errors still
+carry their reason — "notebook not connected", "cell index out of range" — rather than
+the generic `Error executing tool` message the new SDK would return on its own.
+
+:::
+
+### Who Is Affected
+
+- Anyone whose environment holds another package pinning `mcp<2`: `pip` will refuse
+  to install `jupyter-mcp-server>=2` next to it. Stay on `jupyter-mcp-server<2` until
+  that package moves.
+- Authors of [extensions](https://jupyter-mcp-server.datalayer.tech/architecture#extensions)
+  or custom token verifiers that import from the SDK directly, and anyone embedding
+  the server's `streamable_http_app()` in their own ASGI application.
+- Clients written on the SDK against the server's test helpers or wire models.
+
+### What Changed for Integrators
+
+| mcp 1                                                 | mcp 2                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------ |
+| `from mcp.server.fastmcp import FastMCP, Context`     | `from mcp.server import MCPServer`, `from mcp.server.mcpserver import Context` |
+| `FastMCP(..., json_response=..., stateless_http=...)` | `MCPServer(...)`, transport options on `streamable_http_app(...)` |
+| `from mcp.server.fastmcp.prompts.base import UserMessage` | `from mcp.server.mcpserver import UserMessage`           |
+| `tool.inputSchema`, `content.mimeType`, `result.structuredContent` | `tool.input_schema`, `content.mime_type`, `result.structured_content` (`model_dump(by_alias=True)` for the wire form) |
+| `mcp.call_tool()` returns `(content, structured)`     | returns a `CallToolResult`                                   |
+| Clients pass an `httpx.AsyncClient`                   | Clients pass an `httpx2.AsyncClient`; `streamable_http_client()` yields two streams |
+| Exceptions raised in a tool reach the client as `Error executing tool <name>: <reason>` | The SDK sends only `Error executing tool <name>`; the server's `call_tool` override restores the reason, so **on this server the message is unchanged** |
+
+The SDK's own list is in its
+[migration guide](https://py.sdk.modelcontextprotocol.io/v2/migration/).
+
+### The pydantic-ai Example
+
+The `examples/cli` agent needs pydantic-ai **2.35** or later with its `mcp` extra on
+`fastmcp-slim` **4.x**, the line of fastmcp built on mcp 2 — see
+`examples/cli/requirements.txt`. That is the one place a fastmcp package is involved;
+the server itself is on the MCP SDK alone.
+
+## Hot Fix: Pin `code-sandboxes` to Match Your Version
+
+The sandbox variant named `jupyter` was renamed to **`jupyter-server`** in
+`code-sandboxes` 1.1.1, so the two packages have to agree on the name. Which version of
+`code-sandboxes` you need depends on which `jupyter-mcp-server` you are on:
+
+| Your `jupyter-mcp-server` | Install                   |
+| ------------------------- | ------------------------- |
+| **>= 1.5.0**              | `code-sandboxes >= 1.1.1` |
+| **< 1.5.0**               | `code-sandboxes <= 1.0.9` |
+
+```bash
+# On 1.5.0 or later
+pip install "jupyter-mcp-server>=1.5.0" "code-sandboxes>=1.1.1"
+
+# Staying on an earlier jupyter-mcp-server
+pip install "jupyter-mcp-server<1.5.0" "code-sandboxes<=1.0.9"
+```
+
+:::danger[How a mismatch shows up]
+
+From 1.5.0, `jupyter-mcp-server` requires `code-sandboxes >= 1.1.1`, so pip refuses that
+pairing outright. The one it does **not** catch is the other direction: earlier releases
+asked only for `code-sandboxes >= 0.17.0`, which a 1.1.1 install satisfies. Nothing fails
+at install time — it fails the first time code runs:
+
+```
+ValueError: Unknown sandbox variant: jupyter.
+Supported variants: datalayer, daytona, docker, eval, google-colab, jupyter-server,
+kaggle, modal, monty
+```
+
+If you see that, you are on `jupyter-mcp-server` < 1.5.0 with `code-sandboxes` >= 1.1.1.
+Either upgrade the server or pin `code-sandboxes <= 1.0.9`.
+
+:::
+
+### What Changed
+
+`code-sandboxes` 1.1.1 made every canonical variant name spell out what it is:
+`jupyter-server` rather than `jupyter`, and `google-colab` rather than `google_colab`. From
+1.5.0 `jupyter-mcp-server` uses those names, and `SANDBOX_VARIANT=jupyter-server` is the
+default.
+
+Spelling is read leniently from 1.5.0 onward — `google_colab`, `google-colab` and
+`GOOGLE-COLAB` all name the same variant — but `jupyter` is **not** an alias for
+`jupyter-server`. It names nothing.
+
+### If You Set `SANDBOX_VARIANT`
+
+| Before          | From 1.5.0       |
+| --------------- | ---------------- |
+| `jupyter`       | `jupyter-server` |
+| `google_colab`  | `google-colab`   |
+| `colab`         | `google-colab`   |
+
+Everything else — `datalayer`, `kaggle`, `monty`, `modal`, `docker`, `eval` — is unchanged.
+Leaving `SANDBOX_VARIANT` unset needs no action: the default moved with the rename.
+
+## Migration Guide to 1.3.2
+
+Version 1.3.2 renames `provider` to `document_provider`, so that the name says what the
+option actually selects.
+
+It only ever chose **where the notebook documents live** — `jupyter` for the collaboration
+API of a Jupyter Server, `datalayer` for the Datalayer spacer. Where the *code runs* is a
+separate choice, made with `--sandbox-variant`. The old name, and its help text, suggested
+one option governed both.
+
+:::tip[Nothing breaks in 1.3.2]
+
+The former names are deprecated, not removed. `--provider` is still accepted as an alias,
+`PROVIDER` is still read, and a `/connect` payload carrying `"provider"` is still
+understood. Migrate when convenient.
+
+:::
+
+### Who Should Migrate
+
+- End users passing `--provider` or setting `PROVIDER`, which in practice means anyone
+  pointing the server at Datalayer-hosted documents.
+- Operators whose manifests, wrapper scripts or MCP client configurations carry `PROVIDER`.
+- Anyone calling the `/connect` endpoint or the `connect_to_jupyter` tool with a
+  `provider` field.
+
+### Change Summary
+
+- Use `document_provider` names everywhere instead of `provider` names.
+- The accepted values are unchanged: `jupyter` (default) and `datalayer`.
+- Execution backends keep their own option, `--sandbox-variant` / `SANDBOX_VARIANT`.
+- Nothing has to change immediately: the old names still work in this version.
+
+### Rename Matrix
+
+| Old (pre-1.3.2) | New (1.3.2+) |
+|---|---|
+| `provider` | `document_provider` |
+| `PROVIDER` | `DOCUMENT_PROVIDER` |
+| `--provider` | `--document-provider` |
+| `"provider"` in the `/connect` payload | `"document_provider"` |
+| `provider` argument of `connect_to_jupyter` | `document_provider` |
+
+### End User Migration
+
+#### 1. Update environment variables
+
+Before:
+
+```bash
+export PROVIDER=datalayer
+```
+
+After:
+
+```bash
+export DOCUMENT_PROVIDER=datalayer
+```
+
+#### 2. Update CLI commands
+
+Before:
+
+```bash
+jupyter mcp start \
+	--provider datalayer \
+	--document-url <url> \
+	--document-token <token>
+```
+
+After:
+
+```bash
+jupyter mcp start \
+	--document-provider datalayer \
+	--document-url <url> \
+	--document-token <token>
+```
+
+#### 3. Update MCP client configurations
+
+An MCP client passing the variable through its `env` block needs the new key:
+
+```json
+{
+  "env": {
+    "DOCUMENT_PROVIDER": "datalayer",
+    "DOCUMENT_URL": "<url>",
+    "DOCUMENT_TOKEN": "<token>"
+  }
+}
+```
+
+#### 4. Check that document and execution are configured separately
+
+The two axes are independent, and a Datalayer document store does not imply a Datalayer
+sandbox. State each one:
+
+```bash
+jupyter mcp start \
+	--document-provider datalayer \
+	--sandbox-variant datalayer
+```
+
+### Known Migration Pitfalls
+
+- Assuming `--provider datalayer` also moved execution to Datalayer; it never did, and
+  `--sandbox-variant` is what does.
+- Both `PROVIDER` and `DOCUMENT_PROVIDER` set to different values in the same environment.
+  The new name wins, which may not be what the older one intended.
+- Wrapper scripts updated while CI secrets still carry the old key name.
+
+### Recommended Migration Checklist
+
+1. Replace `PROVIDER` with `DOCUMENT_PROVIDER` in environments, manifests and CI secrets.
+2. Replace `--provider` with `--document-provider` in commands and wrappers.
+3. Rename `provider` to `document_provider` in `/connect` payloads and tool calls.
+4. State `--sandbox-variant` explicitly wherever execution is not the default Jupyter one.
+5. Validate a notebook opens and a cell executes before removing the old names.
+
+For full reference values, see [Configuration](/operations/configuration).
+
+## Migration Guide to 1.2.0
+
+Version 1.2.0 completes the terminology migration from runtime to code sandbox.
+
+This is primarily a naming and configuration migration. Execution behavior is the same goal as before: notebooks are stored on a document server and code is executed by a kernel backend. The backend is now consistently called code sandbox across CLI, environment variables, config model, and docs.
+
+### Who Should Migrate
+
+- End users running `jupyter-mcp-server` locally or in CI.
+- Operators maintaining shared MCP server deployments (containers, services, platform templates, runbooks).
+
+### Breaking Change Summary
+
+- Use `code_sandbox` names everywhere instead of `runtime` names.
+- Use `CODE_SANDBOX_*` environment variables and matching CLI flags.
+- Use `start_new_code_sandbox` naming for bootstrap behavior.
+- Any custom scripts or wrappers using old runtime names must be updated.
+
+### Rename Matrix
+
+| Old (pre-1.2.0) | New (1.2.0+) |
+|---|---|
+| `runtime` | `code sandbox` |
+| `RUNTIME_URL` | `CODE_SANDBOX_URL` |
+| `RUNTIME_TOKEN` | `CODE_SANDBOX_TOKEN` |
+| `RUNTIME_PASSWORD` | `CODE_SANDBOX_PASSWORD` |
+| `RUNTIME_ID` | `CODE_SANDBOX_ID` |
+| `START_NEW_RUNTIME` | `START_NEW_CODE_SANDBOX` |
+| `--runtime-url` | `--code-sandbox-url` |
+| `--runtime-token` | `--code-sandbox-token` |
+| `--runtime-password` | `--code-sandbox-password` |
+| `--runtime-id` | `--code-sandbox-id` |
+| `--start-new-runtime` | `--start-new-code-sandbox` |
+
+### End User Migration
+
+#### 1. Update environment variables
+
+Before:
+
+```bash
+export RUNTIME_URL=http://localhost:8888
+export RUNTIME_TOKEN=MY_TOKEN
+export START_NEW_RUNTIME=true
+```
+
+After:
+
+```bash
+export CODE_SANDBOX_URL=http://localhost:8888
+export CODE_SANDBOX_TOKEN=MY_TOKEN
+export START_NEW_CODE_SANDBOX=true
+```
+
+#### 2. Update CLI commands
+
+Before:
+
+```bash
+jupyter-mcp-server \
+	--runtime-url http://localhost:8888 \
+	--runtime-token MY_TOKEN
+```
+
+After:
+
+```bash
+jupyter-mcp-server \
+	--code-sandbox-url http://localhost:8888 \
+	--code-sandbox-token MY_TOKEN
+```
+
+#### 3. Validate split document + code sandbox setups
+
+If you run document storage and execution on different servers, ensure both sides are configured explicitly:
+
+```bash
+export DOCUMENT_URL=http://notebook-storage:8888
+export DOCUMENT_TOKEN=DOC_TOKEN
+
+export CODE_SANDBOX_URL=http://compute-cluster:8888
+export CODE_SANDBOX_TOKEN=EXEC_TOKEN
+```
+
+#### 4. Validate auth mode
+
+Token and password auth still work the same way, just with updated names:
+
+- `CODE_SANDBOX_TOKEN` or `CODE_SANDBOX_PASSWORD`
+- `DOCUMENT_TOKEN` or `DOCUMENT_PASSWORD`
+
+When both token and password are supplied, password authentication takes precedence.
+
+### Operator Migration
+
+#### 1. Update deployment manifests and templates
+
+Update references in:
+
+- Kubernetes manifests
+- Helm values/templates
+- Docker Compose files
+- systemd units
+- CI/CD secrets and variable groups
+
+Recommended approach:
+
+1. Add new `CODE_SANDBOX_*` variables.
+2. Remove old `RUNTIME_*` variables.
+3. Restart workloads and verify MCP health checks.
+
+#### 2. Update startup wrappers and runbooks
+
+Search and replace in operational scripts:
+
+- `runtime` -> `code_sandbox` for internal names
+- runtime-oriented flags -> `--code-sandbox-*`
+
+Also update on-call docs and incident runbooks so diagnostics use current naming.
+
+#### 3. Validate service behavior post-cutover
+
+Run these checks after rollout:
+
+1. MCP health endpoint returns healthy status.
+2. Kernel listing works (`list_kernels`).
+3. Notebook operations work (`use_notebook`, `read_cell`, `execute_cell`).
+4. Reconnect behavior remains as expected (`RECONNECT_INTERVAL`).
+
+### Configuration Examples (1.2.0+)
+
+#### Single Jupyter server for both document and code sandbox
+
+```bash
+export JUPYTER_URL=http://localhost:8888
+export JUPYTER_TOKEN=MY_TOKEN
+```
+
+#### Explicit dual-server topology
+
+```bash
+export DOCUMENT_URL=http://notebook-storage:8888
+export DOCUMENT_TOKEN=DOC_TOKEN
+export DOCUMENT_ID=shared/analysis.ipynb
+
+export CODE_SANDBOX_URL=http://compute-cluster:8888
+export CODE_SANDBOX_TOKEN=EXEC_TOKEN
+export START_NEW_CODE_SANDBOX=false
+```
+
+#### Sandbox variant execution
+
+```bash
+export SANDBOX_VARIANT=kaggle
+export CODE_SANDBOX_CHANNELS_URL=wss://.../api/kernels/.../channels?...
+export SANDBOX_GPU=T4
+```
+
+### Known Migration Pitfalls
+
+- Old `RUNTIME_*` names left in environment but ignored by new startup paths.
+- Mixed old/new names across microservices causing partial misconfiguration.
+- Wrapper scripts updated, but CI secrets still use old key names.
+- Documentation drift in internal playbooks and customer onboarding docs.
+
+### Recommended Migration Checklist
+
+1. Replace all `RUNTIME_*` env vars with `CODE_SANDBOX_*`.
+2. Replace all runtime CLI flags with code sandbox flags.
+3. Update deployment manifests, secrets, and runbooks.
+4. Validate health plus core notebook execution flows.
+5. Remove old naming from internal docs to prevent regressions.
+
+For full reference values, see [Configuration](/operations/configuration).
+
+## Older Releases
+
+### 0.16.x - 13 Oct 2025
+
+- [Merge the three execute tools into a single unified tool](https://github.com/datalayer/jupyter-mcp-server/pull/111)
+- [Docs: update readme and contributing](https://github.com/datalayer/jupyter-mcp-server/pull/112)
+- CI: build Auto Releases CI/CD: [#114](https://github.com/datalayer/jupyter-mcp-server/pull/114), [#115](https://github.com/datalayer/jupyter-mcp-server/pull/115), [#119](https://github.com/datalayer/jupyter-mcp-server/pull/119), [#120](https://github.com/datalayer/jupyter-mcp-server/pull/120)
+- [fix negative index](https://github.com/datalayer/jupyter-mcp-server/pull/116)
+- [fix ressources and prompts list](https://github.com/datalayer/jupyter-mcp-server/pull/117)
+- [Refactor: separate and simplify the server.py](https://github.com/datalayer/jupyter-mcp-server/pull/123)
+- [Feat/add JUPYTER_URL and JUPYTER_TOKEN](https://github.com/datalayer/jupyter-mcp-server/pull/125)
+
+### 0.15.x - 08 Oct 2025
+
+- [Run as Jupyter Server Extension + Tool registry + Use tool](https://github.com/datalayer/jupyter-mcp-server/pull/95)
+- [simplify tool implementations](https://github.com/datalayer/jupyter-mcp-server/pull/101)
+- [add uvx as alternative MCP server startup method](https://github.com/datalayer/jupyter-mcp-server/pull/101)
+- [document as a Jupyter Extension](https://github.com/datalayer/jupyter-mcp-server/pull/101)
+- Fix Minor Bugs: [#108](https://github.com/datalayer/jupyter-mcp-server/pull/108),[#110](https://github.com/datalayer/jupyter-mcp-server/pull/110)
+
+### 0.14.0 - 03 Oct 2025
+
+- [Additional Tools & Bug fixes](https://github.com/datalayer/jupyter-mcp-server/pull/93).
+- [Execute IPython](https://github.com/datalayer/jupyter-mcp-server/pull/90).
+- [Multi notebook management](https://github.com/datalayer/jupyter-mcp-server/pull/88).
+
+### 0.13.0 - 25 Sep 2025
+
+- [Add multimodal output support for Jupyter cell execution](https://github.com/datalayer/jupyter-mcp-server/pull/75).
+- [Unify cell insertion functionality](https://github.com/datalayer/jupyter-mcp-server/pull/73).
+
+### 0.11.0 - 01 Aug 2025
+
+- [Rename room to document](https://github.com/datalayer/jupyter-mcp-server/pull/35).
+
+### 0.10.2 - 17 Jul 2025
+
+- [Tools docstring improvements](https://github.com/datalayer/jupyter-mcp-server/pull/30).
+
+### 0.10.1 - 11 Jul 2025
+
+- [CORS Support](https://github.com/datalayer/jupyter-mcp-server/pull/29).
+
+### 0.10.0 - 07 Jul 2025
+
+- More [fixes](https://github.com/datalayer/jupyter-mcp-server/pull/28) issues for nbclient stop.
+
+### 0.9.0 - 02 Jul 2025
+
+- Fix issues with `nbmodel` stops.
+
+### 0.6.0 - 01 Jul 2025
+
+- Configuration change, see details in the [MCP guide](https://datalayer.ai/docs/access-mcp#configure-your-client) and [server configuration](/operations/configuration).

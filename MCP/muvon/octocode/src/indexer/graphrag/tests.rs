@@ -1,0 +1,1703 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#[cfg(test)]
+mod graphrag_relationship_tests {
+	use crate::indexer::graphrag::relationships::RelationshipDiscovery;
+	use crate::indexer::graphrag::types::CodeNode;
+	use crate::indexer::languages::{get_language, Language};
+	use tree_sitter::Parser;
+
+	/// Test that Rust import/export extraction works correctly
+	#[tokio::test]
+	async fn test_rust_import_export_extraction() {
+		let rust_code = r#"
+use crate::utils::helper_function;
+use super::config::Config;
+use std::collections::HashMap;
+
+pub fn main_function() {
+    println!("Main function");
+}
+
+pub struct MainStruct {
+    pub name: String,
+}
+
+fn private_function() {
+    println!("Private function");
+}
+"#;
+
+		let lang_impl = get_language("rust").expect("Rust language should be available");
+		let mut parser = Parser::new();
+		parser.set_language(&lang_impl.get_ts_language()).unwrap();
+		let tree = parser.parse(rust_code, None).unwrap();
+
+		let mut all_imports = Vec::new();
+		let mut all_exports = Vec::new();
+
+		// Walk through all nodes and extract imports/exports
+		extract_imports_exports_recursive(
+			tree.root_node(),
+			rust_code,
+			lang_impl.as_ref(),
+			&mut all_imports,
+			&mut all_exports,
+		);
+
+		// Verify imports are extracted
+		println!("Extracted imports: {:?}", all_imports);
+		println!("Extracted exports: {:?}", all_exports);
+
+		assert!(!all_imports.is_empty(), "Should extract imports from Rust code");
+
+		// The Rust implementation now extracts the full import paths for GraphRAG
+		assert!(
+			all_imports.iter().any(|imp| imp == "crate::utils::helper_function"),
+			"Should extract full crate::utils::helper_function import"
+		);
+		assert!(
+			all_imports.iter().any(|imp| imp == "super::config::Config"),
+			"Should extract full super::config::Config import"
+		);
+		assert!(
+			all_imports.iter().any(|imp| imp == "std::collections::HashMap"),
+			"Should extract full std::collections::HashMap import"
+		);
+
+		// Verify exports are extracted
+		assert!(!all_exports.is_empty(), "Should extract exports from Rust code");
+		assert!(
+			all_exports.iter().any(|exp| exp == "main_function"),
+			"Should extract main_function as export"
+		);
+		// Note: MainStruct export detection may need refinement in the language implementation
+
+		// Should NOT export private functions
+		assert!(
+			!all_exports.iter().any(|exp| exp == "private_function"),
+			"Should NOT export private functions"
+		);
+	}
+
+	/// Test that JavaScript import/export extraction works correctly
+	#[tokio::test]
+	async fn test_javascript_import_export_extraction() {
+		let js_code = r#"
+import { calculateSum, formatMessage } from './utils.js';
+import Logger from './utils.js';
+import { processData } from './processor.js';
+
+export function mainFunction() {
+    console.log("Main function");
+}
+
+export default class MainClass {
+    constructor() {
+        this.name = "main";
+    }
+}
+
+function privateFunction() {
+    console.log("Private function");
+}
+"#;
+
+		let lang_impl = get_language("javascript").expect("JavaScript language should be available");
+		let mut parser = Parser::new();
+		parser.set_language(&lang_impl.get_ts_language()).unwrap();
+		let tree = parser.parse(js_code, None).unwrap();
+
+		let mut all_imports = Vec::new();
+		let mut all_exports = Vec::new();
+
+		extract_imports_exports_recursive(
+			tree.root_node(),
+			js_code,
+			lang_impl.as_ref(),
+			&mut all_imports,
+			&mut all_exports,
+		);
+
+		// Verify imports are extracted
+		println!("DEBUG: JavaScript imports extracted: {:?}", all_imports);
+		println!("DEBUG: JavaScript exports extracted: {:?}", all_exports);
+		assert!(!all_imports.is_empty(), "Should extract imports from JavaScript code");
+		assert!(
+			all_imports.iter().any(|imp| imp.contains("./utils.js")),
+			"Should extract ./utils.js import"
+		);
+		assert!(
+			all_imports.iter().any(|imp| imp.contains("./processor.js")),
+			"Should extract ./processor.js import"
+		);
+
+		// Verify exports are extracted
+		assert!(!all_exports.is_empty(), "Should extract exports from JavaScript code");
+		assert!(
+			all_exports.iter().any(|exp| exp.contains("mainFunction")),
+			"Should extract mainFunction as export"
+		);
+		assert!(
+			all_exports.iter().any(|exp| exp.contains("MainClass")),
+			"Should extract MainClass as export"
+		);
+	}
+
+	/// Test that Python import/export extraction works correctly
+	#[tokio::test]
+	async fn test_python_import_export_extraction() {
+		let python_code = r#"
+from .utils import calculate_sum, format_message
+from .processor import process_data
+import os
+import sys
+
+def main_function():
+    print("Main function")
+
+class MainClass:
+    def __init__(self):
+        self.name = "main"
+
+def _private_function():
+    print("Private function")
+"#;
+
+		let lang_impl = get_language("python").expect("Python language should be available");
+		let mut parser = Parser::new();
+		parser.set_language(&lang_impl.get_ts_language()).unwrap();
+		let tree = parser.parse(python_code, None).unwrap();
+
+		let mut all_imports = Vec::new();
+		let mut all_exports = Vec::new();
+
+		extract_imports_exports_recursive(
+			tree.root_node(),
+			python_code,
+			lang_impl.as_ref(),
+			&mut all_imports,
+			&mut all_exports,
+		);
+
+		// Verify imports are extracted
+		assert!(!all_imports.is_empty(), "Should extract imports from Python code");
+		assert!(
+			all_imports.iter().any(|imp| imp.contains(".utils")),
+			"Should extract .utils import"
+		);
+		assert!(
+			all_imports.iter().any(|imp| imp.contains(".processor")),
+			"Should extract .processor import"
+		);
+
+		// Python exports all public functions/classes by default
+		assert!(!all_exports.is_empty(), "Should extract exports from Python code");
+		assert!(
+			all_exports.iter().any(|exp| exp.contains("main_function")),
+			"Should extract main_function as export"
+		);
+		assert!(
+			all_exports.iter().any(|exp| exp.contains("MainClass")),
+			"Should extract MainClass as export"
+		);
+	}
+
+	/// Test Rust import resolution
+	#[tokio::test]
+	async fn test_rust_import_resolution() {
+		let rust_lang = get_language("rust").expect("Rust language should be available");
+
+		let all_files = vec![
+			"src/lib.rs".to_string(),
+			"src/utils.rs".to_string(),
+			"src/utils/mod.rs".to_string(), // Module directory pattern
+			"src/utils/error.rs".to_string(),
+			"src/config.rs".to_string(),
+			"src/config/features.rs".to_string(), // Single file pattern
+			"src/config/training.rs".to_string(),
+			"src/features/technical.rs".to_string(),
+			"src/features/mod.rs".to_string(), // Module directory pattern
+			"src/main.rs".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test simple crate:: import resolution
+		let resolved = rust_lang.resolve_import("crate::utils::helper_function", "src/main.rs", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.rs".to_string()),
+			"Should resolve crate::utils import to src/utils.rs"
+		);
+
+		// Test REAL-WORLD COMPLEX nested module import resolution
+		let resolved = rust_lang.resolve_import(
+			"crate::config::features::TechnicalIndicatorsConfig",
+			"src/features/technical.rs",
+			&all_files,
+		);
+		assert_eq!(
+			resolved,
+			Some("src/config/features.rs".to_string()),
+			"Should resolve crate::config::features import to src/config/features.rs"
+		);
+
+		// Test another real-world nested import
+		let resolved = rust_lang.resolve_import(
+			"crate::utils::error::VangaError",
+			"src/features/technical.rs",
+			&all_files,
+		);
+		assert_eq!(
+			resolved,
+			Some("src/utils/error.rs".to_string()),
+			"Should resolve crate::utils::error import to src/utils/error.rs"
+		);
+
+		// Test module directory pattern (utils as directory with mod.rs)
+		let resolved = rust_lang.resolve_import("crate::utils::helper_function", "src/main.rs", &all_files);
+		// Should prefer single file over mod.rs when both exist
+		assert_eq!(
+			resolved,
+			Some("src/utils.rs".to_string()),
+			"Should resolve crate::utils import to src/utils.rs (prefer single file)"
+		);
+
+		// Test when only mod.rs exists (remove utils.rs from files)
+		let files_with_mod_only = vec![
+			"src/lib.rs".to_string(),
+			"src/utils/mod.rs".to_string(), // Only mod.rs exists
+			"src/utils/error.rs".to_string(),
+			"src/config.rs".to_string(),
+			"src/config/features.rs".to_string(),
+			"src/main.rs".to_string(),
+		];
+		let files_with_mod_only = crate::indexer::languages::resolution_utils::FileRegistry::new(&files_with_mod_only);
+		let resolved = rust_lang.resolve_import("crate::utils::helper_function", "src/main.rs", &files_with_mod_only);
+		assert_eq!(
+			resolved,
+			Some("src/utils/mod.rs".to_string()),
+			"Should resolve crate::utils import to src/utils/mod.rs when single file doesn't exist"
+		);
+
+		// Test super:: import resolution
+		let resolved = rust_lang.resolve_import("super::config::Config", "src/utils.rs", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/config.rs".to_string()),
+			"Should resolve super::config import to src/config.rs"
+		);
+
+		// Test self:: import resolution
+		let resolved = rust_lang.resolve_import("self::helper_function", "src/utils.rs", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.rs".to_string()),
+			"Should resolve self:: import to same file"
+		);
+	}
+
+	/// Test real-world Rust import resolution edge cases
+	#[tokio::test]
+	async fn test_rust_real_world_edge_cases() {
+		let rust_lang = get_language("rust").expect("Rust language should be available");
+
+		// Test deeply nested module imports (3+ levels)
+		let files = vec![
+			"src/lib.rs".to_string(),
+			"src/model/attention/layers.rs".to_string(),
+			"src/config/training/optimizer.rs".to_string(),
+			"src/utils/math/statistics.rs".to_string(),
+			"src/features/technical.rs".to_string(),
+		];
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		// Test 3-level deep import
+		let resolved = rust_lang.resolve_import(
+			"crate::model::attention::layers::MultiHeadAttention",
+			"src/features/technical.rs",
+			&files,
+		);
+		assert_eq!(
+			resolved,
+			Some("src/model/attention/layers.rs".to_string()),
+			"Should resolve 3-level deep import to correct file"
+		);
+
+		// Test another 3-level deep import
+		let resolved = rust_lang.resolve_import(
+			"crate::config::training::optimizer::AdamConfig",
+			"src/features/technical.rs",
+			&files,
+		);
+		assert_eq!(
+			resolved,
+			Some("src/config/training/optimizer.rs".to_string()),
+			"Should resolve training optimizer import to correct file"
+		);
+
+		// Test math utilities import
+		let resolved = rust_lang.resolve_import(
+			"crate::utils::math::statistics::mean",
+			"src/features/technical.rs",
+			&files,
+		);
+		assert_eq!(
+			resolved,
+			Some("src/utils/math/statistics.rs".to_string()),
+			"Should resolve math statistics import to correct file"
+		);
+	}
+
+	/// Test JavaScript import resolution
+	#[tokio::test]
+	async fn test_javascript_import_resolution() {
+		let js_lang = get_language("javascript").expect("JavaScript language should be available");
+
+		let all_files = vec![
+			"src/main.js".to_string(),
+			"src/utils.js".to_string(),
+			"src/processor.js".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test relative import resolution
+		let resolved = js_lang.resolve_import("./utils.js", "src/main.js", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.js".to_string()),
+			"Should resolve ./utils.js import"
+		);
+
+		let resolved = js_lang.resolve_import("./processor.js", "src/main.js", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/processor.js".to_string()),
+			"Should resolve ./processor.js import"
+		);
+
+		// Test import from subdirectory
+		let resolved = js_lang.resolve_import("../utils.js", "src/components/main.js", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.js".to_string()),
+			"Should resolve ../utils.js import"
+		);
+	}
+
+	/// Test TypeScript import resolution
+	#[tokio::test]
+	async fn test_typescript_import_resolution() {
+		let ts_lang = get_language("typescript").expect("TypeScript language should be available");
+
+		let all_files = vec![
+			"src/main.ts".to_string(),
+			"src/utils.ts".to_string(),
+			"src/processor.ts".to_string(),
+			"src/types.d.ts".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test relative import resolution
+		let resolved = ts_lang.resolve_import("./utils.ts", "src/main.ts", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.ts".to_string()),
+			"Should resolve ./utils.ts import"
+		);
+
+		let resolved = ts_lang.resolve_import("./processor", "src/main.ts", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/processor.ts".to_string()),
+			"Should resolve ./processor import"
+		);
+
+		// Test type definition import
+		let resolved = ts_lang.resolve_import("./types", "src/main.ts", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/types.d.ts".to_string()),
+			"Should resolve ./types import to .d.ts"
+		);
+	}
+
+	/// Test Go import resolution
+	#[tokio::test]
+	async fn test_go_import_resolution() {
+		let go_lang = get_language("go").expect("Go language should be available");
+
+		let all_files = vec![
+			"main.go".to_string(),
+			"utils/helper.go".to_string(),
+			"config/settings.go".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test package import resolution
+		let resolved = go_lang.resolve_import("./utils", "main.go", &all_files);
+		assert_eq!(
+			resolved,
+			Some("utils/helper.go".to_string()),
+			"Should resolve ./utils import"
+		);
+
+		let resolved = go_lang.resolve_import("./config", "main.go", &all_files);
+		assert_eq!(
+			resolved,
+			Some("config/settings.go".to_string()),
+			"Should resolve ./config import"
+		);
+	}
+
+	/// Test C++ import resolution
+	#[tokio::test]
+	async fn test_cpp_import_resolution() {
+		let cpp_lang = get_language("cpp").expect("C++ language should be available");
+
+		let all_files = vec![
+			"src/main.cpp".to_string(),
+			"src/utils.h".to_string(),
+			"src/utils.cpp".to_string(),
+			"include/config.h".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test header include resolution
+		let resolved = cpp_lang.resolve_import("utils.h", "src/main.cpp", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.h".to_string()),
+			"Should resolve utils.h include"
+		);
+
+		let resolved = cpp_lang.resolve_import("../include/config.h", "src/main.cpp", &all_files);
+		assert_eq!(
+			resolved,
+			Some("include/config.h".to_string()),
+			"Should resolve ../include/config.h include"
+		);
+	}
+
+	/// Test PHP import resolution
+	#[tokio::test]
+	async fn test_php_import_resolution() {
+		let php_lang = get_language("php").expect("PHP language should be available");
+
+		let all_files = vec![
+			"src/Main.php".to_string(),
+			"src/Utils.php".to_string(),
+			"src/Config.php".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test require/include resolution
+		let resolved = php_lang.resolve_import("./Utils.php", "src/Main.php", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/Utils.php".to_string()),
+			"Should resolve ./Utils.php require"
+		);
+
+		let resolved = php_lang.resolve_import("Config.php", "src/Main.php", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/Config.php".to_string()),
+			"Should resolve Config.php require"
+		);
+	}
+
+	/// Test Python import resolution
+	#[tokio::test]
+	async fn test_python_import_resolution() {
+		let python_lang = get_language("python").expect("Python language should be available");
+
+		let all_files = vec![
+			"src/__init__.py".to_string(),
+			"src/main.py".to_string(),
+			"src/utils.py".to_string(),
+			"src/processor.py".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test relative import resolution
+		let resolved = python_lang.resolve_import(".utils", "src/main.py", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.py".to_string()),
+			"Should resolve .utils import"
+		);
+
+		let resolved = python_lang.resolve_import(".processor", "src/main.py", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/processor.py".to_string()),
+			"Should resolve .processor import"
+		);
+	}
+
+	/// Test Ruby import resolution
+	#[tokio::test]
+	async fn test_ruby_import_resolution() {
+		let ruby_lang = get_language("ruby").expect("Ruby language should be available");
+
+		let all_files = vec![
+			"main.rb".to_string(),
+			"lib/utils.rb".to_string(),
+			"config/settings.rb".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test relative require resolution
+		let resolved = ruby_lang.resolve_import("./lib/utils", "main.rb", &all_files);
+		assert_eq!(
+			resolved,
+			Some("lib/utils.rb".to_string()),
+			"Should resolve ./lib/utils require"
+		);
+
+		// Test require_relative resolution
+		let resolved = ruby_lang.resolve_import("relative:utils", "lib/helper.rb", &all_files);
+		assert_eq!(
+			resolved,
+			Some("lib/utils.rb".to_string()),
+			"Should resolve require_relative utils"
+		);
+	}
+
+	/// Test Bash import resolution
+	#[tokio::test]
+	async fn test_bash_import_resolution() {
+		let bash_lang = get_language("bash").expect("Bash language should be available");
+
+		let all_files = vec![
+			"main.sh".to_string(),
+			"lib/utils.sh".to_string(),
+			"config/settings.sh".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test relative source resolution
+		let resolved = bash_lang.resolve_import("./lib/utils.sh", "main.sh", &all_files);
+		assert_eq!(
+			resolved,
+			Some("lib/utils.sh".to_string()),
+			"Should resolve ./lib/utils.sh source"
+		);
+
+		// Test absolute source resolution
+		let resolved = bash_lang.resolve_import("config/settings.sh", "main.sh", &all_files);
+		assert_eq!(
+			resolved,
+			Some("config/settings.sh".to_string()),
+			"Should resolve config/settings.sh source"
+		);
+	}
+
+	/// Test Svelte import resolution
+	#[tokio::test]
+	async fn test_svelte_import_resolution() {
+		let svelte_lang = get_language("svelte").expect("Svelte language should be available");
+
+		let all_files = vec![
+			"src/App.svelte".to_string(),
+			"src/components/Button.svelte".to_string(),
+			"src/utils.js".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test relative component import
+		let resolved = svelte_lang.resolve_import("./components/Button.svelte", "src/App.svelte", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/components/Button.svelte".to_string()),
+			"Should resolve ./components/Button.svelte import"
+		);
+
+		// Test JavaScript import from Svelte
+		let resolved = svelte_lang.resolve_import("./utils.js", "src/App.svelte", &all_files);
+		assert_eq!(
+			resolved,
+			Some("src/utils.js".to_string()),
+			"Should resolve ./utils.js import"
+		);
+	}
+
+	/// Test CSS import resolution
+	#[tokio::test]
+	async fn test_css_import_resolution() {
+		let css_lang = get_language("css").expect("CSS language should be available");
+
+		let all_files = vec![
+			"styles/main.css".to_string(),
+			"styles/components.css".to_string(),
+			"styles/base.css".to_string(),
+		];
+		let all_files = crate::indexer::languages::resolution_utils::FileRegistry::new(&all_files);
+
+		// Test CSS @import resolution
+		let resolved = css_lang.resolve_import("./components.css", "styles/main.css", &all_files);
+		assert_eq!(
+			resolved,
+			Some("styles/components.css".to_string()),
+			"Should resolve ./components.css import"
+		);
+
+		let resolved = css_lang.resolve_import("base.css", "styles/main.css", &all_files);
+		assert_eq!(
+			resolved,
+			Some("styles/base.css".to_string()),
+			"Should resolve base.css import"
+		);
+	}
+
+	/// Test relationship discovery between nodes
+	#[tokio::test]
+	async fn test_relationship_discovery() {
+		// Create test nodes with imports/exports
+		let main_node = CodeNode {
+			id: "src/main.rs".to_string(),
+			name: "main.rs".to_string(),
+			kind: "file".to_string(),
+			path: "src/main.rs".to_string(),
+			description: "Main file".to_string(),
+			symbols: vec!["main".to_string()],
+			imports: vec![
+				"crate::utils::helper_function".to_string(),
+				"crate::config::Config".to_string(),
+			],
+			exports: vec!["main".to_string()],
+			functions: vec![],
+			hash: "hash1".to_string(),
+			embedding: vec![0.1, 0.2, 0.3],
+			size_lines: 20,
+			language: "rust".to_string(),
+		};
+
+		let utils_node = CodeNode {
+			id: "src/utils.rs".to_string(),
+			name: "utils.rs".to_string(),
+			kind: "file".to_string(),
+			path: "src/utils.rs".to_string(),
+			description: "Utility functions".to_string(),
+			symbols: vec!["helper_function".to_string()],
+			imports: vec!["crate::config::Config".to_string()],
+			exports: vec!["helper_function".to_string()],
+			functions: vec![],
+			hash: "hash2".to_string(),
+			embedding: vec![0.4, 0.5, 0.6],
+			size_lines: 15,
+			language: "rust".to_string(),
+		};
+
+		let config_node = CodeNode {
+			id: "src/config.rs".to_string(),
+			name: "config.rs".to_string(),
+			kind: "file".to_string(),
+			path: "src/config.rs".to_string(),
+			description: "Configuration".to_string(),
+			symbols: vec!["Config".to_string()],
+			imports: vec![],
+			exports: vec!["Config".to_string()],
+			functions: vec![],
+			hash: "hash3".to_string(),
+			embedding: vec![0.7, 0.8, 0.9],
+			size_lines: 10,
+			language: "rust".to_string(),
+		};
+
+		let all_nodes = vec![main_node.clone(), utils_node.clone(), config_node.clone()];
+		let mut relationships = Vec::new();
+
+		// Test relationship discovery
+		RelationshipDiscovery::discover_import_relationships(&main_node, &all_nodes, &mut relationships);
+
+		// Verify relationships were created
+		assert!(!relationships.is_empty(), "Should discover relationships between nodes");
+
+		// Check for specific relationships
+		let main_to_utils = relationships.iter().find(|r| {
+			r.source == "src/main.rs"
+				&& r.target == "src/utils.rs"
+				&& r.relation_type == crate::indexer::graphrag::types::RelationType::Imports
+		});
+		assert!(main_to_utils.is_some(), "Should create main -> utils relationship");
+
+		let main_to_config = relationships.iter().find(|r| {
+			r.source == "src/main.rs"
+				&& r.target == "src/config.rs"
+				&& r.relation_type == crate::indexer::graphrag::types::RelationType::Imports
+		});
+		assert!(main_to_config.is_some(), "Should create main -> config relationship");
+
+		// Check relationship confidence
+		if let Some(rel) = main_to_utils {
+			assert!(
+				rel.confidence >= 0.9,
+				"Import relationships should have high confidence"
+			);
+		}
+	}
+
+	/// Test edge cases for C++ import resolution
+	#[tokio::test]
+	async fn test_cpp_edge_cases() {
+		let lang_impl = get_language("cpp").expect("C++ language should be available");
+
+		let files = vec![
+			"src/main.cpp".to_string(),
+			"src/helper.h".to_string(), // Same directory as main.cpp
+			"include/config.hpp".to_string(),
+			"lib/external/library.h".to_string(),
+			"src/modules/core.cpp".to_string(),
+		];
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		// Test local include in same directory
+		let resolved = lang_impl.resolve_import("\"helper.h\"", "src/main.cpp", &files);
+		assert!(resolved.is_some(), "Should resolve local include in same directory");
+
+		// Test system include that exists in project
+		let resolved = lang_impl.resolve_import("config.hpp", "src/main.cpp", &files);
+		assert!(resolved.is_some(), "Should find system include in project");
+
+		// Test non-existent include
+		let resolved = lang_impl.resolve_import("\"nonexistent.h\"", "src/main.cpp", &files);
+		assert!(resolved.is_none(), "Should not resolve non-existent include");
+	}
+
+	/// Test edge cases for Ruby import resolution
+	#[tokio::test]
+	async fn test_ruby_edge_cases() {
+		let lang_impl = get_language("ruby").expect("Ruby language should be available");
+
+		let files = vec![
+			"app/main.rb".to_string(),
+			"lib/utils/helper.rb".to_string(),
+			"config/database.rb".to_string(),
+			"app/models/user.rb".to_string(),
+			"vendor/gems/external_gem/lib/external.rb".to_string(),
+		];
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		// Test require_relative
+		let resolved = lang_impl.resolve_import("relative:../config/database", "app/main.rb", &files);
+		assert!(resolved.is_some(), "Should resolve require_relative");
+
+		// Test absolute require
+		let resolved = lang_impl.resolve_import("utils/helper", "app/main.rb", &files);
+		assert!(resolved.is_some(), "Should resolve absolute require");
+
+		// Test gem require (should find in vendor)
+		let resolved = lang_impl.resolve_import("external", "app/main.rb", &files);
+		assert!(resolved.is_some(), "Should find gem in vendor directory");
+	}
+
+	/// Test edge cases for CSS import resolution
+	#[tokio::test]
+	async fn test_css_edge_cases() {
+		let lang_impl = get_language("css").expect("CSS language should be available");
+
+		let files = vec![
+			"styles/main.css".to_string(),
+			"styles/components/button.css".to_string(),
+			"styles/utils/variables.css".to_string(),
+			"node_modules/bootstrap/dist/css/bootstrap.css".to_string(),
+			"assets/fonts/custom.css".to_string(),
+		];
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		// Test relative import with extension
+		let resolved = lang_impl.resolve_import("./components/button.css", "styles/main.css", &files);
+		assert!(resolved.is_some(), "Should resolve relative CSS import");
+
+		// Test import without extension
+		let resolved = lang_impl.resolve_import("./utils/variables", "styles/main.css", &files);
+		assert!(resolved.is_some(), "Should resolve CSS import without extension");
+
+		// Test that the function handles unknown imports gracefully
+		let resolved = lang_impl.resolve_import("unknown-module", "styles/main.css", &files);
+		assert!(resolved.is_none(), "Should handle unknown imports gracefully");
+	}
+
+	/// Test cross-platform path handling
+	#[tokio::test]
+	async fn test_cross_platform_paths() {
+		let lang_impl = get_language("rust").expect("Rust language should be available");
+
+		// Test with normalized paths (the system normalizes them)
+		let files = vec![
+			"src/main.rs".to_string(),
+			"src/utils/helper.rs".to_string(),
+			"src/config/mod.rs".to_string(),
+		];
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		let resolved = lang_impl.resolve_import("crate::utils::helper", "src/main.rs", &files);
+		assert!(resolved.is_some(), "Should handle path resolution correctly");
+
+		// Test that the function doesn't crash with different path formats
+		let resolved = lang_impl.resolve_import("crate::config", "src/main.rs", &files);
+		assert!(resolved.is_some(), "Should resolve module imports");
+	}
+
+	/// Test performance with large file lists
+	#[tokio::test]
+	async fn test_performance_large_filelist() {
+		let lang_impl = get_language("javascript").expect("JavaScript language should be available");
+
+		// Create a large file list (1000 files)
+		let mut files = Vec::new();
+		for i in 0..1000 {
+			files.push(format!("src/module_{}.js", i));
+		}
+		files.push("src/utils/helper.js".to_string());
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		let start = std::time::Instant::now();
+		let resolved = lang_impl.resolve_import("./utils/helper", "src/main.js", &files);
+		let duration = start.elapsed();
+
+		assert!(resolved.is_some(), "Should resolve import in large file list");
+		assert!(
+			duration.as_millis() < 100,
+			"Should resolve quickly even with large file list"
+		);
+	}
+
+	/// Test malformed import statements
+	#[tokio::test]
+	async fn test_malformed_imports() {
+		let lang_impl = get_language("python").expect("Python language should be available");
+
+		let files = vec!["src/main.py".to_string(), "src/utils.py".to_string()];
+		let files = crate::indexer::languages::resolution_utils::FileRegistry::new(&files);
+
+		// Test empty import
+		let resolved = lang_impl.resolve_import("", "src/main.py", &files);
+		assert!(resolved.is_none(), "Should handle empty import gracefully");
+
+		// Test malformed relative import
+		let resolved = lang_impl.resolve_import("...invalid", "src/main.py", &files);
+		assert!(resolved.is_none(), "Should handle malformed relative import");
+
+		// Test very long import path
+		let long_path = "a/".repeat(100) + "module";
+		let resolved = lang_impl.resolve_import(&long_path, "src/main.py", &files);
+		assert!(resolved.is_none(), "Should handle very long import paths");
+	}
+
+	// ==========================================================================
+	// Function call extraction tests
+	// ==========================================================================
+
+	/// Helper to extract function calls recursively from AST
+	fn extract_function_calls_recursive(
+		node: tree_sitter::Node,
+		contents: &str,
+		lang_impl: &dyn Language,
+		calls: &mut Vec<(u32, crate::indexer::languages::CallTarget)>,
+	) {
+		let callees = lang_impl.extract_function_calls(node, contents);
+		if !callees.is_empty() {
+			let line = node.start_position().row as u32;
+			for callee in callees {
+				calls.push((line, callee));
+			}
+		}
+		let mut cursor = node.walk();
+		for child in node.children(&mut cursor) {
+			extract_function_calls_recursive(child, contents, lang_impl, calls);
+		}
+	}
+
+	#[test]
+	fn test_rust_function_call_extraction() {
+		let rust_code = r#"
+use crate::config::Config;
+
+pub fn main() {
+    let config = Config::new();
+    let result = helper_function(42);
+    println!("Hello, world!");
+    config.run();
+}
+
+fn helper_function(x: i32) -> i32 {
+    other_module::process(x)
+}
+"#;
+
+		let lang = get_language("rust").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(rust_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), rust_code, lang.as_ref(), &mut calls);
+
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Rust calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"new"), "Should extract Config::new() call");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "new" && call.qualifier.as_deref() == Some("Config") }));
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "run" && call.qualifier.as_deref() == Some("config") }));
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "process" && call.qualifier.as_deref() == Some("other_module") }));
+		assert!(
+			callee_names.contains(&"helper_function"),
+			"Should extract helper_function() call"
+		);
+		assert!(callee_names.contains(&"println"), "Should extract println! macro call");
+		assert!(callee_names.contains(&"run"), "Should extract config.run() method call");
+		assert!(
+			callee_names.contains(&"process"),
+			"Should extract other_module::process() call"
+		);
+	}
+
+	#[test]
+	fn test_python_function_call_extraction() {
+		let python_code = r#"
+import os
+
+def main():
+    result = helper(42)
+    os.path.join("a", "b")
+    print("done")
+
+def helper(x):
+    return process_data(x)
+"#;
+
+		let lang = get_language("python").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(python_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), python_code, lang.as_ref(), &mut calls);
+
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Python calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(callee_names.contains(&"print"), "Should extract print() call");
+		assert!(
+			callee_names.contains(&"process_data"),
+			"Should extract process_data() call"
+		);
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "join" && call.qualifier.as_deref() == Some("os::path") }));
+	}
+
+	#[test]
+	fn test_javascript_function_call_extraction() {
+		let js_code = r#"
+import { helper } from './utils';
+
+function main() {
+    const result = helper(42);
+    console.log("done");
+    const obj = new MyClass();
+}
+"#;
+
+		let lang = get_language("javascript").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(js_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), js_code, lang.as_ref(), &mut calls);
+
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("JavaScript calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(callee_names.contains(&"log"), "Should extract console.log() call");
+		assert!(
+			callee_names.contains(&"MyClass"),
+			"Should extract new MyClass() constructor"
+		);
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "log" && call.qualifier.as_deref() == Some("console") }));
+	}
+
+	#[test]
+	fn test_go_function_call_extraction() {
+		let go_code = r#"
+package main
+
+import "fmt"
+
+func main() {
+	result := helper(42)
+	fmt.Println("done")
+}
+
+func helper(x int) int {
+	return process(x)
+}
+"#;
+
+		let lang = get_language("go").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(go_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), go_code, lang.as_ref(), &mut calls);
+
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Go calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(callee_names.contains(&"Println"), "Should extract fmt.Println() call");
+		assert!(callee_names.contains(&"process"), "Should extract process() call");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "Println" && call.qualifier.as_deref() == Some("fmt") }));
+	}
+
+	#[test]
+	fn test_import_resolves_to_defining_file() {
+		// Test that "crate::config::Config" resolves to src/config.rs
+		let node_a = CodeNode {
+			id: "src/main.rs".to_string(),
+			name: "main".to_string(),
+			kind: "file".to_string(),
+			path: "src/main.rs".to_string(),
+			description: "".to_string(),
+			symbols: vec![],
+			hash: "a".to_string(),
+			embedding: Vec::new(),
+			imports: vec!["crate::config::Config".to_string()],
+			exports: Vec::new(),
+			functions: Vec::new(),
+			size_lines: 5,
+			language: "rust".to_string(),
+		};
+
+		let node_b = CodeNode {
+			id: "src/config.rs".to_string(),
+			name: "config".to_string(),
+			kind: "file".to_string(),
+			path: "src/config.rs".to_string(),
+			description: "".to_string(),
+			symbols: vec!["Config".to_string()],
+			hash: "b".to_string(),
+			embedding: Vec::new(),
+			imports: Vec::new(),
+			exports: vec!["Config".to_string()],
+			functions: Vec::new(),
+			size_lines: 10,
+			language: "rust".to_string(),
+		};
+
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let relationships = rt.block_on(async {
+			RelationshipDiscovery::discover_relationships_efficiently(
+				std::slice::from_ref(&node_a),
+				&[node_a.clone(), node_b],
+			)
+			.await
+			.unwrap()
+		});
+
+		let import_rels: Vec<_> = relationships
+			.iter()
+			.filter(|r| r.relation_type == crate::indexer::graphrag::types::RelationType::Imports)
+			.collect();
+
+		assert!(
+			import_rels
+				.iter()
+				.any(|r| r.source == "src/main.rs" && r.target == "src/config.rs"),
+			"crate::config::Config should resolve to src/config.rs"
+		);
+	}
+
+	// --- Remaining language call extraction tests ---
+
+	#[test]
+	fn test_java_function_call_extraction() {
+		let java_code = r#"
+public class Main {
+    public void run() {
+        helper();
+        System.out.println("hello");
+        MyClass obj = new MyClass();
+    }
+}
+"#;
+		let lang = get_language("java").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(java_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), java_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Java calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(callee_names.contains(&"println"), "Should extract println call");
+		assert!(callee_names.contains(&"MyClass"), "Should extract new MyClass()");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "println" && call.qualifier.as_deref() == Some("System::out") }));
+	}
+
+	#[test]
+	fn test_cpp_function_call_extraction() {
+		let cpp_code = r#"
+#include <iostream>
+void foo() {
+    bar(42);
+    std::cout << "hello";
+    baz(1, 2);
+}
+"#;
+		let lang = get_language("cpp").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(cpp_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), cpp_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("C++ calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"bar"), "Should extract bar() call");
+		assert!(callee_names.contains(&"baz"), "Should extract baz() call");
+	}
+
+	#[test]
+	fn test_php_function_call_extraction() {
+		let php_code = r#"<?php
+function main() {
+    helper(42);
+    $obj->method();
+    ClassName::staticMethod();
+}
+?>"#;
+		let lang = get_language("php").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(php_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), php_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("PHP calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "method" && call.qualifier.as_deref() == Some("$obj") }));
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "staticMethod" && call.qualifier.as_deref() == Some("ClassName") }));
+	}
+
+	#[test]
+	fn test_ruby_function_call_extraction() {
+		let ruby_code = r#"
+def main
+  helper(42)
+  obj.method
+  puts "hello"
+end
+"#;
+		let lang = get_language("ruby").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(ruby_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), ruby_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Ruby calls: {:?}", callee_names);
+
+		// Should have some calls, but not require/require_relative (filtered)
+		assert!(!callee_names.is_empty(), "Should extract at least some Ruby calls");
+		assert!(!callee_names.contains(&"require"), "Should filter out require");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "method" && call.qualifier.as_deref() == Some("obj") }));
+	}
+
+	#[test]
+	fn test_lua_function_call_extraction() {
+		let lua_code = r#"
+local function main()
+    helper(42)
+    other.method()
+    print("hello")
+end
+"#;
+		let lang = get_language("lua").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(lua_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), lua_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Lua calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(callee_names.contains(&"print"), "Should extract print() call");
+		// require should be filtered
+		assert!(!callee_names.contains(&"require"), "Should filter out require");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "method" && call.qualifier.as_deref() == Some("other") }));
+	}
+
+	#[test]
+	fn test_bash_function_call_extraction() {
+		let bash_code = r#"#!/bin/bash
+my_function() {
+    echo "hello"
+    other_func arg1 arg2
+}
+"#;
+		let lang = get_language("bash").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(bash_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), bash_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("Bash calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"echo"), "Should extract echo command");
+		assert!(
+			callee_names.contains(&"other_func"),
+			"Should extract other_func command"
+		);
+		// source/. should be filtered
+		assert!(!callee_names.contains(&"source"), "Should filter out source");
+	}
+
+	#[test]
+	fn test_typescript_function_call_extraction() {
+		let ts_code = r#"
+import { helper } from './utils';
+
+function main(): void {
+    const result = helper(42);
+    console.log("done");
+    const obj = new MyClass<string>();
+}
+"#;
+		let lang = get_language("typescript").unwrap();
+		let mut parser = Parser::new();
+		parser.set_language(&lang.get_ts_language()).unwrap();
+		let tree = parser.parse(ts_code, None).unwrap();
+
+		let mut calls = Vec::new();
+		extract_function_calls_recursive(tree.root_node(), ts_code, lang.as_ref(), &mut calls);
+		let callee_names: Vec<&str> = calls.iter().map(|(_, call)| call.name.as_str()).collect();
+		println!("TypeScript calls: {:?}", callee_names);
+
+		assert!(callee_names.contains(&"helper"), "Should extract helper() call");
+		assert!(callee_names.contains(&"log"), "Should extract console.log() call");
+		assert!(calls
+			.iter()
+			.any(|(_, call)| { call.name == "log" && call.qualifier.as_deref() == Some("console") }));
+	}
+
+	/// Helper function to extract imports/exports recursively (same as in builder.rs)
+	fn extract_imports_exports_recursive(
+		node: tree_sitter::Node,
+		contents: &str,
+		lang_impl: &dyn Language,
+		all_imports: &mut Vec<String>,
+		all_exports: &mut Vec<String>,
+	) {
+		// Extract imports/exports from current node
+		let (imports, exports) = lang_impl.extract_imports_exports(node, contents);
+		all_imports.extend(imports);
+		all_exports.extend(exports);
+
+		// Recursively process children
+		let mut cursor = node.walk();
+		for child in node.children(&mut cursor) {
+			extract_imports_exports_recursive(child, contents, lang_impl, all_imports, all_exports);
+		}
+	}
+
+	/// Integration test: verify discover_relationships_efficiently produces
+	/// References edges for markdown nodes with file-path imports.
+	/// This is the exact code path used at runtime (not discover_import_relationships directly).
+	#[tokio::test]
+	async fn test_markdown_references_via_efficient_discovery() {
+		use crate::indexer::graphrag::types::RelationType;
+
+		// Source: adapters-integrations.md imports credit-suite.md and credit-accounts.md
+		let source = CodeNode {
+			id: "projects/docs/core/adapters-integrations.md".to_string(),
+			name: "adapters-integrations".to_string(),
+			kind: "document_file".to_string(),
+			path: "projects/docs/core/adapters-integrations.md".to_string(),
+			description: String::new(),
+			symbols: vec![],
+			imports: vec![
+				"credit-suite.md".to_string(),             // same-dir
+				"../intro/credit-accounts.md".to_string(), // parent-dir
+			],
+			exports: vec!["Adapters".to_string()],
+			functions: vec![],
+			hash: "aaa".to_string(),
+			embedding: vec![],
+			size_lines: 50,
+			language: "markdown".to_string(),
+		};
+
+		let target1 = CodeNode {
+			id: "projects/docs/core/credit-suite.md".to_string(),
+			name: "credit-suite".to_string(),
+			kind: "document_file".to_string(),
+			path: "projects/docs/core/credit-suite.md".to_string(),
+			description: String::new(),
+			symbols: vec![],
+			imports: vec![],
+			exports: vec!["Credit Suite".to_string()],
+			functions: vec![],
+			hash: "bbb".to_string(),
+			embedding: vec![],
+			size_lines: 100,
+			language: "markdown".to_string(),
+		};
+
+		let target2 = CodeNode {
+			id: "projects/docs/intro/credit-accounts.md".to_string(),
+			name: "credit-accounts".to_string(),
+			kind: "document_file".to_string(),
+			path: "projects/docs/intro/credit-accounts.md".to_string(),
+			description: String::new(),
+			symbols: vec![],
+			imports: vec![],
+			exports: vec!["Credit Accounts".to_string()],
+			functions: vec![],
+			hash: "ccc".to_string(),
+			embedding: vec![],
+			size_lines: 80,
+			language: "markdown".to_string(),
+		};
+
+		let all_nodes = vec![source.clone(), target1.clone(), target2.clone()];
+		let new_files = vec![source.clone()];
+
+		// Call the SAME function used at runtime
+		let relationships = RelationshipDiscovery::discover_relationships_efficiently(&new_files, &all_nodes)
+			.await
+			.expect("relationship discovery should succeed");
+
+		// Find References relationships (not just sibling_module)
+		let refs: Vec<_> = relationships
+			.iter()
+			.filter(|r| r.relation_type == RelationType::References)
+			.collect();
+
+		assert!(
+			refs.len() >= 2,
+			"Expected at least 2 References relationships, got {}: {:?}",
+			refs.len(),
+			refs.iter()
+				.map(|r| format!("{} -> {}", r.source, r.target))
+				.collect::<Vec<_>>()
+		);
+
+		// Verify specific edges
+		let has_suite = refs.iter().any(|r| {
+			r.source == "projects/docs/core/adapters-integrations.md"
+				&& r.target == "projects/docs/core/credit-suite.md"
+		});
+		assert!(has_suite, "Should have reference to credit-suite.md");
+
+		let has_accounts = refs.iter().any(|r| {
+			r.source == "projects/docs/core/adapters-integrations.md"
+				&& r.target == "projects/docs/intro/credit-accounts.md"
+		});
+		assert!(has_accounts, "Should have reference to credit-accounts.md");
+
+		assert!(
+			relationships
+				.iter()
+				.all(|relationship| relationship.relation_type != RelationType::Imports),
+			"Markdown links must not be emitted as code import relationships"
+		);
+	}
+
+	/// Issue #85: a file that defines and calls its own symbol must not get a
+	/// Calls edge to another file defining the same name. Runs the real Python
+	/// parser, the structural resolver and the file projection the persisted
+	/// graph stores.
+	#[tokio::test]
+	async fn test_local_call_does_not_resolve_to_other_definer() {
+		use crate::indexer::graphrag::runtime::{file_level_relationships, RuntimeGraphCache};
+		use crate::indexer::graphrag::types::RelationType;
+
+		let root = std::env::temp_dir().join(format!(
+			"octocode-issue-85-{}-{}",
+			std::process::id(),
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap()
+				.as_nanos()
+		));
+		std::fs::create_dir_all(&root).unwrap();
+		std::fs::write(
+			root.join("a.py"),
+			"def target():\n    return 1\n\ndef main():\n    target()\n",
+		)
+		.unwrap();
+		std::fs::write(root.join("b.py"), "def target():\n    return 2\n").unwrap();
+		// Positive control: an explicit import must still project to a file edge.
+		std::fs::write(root.join("c.py"), "from b import target\n\ndef run():\n    target()\n").unwrap();
+
+		let graph = RuntimeGraphCache::default().graph(&root).await.unwrap();
+		std::fs::remove_dir_all(&root).unwrap();
+
+		let calls: Vec<_> = file_level_relationships(&graph)
+			.into_iter()
+			.filter(|r| r.relation_type == RelationType::Calls)
+			.collect();
+		let shown: Vec<String> = calls
+			.iter()
+			.map(|r| format!("{} -> {} ({})", r.source, r.target, r.description))
+			.collect();
+
+		assert!(
+			!calls.iter().any(|r| r.source == "a.py" && r.target == "b.py"),
+			"call to locally-defined target() must not resolve to b.py: {:?}",
+			shown
+		);
+		assert!(
+			calls.iter().any(|r| r.source == "c.py"
+				&& r.target == "b.py"
+				&& r.description.contains("c.py::run")
+				&& r.description.contains("b.py::target")),
+			"imported call must project to c.py -> b.py naming both symbols: {:?}",
+			shown
+		);
+	}
+
+	/// Issue #86: two files importing the same module must not get an Imports
+	/// edge between each other. Import-statement identifiers scraped into
+	/// `symbols` ("app", "core", "base", ...) must not act as import targets.
+	#[tokio::test]
+	async fn test_shared_import_does_not_link_co_importers() {
+		use crate::indexer::graphrag::types::RelationType;
+
+		// api.py: `from ..core.base import BaseModel` +
+		//         `from app.utils.auth import check as auth_check`
+		let api = CodeNode {
+			id: "app/handlers/api.py".to_string(),
+			name: "api".to_string(),
+			kind: "file".to_string(),
+			path: "app/handlers/api.py".to_string(),
+			description: String::new(),
+			// Identifiers the parser scrapes from the import statements land in
+			// symbols — this is what the phantom edge fed on.
+			symbols: vec![
+				"core".to_string(),
+				"base".to_string(),
+				"BaseModel".to_string(),
+				"app".to_string(),
+				"utils".to_string(),
+				"auth".to_string(),
+				"check".to_string(),
+				"auth_check".to_string(),
+				"handle".to_string(),
+			],
+			hash: "api".to_string(),
+			embedding: Vec::new(),
+			imports: vec!["..core.base".to_string(), "app.utils.auth".to_string()],
+			exports: vec!["handle".to_string()],
+			functions: Vec::new(),
+			size_lines: 10,
+			language: "python".to_string(),
+		};
+
+		// auth.py: `from app.core.base import main as base_main`
+		let auth = CodeNode {
+			id: "app/utils/auth.py".to_string(),
+			name: "auth".to_string(),
+			kind: "file".to_string(),
+			path: "app/utils/auth.py".to_string(),
+			description: String::new(),
+			symbols: vec![
+				"app".to_string(),
+				"core".to_string(),
+				"base".to_string(),
+				"main".to_string(),
+				"base_main".to_string(),
+				"check".to_string(),
+			],
+			hash: "auth".to_string(),
+			embedding: Vec::new(),
+			imports: vec!["app.core.base".to_string()],
+			exports: vec!["check".to_string()],
+			functions: Vec::new(),
+			size_lines: 5,
+			language: "python".to_string(),
+		};
+
+		let base = CodeNode {
+			id: "app/core/base.py".to_string(),
+			name: "base".to_string(),
+			kind: "file".to_string(),
+			path: "app/core/base.py".to_string(),
+			description: String::new(),
+			symbols: vec!["main".to_string(), "BaseModel".to_string()],
+			hash: "base".to_string(),
+			embedding: Vec::new(),
+			imports: Vec::new(),
+			exports: vec!["main".to_string(), "BaseModel".to_string()],
+			functions: Vec::new(),
+			size_lines: 8,
+			language: "python".to_string(),
+		};
+
+		let all = vec![api.clone(), auth.clone(), base.clone()];
+		let relationships = RelationshipDiscovery::discover_relationships_efficiently(&[api, auth], &all)
+			.await
+			.unwrap();
+
+		let imports: Vec<_> = relationships
+			.iter()
+			.filter(|r| r.relation_type == RelationType::Imports)
+			.collect();
+
+		// Phantom reverse edge: auth.py never imports api.py in any form.
+		let phantom: Vec<_> = imports
+			.iter()
+			.filter(|r| r.source == "app/utils/auth.py" && r.target == "app/handlers/api.py")
+			.collect();
+		assert!(
+			phantom.is_empty(),
+			"co-importers of app.core.base must not be linked: {:?}",
+			phantom
+				.iter()
+				.map(|r| format!("{} -> {} ({})", r.source, r.target, r.description))
+				.collect::<Vec<_>>()
+		);
+
+		// The genuine imports must survive, resolved to the actual files.
+		assert!(
+			imports
+				.iter()
+				.any(|r| r.source == "app/utils/auth.py" && r.target == "app/core/base.py"),
+			"auth.py imports app.core.base, expected edge to base.py: {:?}",
+			imports
+				.iter()
+				.map(|r| format!("{} -> {}", r.source, r.target))
+				.collect::<Vec<_>>()
+		);
+		assert!(
+			imports
+				.iter()
+				.any(|r| r.source == "app/handlers/api.py" && r.target == "app/utils/auth.py"),
+			"api.py imports app.utils.auth, expected edge to auth.py"
+		);
+	}
+	/// Issue #86, the half the co-importer fixture never reached: a wildcard
+	/// export made the reverse edge fire on every importer, because the guard
+	/// was `import_path.contains(export_item) || export_item == "*"`. There is
+	/// no export relation type, so the reverse edge asserted that the exporter
+	/// imported its own importer.
+	#[tokio::test]
+	async fn test_wildcard_export_does_not_create_reverse_import() {
+		use crate::indexer::graphrag::types::RelationType;
+
+		let api = CodeNode {
+			id: "app/handlers/api.py".to_string(),
+			name: "api".to_string(),
+			kind: "file".to_string(),
+			path: "app/handlers/api.py".to_string(),
+			description: String::new(),
+			symbols: vec!["handle".to_string()],
+			hash: "api".to_string(),
+			embedding: Vec::new(),
+			imports: vec!["app.utils.auth".to_string()],
+			exports: vec!["handle".to_string()],
+			functions: Vec::new(),
+			size_lines: 10,
+			language: "python".to_string(),
+		};
+
+		// A re-exporting module: the export list carries "*".
+		let auth = CodeNode {
+			id: "app/utils/auth.py".to_string(),
+			name: "auth".to_string(),
+			kind: "file".to_string(),
+			path: "app/utils/auth.py".to_string(),
+			description: String::new(),
+			symbols: vec!["check".to_string()],
+			hash: "auth".to_string(),
+			embedding: Vec::new(),
+			imports: Vec::new(),
+			exports: vec!["*".to_string()],
+			functions: Vec::new(),
+			size_lines: 5,
+			language: "python".to_string(),
+		};
+
+		let all = vec![api.clone(), auth.clone()];
+		let relationships = RelationshipDiscovery::discover_relationships_efficiently(&[api], &all)
+			.await
+			.unwrap();
+
+		let reverse: Vec<_> = relationships
+			.iter()
+			.filter(|r| {
+				r.relation_type == RelationType::Imports
+					&& r.source == "app/utils/auth.py"
+					&& r.target == "app/handlers/api.py"
+			})
+			.collect();
+		assert!(
+			reverse.is_empty(),
+			"auth.py imports nothing; a wildcard export must not make it import api.py: {:?}",
+			reverse
+				.iter()
+				.map(|r| format!("{} -> {} ({})", r.source, r.target, r.description))
+				.collect::<Vec<_>>()
+		);
+
+		// The real direction still has to be there.
+		assert!(
+			relationships.iter().any(|r| {
+				r.relation_type == RelationType::Imports
+					&& r.source == "app/handlers/api.py"
+					&& r.target == "app/utils/auth.py"
+			}),
+			"api.py imports app.utils.auth, expected edge to auth.py"
+		);
+	}
+}

@@ -1,0 +1,266 @@
+// ─── Config Types ───────────────────────────────────────────────────────────
+
+export type AuthMethod = 'agent' | 'key' | 'password' | 'keychain';
+export type ApprovalMode = 'auto' | 'ask-destructive' | 'ask-all' | 'deny';
+
+export interface Profile {
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  auth: AuthMethod;
+  keyRef?: string;
+  keychainEntry?: string;
+  via?: string;
+  /** Explicit policy tier (prod | staging | dev | custom). */
+  group?: string;
+  workdir?: string;
+  trustedHostKey?: string;
+  tty: boolean;
+  timeout: number;
+  maxChars: number;
+  maxOutputBytes: number;
+  role: string;
+  readOnly: boolean;
+  approvalPolicy: ApprovalMode;
+  cert: boolean;
+  /**
+   * Send `AI_AGENT=ssh-mcp` to this host on every channel opened for a command.
+   *
+   * Defaults to true. Clear it for a host you do not control: the request is on
+   * the wire whether or not the host set `AcceptEnv`, so it tells that host an
+   * agent rather than a person is driving.
+   */
+  announceAgent: boolean;
+  sessionMaxPerConnection: number;
+  sessionIdleTimeoutMs: number;
+  sessionBackgroundMaxMs: number;
+  /** Max commands per rolling 24h window; 0 = unlimited. */
+  commandQuotaPerDay: number;
+  /** Byte cap for one streaming SFTP transfer on this profile. */
+  transferMaxBytes: number;
+  /** Idle budget for one step of a streaming SFTP transfer on this profile. */
+  transferTimeoutMs: number;
+}
+
+export interface Defaults {
+  defaultProfile?: string;
+  sessionMaxPerConnection: number;
+  sessionIdleTimeoutMs: number;
+  sessionBackgroundMaxMs: number;
+  commandTimeoutMs: number;
+  commandMaxChars: number;
+  commandMaxOutputBytes: number;
+  connectionIdleReapMs: number;
+  commandQuotaPerDay: number;
+  /** Lifetime of a just-in-time approval grant; 0 = always prompt. */
+  approvalGrantTtlMs: number;
+  approvalMode: ApprovalMode;
+  /**
+   * Local directory the streaming SFTP file tools are confined to. Absent means
+   * those tools refuse — there is no "anywhere" setting.
+   */
+  transferRoot?: string;
+  transferMaxBytes: number;
+  transferTimeoutMs: number;
+}
+
+/**
+ * The optional `[policy]` section of the config file, merged over the
+ * compiled-in DEFAULT_RULES at startup by mergePolicyRules().
+ *
+ * Every field is optional because the merge is additive: a config that names
+ * only `admin.prod` changes only that one cell of the matrix.
+ */
+export interface PolicyConfig {
+  /** role → host group → the command classes that role may run on that tier. */
+  roleBindings?: Record<string, Record<string, CommandClass[]>>;
+  /**
+   * Extra deny patterns, as regex source strings. Appended to the built-in
+   * never-allowed list (FORBIDDEN_PATTERNS/FORBIDDEN_RULES in classifier.ts plus
+   * the write-path families in policy/never-allowed-writes.ts), which always
+   * applies — setting this cannot switch off the canonical protections. It
+   * does replace any `denylist` on the base PolicyRules, which the compiled-in
+   * defaults do not set.
+   */
+  denylist?: string[];
+}
+
+export interface AppConfig {
+  defaults: Defaults;
+  profiles: Profile[];
+  policy?: PolicyConfig;
+}
+
+// ─── SSH Connection Types ───────────────────────────────────────────────────
+
+export type ConnectionStatus = 'pending' | 'connected' | 'reconnecting' | 'error' | 'closed';
+
+export interface ConnectionInfo {
+  profile: string;
+  host: string;
+  port: number;
+  user: string;
+  status: ConnectionStatus;
+  sessionCount: number;
+  activeChannels: number;
+  connectedAt?: Date;
+  lastActivity?: Date;
+}
+
+// ─── Session Types ──────────────────────────────────────────────────────────
+
+export type SessionType = 'interactive' | 'background';
+export type SessionStatus = 'active' | 'disconnected' | 'expired' | 'closed';
+
+export interface SessionOpts {
+  name: string;
+  type: SessionType;
+  command?: string;
+  tty?: boolean;
+  ttlMs?: number;
+}
+
+export interface SessionInfo {
+  id: string;
+  name: string;
+  profile: string;
+  type: SessionType;
+  status: SessionStatus;
+  cwd?: string;
+  createdAt: Date;
+  lastActivity: Date;
+  ttlMs: number;
+}
+
+// ─── Command Types ──────────────────────────────────────────────────────────
+
+export type CommandClass = 'read-only' | 'safe' | 'destructive' | 'privileged';
+
+export interface ExecOpts {
+  tty?: boolean;
+  stdin?: string;
+  timeoutMs?: number;
+  onProgress?: (bytesReceived: number, recentOutput: string) => void;
+  abortSignal?: AbortSignal;
+}
+
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+  cwd?: string;
+  sessionId?: string;
+  profile: string;
+  signal?: string;
+}
+
+/**
+ * Why a reader was not credited as `read-only`. `binary` is the `READERS` key (or
+ * SFTP verb) that matched — for a two-word entry, the two-word prefix.
+ *
+ * - `grammar`: the reader's grammar refused `word`, an argv word (or, for an
+ *   operand-count/`each` violation, the offending operand; for a value flag left
+ *   with nothing to consume, the flag itself).
+ * - `shell-metacharacter`: `word` is the first character of the command that is in
+ *   `SHELL_CONTROL_CHARS`, quoted or not; with one present the allowlist cannot vouch
+ *   for the rest of the line (#224).
+ */
+export interface ReadOnlyRejection {
+  binary: string;
+  word: string;
+  cause: 'grammar' | 'shell-metacharacter';
+}
+
+export interface ParsedCommand {
+  binary: string;
+  fullCommand: string;
+  class: CommandClass;
+  /**
+   * Set only when `class` is the outer `safe` produced by a reader being refused
+   * read-only — never when a nested or synthetic class raised the result above
+   * `safe`, and never when the command was not a reader at all. See
+   * `ReadOnlyRejection` and `classifyCommand` in `policy/classifier.ts`.
+   */
+  readOnlyRejection?: ReadOnlyRejection;
+}
+
+// ─── Policy Types ───────────────────────────────────────────────────────────
+
+export type PolicyDecision = 'allow' | 'deny' | 'require-approval';
+
+export interface PolicyEvaluation {
+  decision: PolicyDecision;
+  commandClass: CommandClass;
+  binary: string;
+  ruleId?: string;
+  reason?: string;
+  /** Copied from the parsed command's `readOnlyRejection`; see `ParsedCommand`. */
+  readOnlyRejection?: ReadOnlyRejection;
+}
+
+// ─── Credential Types ───────────────────────────────────────────────────────
+
+export interface ResolvedCredentials {
+  password?: string;
+  privateKey?: string;
+  certificate?: string;
+  passphrase?: string;
+  sudoPassword?: string;
+  agentSocket?: string;
+}
+
+// ─── Audit Types ────────────────────────────────────────────────────────────
+
+export interface AuditRecord {
+  timestamp: string;
+  eventId: string;
+  mcpRequestId: string | number;
+  profile: string;
+  user: string;
+  command: string;
+  commandClass: CommandClass;
+  binary: string;
+  decision: PolicyDecision;
+  /** Which rule produced the decision (denylist, role-binding, approval-policy, ...). */
+  ruleId?: string;
+  exitCode?: number;
+  durationMs?: number;
+  approver?: string;
+  error?: string;
+}
+
+// ─── Tool Types ─────────────────────────────────────────────────────────────
+
+export interface ToolContext {
+  requestId: string | number;
+  profile?: string;
+  session?: string;
+}
+
+// ─── SFTP Types ─────────────────────────────────────────────────────────────
+
+export interface SftpUploadOpts {
+  profile?: string;
+  remotePath: string;
+  content: string | Buffer;
+  mode?: number;
+}
+
+export interface SftpDownloadOpts {
+  profile?: string;
+  remotePath: string;
+  /** Byte cap for the download. Defaults to the profile's maxOutputBytes. */
+  maxBytes?: number;
+}
+
+export interface SftpStat {
+  path: string;
+  size: number;
+  mode: number;
+  isDirectory: boolean;
+  isFile: boolean;
+  mtime: Date;
+  atime: Date;
+}

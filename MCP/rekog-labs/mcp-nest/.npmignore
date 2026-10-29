@@ -1,0 +1,18 @@
+# Don't exclude src directory as it's needed for source maps
+# src
+.git
+.github
+.vscode
+node_modules
+playground
+docs
+tests
+coverage
+.eslintrc
+.prettierrc
+jest.config.js
+*.log
+.DS_Store
+*.tgz
+.gitignore
+*.db

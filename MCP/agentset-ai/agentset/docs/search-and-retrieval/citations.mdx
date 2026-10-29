@@ -1,0 +1,150 @@
+---
+title: "Citations"
+description: "Include source citations in your RAG responses"
+---
+
+Add source citations to your RAG responses so users can verify information and explore the original documents. Citations link each statement in the generated response back to the specific chunk it came from.
+
+<Note>
+  In the [hosted chat](/production/hosting-ui) and the
+  [playground](/search-and-retrieval/playground), citations are automatic.
+  Agentset always applies its citation rules on top of your system prompt, so
+  customize the prompt freely — don't add citation-format instructions to it.
+  This page is for building citations into your own app with the search API.
+</Note>
+
+## Return chunk IDs with your context
+
+Include each chunk's `id` in the context you pass to the model. IDs stay stable no matter how many searches produced the context, which makes them more reliable than position-based numbering.
+
+<CodeGroup>
+```typescript TypeScript
+import { Agentset } from "agentset";
+
+const agentset = new Agentset({
+  apiKey: process.env.AGENTSET_API_KEY,
+});
+
+const ns = agentset.namespace("YOUR_NAMESPACE_ID");
+
+const results = await ns.search("What is multi-head attention?");
+
+// Keep the id with each chunk so the model can cite it
+const context = results
+  .map((r) => JSON.stringify({ id: r.id, text: r.text }))
+  .join("\n\n");
+```
+
+```python Python
+import json
+import os
+from agentset import Agentset
+
+client = Agentset(
+    namespace_id="YOUR_NAMESPACE_ID",
+    token=os.environ["AGENTSET_API_KEY"],
+)
+
+results = client.search.execute(query="What is multi-head attention?")
+
+# Keep the id with each chunk so the model can cite it
+context = "\n\n".join(
+    [json.dumps({"id": r.id, "text": r.text}) for r in results.data]
+)
+```
+</CodeGroup>
+
+## Instruct the model to cite sources
+
+Use a system prompt that tells the model to cite by chunk ID.
+
+```typescript
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+
+const systemPrompt = `You are an AI assistant. Answer questions based ONLY on the provided context.
+
+Guidelines:
+1. If the context does not contain information to answer the query, state clearly: "I cannot answer this question based on the available information."
+2. Only use information directly stated in the context—do not infer or add external knowledge.
+3. Citations are mandatory for every factual statement. Place the chunk id in brackets immediately after the statement, like this: "The temperature is 20 degrees[doc_123#4]"
+4. Only cite ids that appear in the context.
+
+Context:
+${context}`;
+
+const { text } = await generateText({
+  model: openai("gpt-5.1"),
+  system: systemPrompt,
+  prompt: "What is multi-head attention?",
+});
+
+console.log(text);
+```
+
+The model will respond with inline citations:
+
+```text
+Multi-head attention allows the model to jointly attend to information
+from different representation subspaces[doc_042#1]. The Transformer uses
+this mechanism in three ways: encoder-decoder attention, encoder
+self-attention, and decoder self-attention[doc_042#7].
+```
+
+## Render citations in your UI
+
+Parse the bracket notation, look each ID up in your search results, and render citations as clickable elements. Leave unknown IDs as plain text.
+
+```tsx
+const CITATION_REGEX = /\[([^\[\]\s]+)\]/g;
+
+function renderWithCitations(text: string, sources: SearchResult[]) {
+  const sourcesById = new Map(sources.map((s) => [s.id, s]));
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = CITATION_REGEX.exec(text)) !== null) {
+    const source = sourcesById.get(match[1]);
+    if (!source) continue; // not a citation, leave it as text
+
+    // Add text before the citation
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    // Add clickable citation
+    parts.push(
+      <button
+        key={match.index}
+        onClick={() => scrollToSource(source)}
+        className="text-blue-500 hover:underline"
+      >
+        [{source.id}]
+      </button>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+}
+```
+
+<Tip>
+  If you prefer numbered pills like `[1]` in your UI, keep IDs in the model
+  contract and map each cited ID to a display number at render time. Asking the
+  model to cite by list position instead breaks down once context comes from
+  multiple searches or gets deduplicated.
+</Tip>
+
+## Next steps
+
+- [API Reference](/api-reference/endpoint/search) — Search endpoint parameters and options
+- [Agentic Search](/search-and-retrieval/agentic-search) — Let the model search on its own for complex questions
+- [Ranking](/search-and-retrieval/ranking) — Improve citation relevance with reranking

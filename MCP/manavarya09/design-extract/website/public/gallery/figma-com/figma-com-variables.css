@@ -1,0 +1,108 @@
+:root {
+  /* Colors — Primary */
+  --color-primary: #e4ff97;
+  --color-secondary: #00b6ff;
+  --color-accent: #c4baff;
+
+  /* Colors — Neutrals */
+  --color-neutral-50: #000000;
+  --color-neutral-100: #ffffff;
+  --color-neutral-200: #697485;
+  --color-neutral-300: #e6e6e6;
+  --color-neutral-400: #f3ffe3;
+
+  /* Colors — Backgrounds */
+  --color-bg: #ffffff;
+  --color-bg-1: #24cb71;
+  --color-bg-2: #e6e6e6;
+  --color-bg-3: #f3ffe3;
+  --color-bg-4: #e2e2e2;
+  --color-bg-5: #000000;
+  --color-bg-6: #e4ff97;
+  --color-bg-7: #00b6ff;
+  --color-bg-8: #c4baff;
+  --color-bg-9: #95b9ac;
+  --color-bg-10: #ff7237;
+  --color-bg-11: #cb9fd2;
+  --color-bg-12: #ffc9c1;
+  --color-bg-13: #721c1c;
+  --color-bg-14: #c7f8fb;
+
+  /* Colors — Text */
+  --color-text: #000000;
+  --color-text-1: #ffffff;
+  --color-text-2: #697485;
+  --color-text-3: #33dfdf;
+  --color-text-4: #b98e01;
+
+  /* Typography — Families */
+  --font-sans: 'figmaSans', sans-serif;
+  --font-mono: 'figmaMono', sans-serif;
+
+  /* Typography — Scale */
+  --font-size-64: 64px;
+  --font-size-44: 44px;
+  --font-size-24: 24px;
+  --font-size-18: 18px;
+  --font-size-16: 16px;
+  --font-size-12: 12px;
+  --font-size-0: 0px;
+
+  /* Spacing */
+  --spacing-1: 1px;
+  --spacing-16: 16px;
+  --spacing-24: 24px;
+  --spacing-27: 27px;
+  --spacing-40: 40px;
+  --spacing-44: 44px;
+  --spacing-53: 53px;
+  --spacing-60: 60px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-107: 107px;
+  --spacing-120: 120px;
+  --spacing-160: 160px;
+  --spacing-409: 409px;
+
+  /* Border Radius */
+  --radius-xs: 2px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-full: 50px;
+
+  /* Box Shadows */
+  --shadow-sm: rgb(0, 0, 0) 0px 0px 0px 1px inset;
+  --shadow-sm: rgb(255, 255, 255) 0px 0px 0px 1px inset;
+  --shadow-xs: rgba(0, 0, 0, 0.08) 0px 1px 0px 0px;
+  --shadow-lg: rgba(0, 0, 0, 0.1) 0px 10px 15px -3px, rgba(0, 0, 0, 0.05) 0px 4px 6px -2px;
+  --shadow-xl: rgba(0, 0, 0, 0.1) 0px 24px 70px 0px;
+
+  /* Original Site Variables */
+  /* — spacing — */
+  --f-lego-block-padding: 5rem;
+  /* — typography — */
+  --f-font-whyte-variable: 'ABCWhytePlusVariable','ABCWhytePlusVariable Fallback',Whyte,sans-serif;
+  --f-font-sans: 'figmaSans','figmaSans Fallback',SF Pro Display,system-ui,helvetica,sans-serif;
+  --f-font-mono: 'figmaMono','figmaMono Fallback',SF Mono,menlo,monospace;
+  --f-cursor-text: text;
+  /* — other — */
+  --f-statsig-overlay: #FFFFFF;
+  --f-vh: 1vh;
+  --f-max-content-width: 1440px;
+  --f-columns: 1;
+  --f-gutter: 24px;
+  --f-col-width: calc(100vw - var(--f-gutter) * 2);
+  --f-cursor-default: default;
+  --f-cursor-pointer: pointer;
+  --f-cursor-grab: grab;
+  --f-cursor-grabbing: grabbing;
+  --scrollbar-width: 0rem;
+  /* — dependencies — */
+  --f-col-width: --f-gutter;
+  /* — semantic — */
+  success: [object Object];
+  warning: [object Object];
+  error: [object Object];
+  info: [object Object];
+
+}

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.alpacahq.alpaca-mcp-server",
+  "type": "mcp",
+  "name": "Alpaca MCP Server",
+  "slug": "alpaca-mcp-server",
+  "vendor": "alpacahq",
+  "description": "Alpaca’s official MCP Server lets you trade stocks, ETFs, crypto, and options, run data analysis, and build strategies in plain English directly from your favorite LLM tools and IDEs",
+  "version": "0.0.0",
+  "homepage": "https://github.com/alpacahq/alpaca-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ai-trading",
+    "algorithmic-trading",
+    "crypto",
+    "etfs",
+    "options",
+    "stocks",
+    "trading",
+    "trading-api"
+  ],
+  "tags": [
+    "ai-trading",
+    "algorithmic-trading",
+    "crypto",
+    "etfs",
+    "mcp",
+    "mcp-server",
+    "options",
+    "stocks",
+    "trading",
+    "trading-api"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "alpacahq",
+    "brandName": "alpacahq",
+    "source": "https://github.com/alpacahq.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "alpacahq/alpaca-mcp-server",
+    "url": "https://github.com/alpacahq/alpaca-mcp-server",
+    "commit": "d8dac43f3e17594e8879bac3b5b333196ea69aac",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1049,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:23Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "alpaca-mcp-server"
+    ],
+    "env": [
+      "ALPACA_API_KEY",
+      "ALPACA_SECRET_KEY",
+      "FASTMCP_HTTP_ALLOWED_HOSTS"
+    ],
+    "credentials": [
+      "ALPACA_API_KEY",
+      "ALPACA_SECRET_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "get_application",
+  "title": "Application details",
+  "description": "App details. Credentials (webhook secrets, basic-auth password, compose bodies, labels) are masked by default; pass reveal: true when you explicitly need them.",
+  "annotations": {
+    "readOnlyHint": true
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "uuid": {
+        "type": "string"
+      },
+      "reveal": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "uuid"
+    ],
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": {}
+  }
+}

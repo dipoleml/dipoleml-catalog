@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.markifact.markifact-mcp",
+  "type": "mcp",
+  "name": "Markifact MCP",
+  "slug": "markifact-mcp",
+  "vendor": "markifact",
+  "description": "MCP server for Google Ads, Meta Ads, GA4, TikTok Ads, and LinkedIn Ads. Manage 300+ ad operations from DipoleML, ChatGPT, Gemini, Cursor, or any AI client. Human-in-the-loop on every write.",
+  "version": "1.0.7",
+  "homepage": "https://github.com/markifact/markifact-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "ads-mcp",
+    "claude-code-plugin",
+    "claude-cowork",
+    "claude-plugin",
+    "claude-skills",
+    "google-ads",
+    "google-ads-api",
+    "google-ads-mcp"
+  ],
+  "tags": [
+    "ads-mcp",
+    "claude-code-plugin",
+    "claude-cowork",
+    "claude-plugin",
+    "claude-skills",
+    "google-ads",
+    "google-ads-api",
+    "google-ads-mcp",
+    "google-analytics",
+    "linkedin-ads-mcp",
+    "mcp",
+    "mcp-server",
+    "meta-ads",
+    "meta-ads-mcp",
+    "tiktok-ads-mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:15Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "markifact/markifact-mcp",
+    "url": "https://github.com/markifact/markifact-mcp",
+    "commit": "ac9c18645e4555a7a9bf22240daa2972b2461dd2",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 56,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Markifact MCP | MCP server for Google Ads, Meta Ads, GA4, TikTok Ads, and LinkedIn Ads. Manage 300+ ad operations from Claude, ChatGPT, Gemini, Cursor, or any AI client. Human-in-the-loop on every write.",
+        "after": "Markifact MCP | MCP server for Google Ads, Meta Ads, GA4, TikTok Ads, and LinkedIn Ads. Manage 300+ ad operations from DipoleML, ChatGPT, Gemini, Cursor, or any AI client. Human-in-the-loop on every write.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Run Google Ads, Meta Ads, GA4, TikTok Ads, LinkedIn Ads, Shopify and 50+ more from Claude. Audit accounts, launch campaigns and pull reports, with your approval on every change.",
+        "after": "Run Google Ads, Meta Ads, GA4, TikTok Ads, LinkedIn Ads, Shopify and 50+ more from DipoleML. Audit accounts, launch campaigns and pull reports, with your approval on every change.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://api.markifact.com/mcp",
+      "transport": "http",
+      "command": "markifact"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "markifact-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,410 @@
+"""AI Team OS — Hooks bridge API routes.
+
+Receives Claude Code Hook events and translates them into OS system operations via HookTranslator.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from datetime import timedelta
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from aiteam.api import background_jobs, cc_config_scope, compact_checkpoint, hook_receipts
+from aiteam.api import request_ledger as request_ledger_module
+from aiteam.api.deps import get_event_bus, get_hook_translator, get_repository
+from aiteam.api.event_bus import EventBus
+from aiteam.api.hook_translator import GUARDRAIL_FLAGS_FIELD, HOOK_REPLAY_FIELD, HookTranslator
+from aiteam.api.middleware import note_hook_ingest
+from aiteam.clock import utc_now
+from aiteam.paths import DEFAULT_DATA_DIR
+from aiteam.storage.repository import StorageRepository
+from aiteam.text_safety import clean_text
+from aiteam.types import SurrogateTolerantBody
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/hooks", tags=["hooks"])
+
+# ---------------------------------------------------------------------------
+# Denial classification types
+# ---------------------------------------------------------------------------
+
+DenialCategory = Literal[
+    "recoverable_with_retry",
+    "recoverable_with_workaround",
+    "needs_user_approval",
+    "permanent_denial",
+]
+
+# Dangerous Bash patterns that need user approval
+_DANGEROUS_BASH_PATTERNS = [
+    r"rm\s+-[a-z]*r[a-z]*\s+[/~]",  # rm -rf / or rm -rf ~
+    r"git\s+push\s+.*--force",        # git push --force
+    r"git\s+push\s+.*-f\b",           # git push -f
+    r"git\s+reset\s+--hard",          # git reset --hard
+    r"git\s+checkout\s+\.",           # git checkout .
+    r"rm\s+-rf\s+\.",                 # rm -rf .
+    r":\s*>\s*/dev/",                 # redirect to /dev/ devices
+    r"dd\s+if=",                      # dd block writes
+    r"mkfs\.",                        # filesystem formatting
+]
+
+_TRANSIENT_PATTERNS = ["temporary", "rate limit", "transient", "try again"]
+_PATH_OUTSIDE_PATTERNS = [
+    "outside the project",
+    "outside project",
+    "not in allowed",
+    "path not allowed",
+    "additionaldirectories",
+]
+_REPORT_WRITE_PATTERNS = [
+    r"\.claude[/\\]data[/\\]",
+    # The data directory's own folder name, taken from the one spelling (aiteam.paths).
+    r"[/\\]" + re.escape(os.path.basename(DEFAULT_DATA_DIR)) + r"[/\\]",
+    r"reports?[/\\]\d",
+]
+
+
+def _matches_any_str(text: str, patterns: list[str]) -> bool:
+    text_lower = text.lower()
+    return any(p in text_lower for p in patterns)
+
+
+def _matches_any_re(text: str, patterns: list[str]) -> bool:
+    return any(re.search(p, text, re.IGNORECASE) for p in patterns)
+
+
+def _classify_denial(tool_name: str, tool_input: dict, reason: str) -> tuple[DenialCategory, str, str]:
+    """Classify a permission denial into one of 4 action categories.
+
+    Returns (category, hint, additional_context).
+    """
+    # Transient / rate-limit → retry once
+    if _matches_any_str(reason, _TRANSIENT_PATTERNS):
+        return (
+            "recoverable_with_retry",
+            "This looks like a transient denial — retrying automatically.",
+            "",
+        )
+
+    # Write to .claude/data/... or report paths → use report_save instead
+    if tool_name in ("Write", "Edit"):
+        file_path = tool_input.get("file_path", tool_input.get("path", ""))
+        if _matches_any_re(file_path, _REPORT_WRITE_PATTERNS):
+            return (
+                "recoverable_with_workaround",
+                "Use the report_save MCP tool instead of writing directly to the OS data directory or report paths.",
+                (
+                    "Direct writes to OS data/report directories are blocked. "
+                    "Call report_save(author=..., topic=..., content=..., report_type=...) to save reports."
+                ),
+            )
+
+    # Bash dangerous commands → needs user approval
+    if tool_name == "Bash":
+        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+        if _matches_any_re(command, _DANGEROUS_BASH_PATTERNS):
+            return (
+                "needs_user_approval",
+                "This command requires explicit user approval. Create a briefing to request it.",
+                (
+                    f"Dangerous Bash command blocked: {reason}. "
+                    "Do NOT retry. If this action is necessary, create a briefing for the user."
+                ),
+            )
+        # Non-dangerous Bash denial
+        return (
+            "needs_user_approval",
+            "Bash command was denied. Consider a safer alternative or request user approval.",
+            f"Bash denied: {reason}.",
+        )
+
+    # Path outside project → needs user approval
+    if _matches_any_str(reason, _PATH_OUTSIDE_PATTERNS):
+        return (
+            "needs_user_approval",
+            "Path is outside allowed project directories. Request user to add it to additionalDirectories.",
+            (
+                "Access denied: path is outside the project root. "
+                "Leader has been notified. Ask the user to extend additionalDirectories if access is needed."
+            ),
+        )
+
+    # Unknown / unclassified
+    return (
+        "permanent_denial",
+        "",
+        f"Permission denied with no known recovery path: {reason}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
+
+
+class HookEventPayload(SurrogateTolerantBody):
+    """Claude Code Hook event payload schema."""
+
+    hook_event_name: str = Field(default="", max_length=50)
+    session_id: str = Field(default="", max_length=200)
+    agent_id: str = Field(default="", max_length=200)
+    agent_type: str = Field(default="", max_length=200)
+    tool_name: str = Field(default="", max_length=100)
+    tool_input: dict = Field(default_factory=dict)
+    tool_output: dict = Field(default_factory=dict)
+    cwd: str = Field(default="", max_length=500)
+    cc_team_name: str = Field(default="", max_length=200)
+
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="after")
+    def _clean_names(self) -> HookEventPayload:
+        """The names the host hands over, cleaned once, here, with the single-line rule.
+
+        An agent name or team name is stored and then looked up by name again (the
+        next SubagentStart, SubagentStop, whoami, meeting and memo attribution). The
+        API's own write routes clean names on the way in, so the hook entry must too,
+        and before anything else reads the payload: a lookup that compared a raw
+        name with a cleaned one would miss and create a duplicate row.
+        """
+        self.agent_type = clean_text(self.agent_type)
+        self.cc_team_name = clean_text(self.cc_team_name)
+        extra = self.model_extra if self.model_extra is not None else {}
+        for key in ("teammate_name", "team_name"):  # TeammateIdle names the agent and team
+            if isinstance(extra.get(key), str):
+                extra[key] = clean_text(extra[key])
+        observation = extra.get("codex_observation")
+        if isinstance(observation, dict):
+            cleaned = dict(observation)
+            for key in ("agent_name", "agent_role"):
+                if isinstance(cleaned.get(key), str):
+                    cleaned[key] = clean_text(cleaned[key])
+            extra["codex_observation"] = cleaned
+        return self
+
+
+class DiagnoseDenialRequest(SurrogateTolerantBody):
+    """Payload for classifying a PermissionDenied event."""
+
+    tool_name: str = Field(default="", max_length=100)
+    tool_input: dict = Field(default_factory=dict)
+    reason: str = Field(default="", max_length=2000)
+
+
+class DiagnoseDenialResponse(BaseModel):
+    """Classification result for a PermissionDenied event."""
+
+    category: DenialCategory
+    hint: str = ""
+    additional_context: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Raw payload recorder (diff-test corpus capture)
+# ---------------------------------------------------------------------------
+
+# 录制开关：置成一个 jsonl 路径，服务端就把每条 hook 请求体原样追加一行。
+# 用途是给零漂移差分测试采真机语料——在服务端录，既不改用户 settings.json，也不
+# 用给 hook 挂 wrapper，录下来的就是 hook 实际发出的那份 body。
+# 默认不置位，此时本模块除一次 os.environ 读取外不做任何额外动作。
+HOOK_RAW_DUMP_ENV = "AITEAM_HOOK_RAW_DUMP"
+
+
+def _dump_raw_hook_payload(dump_path: str, data: dict) -> None:
+    """Append one hook payload to the capture file, verbatim, as a JSONL line.
+
+    原样落盘：不脱敏、不排序、不改 ``data``（脱敏是采集之后的独立一步，这里动一下
+    手，语料就不是真机那份了）。
+
+    录制是旁路，任何失败都吞掉：接收端在开关置位与不置位两种形态下的返回必须
+    逐字节相同，否则这份语料反过来证明不了"零漂移"。
+    """
+    try:
+        parent = os.path.dirname(dump_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        line = json.dumps(data, ensure_ascii=False, default=str)
+        with open(dump_path, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception:  # noqa: BLE001 - recording must never change the response
+        logger.warning("hook raw dump failed: %s", dump_path, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@router.post("/event")
+async def receive_hook_event(
+    payload: HookEventPayload,
+    request: Request,
+    translator: HookTranslator = Depends(get_hook_translator),
+) -> dict:
+    """Unified receiver for Claude Code hook events.
+
+    Receives various CC hook event payloads and auto-syncs to OS system:
+    - SubagentStart/Stop: Agent status sync
+    - PreToolUse/PostToolUse: Tool usage tracking
+    - SessionStart/End: Session lifecycle management and reconciliation
+
+    ``AITEAM_HOOK_RAW_DUMP`` 置位时先把请求体原样录一行再照常处理（见
+    ``_dump_raw_hook_payload``）；不置位时行为与录制上线前完全一致。
+
+    入口 guardrail 对本路由只标记不拦（``middleware._FLAG_ONLY_ROUTES``）：命中的规则 ID
+    随载荷交给 translator 记进事件。标记只认服务端扫描结果，请求体自带的同名字段丢弃。
+
+    带 ``tool_use_id`` 的事件按 (session_id, hook_event_name, tool_use_id) 去重：重投只回
+    首投的响应，不再处理一遍（见 ``hook_receipts``）。
+
+    带 ``_hook_replay`` 标记的是客户端补投：去重键不看它；处理语义见
+    ``hook_translator.HOOK_REPLAY_FIELD``；计数经 ``middleware.note_hook_ingest`` 进进程计数
+    与请求账本（重启不丢，``GET /api/hooks/ingest-stats`` 可读）。
+    """
+    data = payload.model_dump()
+    dump_path = os.environ.get(HOOK_RAW_DUMP_ENV, "")
+    if dump_path:
+        # What is recorded is the validated payload, after SurrogateTolerantBody has
+        # replaced any lone surrogate with U+FFFD: for that one input the line differs
+        # from the bytes the hook sent. Every other payload is recorded as sent.
+        _dump_raw_hook_payload(dump_path, data)
+    data.pop(GUARDRAIL_FLAGS_FIELD, None)
+    flags = getattr(request.state, "guardrail_flags", None)
+    if flags:
+        data[GUARDRAIL_FLAGS_FIELD] = list(flags)
+    replayed = isinstance(data.get(HOOK_REPLAY_FIELD), dict)
+    # The event's files (transcripts, session registry) are in its session's config
+    # folder: where its transcript is, else what the session reported (cc_config_scope).
+    folder = cc_config_scope.session_folder(
+        data.get("session_id"), cc_config_scope.folder_of_transcript(data.get("transcript_path")),
+    )
+    with cc_config_scope.bound(folder):
+        result = await hook_receipts.handle_once(translator.repo, data, translator.handle_event)
+    if replayed:
+        note_hook_ingest("replayed")
+        if isinstance(result, dict) and result.get("duplicate") is True:
+            note_hook_ingest("replay_duplicate")
+        elif isinstance(result, dict) and result.get("reason") == "replay_unsupported_event":
+            note_hook_ingest("replay_skipped")
+    return result
+
+
+@router.post("/diagnose_denial", response_model=DiagnoseDenialResponse)
+async def diagnose_denial(payload: DiagnoseDenialRequest) -> DiagnoseDenialResponse:
+    """Classify a permission denial into one of 4 action categories.
+
+    Categories:
+    - recoverable_with_retry: transient issue, safe to retry once
+    - recoverable_with_workaround: use an alternative tool/approach
+    - needs_user_approval: requires explicit user decision
+    - permanent_denial: no known recovery path, log and move on
+    """
+    category, hint, additional_context = _classify_denial(
+        tool_name=payload.tool_name,
+        tool_input=payload.tool_input,
+        reason=payload.reason,
+    )
+    return DiagnoseDenialResponse(
+        category=category,
+        hint=hint,
+        additional_context=additional_context,
+    )
+
+
+class CompactCheckpointRequest(SurrogateTolerantBody):
+    """PreCompact 检查点写入请求。"""
+
+    session_id: str
+    trigger: str = ""
+    cwd: str = ""
+
+
+@router.post("/compact-checkpoint")
+async def save_compact_checkpoint(
+    payload: CompactCheckpointRequest,
+    repo: StorageRepository = Depends(get_repository),
+    bus: EventBus = Depends(get_event_bus),
+) -> dict:
+    """在上下文被压缩前，把这个会话的 OS 侧作战态定格成一条检查点事件。
+
+    快照由服务端直接从库里取——hook 只报"我要压缩了"，不负责搜集内容。这样
+    hook 保持纯 stdlib、单次 HTTP，也不会因为 hook 侧少查一样东西就把检查点
+    做残。
+    """
+    snapshot = await compact_checkpoint.build_snapshot(repo, payload.session_id, payload.cwd)
+    snapshot["trigger"] = payload.trigger
+    await bus.emit(
+        compact_checkpoint.CHECKPOINT_EVENT,
+        f"session:{payload.session_id}",
+        snapshot,
+    )
+    return {"success": True, "data": snapshot}
+
+
+@router.get("/compact-checkpoint")
+async def read_compact_checkpoint(
+    session_id: str,
+    repo: StorageRepository = Depends(get_repository),
+) -> dict:
+    """取该会话最近一条检查点，附一段可直接注入的渲染文本。
+
+    没有检查点时 found=False、text 为空串——调用方（session_bootstrap）据此
+    什么都不注入，绝不给用户的上下文塞占位噪声。
+    """
+    events = await repo.list_events(
+        event_type=compact_checkpoint.CHECKPOINT_EVENT,
+        source=f"session:{session_id}",
+        limit=1,
+    )
+    if not events:
+        return {"success": True, "found": False, "text": "", "data": None}
+    snapshot = events[0].data or {}
+    return {
+        "success": True,
+        "found": True,
+        "text": compact_checkpoint.render(snapshot),
+        "saved_at": events[0].timestamp.isoformat() if events[0].timestamp else None,
+        "data": snapshot,
+    }
+
+
+@router.get("/ingest-stats")
+async def hook_ingest_stats_view(
+    hours: int = Query(24, ge=1, le=168),
+    repo: StorageRepository = Depends(get_repository),
+) -> dict:
+    """Hook ingest outcomes no access log shows (lost receipts, lost bodies, slow requests).
+
+    Sums the hourly request-ledger rollups of the window, which outlive restarts,
+    plus what this process has not rolled up yet. Read by os_health_check.
+    """
+    since = utc_now() - timedelta(hours=hours)
+    rollups = await repo.list_event_data_since(
+        request_ledger_module.ROLLUP_EVENT, since - timedelta(hours=1),
+    )
+    summary = request_ledger_module.summarize_hook_ingest(
+        rollups, request_ledger_module.request_ledger, since,
+    )
+    return {"success": True, "window_hours": hours, **summary}
+
+
+@router.get("/background-jobs")
+async def list_background_jobs(root_path: str = "", in_flight_only: bool = True) -> dict:
+    """CC 的 `--bg` 后台会话现状（文件真相源直读，零注册依赖）。
+
+    这类会话不经任何 hook 注册进 OS，可以在前台窗口关掉之后继续跑——不看这里，
+    项目摘要会说"没人在干活"，而实际上有 daemon 在跑。
+    """
+    jobs = (
+        background_jobs.in_flight_jobs(root_path)
+        if in_flight_only
+        else background_jobs.read_jobs()
+    )
+    return {"success": True, "total": len(jobs), "data": background_jobs.as_dicts(jobs)}

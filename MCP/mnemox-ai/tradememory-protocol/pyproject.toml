@@ -1,0 +1,113 @@
+[project]
+name = "tradememory-protocol"
+version = "0.5.6"
+description = "Decision audit trail + persistent memory for AI trading agents. SHA-256 tamper detection, outcome-weighted recall, strategy evolution via MCP."
+authors = [{name = "Mnemox", email = "contact@mnemox.ai"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["mcp", "trading", "ai", "memory", "agent", "reflection", "audit", "compliance"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastmcp>=3.2.0,<4",
+    "fastapi>=0.109.1",
+    "uvicorn>=0.27.0",
+    "pydantic>=2.5.3",
+    "python-dotenv>=1.2.2",
+    "requests>=2.33.0",
+    "click>=8.3.3",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+proxy = [
+    # Brake in front of a broker MCP server. Needs Python >= 3.12 for mnemox-control.
+    "fastmcp>=3.2.0,<4",
+    "mnemox-control>=0.3.1,<0.4 ; python_version >= '3.12'",
+]
+mt5 = [
+    # MT5 scripts in scripts/ and the Windows launchers in scripts/platform/.
+    # MetaTrader5 ships Windows wheels only; schedule runs start_tradememory.pyw's
+    # reflection schedule; pytz is imported by scripts/trade_adapter.py.
+    "MetaTrader5>=5.0.45 ; sys_platform == 'win32'",
+    "schedule>=1.2.0",
+    "pytz>=2023.3",
+]
+test = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.23.3",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.26.0",
+    "hypothesis>=6.98.0",
+]
+lint = [
+    "ruff>=0.4.0",
+    "mypy>=1.8.0",
+]
+dev = [
+    "tradememory-protocol[test,lint]",
+    "pre-commit>=3.6.0",
+]
+replay = [
+    "instructor>=1.0.0",
+    "openai>=1.0.0",
+    "anthropic>=0.39.0",
+    "pyyaml>=6.0",
+]
+validate = [
+    "deflated-sharpe>=0.1.0",
+]
+postgres = [
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/mnemox-ai/tradememory-protocol"
+Documentation = "https://github.com/mnemox-ai/tradememory-protocol/tree/master/docs"
+Repository = "https://github.com/mnemox-ai/tradememory-protocol"
+Issues = "https://github.com/mnemox-ai/tradememory-protocol/issues"
+Changelog = "https://github.com/mnemox-ai/tradememory-protocol/blob/master/CHANGELOG.md"
+
+[project.scripts]
+tradememory = "tradememory.cli:cli"
+tradememory-protocol = "tradememory:main"
+tradememory-api = "tradememory.server:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["tradememory*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+markers = [
+    "integration: marks tests that require real API keys",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+check_untyped_defs = true

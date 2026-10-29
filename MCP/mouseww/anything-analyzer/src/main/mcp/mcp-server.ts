@@ -1,0 +1,1064 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+  type Server,
+} from "node:http";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { session } from "electron";
+import type { SessionManager } from "../session/session-manager";
+import type { AiAnalyzer } from "../ai/ai-analyzer";
+import type { WindowManager } from "../window";
+import type {
+  RequestsRepo,
+  JsHooksRepo,
+  StorageSnapshotsRepo,
+  AnalysisReportsRepo,
+  InteractionEventsRepo,
+} from "../db/repositories";
+import type { ChatMessage, InteractionType } from "@shared/types";
+import { loadLLMConfig } from "../ipc";
+import { ReplayEngine } from "../capture/replay-engine";
+import { formatMCPServerUrl, normalizeMCPListenHost } from "./mcp-server-listen";
+
+interface MCPServerDeps {
+  sessionManager: SessionManager;
+  aiAnalyzer: AiAnalyzer;
+  windowManager: WindowManager;
+  requestsRepo: RequestsRepo;
+  jsHooksRepo: JsHooksRepo;
+  storageSnapshotsRepo: StorageSnapshotsRepo;
+  reportsRepo: AnalysisReportsRepo;
+  interactionEventsRepo: InteractionEventsRepo;
+}
+
+let httpServer: Server | null = null;
+const transports = new Map<string, StreamableHTTPServerTransport>();
+// Per-session McpServer instances (one per transport/session)
+const mcpServers = new Map<string, McpServer>();
+// Per-session chat history for chat_followup tool
+const chatHistories = new Map<string, ChatMessage[]>();
+let currentDeps: MCPServerDeps | null = null;
+
+/**
+ * Check if the body (single or batch JSON-RPC) contains an initialize request.
+ */
+function isInitRequest(body: unknown): boolean {
+  if (Array.isArray(body)) {
+    return body.some((msg) => isInitializeRequest(msg));
+  }
+  return isInitializeRequest(body);
+}
+
+/**
+ * Create a new McpServer instance with tools and resources registered.
+ */
+function createMcpServerInstance(deps: MCPServerDeps): McpServer {
+  const server = new McpServer({
+    name: "anything-analyzer",
+    version: "1.0.0",
+  });
+  registerTools(server, deps);
+  registerResources(server, deps);
+  return server;
+}
+
+/**
+ * Initialize and start the MCP Server on the given port.
+ */
+export async function initMCPServer(
+  deps: MCPServerDeps,
+  port: number,
+  authEnabled: boolean = true,
+  authToken: string = '',
+  hostInput: string = '0.0.0.0',
+): Promise<void> {
+  if (httpServer) await stopMCPServer();
+
+  const host = normalizeMCPListenHost(hostInput);
+  currentDeps = deps;
+
+  httpServer = createServer(
+    async (req: IncomingMessage, res: ServerResponse) => {
+      // CORS
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, DELETE, OPTIONS",
+      );
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, mcp-session-id, mcp-protocol-version",
+      );
+      res.setHeader(
+        "Access-Control-Expose-Headers",
+        "mcp-session-id, mcp-protocol-version",
+      );
+
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      // Authentication check (skip OPTIONS preflight)
+      if (authEnabled && authToken) {
+        const authHeader = req.headers["authorization"];
+        if (authHeader !== `Bearer ${authToken}`) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unauthorized: invalid or missing token" }));
+          return;
+        }
+      }
+
+      const url = new URL(req.url || "/", formatMCPServerUrl(host, port));
+      if (url.pathname !== "/mcp") {
+        res.writeHead(404);
+        res.end("Not Found");
+        return;
+      }
+
+      try {
+        const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+        if (req.method === "DELETE") {
+          if (sessionId && transports.has(sessionId)) {
+            // Delegate to transport so internal state is cleaned up properly
+            await transports.get(sessionId)!.handleRequest(req, res);
+          } else {
+            res.writeHead(sessionId ? 404 : 400);
+            res.end(JSON.stringify({ error: "Session not found" }));
+          }
+          return;
+        }
+
+        if (req.method === "GET") {
+          if (sessionId && transports.has(sessionId)) {
+            await transports.get(sessionId)!.handleRequest(req, res);
+          } else {
+            res.writeHead(sessionId ? 404 : 400);
+            res.end(
+              JSON.stringify({ error: "Missing or invalid session ID" }),
+            );
+          }
+          return;
+        }
+
+        // POST
+        const body = await readBody(req);
+
+        if (sessionId && transports.has(sessionId)) {
+          await transports.get(sessionId)!.handleRequest(req, res, body);
+        } else if (!sessionId && isInitRequest(body)) {
+          // Create per-session McpServer first so it can be captured in the callback
+          const sessionServer = createMcpServerInstance(currentDeps!);
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sid) => {
+              transports.set(sid, transport);
+              // Store mcpServer here – sessionId is available now
+              mcpServers.set(sid, sessionServer);
+            },
+          });
+          transport.onclose = () => {
+            if (transport.sessionId) {
+              transports.delete(transport.sessionId);
+              const srv = mcpServers.get(transport.sessionId);
+              if (srv) {
+                srv.close().catch(() => {});
+                mcpServers.delete(transport.sessionId);
+              }
+            }
+          };
+          await sessionServer.connect(transport);
+          await transport.handleRequest(req, res, body);
+        } else if (sessionId && !transports.has(sessionId)) {
+          // Session ID provided but transport is gone (e.g. server restarted)
+          res.writeHead(404);
+          res.end(JSON.stringify({ error: "Session not found" }));
+        } else {
+          res.writeHead(400);
+          res.end(
+            JSON.stringify({
+              error:
+                "Bad request: missing session ID or not an initialize request",
+            }),
+          );
+        }
+      } catch (err) {
+        console.error("[MCP Server] Error handling request:", err);
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: String(err) }));
+        }
+      }
+    },
+  );
+
+  const server = httpServer;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => {
+        server.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = (): void => {
+        server.off("error", onError);
+        resolve();
+      };
+      server.once("error", onError);
+      server.once("listening", onListening);
+      server.listen(port, host);
+    });
+    console.log(`[MCP Server] Listening on ${formatMCPServerUrl(host, port)}`);
+  } catch (error) {
+    httpServer = null;
+    currentDeps = null;
+    try {
+      server.close();
+    } catch {
+      // Server may fail before entering the listening state.
+    }
+    throw error;
+  }
+}
+
+/**
+ * Stop the MCP Server and close all connections.
+ */
+export async function stopMCPServer(): Promise<void> {
+  for (const transport of transports.values()) {
+    await transport.close().catch(() => {});
+  }
+  transports.clear();
+  chatHistories.clear();
+
+  for (const srv of mcpServers.values()) {
+    await srv.close().catch(() => {});
+  }
+  mcpServers.clear();
+  currentDeps = null;
+
+  return new Promise((resolve) => {
+    if (httpServer) {
+      httpServer.close(() => {
+        httpServer = null;
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
+}
+
+/**
+ * Check if MCP Server is currently running.
+ */
+export function isMCPServerRunning(): boolean {
+  return httpServer !== null && httpServer.listening;
+}
+
+// ---- Tool Registration ----
+
+function registerTools(server: McpServer, deps: MCPServerDeps): void {
+  const {
+    sessionManager,
+    aiAnalyzer,
+    windowManager,
+    requestsRepo,
+    jsHooksRepo,
+    storageSnapshotsRepo,
+    reportsRepo,
+    interactionEventsRepo,
+  } = deps;
+
+  // -- Session Management --
+
+  server.registerTool(
+    "list_sessions",
+    {
+      description: "List all analysis sessions",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const sessions = sessionManager.listSessions();
+      return text(sessions);
+    },
+  );
+
+  server.registerTool(
+    "create_session",
+    {
+      description: "Create a new analysis session",
+      inputSchema: z.object({
+        name: z.string().describe("Session name"),
+        targetUrl: z.string().describe("Target URL to analyze"),
+      }),
+    },
+    async ({ name, targetUrl }) => {
+      const s = sessionManager.createSession(name, targetUrl);
+      return text(s);
+    },
+  );
+
+  server.registerTool(
+    "start_capture",
+    {
+      description:
+        "Start capturing HTTP requests for a session. The embedded browser must be open.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session ID"),
+      }),
+    },
+    async ({ sessionId }) => {
+      const tabManager = windowManager.getTabManager();
+      const mainWin = windowManager.getMainWindow();
+      if (!tabManager || !mainWin) throw new Error("Browser not ready");
+      await sessionManager.startCapture(
+        sessionId,
+        tabManager,
+        mainWin.webContents,
+      );
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "pause_capture",
+    {
+      description: "Pause capturing for a session",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      await sessionManager.pauseCapture(sessionId);
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "resume_capture",
+    {
+      description: "Resume capturing for a paused session",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      await sessionManager.resumeCapture(sessionId);
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "stop_capture",
+    {
+      description: "Stop capturing and finalize a session",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      await sessionManager.stopCapture(sessionId);
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "delete_session",
+    {
+      description: "Delete a session and all its data",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      await sessionManager.deleteSession(sessionId);
+      return text({ success: true });
+    },
+  );
+
+  // -- Browser Control --
+
+  server.registerTool(
+    "navigate",
+    {
+      description: "Navigate the active browser tab to a URL",
+      inputSchema: z.object({ url: z.string().describe("URL to navigate to") }),
+    },
+    async ({ url }) => {
+      await windowManager.navigateTo(url);
+      return text({ success: true, url });
+    },
+  );
+
+  server.registerTool(
+    "browser_back",
+    {
+      description: "Go back in the active browser tab",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      windowManager.goBack();
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "browser_forward",
+    {
+      description: "Go forward in the active browser tab",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      windowManager.goForward();
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "browser_reload",
+    {
+      description: "Reload the active browser tab",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      windowManager.reload();
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "create_tab",
+    {
+      description: "Create a new browser tab",
+      inputSchema: z.object({
+        url: z.string().optional().describe("Optional URL to open"),
+      }),
+    },
+    async ({ url }) => {
+      const tabManager = windowManager.getTabManager();
+      if (!tabManager) throw new Error("Browser not ready");
+      const tab = tabManager.createTab(url);
+      return text({ id: tab.id, url: tab.url, title: tab.title });
+    },
+  );
+
+  server.registerTool(
+    "close_tab",
+    {
+      description: "Close a browser tab",
+      inputSchema: z.object({ tabId: z.string() }),
+    },
+    async ({ tabId }) => {
+      const tabManager = windowManager.getTabManager();
+      if (!tabManager) throw new Error("Browser not ready");
+      tabManager.closeTab(tabId);
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "list_tabs",
+    {
+      description: "List all browser tabs with their URLs and titles",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const tabManager = windowManager.getTabManager();
+      if (!tabManager) throw new Error("Browser not ready");
+      const tabs = tabManager.getAllTabs().map((t) => ({
+        id: t.id,
+        url: t.url,
+        title: t.title,
+      }));
+      return text(tabs);
+    },
+  );
+
+  server.registerTool(
+    "clear_browser_env",
+    {
+      description:
+        "Clear all browser data (cookies, localStorage, sessionStorage, cache). Current login state will be lost.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      await session.defaultSession.clearStorageData();
+      await session.defaultSession.clearCache();
+      const wc = windowManager.getTabManager()?.getActiveWebContents();
+      if (wc && !wc.isDestroyed()) wc.reload();
+      return text({ success: true });
+    },
+  );
+
+  server.registerTool(
+    "browser_screenshot",
+    {
+      description:
+        "Capture a screenshot of the current active browser tab. Returns a PNG image.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const webContents = windowManager.getTabManager()?.getActiveWebContents();
+      if (!webContents || webContents.isDestroyed()) throw new Error("Browser not ready");
+      const image = await webContents.capturePage();
+      const base64 = image.toPNG().toString("base64");
+      return {
+        content: [{ type: "image" as const, data: base64, mimeType: "image/png" }],
+      };
+    },
+  );
+
+  server.registerTool(
+    "cdp_send_command",
+    {
+      description:
+        "Send a raw Chrome DevTools Protocol (CDP) command to the active browser tab. " +
+        "Requires an active capture session with CDP attached. " +
+        "Supports all CDP domains: Page, DOM, Runtime, Network, Emulation, Input, etc. " +
+        "See https://chromedevtools.github.io/devtools-protocol/ for available methods.",
+      inputSchema: z.object({
+        method: z.string().describe("CDP method name, e.g. 'Page.captureScreenshot', 'Runtime.evaluate', 'DOM.getDocument'"),
+        params: z.record(z.string(), z.unknown()).optional().describe("CDP method parameters as a JSON object"),
+      }),
+    },
+    async ({ method, params }) => {
+      const result = await sessionManager.sendCdpCommand(method, params as Record<string, unknown> | undefined);
+      return text(result);
+    },
+  );
+
+  // -- Data Query --
+
+  server.registerTool(
+    "get_requests",
+    {
+      description:
+        "Get all captured HTTP requests for a session. Returns method, url, status, headers, body, and response for each request.",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      const requests = requestsRepo.findBySession(sessionId);
+      // Trim large bodies to keep response manageable
+      const trimmed = requests.map((r) => ({
+        id: r.id,
+        sequence: r.sequence,
+        method: r.method,
+        url: r.url,
+        status_code: r.status_code,
+        content_type: r.content_type,
+        duration_ms: r.duration_ms,
+        request_body: r.request_body
+          ? r.request_body.length > 2000
+            ? r.request_body.substring(0, 2000) + "..."
+            : r.request_body
+          : null,
+        response_body: r.response_body
+          ? r.response_body.length > 2000
+            ? r.response_body.substring(0, 2000) + "..."
+            : r.response_body
+          : null,
+      }));
+      return text(trimmed);
+    },
+  );
+
+  server.registerTool(
+    "filter_requests",
+    {
+      description:
+        "Filter captured HTTP requests for a session by method, domain, status code, content type, or URL pattern. Returns matching requests with trimmed bodies.",
+      inputSchema: z.object({
+        sessionId: z.string(),
+        method: z.string().optional().describe("HTTP method filter, e.g. GET, POST"),
+        domain: z.string().optional().describe("Domain/host to match in URL"),
+        statusCode: z.number().optional().describe("Exact status code, e.g. 200, 404"),
+        statusRange: z.string().optional().describe("Status code range: 2xx, 3xx, 4xx, 5xx"),
+        contentType: z.string().optional().describe("Content-Type contains match, e.g. json, html"),
+        urlPattern: z.string().optional().describe("URL substring match"),
+        limit: z.number().optional().describe("Max results to return (default 50)"),
+      }),
+    },
+    async ({ sessionId, method, domain, statusCode, statusRange, contentType, urlPattern, limit }) => {
+      const requests = requestsRepo.findBySessionFiltered(sessionId, {
+        method, domain, statusCode, statusRange, contentType, urlPattern, limit,
+      });
+      const trimmed = requests.map((r) => ({
+        id: r.id,
+        sequence: r.sequence,
+        method: r.method,
+        url: r.url,
+        status_code: r.status_code,
+        content_type: r.content_type,
+        duration_ms: r.duration_ms,
+        request_body: r.request_body
+          ? r.request_body.length > 2000
+            ? r.request_body.substring(0, 2000) + "..."
+            : r.request_body
+          : null,
+        response_body: r.response_body
+          ? r.response_body.length > 2000
+            ? r.response_body.substring(0, 2000) + "..."
+            : r.response_body
+          : null,
+      }));
+      return text(trimmed);
+    },
+  );
+
+  server.registerTool(
+    "get_request_detail",
+    {
+      description:
+        "Get full details of a single captured request including complete headers, body, and response body",
+      inputSchema: z.object({ requestId: z.string() }),
+    },
+    async ({ requestId }) => {
+      const req = requestsRepo.findById(requestId);
+      if (!req) return text({ error: "Request not found" });
+      return text(req);
+    },
+  );
+
+  server.registerTool(
+    "get_hooks",
+    {
+      description:
+        "Get all JS Hook records for a session (crypto operations, XHR/fetch intercepts, etc.)",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      const hooks = jsHooksRepo.findBySession(sessionId);
+      return text(hooks);
+    },
+  );
+
+  server.registerTool(
+    "get_storage",
+    {
+      description:
+        "Get storage snapshots (cookies, localStorage, sessionStorage) for a session",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      const snapshots = storageSnapshotsRepo.findBySession(sessionId);
+      return text(snapshots);
+    },
+  );
+
+  // -- AI Analysis --
+
+  server.registerTool(
+    "run_analysis",
+    {
+      description:
+        "Run AI-powered protocol analysis on captured session data. Uses the LLM configured in app settings. Returns a full analysis report.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session ID to analyze"),
+        purpose: z
+          .string()
+          .optional()
+          .describe(
+            "Analysis focus: 'reverse-api', 'security-audit', 'performance', 'crypto-reverse', or custom text",
+          ),
+        selectedSeqs: z
+          .array(z.number())
+          .optional()
+          .describe("Optional: specific request sequence numbers to analyze"),
+      }),
+    },
+    async ({ sessionId, purpose, selectedSeqs }) => {
+      const config = loadLLMConfig();
+      if (!config)
+        return text({
+          error:
+            "LLM not configured. Please configure LLM settings in the app first.",
+        });
+      const report = await aiAnalyzer.analyze(
+        sessionId,
+        config,
+        undefined,
+        purpose,
+        undefined,
+        selectedSeqs,
+      );
+      // Reset chat history so next chat_followup uses the new report
+      chatHistories.delete(sessionId);
+      return text({
+        id: report.id,
+        content: report.report_content,
+        model: report.llm_model,
+      });
+    },
+  );
+
+  server.registerTool(
+    "get_reports",
+    {
+      description: "Get all analysis reports for a session",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      const reports = reportsRepo.findBySession(sessionId);
+      return text(
+        reports.map((r) => ({
+          id: r.id,
+          created_at: r.created_at,
+          llm_model: r.llm_model,
+          content:
+            r.report_content.length > 3000
+              ? r.report_content.substring(0, 3000) + "..."
+              : r.report_content,
+        })),
+      );
+    },
+  );
+
+  server.registerTool(
+    "chat_followup",
+    {
+      description:
+        "Send a follow-up question about a previous analysis. Maintains conversation history per session.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session ID"),
+        message: z.string().describe("Follow-up question"),
+      }),
+    },
+    async ({ sessionId, message }) => {
+      const config = loadLLMConfig();
+      if (!config) return text({ error: "LLM not configured" });
+
+      // Get or initialize chat history for this session
+      if (!chatHistories.has(sessionId)) {
+        // Load existing report as context
+        const reports = reportsRepo.findBySession(sessionId);
+        const lastReport = reports[reports.length - 1];
+
+        // Build system prompt with captured data summary (consistent with IPC path)
+        const requests = requestsRepo.findBySession(sessionId);
+        const hooks = jsHooksRepo.findBySession(sessionId);
+        const reqSummary = requests.slice(0, 50).map((r) => {
+          let path = r.url;
+          try { path = new URL(r.url).pathname; } catch { /* keep full url */ }
+          return `#${r.sequence} ${r.method} ${path} → ${r.status_code ?? '?'}`;
+        }).join('\n');
+
+        const hookSummary = hooks.length > 0
+          ? '\n\nDetected hooks:\n' + hooks.slice(0, 20).map((h) =>
+              `[${h.hook_type}] ${h.function_name}`
+            ).join('\n')
+          : '';
+
+        const contextBlock = reqSummary
+          ? `\n\n<captured_data_summary>\nCaptured ${requests.length} requests:\n${reqSummary}${requests.length > 50 ? `\n... and ${requests.length - 50} more` : ''}${hookSummary}\n</captured_data_summary>`
+          : '';
+
+        const systemContent = `你是一位网站协议分析专家。基于之前的分析报告和捕获数据，回答用户的追问。保持技术精确，用中文回复。\n\n你可以使用 get_request_detail 工具，通过传入请求序号(seq)来查看任意请求的完整详情（请求头、请求体、响应头、响应体）。当用户追问某个具体请求或需要更多细节时，请主动调用此工具获取数据。${contextBlock}`;
+
+        const initialHistory: ChatMessage[] = [
+          { role: "system" as const, content: systemContent },
+        ];
+        if (lastReport) {
+          initialHistory.push({ role: "assistant" as const, content: lastReport.report_content });
+        }
+        chatHistories.set(sessionId, initialHistory);
+      }
+
+      const history = chatHistories.get(sessionId)!;
+      const reply = await aiAnalyzer.chat(sessionId, config, history, message);
+      // Update history
+      history.push({ role: "user" as const, content: message });
+      history.push({ role: "assistant" as const, content: reply });
+
+      return text({ reply });
+    },
+  );
+
+  // -- Interaction Recording --
+
+  const replayEngine = new ReplayEngine();
+
+  server.registerTool(
+    "get_interactions",
+    {
+      description:
+        "Get recorded user interaction events (clicks, inputs, scrolls, mouse movements) for a session. " +
+        "Returns element selectors, positions, input values, and timestamps.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session ID"),
+        type: z.enum(['click', 'dblclick', 'input', 'scroll', 'navigate', 'hover']).optional().describe("Filter by interaction type"),
+        limit: z.number().default(100).describe("Max events to return"),
+      }),
+    },
+    async ({ sessionId, type, limit }) => {
+      const events = type
+        ? interactionEventsRepo.findBySessionAndType(sessionId, type as InteractionType)
+        : interactionEventsRepo.findBySession(sessionId, limit);
+      return text(events.slice(0, limit));
+    },
+  );
+
+  server.registerTool(
+    "get_interaction_summary",
+    {
+      description:
+        "Get a high-level summary of recorded interactions: action sequence, key elements, and navigation flow. " +
+        "Useful for understanding what the user did before asking AI to automate it.",
+      inputSchema: z.object({ sessionId: z.string() }),
+    },
+    async ({ sessionId }) => {
+      const events = interactionEventsRepo.findBySession(sessionId, 500);
+      if (events.length === 0) {
+        return text({ summary: "No interactions recorded for this session.", steps: [] });
+      }
+
+      // Generate human-readable summary
+      const steps: string[] = [];
+      let stepNum = 1;
+      for (const event of events) {
+        if (event.type === 'hover') continue; // skip movement in summary
+        let desc = '';
+        switch (event.type) {
+          case 'click':
+          case 'dblclick': {
+            const target = event.element_text || event.selector || `(${event.x}, ${event.y})`;
+            desc = `${event.type === 'dblclick' ? 'Double-click' : 'Click'} "${target}" [${event.tag_name || 'element'}]`;
+            break;
+          }
+          case 'input': {
+            const field = event.selector || event.tag_name || 'input';
+            desc = `Type "${event.input_value}" into ${field}`;
+            break;
+          }
+          case 'scroll': {
+            desc = `Scroll to (${event.scroll_x}, ${event.scroll_y})`;
+            break;
+          }
+          case 'navigate': {
+            desc = `Navigate to ${event.url}`;
+            break;
+          }
+        }
+        if (desc) {
+          steps.push(`${stepNum++}. ${desc}`);
+        }
+      }
+
+      return text({
+        totalEvents: events.length,
+        clickCount: events.filter(e => e.type === 'click' || e.type === 'dblclick').length,
+        inputCount: events.filter(e => e.type === 'input').length,
+        scrollCount: events.filter(e => e.type === 'scroll').length,
+        pagesVisited: [...new Set(events.map(e => e.url))],
+        steps,
+      });
+    },
+  );
+
+  server.registerTool(
+    "replay_interactions",
+    {
+      description:
+        "Replay recorded user interactions in the browser via CDP Input simulation. " +
+        "Reproduces clicks, inputs, scrolls in the original sequence.",
+      inputSchema: z.object({
+        sessionId: z.string().describe("Session ID with recorded interactions"),
+        speed: z.number().default(2).describe("Playback speed multiplier (2 = 2x faster)"),
+        fromSequence: z.number().optional().describe("Start from this sequence number"),
+        toSequence: z.number().optional().describe("Stop at this sequence number"),
+        skipMoves: z.boolean().default(true).describe("Skip mouse movement events"),
+      }),
+    },
+    async ({ sessionId, speed, fromSequence, toSequence, skipMoves }) => {
+      const webContents = windowManager.getTabManager()?.getActiveWebContents();
+      if (!webContents || webContents.isDestroyed()) throw new Error("Browser not ready");
+
+      let events = interactionEventsRepo.findBySession(sessionId, 10000);
+      if (fromSequence != null) events = events.filter(e => e.sequence >= fromSequence);
+      if (toSequence != null) events = events.filter(e => e.sequence <= toSequence);
+
+      if (events.length === 0) return text({ error: "No interactions to replay" });
+
+      const result = await replayEngine.replay(webContents, events, { speed, skipMoves });
+      return text(result);
+    },
+  );
+
+  server.registerTool(
+    "execute_browser_action",
+    {
+      description:
+        "Execute a single browser action: click an element, type text, scroll, or navigate. " +
+        "Use CSS selectors from interaction recordings or get_page_elements to target elements.",
+      inputSchema: z.object({
+        action: z.enum(['click', 'type', 'scroll', 'navigate']).describe("Action to perform"),
+        selector: z.string().optional().describe("CSS selector of target element (for click/type)"),
+        text: z.string().optional().describe("Text to type (for 'type' action)"),
+        url: z.string().optional().describe("URL to navigate (for 'navigate' action)"),
+        x: z.number().optional().describe("X coordinate (for click without selector)"),
+        y: z.number().optional().describe("Y coordinate (for click without selector)"),
+        scrollDelta: z.number().optional().describe("Scroll delta in pixels (for 'scroll' action, positive=down)"),
+      }),
+    },
+    async ({ action, selector, text: inputText, url, x, y, scrollDelta }) => {
+      const webContents = windowManager.getTabManager()?.getActiveWebContents();
+      if (!webContents || webContents.isDestroyed()) throw new Error("Browser not ready");
+      const result = await replayEngine.executeAction(webContents, {
+        type: action, selector, text: inputText, url, x, y, scrollDelta,
+      });
+      return text(result);
+    },
+  );
+
+  server.registerTool(
+    "get_page_elements",
+    {
+      description:
+        "Get interactive elements on the current page with their CSS selectors, text content, and bounding boxes. " +
+        "Use this to discover what elements are available before executing browser actions.",
+      inputSchema: z.object({
+        filter: z.enum(['all', 'clickable', 'inputs', 'links', 'buttons']).default('clickable')
+          .describe("Element filter: 'clickable' for buttons/links/interactive, 'inputs' for form fields"),
+      }),
+    },
+    async ({ filter }) => {
+      const webContents = windowManager.getTabManager()?.getActiveWebContents();
+      if (!webContents || webContents.isDestroyed()) throw new Error("Browser not ready");
+
+      const selectorMap: Record<string, string> = {
+        all: 'a, button, input, select, textarea, [role="button"], [onclick], [tabindex]',
+        clickable: 'a, button, [role="button"], [onclick], [tabindex]:not(input):not(textarea)',
+        inputs: 'input, select, textarea',
+        links: 'a[href]',
+        buttons: 'button, [role="button"], input[type="submit"], input[type="button"]',
+      };
+
+      const result = await webContents.executeJavaScript(`
+        (function() {
+          const selector = ${JSON.stringify(selectorMap[filter] || selectorMap.clickable)};
+          const elements = Array.from(document.querySelectorAll(selector)).slice(0, 50);
+          return elements.map(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) return null; // hidden
+            const id = el.id && !(/[0-9a-f]{8,}|_\\d+$|^:r\\d+:|^ember\\d+/.test(el.id))
+              ? '#' + el.id : null;
+            const testId = el.getAttribute('data-testid');
+            const selector = id || (testId ? '[data-testid=\"' + testId + '\"]' : null)
+              || (el.className && typeof el.className === 'string'
+                ? el.tagName.toLowerCase() + '.' + el.className.trim().split(/\\s+/).slice(0,2).join('.')
+                : el.tagName.toLowerCase());
+            return {
+              selector,
+              tag: el.tagName.toLowerCase(),
+              type: el.getAttribute('type'),
+              text: (el.textContent || '').trim().slice(0, 80),
+              placeholder: el.getAttribute('placeholder'),
+              href: el.getAttribute('href'),
+              rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
+            };
+          }).filter(Boolean);
+        })()
+      `, true);
+
+      return text(result);
+    },
+  );
+}
+
+// ---- Resource Registration ----
+
+function registerResources(server: McpServer, deps: MCPServerDeps): void {
+  const { sessionManager, windowManager } = deps;
+
+  server.registerResource(
+    "sessions",
+    "sessions://list",
+    {
+      description: "List of all analysis sessions",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          text: JSON.stringify(sessionManager.listSessions(), null, 2),
+          mimeType: "application/json",
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "app-status",
+    "app://status",
+    {
+      description:
+        "Current application status including active session and capture state",
+    },
+    async (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          text: JSON.stringify(
+            {
+              currentSessionId: sessionManager.getCurrentSessionId(),
+              mcpServerRunning: isMCPServerRunning(),
+            },
+            null,
+            2,
+          ),
+          mimeType: "application/json",
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "browser-tabs",
+    "browser://tabs",
+    {
+      description: "Current browser tabs",
+    },
+    async (uri) => {
+      const tabs =
+        windowManager
+          .getTabManager()
+          ?.getAllTabs()
+          .map((t) => ({
+            id: t.id,
+            url: t.url,
+            title: t.title,
+          })) || [];
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            text: JSON.stringify(tabs, null, 2),
+            mimeType: "application/json",
+          },
+        ],
+      };
+    },
+  );
+}
+
+// ---- Helpers ----
+
+function text(data: unknown) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+  };
+}
+
+function readBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      try {
+        const body = Buffer.concat(chunks).toString("utf-8");
+        resolve(body ? JSON.parse(body) : undefined);
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on("error", reject);
+  });
+}

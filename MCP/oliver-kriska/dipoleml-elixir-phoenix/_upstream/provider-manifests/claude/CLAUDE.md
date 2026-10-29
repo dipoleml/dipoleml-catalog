@@ -1,0 +1,978 @@
+# Plugin Development Guide
+
+Development documentation for the Elixir/Phoenix Claude Code plugin.
+
+## Overview
+
+This plugin provides **agentic workflow orchestration** with specialist agents and reference skills for Elixir/Phoenix/LiveView development.
+
+## Workflow Architecture
+
+The plugin implements a **Plan → Work → Review → Compound** lifecycle:
+
+```
+/phx:plan → /phx:work → /phx:review → /phx:compound
+     │           │            │              │
+     ↓           ↓            ↓              ↓
+plans/{slug}/  (in namespace) (in namespace) solutions/
+```
+
+> **Planning depth**: `--depth quick|standard|deep`.
+
+**Key principle**: Filesystem is the state machine. Each phase reads from previous phase's output. Solutions feed back into future cycles.
+
+### Workflow Commands
+
+| Command | Phase | Input | Output |
+|---------|-------|-------|--------|
+| `/phx:plan` | Planning | Feature description | `plans/{slug}/plan.md` |
+| `/phx:plan --existing` | Enhancement | Plan file | Enhanced plan with research |
+| `/phx:brief` | Understanding | Plan file | Interactive walkthrough (ephemeral) |
+| `/phx:work` | Execution | Plan file | Updated checkboxes, `plans/{slug}/progress.md` |
+| `/phx:review` | Quality | Changed files | `plans/{slug}/reviews/` |
+| `/phx:compound` | Knowledge | Solved problem | `solutions/{category}/{fix}.md` |
+| `/phx:full` | All | Feature description | Complete cycle with compounding |
+
+### Artifact Directories
+
+Each plan owns all its artifacts in a namespace directory:
+
+```
+.claude/
+├── plans/{slug}/              # Everything for ONE plan
+│   ├── plan.md                # The plan itself
+│   ├── interview.md           # Brainstorm → plan contract (requirements handoff)
+│   ├── research/              # Research agent output
+│   ├── reviews/               # Review agent output (individual tracks)
+│   ├── summaries/             # Context-supervisor compressed output
+│   ├── progress.md            # Progress log
+│   └── scratchpad.md          # Auto-written decisions, dead-ends, handoffs
+├── audit/                     # Audit namespace (not plan-specific)
+│   ├── reports/               # 5 specialist agent outputs
+│   └── summaries/             # Supervisor compressed output
+├── reviews/                   # Fallback for ad-hoc reviews (no plan)
+├── skill-metrics/             # Skill effectiveness dashboards and recommendations
+│   ├── dashboard-{date}.json  # Per-skill aggregate metrics
+│   └── recommendations-{date}.md  # Improvement recommendations
+└── solutions/{category}/      # Global compound knowledge (unchanged)
+    ├── ecto-issues/
+    ├── liveview-issues/
+    └── ...
+```
+
+### Context Supervisor Pattern
+
+Orchestrators that spawn multiple sub-agents use a generic
+`context-supervisor` (sonnet) to compress worker output before
+synthesis. This prevents context exhaustion in the parent:
+
+```
+Orchestrator (thin coordinator)
+  └─► context-supervisor reads N worker output files
+      └─► writes summaries/consolidated.md
+          └─► Orchestrator reads only the summary
+```
+
+Used by: planning-orchestrator, parallel-reviewer, audit skill, docs-validation-orchestrator.
+
+**Subagent nesting depth budget.** Claude Code 2.1.217–2.1.218 defaulted
+`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` to **1**; 2.1.219+ defaults to **3**.
+An explicit environment value overrides that default. The current deepest
+supported chain is **depth 3** — `/phx:full` → workflow-orchestrator →
+parallel-reviewer → review specialists. Public skills must preflight the value
+and keep orchestration in the main conversation when the configured depth is
+too small; never launch an orchestrator that cannot perform its fan-out.
+`/phx:full` and planning/investigation orchestrators need depth 3; call-tracer
+alone needs depth 2. At lower depths, spawn the same leaf specialists directly
+and preserve the workflow's decisions, artifacts, and gates. A nested
+investigation track must apply trace procedures directly rather than spawning
+call-tracer, which would create a depth-4 chain. A plugin hook cannot raise the
+parent process's environment.
+
+**Background is the default (CC 2.1.198+).** Subagents run in the background by
+default and inherit the session's extended-thinking config. Orchestrators pass
+`run_in_background: true` and wait for all workers before compressing; keep the
+explicit flag for self-documentation.
+
+## Structure
+
+```
+claude-elixir-phoenix/
+├── .claude-plugin/
+│   └── marketplace.json
+├── .claude/                         # Contributor tooling (NOT distributed)
+│   ├── agents/
+│   │   ├── phoenix-project-analyzer.md  # Analyze external codebases
+│   │   └── docs-validation-orchestrator.md  # Plugin docs compatibility
+│   ├── commands/
+│   │   ├── psql-query.md
+│   │   └── techdebt.md
+│   └── skills/
+│       ├── cc-changelog/            # /cc-changelog — track CC changelog impact
+│       ├── docs-check/              # /docs-check — validate against Claude Code docs
+│       ├── plugin-dev-workflow/     # plugin development workflow guide
+│       ├── promote/                 # /promote — release promotion posts
+│       ├── release/                 # /release — cut a plugin release
+│       ├── session-scan/            # /session-scan — Tier 1 metrics
+│       ├── session-deep-dive/       # /session-deep-dive — Tier 2 analysis
+│       ├── session-trends/          # /session-trends — trend reporting
+│       └── skill-monitor/           # /skill-monitor — skill effectiveness dashboard
+├── scripts/
+│   └── fetch-claude-docs.sh         # Download Claude Code docs for validation
+├── plugins/
+│   ├── rewrite/                     # Elixir Rewrite Architect (separate plugin, depends on elixir-phoenix)
+│   │   ├── agents/                  # 7 analysis, design and audit agents
+│   │   └── skills/                  # 5 /rewrite:* commands + elixir-way reference skill
+│   └── elixir-phoenix/
+│       ├── .claude-plugin/
+│       │   └── plugin.json
+│       ├── agents/                  # 26 specialist agents
+│       │   ├── workflow-orchestrator.md   # Full cycle coordination
+│       │   ├── planning-orchestrator.md
+│       │   ├── context-supervisor.md     # Generic output compressor (sonnet)
+│       │   └── ...
+│       ├── hooks/
+│       │   └── hooks.json           # Format, progress tracking, Stop warning
+│       └── skills/                  # 51 skills
+│           ├── work/                # Execution phase
+│           ├── full/                # Autonomous cycle
+│           ├── plan/                # Planning + deepening (--existing)
+│           ├── review/              # Enhanced: Todo creation
+│           ├── compound/            # Knowledge capture phase
+│           ├── compound-docs/       # Solution documentation system
+│           ├── investigate/
+│           └── ...
+├── CLAUDE.md
+└── README.md
+```
+
+## Conventions
+
+### Agents
+
+Agents are specialist reviewers that analyze code without modifying it.
+
+**Frontmatter:**
+
+```yaml
+---
+name: my-agent
+description: Description with "Use proactively when..." guidance
+tools: Read, Grep, Glob, Bash
+disallowedTools: Write, Edit, NotebookEdit
+model: sonnet
+effort: medium
+memory: project
+skills:
+  - relevant-skill
+---
+```
+
+**Rules:**
+
+- Use `sonnet` model by default — the alias resolves to Sonnet 5.5 (CC 2.1.284+, native 1M
+  context, $2/$10 per Mtok). `opus` is Opus 5.5 ($4/$20), `haiku` is Haiku 4.5 ($1/$5, 200K).
+  On Bedrock/Vertex/Foundry the aliases point at older models. A family alias follows the
+  session: a session pinned to Sonnet 5 runs `model: sonnet` agents on Sonnet 5
+- Use `opus` for orchestrators that synthesize across parallel workers, and for
+  security-critical agents. Currently: `workflow-orchestrator`, `parallel-reviewer`,
+  `deep-bug-investigator`, `security-analyzer`
+- Use `sonnet` for orchestrators that fan out without cross-worker synthesis
+  (`planning-orchestrator`, `call-tracer`) and for judgment-heavy specialists
+- **Pin `general-purpose` fan-out spawns to `model: "sonnet"`** — in opus orchestrators
+  and in skills that spawn from the main conversation. A subagent with no `model:`
+  inherits the *spawning parent's* model, and Opus 5.5 is the default on every plan since
+  CC 2.1.280. Named `phx:*` subagents are unaffected (their frontmatter wins). Leave
+  implementation workers (`/phx:work` parallel tasks) inheriting the user's chosen model
+- Mechanical agents (compression, verification, dependency analysis, fetch workers) also use
+  `sonnet`: Haiku 4.5 is a generation behind, 200K-context, ignores `effort`, and costs half of
+  Sonnet 5.5 — not enough saving to justify the quality gap
+- Set `effort: medium` — the Opus 5.5 and Sonnet 5.5 default in CC. Opus 5.5 at `medium` matches
+  Opus 5 at `high`; raise an agent to `high` only with an eval showing it helps
+- Review agents are **read-only** (`disallowedTools: Write, Edit, NotebookEdit`)
+- **Never set `permissionMode`** on a plugin agent. Claude Code ignores it there (also `hooks`,
+  `mcpServers`, `initialPrompt`), and the plugin directory's security scan fails a plugin whose
+  agent sets `bypassPermissions` as "Weakens permission or sandbox controls" (catchup, 2026-10-01).
+  `test_plugin_agents_do_not_set_permission_mode` and the agent eval enforce it.
+  `.claude/agents/` contributor agents are not plugin agents and still honor the field
+- Use `memory: project` for agents that benefit from cross-session learning (orchestrators, pattern analysts).
+  Note: `memory` auto-enables Read, Write, Edit — only add to agents that already have Write access
+- Preload relevant skills via `skills:` field
+- Add `omitClaudeMd: true` for read-only agents (no Write tool) — they don't need commit/PR/lint
+  guidelines from CLAUDE.md. Iron Laws are injected via SubagentStart hook. Enforced by eval.
+  - **Iron Laws injection ≠ CLAUDE.md inclusion.** `omitClaudeMd: true` skips the project
+    CLAUDE.md body (commit rules, lint guidance, scope cues). It does NOT suppress Iron Laws —
+    the `SubagentStart` hook injects them via `hookSpecificOutput.additionalContext` on every
+    subagent spawn. Set `omitClaudeMd: true` freely on read-only agents; Iron Laws stay enforced.
+- Keep under 300 lines
+
+### Skills
+
+Skills provide domain knowledge with progressive disclosure.
+
+**Structure:**
+
+```
+skills/{name}/
+├── SKILL.md           # ~100 lines max
+└── references/        # Detailed content
+    └── *.md
+```
+
+**Rules:**
+
+- SKILL.md: ~100 lines max (~500 tokens)
+- Include "Iron Laws" section for critical rules
+- Move detailed examples to `references/`
+- Set `effort:` to match skill complexity: `low` for mechanical (verify, quick, compound), `medium` for reference skills, `high` for complex reasoning (plan, full, investigate, review)
+- Use `${CLAUDE_SKILL_DIR}/references/` for reference file paths (not bare `references/`)
+- No `triggers:` field (use `description` for auto-loading)
+- No `allowed-tools:` field. It approves tool calls without a prompt while the skill runs, and
+  the plugin directory rejects plugins that approve their own actions. Enforced by
+  `test_plugin_skills_do_not_preapprove_tools`
+- **Description must be under 250 characters** — this is a plugin-side budget discipline,
+  not a hard CC cap (CC caps `description` + `when_to_use` at 1,536 chars). The skill
+  listing gets 1% of the model's context window, shared by every installed plugin. On
+  overflow CC drops descriptions starting with the least-invoked skills — rarely used
+  phx reference skills lose theirs first. With 51 skills, target under 200 chars.
+  Enforced by eval; `make budget` fails when the always-on total grows >5%.
+
+### Workflow Skills
+
+Workflow skills (plan, work, review, compound, full) have special structure:
+
+- Define clear input/output artifacts
+- Reference other workflow phases
+- Include integration diagram showing position in cycle
+- Document state transitions
+
+### Compound Knowledge Skills
+
+The compound system captures solved problems as searchable institutional knowledge:
+
+- `compound-docs` — Schema and reference for solution documentation
+- `compound` (`/phx:compound`) — Post-fix knowledge capture skill
+Solution docs use YAML frontmatter (see `compound-docs/references/schema.md`).
+
+### Hooks
+
+Defined in `hooks/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [...],           // Block dangerous ops + deps-audit gate + freeze edit-scope gate
+    "PostToolUse": [...],          // Format + Iron Law verify + security + progress + plan STOP + debug stmt
+    "PostToolUseFailure": [...],   // Elixir failure hints + error critic for mix commands
+    "UserPromptSubmit": [...],     // route-intent.sh — inject /phx: workflow suggestions
+    "SubagentStart": [...],        // Iron Laws injection into all subagents
+    "SessionStart": [...],         // Setup dirs + Tidewave + Ash + resume detection; `compact` re-injects workflow rules
+    "StopFailure": [...],          // Log API failures to scratchpad for resume
+    "Stop": [...]                  // Warn if uncompleted tasks
+  }
+}
+```
+
+**Hook documentation is REQUIRED, not optional.** When you add, remove, or
+change the behavior of any hook, update all four of these in the same commit:
+
+1. `HOOKS.md` (repo root) — user-facing table + lifecycle diagram
+2. `plugins/elixir-phoenix/hooks/docs/{group}.md` — the per-group deep dive
+3. `plugins/elixir-phoenix/hooks/README.md` — only if a convention or the
+   per-event output-channel table changed
+4. The **Current hooks** list below
+
+The docs are the only place the *reasoning* behind a hook is recorded — the
+incident it came from, the pattern it rejects, the fail-open contract. A hook
+change that ships without them loses that permanently. See
+`plugins/elixir-phoenix/hooks/README.md` → "Adding or changing a hook".
+
+**Current hooks:**
+
+- `PreToolUse` (Bash): Block destructive operations (`mix ecto.reset/drop`, `git push --force`,
+  `MIX_ENV=prod` with any task but the release build steps, `pkill`/`killall` naming a BEAM process)
+  before execution; also greps the local script a command runs (`bash x.sh`, `./x.sh`, `dir/x.sh`)
+  for the `MIX_ENV=prod` and pattern-kill denials, failing open on a missing or unreadable file
+- `PreToolUse` (Bash, `"if": "Bash(*mix deps.*)"`): `deps-audit-gate.sh` — blocks unvetted dep operations after `/phx:deps-audit` flags them
+- `PreToolUse` (Edit|Write|NotebookEdit): `freeze-gate.sh` — enforces `/phx:freeze` edit-scope locks (sentinel-backed read-only/dir-scoped locks)
+- `PostToolUse` (Edit): Auto `mix format --check-formatted`, **programmatic Iron Law verification**,
+  **debug statement detection** — all use `if` conditions to only fire on `.ex`/`.exs` files
+  (e.g., `"if": "Edit(*.ex)"`) to avoid unnecessary shell spawns on non-Elixir files
+- `PostToolUse` (Write): Same Elixir checks as Edit + plan STOP reminder with `"if": "Write(*plan.md)"`
+- `PostToolUse` (Edit|Write): Security Iron Laws for auth files, async progress logging
+  (these fire on all file types — no `if` filtering)
+- `PostToolUseFailure` (Bash): Elixir-specific debugging hints and **error critic** —
+  both use `"if": "Bash(*mix*)"` to only fire on mix command failures (via `additionalContext`)
+- `PostToolUse` (Bash, `"if": "Bash(*mix*)"`): `error-critic.sh` resets that command's failure count
+  on success, so the critic counts consecutive failures per session (state keyed by `session_id`)
+- `UserPromptSubmit`: `route-intent.sh` — inject one-line `/phx:` workflow suggestions for high-signal
+  intents (PR URLs → `/phx:pr-review`, Tidewave current-page + stack traces → `/phx:investigate`).
+  Gated on `mix.exs`, one suggestion per category per session, always exits 0
+- `SubagentStart`: Inject all Iron Laws into every spawned subagent via `additionalContext` (addresses zero skill auto-loading gap)
+- `SessionStart` (all): Setup `.claude/` directories + Tidewave detection + Ash detection (`detect-ash.sh`) (`async: true`)
+- `SessionStart` (startup|resume|fork only): Scratchpad check + resume workflow detection (`check-resume.sh` —
+  gated on `mix.exs` OR an existing `.claude/plans/*/plan.md`; sole owner of the resume/no-plan banner
+  after the duplicate echo hook was removed) + branch freshness (`async: true`, mix.exs-gated, local refs only — never `git fetch`) + workflow hints
+- `SessionStart` (compact only): `compact-rules.sh` re-injects workflow rules (plan/work/full) and scratchpad
+  dead ends; `compact-verify.sh` tells Claude to re-read the active plan. Both use stdout — the only
+  post-compaction channel that reaches Claude
+- `StopFailure`: Log API failure to plan scratchpad for resume detection in next session
+  (CC ignores StopFailure exit code/output — the scratchpad **write** is the whole job)
+- `Stop` (`check-pending-plans.sh`): user-visible `systemMessage` reminder, gated on running
+  `background_tasks[]` / `session_crons[]` (a forgotten `mix phx.server` / scheduled job).
+  Stays silent on clean stops — pending plans + dirty tree are already surfaced at
+  `SessionStart`, so it does NOT re-warn them every turn. Deliberately NOT `additionalContext`
+  (that would force Claude to continue on every stop)
+
+Every `command` is exactly one quoted script path — `"\"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/x.sh\""` —
+with no `|| exit 0`, pipes or arguments. Unquoted, a plugin path with a space splits and the
+gate fails open; with shell operators, the Anthropic plugin directory blocks the submission.
+The directory also follows each script: keep hook scripts plain bash — no inline `awk`/`sed`/
+`perl`/`python3 -c` programs, `eval`, `source`, `bash <file>`, `command -v`, or `$0`-based
+paths, and no heredocs or quoted strings spanning lines — use `printf '%s\n'` with one argument
+per line (hooks README rule 9).
+`make validate` runs `claude plugin validate --strict`, and a pytest guard enforces it in CI.
+
+**Hook output patterns (important for contributors):**
+
+- `PostToolUse` stdout is **verbose-mode only** — use `exit 2` + stderr to feed messages to Claude
+- `PreCompact` / `PostCompact` **cannot reach Claude** — `systemMessage` and stderr go to the user only.
+  Re-inject after compaction with `SessionStart` matcher `compact` (stdout)
+- `SessionStart` stdout IS added to Claude's context (one of two exceptions along with `UserPromptSubmit`)
+- `SubagentStart` uses `hookSpecificOutput.additionalContext` to inject context into subagents
+- `PostToolUseFailure` uses `hookSpecificOutput.additionalContext` for debugging hints
+- `Stop` stdout is **debug-log only** — to reach the user use JSON `systemMessage` (Claude still
+  stops); `additionalContext`/`exit 2` instead **continue the turn**, so reserve them for cases
+  where you actually want Claude to keep working
+- `StopFailure` output and exit code are **ignored by CC** — it can't block or message; persist
+  state to a file (scratchpad) that a later `SessionStart` hook reads instead
+
+**MCP tool hooks (CC 2.1.118+)** — hooks can call MCP tools directly via
+`type: "mcp_tool"`. Required fields: `server`, `tool`; optional `input` with
+`${tool_input.field}` substitution. Caveat: SessionStart and Setup fire before
+MCP servers finish connecting, so for service detection prefer a direct probe
+(see `detect-tidewave.sh`); reserve `mcp_tool` hooks for PreToolUse / PostToolUse
+/ Stop where the connection is already live.
+
+### Tidewave Integration
+
+When Tidewave MCP available:
+
+- Prefer `mcp__tidewave__get_docs` over web search
+- Prefer `mcp__tidewave__project_eval` over test scripts
+- Prefer `mcp__tidewave__execute_sql_query` over psql
+
+## Development
+
+### Testing locally
+
+```bash
+# Option A: Test plugin directly, including its public command namespaces
+claude \
+  --plugin-dir ./plugins/elixir-phoenix \
+  --plugin-dir ./plugins/ecto \
+  --plugin-dir ./plugins/lv
+
+# Option B: Add as local marketplace
+/plugin marketplace add .
+/plugin install elixir-phoenix
+```
+
+The marketplace/install identity is `elixir-phoenix`, but the canonical
+manifest namespace must stay `phx` so existing `/phx:*` commands remain valid.
+The `ecto` and `lv` dependencies preserve `/ecto:*` and `/lv:*`. Claude Code
+uses plugin namespaces plus skill directory names for effective slash commands;
+frontmatter `name` alone does not preserve these public names.
+
+`rewrite` declares its phx dependency in its **marketplace entry**, not in
+`plugin.json`. A dependency resolves by marketplace name (`elixir-phoenix`),
+but `--plugin-dir` loads phx as `phx@inline`, so a manifest dependency would
+disable `rewrite` in Option A. Test it by adding `--plugin-dir ./plugins/rewrite`
+to Option A. `/rewrite:start` checks for `/phx:plan` at runtime.
+
+When editing skills, agents, or hooks mid-session, run `/reload-plugins` to
+pick up changes without restarting Claude Code (v2.1.98+). This also reloads
+skills provided by installed plugins.
+
+### Testing workflow
+
+```bash
+# Test individual workflow phase
+/phx:plan Test feature for workflow
+# Check: .claude/plans/ has checkbox plan
+
+/phx:work .claude/plans/test-feature/plan.md
+# Check: Checkboxes update, progress logged in plans/test-feature/progress.md
+```
+
+### Adding new agent
+
+1. Create `plugins/elixir-phoenix/agents/{name}.md`
+2. Add frontmatter with all required fields
+3. Keep under 300 lines
+
+### Adding new skill
+
+1. Create `plugins/elixir-phoenix/skills/{name}/SKILL.md` (~100 lines)
+2. Create `references/` with detailed content
+3. For workflow skills, document integration with cycle
+
+### Setup
+
+```bash
+npm install  # Pre-commit hooks + linting
+make venv    # .venv with pytest + PyYAML; make and the pre-commit hook prefer it
+```
+
+### Quality Commands (use `make`)
+
+```bash
+make help          # Show all commands
+make lint          # Lint markdown
+make lint-fix      # Auto-fix lint
+make test          # Pytest suites for the eval framework and port tooling
+make eval          # Quick: lint + structurally score changed skills/agents
+make eval-all      # Structurally score all 51 skills + 26 agents
+make eval-full     # Structural checks + fresh per-skill behavioral gate
+make eval-fix      # Auto-fix lint + show failures + suggest autoresearch
+make eval-tournament # Run tournament on weak skills (<75% trigger accuracy)
+make eval-plugin   # Real-session trigger eval via `claude plugin eval` (paid; SKILL=x)
+make eval-quality  # Output-quality eval, plugin vs no plugin (paid ~$2; CASE=x RUNS=3)
+make budget        # Always-on token cost vs scripts/plugin_budget.json (budget-update to re-record)
+make prompt-audit TARGET=plugins/elixir-phoenix/skills/x  # Report-only /doctor prompt-audit
+make ci            # Full CI pipeline: lint + test + validate + budget + eval + security
+```
+
+### Eval Framework (lab/eval/)
+
+The plugin has seven deterministic structural dimensions plus a neutral
+behavioral slot for skills, and five deterministic dimensions for agents.
+**Run `make eval` after every skill/agent edit.**
+
+**Eval loop for skill/agent edits:**
+
+1. Edit the skill or agent file
+2. Run `make eval` — checks only changed files
+3. If FAIL: run `make eval-fix` to see exact failures and get fix suggestions
+4. Fix the issues and re-run until PASS
+
+**What eval checks** (skills — 7 structural dimensions + behavioral slot):
+
+- completeness (sections, Iron Laws, frontmatter)
+- accuracy (cross-references valid)
+- conciseness (line counts, section limits)
+- triggering (description keywords, "Use when..." structure)
+- safety (Iron Laws, prohibitions, no dangerous patterns)
+- clarity (action density, no duplication, step coverage)
+- specificity (code examples, concrete vs vague)
+- behavioral (neutral during structural scoring; `make eval-full` runs a fresh
+  Haiku gate and requires every skill to reach 75% trigger accuracy)
+
+**Real-session trigger eval** (`lab/plugin_eval/`, CC 2.1.269+): `make eval-plugin`
+runs each `lab/eval/triggers/*.json` prompt in an isolated Claude Code session with
+phx, ecto and lv loaded and checks whether `phx:<skill>` actually fired. The Haiku
+gate only sees descriptions and overstates real routing (100% there vs 20–60% in
+real sessions for several skills), so after a **description** edit also run
+`SKILL=<name> make eval-plugin` (~$1). Opening with the user's task ("Write or fix
+Ecto schemas…") beat noun catalogs ("Ecto patterns — …") for 6 of 8 skills in an
+A/B but made elixir-idioms and phoenix-contexts worse — measure with 3+ runs per
+prompt (single runs swing ±2 of 5), never assume. Never point `claude plugin eval` at `plugins/elixir-phoenix`
+alone: its `dependencies` are unsatisfiable there, CC disables the plugin, and every
+run still gets scored. See `lab/plugin_eval/README.md`.
+
+**What eval checks** (agents — 5 dimensions):
+
+- completeness (frontmatter: name, description, tools, model, effort)
+- accuracy (preloaded skills exist, tools valid)
+- conciseness (line limits per agent type)
+- safety (no `permissionMode`, read-only enforcement)
+- consistency (model matches effort level)
+
+## Size Guidelines
+
+| Component | Target | Hard Limit | Notes |
+|-----------|--------|------------|-------|
+| SKILL.md (reference) | ~100 | ~150 | Iron Laws + quick patterns |
+| SKILL.md (command) | ~100 | ~185 | Command skills need complete execution flow inline |
+| references/*.md | ~350 | ~350 | Detailed patterns |
+| agents (specialist) | ~300 | ~365 | Design guidance beyond preloaded skill patterns |
+| agents (orchestrator) | ~300 | ~535 | Subagent prompts + flow control must be inline |
+
+### Why orchestrators and command skills exceed targets
+
+Plugin files live in `~/.claude/plugins/cache/` — outside the project.
+This means agents **cannot reliably read** skill `references/*.md` at runtime.
+
+Content must be inline (in agent prompt or preloaded SKILL.md) to be available:
+
+| Location | Auto-available? | Reliable? |
+|----------|----------------|-----------|
+| Agent system prompt | Yes | Yes |
+| Preloaded skill SKILL.md (`skills:` field) | Yes | Yes |
+| Skill `references/*.md` | No — needs Read call | **No** — permission prompt |
+
+Orchestrators embed subagent prompts (~80 lines × 4 agents = 320 lines minimum).
+Command skills drive execution — removing a step breaks the workflow.
+Only trim when content is purely informational and not execution-critical.
+
+## Checklist
+
+### New agent
+
+- [ ] Frontmatter complete
+- [ ] `disallowedTools: Edit, NotebookEdit` for review agents (Write remains
+  available only for findings artifacts; the read-only source rule is also an
+  explicit instruction, not a tool-enforced security boundary)
+- [ ] `Write` allowed for agents that output reports (research agents, reviewers, context-supervisor). Only agents that neither review nor research should have Write disallowed.
+- [ ] No `permissionMode` (ignored on plugin agents; the directory fails `bypassPermissions`)
+- [ ] `effort:` set (`medium`; `high` only with eval evidence)
+- [ ] `omitClaudeMd: true` for report-only agents (Write allowed for own report, Edit disallowed). They don't need commit/lint guidelines. Iron Laws injected via SubagentStart hook.
+- [ ] Skills preloaded
+- [ ] Description under 250 characters
+- [ ] Under target (300 lines), hard limit only if justified by inline subagent prompts
+
+### New skill
+
+- [ ] SKILL.md under target (~100 lines), hard limit for command skills (~185)
+- [ ] "Iron Laws" section
+- [ ] `references/` paths use `${CLAUDE_SKILL_DIR}/references/`
+- [ ] `effort:` set (low/medium/high)
+- [ ] No `triggers:` field
+- [ ] No `allowed-tools:` field
+- [ ] Description under 250 characters (CC internal budget cap)
+
+### New workflow skill
+
+- [ ] Clear input/output artifacts
+- [ ] Integration diagram with cycle position
+- [ ] State transitions documented
+- [ ] References previous/next phases
+
+### Release
+
+- [ ] All markdown passes linting
+- [ ] Version bumped in all **five** hand-maintained files (see below) — a partial
+      bump fails `scripts/tests/test_codex.py`, not just the install cache
+- [ ] `make generated-skills-sync` re-run so the two generated manifests pick up
+      the new version, then `make generated-skills-snapshots` to bless the digests
+- [ ] `CHANGELOG.md` updated with all changes under new version heading
+- [ ] README updated
+- [ ] `/phx:intro` tutorial content still accurate (commands, agents, features)
+- [ ] Public `/phx:*`, `/ecto:*`, and `/lv:*` command names still match skill directories and compatibility dependencies
+
+> **Tagging note**: each release gets four tags. `git tag vX.Y.Z` carries the
+> GitHub release. `claude plugin tag plugins/<name>` (verified on CC 2.1.284 with
+> this marketplace layout) creates `phx--vX.Y.Z`, `ecto--vX.Y.Z` and `lv--vX.Y.Z` —
+> the scheme dependency version ranges resolve against — after validating the
+> plugin, checking `plugin.json` against the marketplace entry, and refusing a
+> dirty tree. Since v3.1.2.
+
+#### Where the version lives
+
+Seven files carry the version. Five are edited by hand:
+
+| File | Why |
+|---|---|
+| `plugins/elixir-phoenix/.claude-plugin/plugin.json` | Canonical. Every other file is checked against this one |
+| `plugins/ecto/.claude-plugin/plugin.json` | Compatibility dependency for `/ecto:*` |
+| `plugins/lv/.claude-plugin/plugin.json` | Compatibility dependency for `/lv:*` |
+| `package.json` | Publishes the Pi package metadata (started tracking the plugin version at v3.0.0) |
+| `package-lock.json` | Two entries. Do **not** hand-edit — run `npm install --package-lock-only`, since an unrelated dependency may share the version string |
+
+Two more are **generated** and need no manual edit — the builders template them
+from the canonical manifest, so `make generated-skills-sync` after the bump
+updates both, and `make generated-skills-snapshots` re-blesses the digests:
+
+- `targets/codex/.codex-plugin/plugin.json`
+- `targets/pi/package.json`
+
+`plugins/catchup/` versions independently and is not part of this bump.
+`.claude-plugin/marketplace.json` carries a marketplace schema version, not the
+plugin version — leave it alone.
+
+### Versioning
+
+The plugin uses [semantic versioning](https://semver.org/):
+
+- **MAJOR**: Breaking changes (workflow redesign, removed commands)
+- **MINOR**: New features (new hooks, skills, agents, commands)
+- **PATCH**: Bug fixes, doc updates, description improvements
+
+Users only receive updates when the version in `plugin.json`
+changes. If you push code without bumping the version, existing users won't
+see the changes due to caching.
+
+When making changes, ALWAYS update `CHANGELOG.md` under the current
+`[Unreleased]` section. Use categories: Added, Changed, Fixed, Removed.
+On release, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and bump
+`plugin.json`.
+
+---
+
+# Claude Code Behavioral Instructions
+
+These instructions apply to Elixir/Phoenix work in this codebase.
+
+## Automatic Skill Loading
+
+When working on Elixir/Phoenix code, ALWAYS load relevant skills based on file context:
+
+| File Pattern | Auto-Load Skills | Check References |
+|--------------|------------------|------------------|
+| `*_live.ex`, `*_component.ex` | `liveview-patterns` | `references/async-streams.md` |
+| `*_channel.ex`, `*socket*` | `liveview-patterns` | `references/channels-presence.md` |
+| `*/workers/*`, `*_worker.ex`, `*_worker_test.exs`, `*_job.ex`, `*_agent.ex` | `oban` | `references/worker-patterns.md` |
+| `*/migrations/*`, `*_schema.ex`, `*changeset*`, `schema "` | `ecto-patterns` | `references/queries.md`, `references/changesets.md` |
+| `*auth*`, `*session*`, `*password*` | `security` | `references/authentication.md`, `references/authorization.md` |
+| `*_test.exs`, `*factory*`, `*fixtures*` | `testing` | `references/exunit-patterns.md`, `references/mox-patterns.md`, `references/factory-patterns.md` |
+| `config/runtime.exs`, `Dockerfile`, `fly.toml` | `deploy` | `references/docker-config.md` |
+| `*/contexts/*`, `lib/*/[a-z]*.ex` | `phoenix-contexts` | `references/context-patterns.md` |
+| `lib/mix/tasks/*` | `elixir-idioms` | `references/mix-tasks.md` |
+| `*.sface` | `liveview-patterns` | `references/components.md` |
+| `priv/resource_snapshots/**` | `ash-framework` | NEVER edit snapshots manually — owned by `mix ash.codegen` |
+| Any `.ex` or `.exs` file | `elixir-idioms` | Always check Iron Laws |
+
+### Skill Loading Behavior
+
+1. When opening/editing a file matching patterns above, load the skill
+2. Apply Iron Laws from loaded skills as validation rules
+3. If code violates Iron Law, **stop and explain** before proceeding
+4. Reference detailed docs from `references/` when making implementation decisions
+
+## Workflow Routing (Hook-Driven)
+
+High-signal intents are detected by the `route-intent.sh` UserPromptSubmit
+hook, which injects a one-line `/phx:` suggestion directly into context:
+PR URLs / review-feedback phrasing → `/phx:pr-review`; Tidewave
+`<context name="current-page">` blocks → `/phx:investigate`; Elixir stack
+traces → `/phx:investigate`. One suggestion per category per session,
+silent on explicit slash commands. (CLAUDE.md prose routing measured ~0%
+firing across 400 sessions — detection lives in the hook now.)
+
+For ambiguous multi-step requests not covered by the hook, the
+`intent-detection` skill's routing table still applies: suggest once,
+never block, skip for trivial tasks.
+
+### Debugging Loop Detection
+
+The `error-critic.sh` hook automatically detects repeated mix failures and
+escalates from generic hints (attempt 1) to structured critic analysis
+(attempt 3+). It tracks failure count per command and consolidates error
+history. This implements the Critic→Refiner pattern from AutoHarness
+(Lou et al., 2026): structured error consolidation before retry prevents
+debugging loops more effectively than unstructured retry.
+
+If the hook hasn't triggered (e.g., non-mix failures), manually detect:
+when 3+ consecutive Bash commands are `mix compile` or `mix test` with failures,
+suggest: "Looks like a debugging loop. Want me to run `/phx:investigate` for structured analysis?"
+
+### Custom MIX_ENV Awareness
+
+Some projects use non-standard Mix environments (e.g., `MIX_ENV=int_test` for E2E tests). When you see:
+
+- `config/int_test.exs` or other non-standard env config files
+- `MIX_ENV=` in mix.exs aliases
+- User running `MIX_ENV=<custom> mix compile/test`
+
+Then use that MIX_ENV for ALL compile, test, and format commands on those files. Do NOT use default MIX_ENV for files that only compile under the custom env.
+
+### Scoped Format and Compile Checks
+
+When running `mix format --check-formatted` or `mix compile`, **always scope to the files you changed**
+when possible. If a full-project check fails on files you didn't edit, report it as pre-existing
+and continue — do NOT waste time debugging unrelated format failures.
+
+### Sibling File Check
+
+When fixing a bug in a file that has named variants (e.g., `seller_account/form.ex`,
+`buyer_account/form.ex`, `occupier_account/form.ex`), proactively grep for all sibling files and
+check if the same bug exists in each variant. Do this BEFORE implementing the fix, not after.
+
+## Iron Laws Enforcement (NON-NEGOTIABLE)
+
+If code would violate one of these rules, **STOP and explain** before proceeding:
+
+### LiveView Iron Laws
+
+1. **NO unconditional DB queries in mount** - Mount runs twice. Default: `assign_async`. SEO routes: `connected?` + cache-backed disconnected branch (dead-render IS the crawler-indexed HTML)
+2. **ALWAYS use streams for lists >100 items** - Regular assigns = O(n) memory per user
+3. **CHECK `connected?/1` before PubSub subscribe** - Prevents double subscriptions
+
+### Ecto Iron Laws
+
+4. **NEVER use `:float` for money** - Use `:decimal` or `:integer` (cents)
+5. **ALWAYS pin values with `^` in queries** - Never interpolate user input
+6. **SEPARATE QUERIES for `has_many`, JOIN for `belongs_to`** - Avoids row multiplication
+
+### Oban Iron Laws
+
+7. **Jobs MUST be idempotent** - Safe to retry
+8. **Args use STRING keys, not atoms** - Pattern match `%{"user_id" => id}`
+9. **NEVER store structs in args** - Store IDs, not `%User{}`
+
+### Security Iron Laws
+
+10. **NO `String.to_atom` with user input** - Atom exhaustion DoS
+11. **AUTHORIZE in EVERY LiveView `handle_event`** - Don't trust mount authorization
+12. **NEVER use `raw/1` with untrusted content** - XSS vulnerability
+
+### OTP Iron Laws
+
+13. **NO process without runtime reason** - Processes model concurrency/state/isolation, NOT code structure
+14. **SUPERVISE ALL LONG-LIVED PROCESSES** - Never bare `GenServer.start_link`/`Agent.start_link` in production. Use supervision trees
+
+### Ecto Iron Laws (continued)
+
+15. **NO IMPLICIT CROSS JOINS** - `from(a in A, b in B)` without `on:` creates Cartesian product
+
+### Elixir Iron Laws
+
+16. **@external_resource FOR COMPILE-TIME FILES** - Modules reading files at compile time MUST declare `@external_resource`
+
+### Ecto Iron Laws (continued)
+
+17. **DEDUP BEFORE `cast_assoc` WITH SHARED DATA** - Deduplicate shared child records before building changesets, not inside them
+
+### LiveView Iron Laws (continued)
+
+18. **CHECK CHANGESET ERRORS BEFORE UI DEBUGGING** - When a form save produces no visible error but no expected side effect, check `{:error, changeset}` first
+
+### Ecto Iron Laws (continued)
+
+19. **HIDDEN INPUTS FOR ALL REQUIRED EMBEDDED FIELDS** - Every required field in an embedded schema MUST have a `hidden_input` if not directly editable
+
+### Elixir Iron Laws (continued)
+
+20. **WRAP THIRD-PARTY LIBRARY APIs** - Always facade external dependency APIs behind a project-owned module. Enables swapping libraries without touching callers
+
+### LiveView Iron Laws (continued)
+
+21. **NEVER use `assign_new` for values refreshed every mount** - `assign_new` skips the function if the key exists. Use `assign/3` for locale, current user, or any value that must be set on every mount
+
+### Verification Iron Laws
+
+22. **VERIFY BEFORE CLAIMING DONE** - Never say "should work" or "this fixes it." Run `mix compile && mix test` and show the result. If you can't verify, explicitly state what remains unverified
+
+### Elixir Iron Laws (continued)
+
+23. **MIX TASKS START ONLY WHAT THEY NEED** - `Mix.Task.run("app.config")` + `Application.ensure_all_started/1`, never `Mix.Task.run("app.start")` (boots full tree: endpoint port, Oban consuming)
+
+### LiveView Iron Laws (continued)
+
+24. **MATCH `{:error, %Ecto.Changeset{}}` EXPLICITLY** - Bare `{:error, _}` merges changeset and non-changeset errors; the form never re-renders validation errors. Handle others separately
+
+### Elixir Iron Laws (continued)
+
+25. **CAPTURE LOCALE BEFORE SPAWNING** - Gettext/CLDR locale is process-local. Read it in the caller and pass it explicitly — a spawned Task/GenServer starts with the default locale
+
+### Code Style Iron Laws
+
+26. **COMMENTS AREN'T COMMIT MESSAGES** - A change's reasoning belongs in the commit/PR — git persists it, not code. No issue tags inline. Keep only durable facts: footguns, invariants, quirks
+
+### Violation Response
+
+When detecting a potential Iron Law violation:
+
+```
+STOP: This code would violate Iron Law [number]: [description]
+
+What you wrote:
+[problematic code]
+
+Correct pattern:
+[fixed code]
+
+Should I apply this fix?
+```
+
+## Framework Detection
+
+### Ash Framework Detection
+
+If the project uses Ash Framework (detected by `:ash` in mix.exs, `use Ash.Resource`, or `use Ash.Domain`):
+
+1. **Load** the `ash-framework` skill — it owns Ash-specific patterns for data access, resources, and actions
+2. **Research first**: `mix usage_rules.search_docs "<topic>" -p ash -p ash_phoenix -p ash_postgres -p ash_authentication -p ash_oban`
+3. **Module lookup**: `mix usage_rules.docs Ash.Resource`
+4. **Generators first**: `mix ash.gen.resource`, `mix ash.codegen`, `mix ash.gen.domain`
+5. **Data access**: prefer Ash actions via domain code interfaces over direct `Repo` calls — Ash is a complement to Phoenix/Ecto, not a replacement. LiveView, security, and OTP Iron Laws still apply.
+
+### Phoenix Version Detection
+
+Check `mix.exs` for Phoenix version:
+
+- **Phoenix 1.8+**: Scopes are available, recommend scope-first patterns
+- **Phoenix 1.7.x**: No scopes, use traditional plug-based auth (see `references/scopes-auth.md` Pre-Scopes section)
+
+## Greenfield Project Detection
+
+If project has <10 `.ex` files (new project):
+
+1. **Use simpler planning** (no parallel agents needed)
+2. **Suggest initial setup**: Tidewave, Credo, test factories
+
+## Reference Auto-Loading
+
+When working on code, automatically consult relevant reference documentation before implementing.
+
+### Auto-Load Rules
+
+| File/Code Pattern | Skill | References to Consult |
+|-------------------|-------|----------------------|
+| `*_live.ex` | liveview-patterns | async-streams.md, components.md |
+| `*_live.ex` + form code | liveview-patterns | forms-uploads.md |
+| `*_live.ex` + JS hooks | liveview-patterns | js-interop.md |
+| `*_channel.ex`, `*socket*` | liveview-patterns | channels-presence.md |
+| `Presence` in code | liveview-patterns | channels-presence.md |
+| `priv/repo/migrations/*` | ecto-patterns | migrations.md |
+| `use Ecto.Schema`, `*changeset*` | ecto-patterns | changesets.md |
+| `from(` or `Repo.` | ecto-patterns | queries.md |
+| `*/workers/*`, `*_worker.ex`, `*_worker_test.exs`, `*_agent.ex` | oban | worker-patterns.md |
+| `use Oban.Worker` | oban | worker-patterns.md, queue-config.md |
+| `*auth*`, `*session*` | security | authentication.md, authorization.md |
+| `oauth`, `ueberauth` | security | oauth-linking.md |
+| `*_test.exs` | testing | exunit-patterns.md |
+| `*factory*`, `*fixtures*`, `*_factory.ex` | testing | factory-patterns.md |
+| `*_live_test.exs` | testing | liveview-testing.md |
+| `Mox.` in tests | testing | mox-patterns.md |
+| `lib/*/[a-z]*.ex` (context) | phoenix-contexts | context-patterns.md |
+| `*.sface` | liveview-patterns | components.md |
+| `router.ex` | phoenix-contexts | routing-patterns.md, plug-patterns.md |
+| `*_controller.ex` + JSON | phoenix-contexts | json-api-patterns.md |
+| `plug` in router/controller | phoenix-contexts | plug-patterns.md |
+| `Dockerfile`, `fly.toml` | deploy | docker-config.md, flyio-config.md |
+| `use GenServer` | elixir-idioms | otp-patterns.md |
+| `lib/mix/tasks/*` | elixir-idioms | mix-tasks.md |
+
+### Consultation Behavior
+
+1. **Before implementing**, read relevant reference for correct pattern
+2. **Apply** the patterns
+3. **Check Iron Laws** from skill before and after implementation
+4. **Security code ALWAYS gets reference consultation** (authentication.md, authorization.md)
+
+## Command Suggestions
+
+| User Intent | Command |
+|-------------|---------|
+| "Which command should I use?" | `/phx:help` |
+| New to the plugin | `/phx:intro` |
+| Bug fix, debug | `/phx:investigate` |
+| Small UI fix, CSS tweak, config change | `/phx:quick` |
+| Small change (<50 lines) | `/phx:quick` |
+| Brainstorm, explore ideas, unclear scope | `/phx:brainstorm` |
+| New feature (clear scope) | `/phx:plan` then `/phx:work` |
+| Understand a plan | `/phx:brief` |
+| Enhance existing plan | `/phx:plan --existing` |
+| Large feature (new domain) | `/phx:full` |
+| Review code | `/phx:review` |
+| Triage review findings | `/phx:triage` |
+| Capture solved problem | `/phx:compound` |
+| Run checks | `/phx:verify` |
+| Research topic | `/phx:research` |
+| Evaluate a Hex library | `/phx:research --library` |
+| Resume work | `/phx:work --continue` |
+| N+1 queries | `/ecto:n1-check` |
+| LiveView memory | `/lv:assigns` |
+| PR review comments | `/phx:pr-review` |
+| Waiting on CI / reviewers | `/phx:watch-pr` |
+| Codex review before PR (codex CLI installed) | `/phx:review --codex` |
+| Autonomous cycle + Codex second opinion | `/phx:full --codex` |
+| Fix until Codex review is clean | `/phx:codex-loop` |
+| Codex cloud review loop on a PR | `/phx:watch-pr N --codex` |
+| Update dependencies | `/phx:deps-update` |
+| "Have we done this before?" | `/phx:recall` |
+| Performance analysis | `/phx:perf` |
+| Project health | `/phx:audit` |
+| Reduce permission prompts | `/phx:permissions` |
+| Scan sessions for metrics | `/session-scan` |
+| Deep-analyze sessions | `/session-deep-dive` |
+| View session trends | `/session-trends` |
+| Monitor skill effectiveness | `/skill-monitor` |
+| Validate plugin against docs | `/docs-check` |
+
+**Workflow Commands**: `/phx:brainstorm` (optional) -> `/phx:plan` -> `/phx:brief` (optional) -> `/phx:plan --existing` (optional) -> `/phx:work` -> `/phx:review` -> `/phx:triage` (optional) -> `/phx:compound`
+
+**Review → Follow-up Plan**: After `/phx:review`, if findings reveal scope gaps or missing coverage, use `/phx:plan .claude/plans/{slug}/reviews/{review}.md` to create a follow-up plan from review output.
+
+**Standalone**: `/phx:quick`, `/phx:full`, `/phx:investigate`, `/phx:verify`, `/phx:research`, `/phx:brainstorm`, `/phx:help`, `/phx:permissions`, `/phx:codex-loop` (needs codex CLI)
+
+**Analysis**: `/ecto:n1-check`, `/lv:assigns`, `/phx:boundaries`, `/phx:trace`, `/phx:techdebt`
+
+**Session Analytics (dev-only, requires ccrider MCP)**: `/session-scan`, `/session-deep-dive`, `/session-trends`
+
+**Skill Monitoring (dev-only)**: `/skill-monitor` — per-skill effectiveness dashboard and improvement recommendations
+
+**Plugin Maintenance (dev-only)**: `/docs-check` — validate plugin against latest Claude Code documentation
+
+## Workflow Patterns (from Claude Code team)
+
+### Challenge Mode
+
+When I say "grill me" or "challenge this":
+
+- Review my changes as a senior Elixir engineer would
+- Check for: N+1 queries, missing error handling, OTP anti-patterns, untested paths
+- Diff behavior between `main` and current branch
+- Don't approve until issues are addressed
+
+### Elegance Reset
+
+When I say "make it elegant" or "knowing everything you know now":
+
+- Scrap the current approach
+- Implement the idiomatic Elixir solution
+- Prefer pattern matching over conditionals
+- Prefer `with` chains over nested `case`
+- Prefer streams/`Enum` pipelines over imperative loops
+- Use proper OTP patterns where applicable
+
+### Auto-Fix Patterns
+
+When I say:
+
+- "fix CI" → Run `mix compile --warnings-as-errors && mix test --failed` and fix all failures
+- "fix it" → Look at the error/bug context and autonomously fix without asking questions
+- "fix credo" → Run `mix credo --strict` and fix all issues
+
+### Learn From Mistakes
+
+After ANY correction I make:
+
+- Ask: "Should I update CLAUDE.md so this doesn't happen again?"
+- If yes, add a concise rule preventing the specific mistake
+- Keep rules actionable: "Do NOT X — instead Y"
+
+### Hook Documentation Maintenance
+
+When touching `plugins/elixir-phoenix/hooks/`, docs are part of the change, not
+a follow-up. Update `HOOKS.md`, the matching `hooks/docs/{group}.md`, and the
+**Current hooks** list in the Hooks section above. Quick check: does the full
+hook list in `HOOKS.md` still match `ls plugins/elixir-phoenix/hooks/scripts/`?
+
+The website (phxagents.dev) renders from these files, so a stale `HOOKS.md`
+ships stale public docs.
+
+### Intro Tutorial Maintenance
+
+When adding, removing, or renaming commands/skills/agents, check if
+`plugins/elixir-phoenix/skills/intro/references/tutorial-content.md` needs updating.
+The tutorial is new users' first impression — stale command references erode trust.
+Quick check: does the cheat sheet in Section 4 still match reality?
+
+### Interesting Findings Log
+
+When you discover something noteworthy during work — a surprising metric, a
+counter-intuitive finding, a useful pattern from research, or a before/after
+improvement stat — **append it to `lab/findings/interesting.jsonl`** immediately.
+
+Format (one JSON per line):
+
+```json
+{"date": "2026-03-25", "category": "behavioral", "title": "Plan skill has 0% recall", "detail": "Haiku never routes 'build a chat feature' to plan skill despite description saying 'multi-file feature'. Use-case phrases needed, not technical terms.", "source": "trigger_scorer.py", "tags": ["autoresearch", "trigger", "description"]}
+```
+
+Categories: `behavioral`, `performance`, `research`, `pattern`, `bug`, `metric`, `user-insight`
+
+This log feeds blog posts, release notes, and Twitter threads. Don't filter —
+write anything that made you think "that's interesting". The file is gitignored.

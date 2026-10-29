@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.ariadng.metatrader-mcp-server",
+  "type": "mcp",
+  "name": "Metatrader MCP Server",
+  "slug": "metatrader-mcp-server",
+  "vendor": "ariadng",
+  "description": "Model Context Protocol (MCP) to enable AI LLMs to trade using MetaTrader platform",
+  "version": "0.0.0",
+  "homepage": "https://github.com/ariadng/metatrader-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "finance",
+    "investment",
+    "metatrader",
+    "quantitative-finance",
+    "trading"
+  ],
+  "tags": [
+    "ai",
+    "finance",
+    "investment",
+    "llm",
+    "mcp",
+    "metatrader",
+    "quantitative-finance",
+    "trading"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ariadng",
+    "brandName": "ariadng",
+    "source": "https://github.com/ariadng.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:42Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ariadng/metatrader-mcp-server",
+    "url": "https://github.com/ariadng/metatrader-mcp-server",
+    "commit": "bd2ff591e32cb492fafefe74221d502dd78b71ef",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 841,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "metatrader-mcp-server"
+    ],
+    "env": [
+      "QUOTE_HOST",
+      "QUOTE_PORT",
+      "MCP_TRANSPORT",
+      "MCP_HOST",
+      "MCP_PORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,308 @@
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { Express, Request, Response } from "express";
+import { fetch as undiciFetch, type Dispatcher } from "undici";
+import { parseProjectScopeHeader } from "../server/request-helpers.js";
+import { decryptDownloadToken } from "../utils/download-token.js";
+import { fetchWithValidatedRedirects, UnsafeRedirectError } from "../utils/safe-redirect-fetch.js";
+
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+export interface DownloadProxyDependencies {
+  defaultApiUrl: string;
+  enableDynamicApiUrl: boolean;
+  maxRequestsPerMinute: number;
+  resolveTrustedGitLabApiUrl: (url: string) => string;
+  encodeGitLabPathSegment: (value: unknown) => string;
+  encodeGitLabPath: (value: string) => string;
+  getEffectiveProjectId: (projectId: string) => string;
+  /** ENABLE_DYNAMIC_PROJECT_SCOPE: also enforce the request's X-GitLab-Allowed-Project-Ids. */
+  enableDynamicProjectScope: boolean;
+  /** GITLAB_ALLOWED_PROJECT_IDS, which that header may only narrow. */
+  defaultAllowedProjectIds: readonly string[];
+  getDispatcherForUrl: (apiUrl: string) => Dispatcher;
+  fetch: typeof undiciFetch;
+  logger: { error: (obj: unknown, message?: string) => void };
+  downloadTimeoutMs?: number;
+  /**
+   * Called with `URL.host` (host plus a non-default port), the same key the
+   * GITLAB_API_URL / GITLAB_ALLOWED_HOSTS allowlist uses.
+   */
+  isTrustedRedirectHost?: (host: string) => boolean;
+}
+
+function canonicalizeQueryParams(params: Record<string, string>): string {
+  const sortedKeys = Object.keys(params).sort();
+  const normalized: Record<string, string> = {};
+  for (const key of sortedKeys) {
+    normalized[key] = params[key];
+  }
+  return JSON.stringify(normalized);
+}
+
+/**
+ * The project scope the request names in X-GitLab-Allowed-Project-Ids, parsed like
+ * the /mcp endpoint does. An empty list means the header does not apply.
+ */
+function readRequestProjectScope(
+  req: Request,
+  deps: DownloadProxyDependencies
+): { projectIds: string[] } | { error: string } {
+  const value = req.get("X-GitLab-Allowed-Project-Ids");
+  if (!deps.enableDynamicProjectScope || value === undefined) {
+    return { projectIds: [] };
+  }
+  return parseProjectScopeHeader(value, deps.defaultAllowedProjectIds);
+}
+
+/**
+ * Check the requested project against the env allowlist (getEffectiveProjectId),
+ * against the allowlist sealed into the download token, since the proxy runs
+ * outside the session that issued it, and against the request's own project scope.
+ * An empty list does not restrict.
+ */
+function resolveDownloadProjectId(
+  deps: DownloadProxyDependencies,
+  projectId: string,
+  sealedProjectIds: readonly string[],
+  requestProjectIds: readonly string[]
+): string {
+  const effectiveProjectId = deps.getEffectiveProjectId(decodeURIComponent(projectId));
+  if (sealedProjectIds.length > 0 && !sealedProjectIds.includes(effectiveProjectId)) {
+    throw new Error(
+      `Access denied: Project ${effectiveProjectId} is outside the project scope of this download token`
+    );
+  }
+  if (requestProjectIds.length > 0 && !requestProjectIds.includes(effectiveProjectId)) {
+    throw new Error(
+      `Access denied: Project ${effectiveProjectId} is outside the X-GitLab-Allowed-Project-Ids scope of this request`
+    );
+  }
+  return effectiveProjectId;
+}
+
+/**
+ * Register the /downloads/:type proxy endpoint on an Express app.
+ * Streams GitLab API responses directly to the client. Auth is read from
+ * an encrypted `_token` query param (self-contained URL) or from request headers.
+ */
+export function registerDownloadProxy(app: Express, deps: DownloadProxyDependencies): void {
+  const downloadRateLimits: Record<string, { count: number; resetAt: number }> = {};
+  let lastEviction = Date.now();
+  const downloadTimeoutMs = deps.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
+
+  const checkDownloadRateLimit = (token: string): boolean => {
+    const now = Date.now();
+
+    // Evict expired entries every 60s to prevent unbounded growth
+    if (now - lastEviction > 60000) {
+      for (const key of Object.keys(downloadRateLimits)) {
+        if (now > downloadRateLimits[key].resetAt) delete downloadRateLimits[key];
+      }
+      lastEviction = now;
+    }
+
+    const entry = downloadRateLimits[token];
+    if (!entry || now > entry.resetAt) {
+      downloadRateLimits[token] = { count: 1, resetAt: now + 60000 };
+      return true;
+    }
+    if (entry.count >= deps.maxRequestsPerMinute) return false;
+    entry.count++;
+    return true;
+  };
+
+  app.get("/downloads/:type", async (req: Request, res: Response) => {
+    const headers: Record<string, string> = { Accept: "application/octet-stream" };
+    let rateLimitKey: string;
+
+    // Try embedded encrypted token first (self-contained URL), then headers
+    const encryptedToken = req.query._token as string | undefined;
+    let tokenApiUrl: string | undefined;
+    let sealedProjectIds: string[] = [];
+    if (encryptedToken) {
+      const decrypted = decryptDownloadToken(encryptedToken);
+      if (!decrypted) {
+        res.status(401).json({ error: "Invalid or expired download token" });
+        return;
+      }
+      // Verify resource binding — token must match the requested type and params
+      if (decrypted.resourceType || decrypted.resourceParams) {
+        const { type } = req.params;
+        const queryParams: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.query)) {
+          if (k !== "_token" && typeof v === "string") queryParams[k] = v;
+        }
+        if (
+          decrypted.resourceType !== type ||
+          canonicalizeQueryParams(decrypted.resourceParams ?? {}) !==
+            canonicalizeQueryParams(queryParams)
+        ) {
+          res.status(403).json({ error: "Download token does not match the requested resource" });
+          return;
+        }
+      }
+      headers[decrypted.header] = decrypted.token;
+      rateLimitKey = decrypted.token;
+      tokenApiUrl = decrypted.apiUrl;
+      sealedProjectIds = decrypted.allowedProjectIds;
+    } else {
+      const privateToken = req.headers["private-token"] as string | undefined;
+      const jobToken = req.headers["job-token"] as string | undefined;
+      const authHeader = req.headers["authorization"] as string | undefined;
+
+      if (privateToken) {
+        headers["Private-Token"] = privateToken;
+        rateLimitKey = privateToken;
+      } else if (jobToken) {
+        headers["JOB-TOKEN"] = jobToken;
+        rateLimitKey = jobToken;
+      } else if (authHeader) {
+        headers["Authorization"] = authHeader;
+        rateLimitKey = authHeader;
+      } else {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+    }
+
+    // Applies on both auth paths; a download token keeps its sealed scope as well
+    const requestScope = readRequestProjectScope(req, deps);
+    if ("error" in requestScope) {
+      res.status(401).json({ error: requestScope.error });
+      return;
+    }
+
+    if (!checkDownloadRateLimit(rateLimitKey)) {
+      res.status(429).json({ error: "Rate limit exceeded" });
+      return;
+    }
+
+    // API URL: prefer token-embedded URL, then X-GitLab-API-URL header, then default
+    let apiUrl = deps.defaultApiUrl;
+    const requestedApiUrl =
+      tokenApiUrl || (req.headers["x-gitlab-api-url"] as string | undefined)?.trim();
+    if (deps.enableDynamicApiUrl && requestedApiUrl) {
+      try {
+        apiUrl = deps.resolveTrustedGitLabApiUrl(requestedApiUrl);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Invalid X-GitLab-API-URL";
+        res.status(400).json({ error: message });
+        return;
+      }
+    }
+
+    const { type } = req.params;
+    let gitlabUrl: string;
+
+    try {
+      switch (type) {
+        case "job-artifacts": {
+          const { project_id, job_id } = req.query as Record<string, string>;
+          if (!project_id || !job_id) {
+            res.status(400).json({ error: "project_id and job_id are required" });
+            return;
+          }
+          const effectiveProjectId = resolveDownloadProjectId(
+            deps,
+            project_id,
+            sealedProjectIds,
+            requestScope.projectIds
+          );
+          gitlabUrl = `${apiUrl}/projects/${deps.encodeGitLabPathSegment(effectiveProjectId)}/jobs/${deps.encodeGitLabPathSegment(job_id)}/artifacts`;
+          break;
+        }
+        case "attachment": {
+          const { project_id, secret, filename } = req.query as Record<string, string>;
+          if (!project_id || !secret || !filename) {
+            res.status(400).json({ error: "project_id, secret, and filename are required" });
+            return;
+          }
+          const effectiveProjectId = resolveDownloadProjectId(
+            deps,
+            project_id,
+            sealedProjectIds,
+            requestScope.projectIds
+          );
+          // The uploads route takes one filename segment; a slash inside the name must
+          // stay inside that segment instead of turning into another route level.
+          gitlabUrl = `${apiUrl}/projects/${deps.encodeGitLabPathSegment(effectiveProjectId)}/uploads/${deps.encodeGitLabPathSegment(secret)}/${deps.encodeGitLabPathSegment(filename)}`;
+          break;
+        }
+        case "release-asset": {
+          const { project_id, tag_name, direct_asset_path } = req.query as Record<string, string>;
+          if (!project_id || !tag_name || !direct_asset_path) {
+            res
+              .status(400)
+              .json({ error: "project_id, tag_name, and direct_asset_path are required" });
+            return;
+          }
+          const effectiveProjectId = resolveDownloadProjectId(
+            deps,
+            project_id,
+            sealedProjectIds,
+            requestScope.projectIds
+          );
+          gitlabUrl = `${apiUrl}/projects/${deps.encodeGitLabPathSegment(effectiveProjectId)}/releases/${deps.encodeGitLabPathSegment(tag_name)}/downloads/${deps.encodeGitLabPath(direct_asset_path)}`;
+          break;
+        }
+        default:
+          res.status(400).json({ error: `Unknown download type: ${type}` });
+          return;
+      }
+    } catch (e) {
+      // getEffectiveProjectId throws on access-denied
+      const message = e instanceof Error ? e.message : "Invalid parameters";
+      res.status(403).json({ error: message });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), downloadTimeoutMs);
+
+    try {
+      const gitlabResponse = await fetchWithValidatedRedirects(gitlabUrl, {
+        headers,
+        dispatcher: deps.getDispatcherForUrl(apiUrl),
+        signal: controller.signal,
+        fetchImpl: deps.fetch,
+        isTrustedRedirectHost: deps.isTrustedRedirectHost,
+      });
+
+      if (!gitlabResponse.ok) {
+        res.status(gitlabResponse.status).json({
+          error: `GitLab API error: ${gitlabResponse.status} ${gitlabResponse.statusText}`,
+        });
+        return;
+      }
+
+      const contentType = gitlabResponse.headers.get("content-type");
+      const contentDisposition = gitlabResponse.headers.get("content-disposition");
+      const contentLength = gitlabResponse.headers.get("content-length");
+
+      if (contentType) res.setHeader("Content-Type", contentType);
+      if (contentDisposition) res.setHeader("Content-Disposition", contentDisposition);
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+
+      if (!gitlabResponse.body) {
+        res.status(502).json({ error: "No response body from GitLab" });
+        return;
+      }
+
+      await pipeline(Readable.fromWeb(gitlabResponse.body), res);
+    } catch (error) {
+      deps.logger.error({ err: error }, "Download proxy error");
+      if (!res.headersSent) {
+        const message =
+          error instanceof UnsafeRedirectError
+            ? `Refused upstream redirect: ${error.message}`
+            : error instanceof Error && error.name === "AbortError"
+              ? "GitLab download timed out"
+              : "Failed to proxy download from GitLab";
+        res.status(502).json({ error: message });
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+}

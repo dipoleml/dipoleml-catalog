@@ -1,0 +1,445 @@
+import { z } from "zod";
+import {
+    type ConfigFieldMeta,
+    commaSeparatedToArray,
+    getExportsPath,
+    getLogPath,
+    oneWayOverride,
+    onlyLowerThanBaseValueOverride,
+    onlyStricterLogLevelOverride,
+    onlySubsetOfBaseValueOverride,
+    parseBoolean,
+} from "./configUtils.js";
+import { MCP_LOG_LEVELS } from "@mongodb-js/mcp-core";
+import {
+    monitoringServerFeatureValues,
+    previewFeatureValues,
+    QUERY_COUNT_MAX_TIME_MS_CAP,
+    AGG_COUNT_MAX_TIME_MS_CAP,
+} from "@mongodb-js/mcp-tools-mongodb";
+import { argMetadata, CliOptionsSchema as MongoshCliOptionsSchema } from "@mongosh/arg-parser/arg-parser";
+import {
+    TRANSPORT_PAYLOAD_LIMITS,
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_EVICTION_IDLE_GRACE_MS,
+} from "../transports/constants.js";
+
+export const configRegistry = z.registry<ConfigFieldMeta>();
+
+const ServerConfigSchema = z.object({
+    apiBaseUrl: z
+        .string()
+        .default("https://cloud.mongodb.com/")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    assistantBaseUrl: z
+        .string()
+        .default("https://knowledge.mongodb.com/api/v1/")
+        .describe("Base URL for the MongoDB Assistant API.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    apiClientId: z
+        .string()
+        .optional()
+        .describe("Atlas API client ID for authentication. Required for running Atlas tools.")
+        .register(configRegistry, { isSecret: true, overrideBehavior: "not-allowed" }),
+    apiClientSecret: z
+        .string()
+        .optional()
+        .describe("Atlas API client secret for authentication. Required for running Atlas tools.")
+        .register(configRegistry, { isSecret: true, overrideBehavior: "not-allowed" }),
+    connectionString: z
+        .string()
+        .optional()
+        .describe(
+            "MongoDB connection string for direct database connections. Optional, if not set, you'll need to call the connect tool before interacting with MongoDB data."
+        )
+        .register(configRegistry, { isSecret: true, overrideBehavior: "not-allowed" }),
+    loggers: z
+        .preprocess(
+            (val: string | string[] | undefined) => commaSeparatedToArray(val),
+            z.array(z.enum(["stderr", "disk", "mcp"]))
+        )
+        .check(
+            z.refine((val) => new Set(val).size === val.length, {
+                message: "Duplicate loggers found in config",
+            })
+        )
+        .default(["disk", "mcp"])
+        .describe("An array of logger types.")
+        .register(configRegistry, {
+            defaultValueDescription: '`"disk,mcp"` see below*',
+            overrideBehavior: "not-allowed",
+        }),
+    logPath: z
+        .string()
+        .default(getLogPath())
+        .describe("Folder to store logs.")
+        .register(configRegistry, { defaultValueDescription: "see below*", overrideBehavior: "not-allowed" }),
+    mcpClientLogLevel: z
+        .enum(MCP_LOG_LEVELS)
+        .default("debug")
+        .describe("Minimum severity level for log messages forwarded to the MCP client.")
+        .register(configRegistry, { overrideBehavior: onlyStricterLogLevelOverride(MCP_LOG_LEVELS) }),
+    disabledTools: z
+        .preprocess((val: string | string[] | undefined) => commaSeparatedToArray(val), z.array(z.string()))
+        .default([])
+        .describe("An array of tool names, operation types, and/or categories of tools that will be disabled.")
+        .register(configRegistry, { overrideBehavior: "merge" }),
+    confirmationRequiredTools: z
+        .preprocess((val: string | string[] | undefined) => commaSeparatedToArray(val), z.array(z.string()))
+        .default([
+            "atlas-create-access-list",
+            "atlas-create-db-user",
+            "drop-database",
+            "drop-collection",
+            "delete-many",
+            "drop-index",
+            "atlas-streams-manage",
+            "atlas-streams-teardown",
+        ])
+        .describe(
+            "An array of tool names that require user confirmation before execution. Requires the client to support elicitation."
+        )
+        .register(configRegistry, { overrideBehavior: "merge" }),
+    elicitationTimeoutMs: z.coerce
+        .number()
+        .default(300_000)
+        .describe(
+            "Time in milliseconds the user has to respond to an elicitation request (such as a tool confirmation prompt) before it fails."
+        )
+        .register(configRegistry, { overrideBehavior: onlyLowerThanBaseValueOverride() }),
+    readOnly: z
+        .preprocess(parseBoolean, z.boolean())
+        .default(false)
+        .describe(
+            "When set to true, only allows read, connect, and metadata operation types, disabling create/update/delete operations."
+        )
+        .register(configRegistry, {
+            overrideBehavior: oneWayOverride(true),
+        }),
+    indexCheck: z
+        .preprocess(parseBoolean, z.boolean())
+        .default(false)
+        .describe(
+            "When set to true, enforces that query operations must use an index, rejecting queries that perform a collection scan."
+        )
+        .register(configRegistry, {
+            overrideBehavior: oneWayOverride(true),
+        }),
+    disableUntrustedDataWarning: z
+        .preprocess(parseBoolean, z.boolean())
+        .default(false)
+        .describe(
+            "When set to true, tool responses include potentially untrusted data (such as documents or query results) as-is, without wrapping it in delimiters and a prompt-injection warning."
+        )
+        .register(configRegistry, { overrideBehavior: "override" }),
+    disableServerSideJs: z
+        .preprocess(parseBoolean, z.boolean())
+        .default(true)
+        .describe(
+            "When set to true, disallows the use of server-side JavaScript operators (such as $where, $function, and $accumulator) in query filters and aggregation pipelines."
+        )
+        .register(configRegistry, {
+            overrideBehavior: oneWayOverride(true),
+        }),
+    telemetry: z
+        .enum(["enabled", "disabled"])
+        .default("enabled")
+        .describe("When set to disabled, disables telemetry collection.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    transport: z
+        .enum(["stdio", "http"])
+        .default("stdio")
+        .describe("Either 'stdio' or 'http'.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    httpPort: z.coerce
+        .number()
+        .int()
+        .min(0, "Invalid httpPort: must be at least 0")
+        .max(65535, "Invalid httpPort: must be at most 65535")
+        .default(3000)
+        .describe("Port number for the HTTP server (only used when transport is 'http'). Use 0 for a random port.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    httpHost: z
+        .string()
+        .default("127.0.0.1")
+        .describe("Host address to bind the HTTP server to (only used when transport is 'http').")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    httpHeaders: z
+        .object({})
+        .catchall(z.string())
+        .default({})
+        .describe(
+            "Header that the HTTP server will validate when making requests (only used when transport is 'http')."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    dangerousHostBinding: z
+        .preprocess(parseBoolean, z.boolean())
+        .default(false)
+        .describe(
+            "When set to true, allows binding the HTTP server (and monitoring server) to a non-loopback host such as 0.0.0.0, a LAN IP, or an empty host (all interfaces). Binding to a non-loopback host exposes the server to the entire network and can allow unauthorized access. Off by default: the server refuses to start on a non-loopback host unless this is true."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    httpBodyLimit: z.coerce
+        .number()
+        .int()
+        .min(
+            TRANSPORT_PAYLOAD_LIMITS.http,
+            `Invalid httpBodyLimit: must be at least ${TRANSPORT_PAYLOAD_LIMITS.http} bytes`
+        )
+        .default(TRANSPORT_PAYLOAD_LIMITS.http)
+        .describe(
+            "Maximum size of the HTTP request body in bytes (only used when transport is 'http'). This value is passed as the optional limit parameter to the Express.js json() middleware."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    maxActiveConnections: z.coerce
+        .number()
+        .int()
+        .min(1, "Invalid maxActiveConnections: must be at least 1")
+        .default(10)
+        .describe(
+            "Maximum number of MongoDB connections a single scope (an MCP session by default, see connectionScope) can hold open. When exceeded, the scope's least-recently-used connection is closed and its connectionId revoked. The preconfigured connection does not count towards the limit."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    connectionIdleTimeoutMs: z.coerce
+        .number()
+        .int()
+        .min(0, "Invalid connectionIdleTimeoutMs: must be a non-negative integer")
+        .default(600_000)
+        .describe(
+            "Milliseconds a MongoDB connection may stay unused (no tool call touching it) before it is closed to release the underlying connection pool and its server-side state. Applied per connection regardless of its connection scope; the preconfigured connection is excluded, and the reaper runs on this cadence. Set to 0 to disable reaping; must not be negative."
+        )
+        .register(configRegistry, { overrideBehavior: onlyLowerThanBaseValueOverride() }),
+    /**
+     * @deprecated The MCP protocol is moving to sessionless, so this option will
+     * soon be removed and the connection scope will default to "global". For
+     * shared-server use cases, use the Atlas-Managed MCP server or build an
+     * authenticated library using the `@mongodb-js/mcp-cli` package.
+     */
+    connectionScope: z
+        .enum(["session", "global"])
+        .default("session")
+        .describe(
+            "Visibility scope for MongoDB connections created at runtime. With 'session' (the default), each MCP session only sees the connections it created (plus the shared 'preconfigured' one) and they are closed when the session ends. With 'global', connections are shared across all sessions and survive session rotation. Deprecated: the MCP protocol is moving to sessionless, so this option will soon be removed and the connection scope will default to 'global'. For shared-server use cases, use the Atlas-Managed MCP server or build an authenticated library using the @mongodb-js/mcp-cli package. Note: on the sessionless (2026-07-28) HTTP path, a request without an mcp-session-id falls back to the shared ('global') scope so it can still persist connections across requests; the legacy sessionful path always carries a server-issued session."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    maxSessions: z.coerce
+        .number()
+        .int()
+        .min(1, "Invalid maxSessions: must be at least 1")
+        .default(DEFAULT_MAX_SESSIONS)
+        .describe(
+            "Maximum number of concurrent sessions the HTTP transport will hold in memory (only used when transport is 'http'). Each session holds a full server instance, transport, and timers, so choose a value based on your deployment's available memory; the default is a conservative safety net rather than a recommended production value."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    idleTimeoutMs: z.coerce
+        .number()
+        .default(600_000)
+        .describe("Idle timeout for a client to disconnect (only applies to http transport).")
+        .register(configRegistry, { overrideBehavior: onlyLowerThanBaseValueOverride() }),
+    notificationTimeoutMs: z.coerce
+        .number()
+        .default(540_000)
+        .describe("Notification timeout for a client to be aware of disconnect (only applies to http transport).")
+        .register(configRegistry, { overrideBehavior: onlyLowerThanBaseValueOverride() }),
+    evictionIdleGraceMS: z.coerce
+        .number()
+        .int()
+        .min(0, "Invalid evictionIdleGraceMS: must be at least 0")
+        .default(DEFAULT_EVICTION_IDLE_GRACE_MS)
+        .describe(
+            "How long a session must be idle before it becomes eligible for least-recently-used eviction when the HTTP transport is at its maxSessions cap (only used when transport is 'http'). Swept back to idleTimeoutMs when larger."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    externallyManagedSessions: z
+        .boolean()
+        .default(false)
+        .describe(
+            "When true, the 2025-era HTTP transport accepts a session ID supplied externally through the 'mcp-session-id' header. When an external ID is supplied, the initialization request is optional, and an implicitly re-initialized session restores the client's previously negotiated capabilities from the session store."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    maxBytesPerQuery: z.coerce
+        .number()
+        .default(16_777_216)
+        .describe(
+            "The maximum size in bytes for results from a find or aggregate tool call. This serves as an upper bound for the responseBytesLimit parameter in those tools."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    maxDocumentsPerQuery: z.coerce
+        .number()
+        .default(100)
+        .describe(
+            "The maximum number of documents that can be returned by a find or aggregate tool call. For the find tool, the effective limit will be the smaller of this value and the tool's limit parameter."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    timeoutMs: z.coerce
+        .number()
+        .int()
+        .min(0, "timeoutMs must be non-negative")
+        .optional()
+        .describe(
+            "The maximum time in milliseconds that MongoDB operations are allowed to run, applied as the driver's timeoutMS (client-side operation timeout, CSOT) on each connection. It bounds the entire operation, including server selection and network round trips."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    /** @deprecated Use `timeoutMs` instead. */
+    maxTimeMS: z.coerce
+        .number()
+        .int()
+        .min(0, "maxTimeMS must be non-negative")
+        .optional()
+        .describe(
+            "Deprecated. Use `timeoutMs` instead. The maximum time in milliseconds that operations are allowed to run on the MongoDB server."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" })
+        .register(argMetadata, { deprecationReplacement: "timeoutMs" }),
+    queryCountTimeoutMs: z.coerce
+        .number()
+        .int()
+        .min(0, "queryCountTimeoutMs must be non-negative")
+        .default(QUERY_COUNT_MAX_TIME_MS_CAP)
+        .describe(
+            "The maximum time in milliseconds for the count phase of find operations. This is used to limit the time spent counting documents when determining if results were capped."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    /** @deprecated Use `queryCountTimeoutMs` instead. */
+    queryCountMaxTimeMsCap: z.coerce
+        .number()
+        .int()
+        .min(0, "queryCountMaxTimeMsCap must be non-negative")
+        .optional()
+        .describe("Deprecated. Use `queryCountTimeoutMs` instead.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" })
+        .register(argMetadata, { deprecationReplacement: "queryCountTimeoutMs" }),
+    aggregationCountTimeoutMs: z.coerce
+        .number()
+        .int()
+        .min(0, "aggregationCountTimeoutMs must be non-negative")
+        .default(AGG_COUNT_MAX_TIME_MS_CAP)
+        .describe(
+            "The maximum time in milliseconds for the count phase of aggregation operations. This is used to limit the time spent counting documents when determining if results were capped."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    /** @deprecated Use `aggregationCountTimeoutMs` instead. */
+    aggregationCountMaxTimeMsCap: z.coerce
+        .number()
+        .int()
+        .min(0, "aggregationCountMaxTimeMsCap must be non-negative")
+        .optional()
+        .describe("Deprecated. Use `aggregationCountTimeoutMs` instead.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" })
+        .register(argMetadata, { deprecationReplacement: "aggregationCountTimeoutMs" }),
+    exportsPath: z
+        .string()
+        .default(getExportsPath())
+        .describe("Folder to store exported data files.")
+        .register(configRegistry, { defaultValueDescription: "see below*", overrideBehavior: "not-allowed" }),
+    exportTimeoutMs: z.coerce
+        .number()
+        .default(300_000)
+        .describe("Time in milliseconds after which an export is considered expired and eligible for cleanup.")
+        .register(configRegistry, { overrideBehavior: onlyLowerThanBaseValueOverride() }),
+    exportCleanupIntervalMs: z.coerce
+        .number()
+        .default(120_000)
+        .describe("Time in milliseconds between export cleanup cycles that remove expired export files.")
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    atlasTemporaryDatabaseUserLifetimeMs: z.coerce
+        .number()
+        .default(14_400_000)
+        .describe(
+            "Time in milliseconds that temporary database users created when connecting to MongoDB Atlas clusters will remain active before being automatically deleted."
+        )
+        .register(configRegistry, { overrideBehavior: onlyLowerThanBaseValueOverride() }),
+    voyageApiKey: z
+        .string()
+        .default("")
+        .describe(
+            "API key for Voyage AI embeddings service (required for creating Atlas Local deployments with auto-embed vector search capabilities)."
+        )
+        .register(configRegistry, { isSecret: true, overrideBehavior: "not-allowed" }),
+    previewFeatures: z
+        .preprocess(
+            (val: string | string[] | undefined) => commaSeparatedToArray(val),
+            z.array(z.enum(previewFeatureValues))
+        )
+        .default([])
+        .describe("An array of preview features that are enabled.")
+        .register(configRegistry, { overrideBehavior: onlySubsetOfBaseValueOverride() }),
+    allowRequestOverrides: z
+        .preprocess(parseBoolean, z.boolean())
+        .default(false)
+        .describe(
+            "When set to true, allows configuration values to be overridden via request headers and query parameters."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    dryRun: z
+        .boolean()
+        .default(false)
+        .describe(
+            "When true, runs the server in dry mode: dumps configuration and enabled tools, then exits without starting the server."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    httpResponseType: z
+        .enum(["sse", "json"])
+        .default("sse")
+        .describe(
+            "The HTTP response type for tool responses: 'sse' for Server-Sent Events, 'json' for standard JSON responses."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    /** @deprecated Use `monitoringServerPort` instead. */
+    healthCheckPort: z
+        .number()
+        .int()
+        .min(0, "Invalid healthCheckPort: must be at least 0")
+        .max(65535, "Invalid healthCheckPort: must be at most 65535")
+        .optional()
+        .describe(
+            "Deprecated. Use `monitoringServerPort` instead. Port number for the healthCheck HTTP server (only used when transport is 'http'). If provided, `healthCheckHost` must also be set."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" })
+        .register(argMetadata, { deprecationReplacement: "monitoringServerPort" }),
+    /** @deprecated Use `monitoringServerHost` instead. */
+    healthCheckHost: z
+        .string()
+        .optional()
+        .describe(
+            "Deprecated. Use `monitoringServerHost` instead. Host address to bind the healthCheck HTTP server to (only used when transport is 'http'). If provided, `healthCheckPort` must also be set."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" })
+        .register(argMetadata, { deprecationReplacement: "monitoringServerHost" }),
+    monitoringServerPort: z
+        .number()
+        .int()
+        .min(0, "Invalid monitoringServerPort: must be at least 0")
+        .max(65535, "Invalid monitoringServerPort: must be at most 65535")
+        .optional()
+        .describe(
+            "Port number for the monitoring HTTP server (only used when transport is 'http'). If provided, `monitoringServerHost` must also be set."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    monitoringServerHost: z
+        .string()
+        .optional()
+        .describe(
+            "Host address to bind the monitoring HTTP server to (only used when transport is 'http'). If provided, `monitoringServerPort` must also be set."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+    monitoringServerFeatures: z
+        .preprocess(
+            (val: string | string[] | undefined) => commaSeparatedToArray(val),
+            z.array(z.enum(monitoringServerFeatureValues))
+        )
+        .default(["health-check"])
+        .describe(
+            "Features to expose on the monitoring server (only used when transport is 'http' and monitoringServerHost/monitoringServerPort are set)."
+        )
+        .register(configRegistry, { overrideBehavior: "not-allowed" }),
+});
+
+export const UserConfigSchema = z.object({
+    ...MongoshCliOptionsSchema.shape,
+    ...ServerConfigSchema.shape,
+});
+
+export type UserConfig = z.infer<typeof UserConfigSchema>;
+
+export const ALL_CONFIG_KEYS = Object.keys(UserConfigSchema.shape) as (keyof UserConfig)[];

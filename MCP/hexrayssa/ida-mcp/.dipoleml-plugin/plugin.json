@@ -1,0 +1,16 @@
+{
+  "name": "ida-mcp",
+  "displayName": "IDA MCP",
+  "version": "20261028.0.3",
+  "description": "Official Hex-Rays IDA MCP Server.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Hexrayssa"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/HexRaysSA/ida-mcp",
+  "repository": "https://github.com/HexRaysSA/ida-mcp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

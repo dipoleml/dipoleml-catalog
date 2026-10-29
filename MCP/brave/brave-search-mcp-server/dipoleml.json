@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.brave.brave-search-mcp-server",
+  "type": "mcp",
+  "name": "Brave Search MCP Server",
+  "slug": "brave-search-mcp-server",
+  "vendor": "brave",
+  "description": "Brave Search MCP Server: web results, images, videos, rich results, AI summaries, and more.",
+  "version": "2.1.4",
+  "homepage": "https://github.com/brave/brave-search-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "brave",
+    "brandName": "brave",
+    "source": "https://cdn.simpleicons.org/brave",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:44Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "brave/brave-search-mcp-server",
+    "url": "https://github.com/brave/brave-search-mcp-server",
+    "commit": "ee06f81e2c028c7f25a2a87a85994d0dbe241a8e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1538,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@brave/brave-search-mcp-server"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@brave/brave-search-mcp-server"
+    ],
+    "env": [
+      "BRAVE_MCP_TRANSPORT",
+      "BRAVE_API_KEY",
+      "BRAVE_API_KEY_FILE",
+      "BRAVE_MCP_PORT",
+      "BRAVE_MCP_HOST",
+      "BRAVE_MCP_ALLOWED_HOSTS",
+      "YOUR_API_KEY_HERE"
+    ],
+    "credentials": [
+      "BRAVE_API_KEY",
+      "BRAVE_API_KEY_FILE",
+      "YOUR_API_KEY_HERE"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

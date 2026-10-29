@@ -1,0 +1,333 @@
+using System.Runtime.InteropServices;
+using Sbroenne.ExcelMcp.ComInterop;
+using Sbroenne.ExcelMcp.ComInterop.Session;
+using Sbroenne.ExcelMcp.Core.Models;
+using Vbe = Microsoft.Vbe.Interop;
+
+namespace Sbroenne.ExcelMcp.Core.Commands;
+
+/// <summary>
+/// VBA script lifecycle operations (List, View, Export, Import, Update, Delete)
+/// </summary>
+public partial class VbaCommands
+{
+    /// <inheritdoc />
+    public VbaListResult List(IExcelBatch batch)
+    {
+        var result = new VbaListResult { FilePath = batch.WorkbookPath };
+
+        EnsureVbaFile(batch.WorkbookPath);
+
+        // Check VBA trust BEFORE attempting operation
+        if (!IsVbaTrustEnabled())
+        {
+            throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage);
+        }
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Vbe.VBProject? vbaProject = null;
+            Vbe.VBComponents? vbComponents = null;
+            try
+            {
+                vbaProject = ctx.Book.VBProject;
+                EnsureProjectUnlocked(vbaProject);
+                vbComponents = vbaProject.VBComponents;
+
+                for (int i = 1; i <= vbComponents.Count; i++)
+                {
+                    Vbe.VBComponent? component = null;
+                    Vbe.CodeModule? codeModule = null;
+                    try
+                    {
+                        component = vbComponents.Item(i);
+                        string name = component.Name;
+                        int type = (int)component.Type;
+
+                        string typeStr = GetVbaModuleTypeName(type);
+
+                        codeModule = component.CodeModule;
+                        int moduleLineCount = codeModule.CountOfLines;
+                        List<VbaProcedureInfo> procedureDetails = GetProcedures(codeModule, ct);
+
+                        result.Scripts.Add(new ScriptInfo
+                        {
+                            Name = name,
+                            Type = typeStr,
+                            LineCount = moduleLineCount,
+                            Procedures = procedureDetails.Select(procedure => procedure.Name).ToList(),
+                            ProcedureDetails = procedureDetails
+                        });
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref codeModule);
+                        ComUtilities.Release(ref component);
+                    }
+                }
+
+                result.Success = true;
+                return result;
+            }
+            catch (COMException comEx) when (IsVbaTrustError(comEx))
+            {
+                // Trust was disabled during operation
+                throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage, comEx);
+            }
+            catch (COMException comEx) when (comEx.ErrorCode == GenericOfficeAutomationError)
+            {
+                // Trust passed IsVbaTrustError, so this generic 0x800A03EC is a real,
+                // non-trust failure. Surface it with COM environment diagnostics (issue #671).
+                throw new InvalidOperationException(BuildGenericComErrorMessage(comEx), comEx);
+            }
+            finally
+            {
+                ComUtilities.Release(ref vbComponents);
+                ComUtilities.Release(ref vbaProject);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public VbaViewResult View(IExcelBatch batch, string moduleName)
+    {
+        var result = new VbaViewResult { FilePath = batch.WorkbookPath, ModuleName = moduleName };
+
+        EnsureVbaFile(batch.WorkbookPath);
+
+        if (string.IsNullOrWhiteSpace(moduleName))
+        {
+            throw new ArgumentException("Module name cannot be empty", nameof(moduleName));
+        }
+
+        // Check VBA trust BEFORE attempting operation
+        if (!IsVbaTrustEnabled())
+        {
+            throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage);
+        }
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Vbe.VBProject? vbaProject = null;
+            Vbe.VBComponents? vbComponents = null;
+            Vbe.VBComponent? component = null;
+            Vbe.CodeModule? codeModule = null;
+            try
+            {
+                vbaProject = ctx.Book.VBProject;
+                EnsureProjectUnlocked(vbaProject);
+                vbComponents = vbaProject.VBComponents;
+
+                // Find the specified module
+                bool found = false;
+                for (int i = 1; i <= vbComponents.Count; i++)
+                {
+                    component = vbComponents.Item(i);
+                    string name = component.Name;
+
+                    if (name.Equals(moduleName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        found = true;
+                        int type = (int)component.Type;
+                        result.ModuleType = GetVbaModuleTypeName(type);
+
+                        codeModule = component.CodeModule;
+                        result.LineCount = codeModule.CountOfLines;
+
+                        // Read all code lines
+                        if (result.LineCount > 0)
+                        {
+                            result.Code = codeModule.Lines[1, result.LineCount];
+                        }
+
+                        result.Procedures = GetProcedures(codeModule, ct)
+                            .Select(procedure => procedure.Name)
+                            .ToList();
+
+                        break;
+                    }
+
+                    ComUtilities.Release(ref component);
+                    component = null;
+                }
+
+                if (!found)
+                {
+                    throw new OperationFailureException(OperationFailureCategory.NotFound, $"Module '{moduleName}' not found in workbook");
+                }
+
+                result.Success = true;
+                return result;
+            }
+            catch (COMException comEx) when (IsVbaTrustError(comEx))
+            {
+                throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage, comEx);
+            }
+            catch (COMException comEx) when (comEx.ErrorCode == GenericOfficeAutomationError)
+            {
+                // Trust passed IsVbaTrustError, so this generic 0x800A03EC is a real,
+                // non-trust failure. Surface it with COM environment diagnostics (issue #671).
+                throw new InvalidOperationException(BuildGenericComErrorMessage(comEx), comEx);
+            }
+            finally
+            {
+                ComUtilities.Release(ref codeModule);
+                ComUtilities.Release(ref component);
+                ComUtilities.Release(ref vbComponents);
+                ComUtilities.Release(ref vbaProject);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult Import(IExcelBatch batch, string moduleName, string vbaCode)
+    {
+        EnsureVbaFile(batch.WorkbookPath);
+
+        // Check VBA trust BEFORE attempting operation
+        if (!IsVbaTrustEnabled())
+        {
+            throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage);
+        }
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Vbe.VBProject? vbaProject = null;
+            Vbe.VBComponents? vbComponents = null;
+            Vbe.VBComponent? newModule = null;
+            Vbe.CodeModule? codeModule = null;
+            try
+            {
+                vbaProject = ctx.Book.VBProject;
+                EnsureProjectUnlocked(vbaProject);
+                vbComponents = vbaProject.VBComponents;
+
+                // Check if module already exists
+                for (int i = 1; i <= vbComponents.Count; i++)
+                {
+                    Vbe.VBComponent? component = null;
+                    try
+                    {
+                        component = vbComponents.Item(i);
+                        if (component.Name == moduleName)
+                        {
+                            throw new OperationFailureException(OperationFailureCategory.Conflict, $"Module '{moduleName}' already exists. Use script-update to modify it.");
+                        }
+                    }
+                    finally
+                    {
+                        ComUtilities.Release(ref component);
+                    }
+                }
+
+                // Add new module
+                newModule = vbComponents.Add(Vbe.vbext_ComponentType.vbext_ct_StdModule);
+                newModule.Name = moduleName;
+
+                codeModule = newModule.CodeModule;
+                codeModule.AddFromString(vbaCode);
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            catch (COMException comEx) when (IsVbaTrustError(comEx))
+            {
+                throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage, comEx);
+            }
+            catch (COMException comEx) when (comEx.ErrorCode == GenericOfficeAutomationError)
+            {
+                // Trust passed IsVbaTrustError, so this generic 0x800A03EC is a real,
+                // non-trust failure. Surface it with COM environment diagnostics (issue #671).
+                throw new InvalidOperationException(BuildGenericComErrorMessage(comEx), comEx);
+            }
+            finally
+            {
+                ComUtilities.Release(ref codeModule);
+                ComUtilities.Release(ref newModule);
+                ComUtilities.Release(ref vbComponents);
+                ComUtilities.Release(ref vbaProject);
+            }
+        });
+    }
+
+    /// <inheritdoc />
+    public OperationResult Update(IExcelBatch batch, string moduleName, string vbaCode)
+    {
+        EnsureVbaFile(batch.WorkbookPath);
+
+        // Check VBA trust BEFORE attempting operation
+        if (!IsVbaTrustEnabled())
+        {
+            throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage);
+        }
+
+        return batch.Execute((ctx, ct) =>
+        {
+            Vbe.VBProject? vbaProject = null;
+            Vbe.VBComponents? vbComponents = null;
+            Vbe.VBComponent? targetComponent = null;
+            Vbe.CodeModule? codeModule = null;
+            try
+            {
+                vbaProject = ctx.Book.VBProject;
+                EnsureProjectUnlocked(vbaProject);
+                vbComponents = vbaProject.VBComponents;
+
+                for (int i = 1; i <= vbComponents.Count; i++)
+                {
+                    Vbe.VBComponent? component = null;
+                    try
+                    {
+                        component = vbComponents.Item(i);
+                        if (component.Name == moduleName)
+                        {
+                            targetComponent = component;
+                            component = null; // Don't release - we're keeping it
+                            break;
+                        }
+                    }
+                    finally
+                    {
+                        if (component != null)
+                        {
+                            ComUtilities.Release(ref component);
+                        }
+                    }
+                }
+
+                if (targetComponent == null)
+                {
+                    throw new OperationFailureException(OperationFailureCategory.NotFound, $"Module '{moduleName}' not found. Use script-import to create it.");
+                }
+
+                codeModule = targetComponent.CodeModule;
+                int lineCount = codeModule.CountOfLines;
+
+                if (lineCount > 0)
+                {
+                    codeModule.DeleteLines(1, lineCount);
+                }
+
+                codeModule.AddFromString(vbaCode);
+
+                return new OperationResult { Success = true, FilePath = batch.WorkbookPath };
+            }
+            catch (COMException comEx) when (IsVbaTrustError(comEx))
+            {
+                throw new OperationFailureException(OperationFailureCategory.Permissions, VbaTrustErrorMessage, comEx);
+            }
+            catch (COMException comEx) when (comEx.ErrorCode == GenericOfficeAutomationError)
+            {
+                // Trust passed IsVbaTrustError, so this generic 0x800A03EC is a real,
+                // non-trust failure. Surface it with COM environment diagnostics (issue #671).
+                throw new InvalidOperationException(BuildGenericComErrorMessage(comEx), comEx);
+            }
+            finally
+            {
+                ComUtilities.Release(ref codeModule);
+                ComUtilities.Release(ref targetComponent);
+                ComUtilities.Release(ref vbComponents);
+                ComUtilities.Release(ref vbaProject);
+            }
+        });
+    }
+}

@@ -1,0 +1,1566 @@
+"""Architectural fitness function runner.
+
+Reads rules from .roam/fitness.yaml and checks them against the index.
+The rule ``type`` vocabulary is exactly the keys of :data:`_CHECKERS`:
+``dependency`` (which is also how layering is enforced — forbid the
+edge), ``metric``, ``naming``, ``trend``. There is no ``layer`` type;
+W1450 removed that claim from this docstring because it sent users to
+write a rule nothing enforces.
+Returns exit code 1 on violations, and on any rule whose ``type`` no
+checker handles (W1450), for CI use.
+
+Example .roam/fitness.yaml:
+  rules:
+    - name: "No direct DB access from handlers"
+      type: dependency
+      from: "src/handlers/**"
+      to: "src/db/**"
+      allow: false
+
+    - name: "Services must not import controllers"
+      type: dependency
+      from: "**/services/**"
+      to: "**/controllers/**"
+      allow: false
+
+    - name: "Max function complexity"
+      type: metric
+      metric: cognitive_complexity
+      max: 25
+
+    - name: "No cycles allowed"
+      type: metric
+      metric: cycles
+      max: 0
+
+    - name: "Health score minimum"
+      type: metric
+      metric: health_score
+      min: 70
+
+    - name: "Functions must use snake_case"
+      type: naming
+      kind: function
+      pattern: "^[a-z_][a-z0-9_]*$"
+      exclude: "test_*"
+
+    - name: "Health must not regress"
+      type: trend
+      metric: health_score
+      max_decrease: 5
+      window: 3
+
+    - name: "Complexity must not creep"
+      type: trend
+      metric: avg_complexity
+      max_increase: 2.0
+      window: 3
+
+Output formats: text (default), ``--json``. SARIF is deliberately NOT
+emitted because fitness outputs are invocation-scoped architectural
+rule-evaluation aggregates (per-rule PASS / FAIL verdicts derived from
+``.roam/fitness.yaml`` against the indexed graph) — not per-location
+code violations. The detector-namespace siblings (``smells``, ``debt``,
+``complexity``) DO ship SARIF for their per-location findings; fitness
+sits a layer above as the policy-aggregate. See action.yml
+_SUPPORTED_SARIF allowlist + W1175-RESEARCH propagation plan +
+W1224-audit memo.
+"""
+
+from __future__ import annotations
+
+import difflib
+import json
+import re
+import sqlite3
+from pathlib import Path
+
+import click
+
+from roam.capability import roam_capability
+from roam.commands.resolve import ensure_index
+from roam.db.connection import find_project_root, open_db
+from roam.output.confidence import (
+    confidence_distribution,
+    verdict_with_high_count,
+    wrap_findings,
+)
+from roam.output.formatter import WarningsOut, json_envelope, loc, to_json
+from roam.output.metric_definitions import COGNITIVE_COMPLEXITY_DEFINITION
+
+
+# R22 — confidence classifier for fitness violations.
+#
+# Each fitness rule may carry an explicit severity:
+#   high   — severity "error" (CI-blocking architecture violation)
+#   medium — severity "warning" (regression / drift signal)
+#   low    — severity "info" (advisory)
+#
+# Most rules don't currently set a severity field; we infer one from
+# rule type + threshold direction so existing configs still produce
+# reasonable confidence labels without requiring config changes:
+#   - dependency-allow-false → error (an explicit forbidden edge fired)
+#   - metric over a hard max (cycles > 0, complexity > 25) → error
+#   - trend regressions → warning
+#   - naming-convention drifts → info
+def _fitness_classify(violation: dict) -> tuple[str, str]:
+    """Map a fitness violation to a (confidence, reason) tuple."""
+    severity = (violation.get("severity") or "").lower()
+    vtype = (violation.get("type") or "").lower()
+    if severity == "error":
+        return "high", f"rule severity=error ({vtype} rule)"
+    if severity == "warning":
+        return "medium", f"rule severity=warning ({vtype} rule)"
+    if severity == "info":
+        return "low", f"rule severity=info ({vtype} rule)"
+    # No explicit severity — infer from rule type. Hard architecture
+    # gates default to high, drift / advisory rules to medium / low.
+    if vtype == "dependency":
+        return "high", "dependency-rule violation (no explicit severity; inferred)"
+    if vtype == "metric":
+        return "high", "metric-threshold violation (no explicit severity; inferred)"
+    if vtype == "trend":
+        return "medium", "trend regression (no explicit severity; inferred)"
+    if vtype == "naming":
+        return "low", "naming-convention violation (no explicit severity; inferred)"
+    return "medium", "unknown rule type; defaulting to medium"
+
+
+def _load_rules(
+    project_root: Path,
+    *,
+    warnings_out: WarningsOut = None,
+) -> list[dict]:
+    """Load fitness rules from .roam/fitness.yaml.
+
+    Walks ``.roam/fitness.yaml`` then ``.roam/fitness.yml`` and delegates
+    file-read + parse + root-type check to
+    :func:`roam.commands._yaml_loader.load_yaml_with_warnings` (W1051,
+    Phase 2 of the YAML-loader consolidation).
+
+    W1051 (Pattern 2 — silent fallback, mirror of W706's
+    ``_load_ignore_findings_file``): when *warnings_out* is supplied as
+    a ``list[str]``, every silent-fallback path (file unreadable,
+    malformed YAML, non-mapping root, missing ``rules`` key, non-list
+    ``rules``, non-dict entries) appends an actionable warning naming
+    the path, the failure shape, and the resolution. Pre-W1051 callers
+    that don't supply ``warnings_out`` retain byte-identical
+    silent-empty behaviour so the existing happy-path
+    ``cmd_fitness.fitness`` envelope stays unchanged when
+    ``.roam/fitness.yaml`` is well-formed.
+
+    W1030-followup-D: legacy single-value return preserved for the existing
+    callers (``cmd_diff._fitness_intersection`` /
+    ``cmd_preflight._collect_fitness_signal``). Callers that need the
+    on-disk state for envelope disambiguation use
+    :func:`_load_rules_with_status` instead.
+    """
+    rules, _status = _load_rules_with_status(project_root, warnings_out=warnings_out)
+    return rules
+
+
+def _load_rules_with_status(
+    project_root: Path,
+    *,
+    warnings_out: WarningsOut = None,
+) -> tuple[list[dict], str]:
+    """W1030-followup-D: load fitness rules and return ``(rules, status)``.
+
+    ``status`` is a closed-enum string drawn from
+    :data:`roam.commands._yaml_loader.LOAD_STATUSES`
+    (``"ok"`` / ``"missing"`` / ``"empty_file"`` / ``"empty_yaml"`` /
+    ``"read_error"`` / ``"parse_error"`` / ``"wrong_root_type"`` /
+    ``"schema_invalid"``). Lets the fitness command envelope disambiguate
+    "no fitness.yaml configured yet" (``missing`` -> use baseline rules
+    silently) from "fitness.yaml exists but is empty" (``empty_file`` ->
+    use baseline rules + flag the empty stub) from "fitness.yaml is
+    broken" (``parse_error`` / ``wrong_root_type`` -> partial_success,
+    warnings already populated by the canonical loader).
+    """
+    config_path = project_root / ".roam" / "fitness.yaml"
+    if not config_path.exists():
+        # Try .yml extension
+        config_path = project_root / ".roam" / "fitness.yml"
+    if not config_path.exists():
+        return [], "missing"
+
+    from roam.commands._yaml_loader import load_yaml_with_warnings
+
+    path_str = str(config_path)
+    pre_warnings = len(warnings_out) if warnings_out is not None else 0
+    data, status = load_yaml_with_warnings(
+        config_path,
+        tiny_parser=_parse_simple_yaml_dict,
+        config_label="fitness",
+        warnings_out=warnings_out,
+        return_status=True,
+    )
+    if data is None:
+        # Missing file — default state, no warning emitted by the helper.
+        return [], status
+    if status in ("empty_file", "empty_yaml"):
+        # W1030-followup-D: zero-byte / comments-only file is a distinct
+        # on-disk state from "non-empty file missing the ``rules:`` key"
+        # -- the user created a stub but did not write any rules.
+        # Suppress the "no `rules:` key" warning that the legacy
+        # missing-key branch would emit so the empty-stub state surfaces
+        # cleanly as ``config_state=empty_file`` (or ``empty_yaml``) on
+        # the envelope, with no warning. Pattern 2 is preserved for the
+        # malformed cases — ``parse_error`` / ``wrong_root_type`` still
+        # emit the canonical loader's warning above.
+        return [], status
+    if warnings_out is not None and len(warnings_out) > pre_warnings:
+        # Helper already explained the failure (read error / malformed
+        # YAML / wrong root type / tiny-parser fallback). Propagate the
+        # empty result without piling on a second "no `rules:` key"
+        # warning that would just confuse the caller.
+        return [], status
+    assert isinstance(data, dict)
+    if "rules" not in data:
+        if warnings_out is not None:
+            warnings_out.append(
+                f"fitness: {path_str!r} has no `rules:` key. "
+                f"Expected shape: `rules:` followed by a list of "
+                f"`{{name, type, ...}}` entries."
+            )
+        return [], status
+    # W1038 — shared "load → check type → warn-or-default" extractor.
+    from roam.commands._yaml_loader import extract_typed
+
+    rules = extract_typed(
+        data,
+        "rules",
+        list,
+        [],
+        warnings_out=warnings_out,
+        context=f"fitness: {path_str!r}",
+        expected_shape="a list",
+    )
+    out: list[dict] = []
+    for idx, r in enumerate(rules):
+        if not isinstance(r, dict):
+            if warnings_out is not None:
+                warnings_out.append(
+                    f"fitness: {path_str!r} rules[{idx}] is "
+                    f"{type(r).__name__!r}, expected a mapping with "
+                    f"`name` / `type` / ... keys. Skipping entry."
+                )
+            continue
+        # W1450 -- validate ``type`` against the SAME registry the
+        # dispatcher dispatches through (:data:`_CHECKERS`, via
+        # :func:`_unknown_rule_type`). Before W1450 the loader checked
+        # only that the entry was a mapping, so an unrecognised type
+        # reached :func:`_run_fitness_rules`, hit ``checker is None``,
+        # and was ``continue``d out of existence -- gone from the
+        # numerator AND the denominator of ``rules_checked``.
+        #
+        # The rule is KEPT in the returned list on purpose: the
+        # dispatcher turns it into an ``ERROR`` row so the user's rule
+        # still occupies a slot in ``rules_checked``, and external
+        # callers of the legacy ``_load_rules`` wrapper
+        # (cmd_diff / cmd_preflight) see the exact same list they saw
+        # before this wave.
+        unknown = _unknown_rule_type(r)
+        if unknown is not None and warnings_out is not None:
+            warnings_out.append(
+                f"fitness: {path_str!r} rules[{idx}] ({r.get('name', 'unnamed')!r}): {_unknown_type_detail(unknown)}"
+            )
+        # W1514 -- a KNOWN type whose keys nothing reads is the quieter
+        # half of the same defect: the rule is dispatchable, so it is
+        # counted in ``rules_checked`` and reported PASS/FAIL, but the
+        # constraint the user wrote never reached the checker. Warn (do
+        # NOT refuse): hand-written configs legitimately carry
+        # documentation keys, and the exit code is computed from
+        # failed/errored alone, so this disclosure cannot turn a passing
+        # run red. It does flip ``summary.partial_success`` -- which is
+        # the point, since the run's verdict covers fewer constraints
+        # than the config declares.
+        if warnings_out is not None:
+            unread = _unread_rule_keys(r)
+            if unread:
+                warnings_out.append(
+                    f"fitness: {path_str!r} rules[{idx}] ({r.get('name', 'unnamed')!r}): "
+                    f"{_unread_keys_detail(str(r.get('type', '')), unread)}"
+                )
+            if _vacuous_dependency_rule(r):
+                warnings_out.append(
+                    f"fitness: {path_str!r} rules[{idx}] ({r.get('name', 'unnamed')!r}): "
+                    f"`dependency` rule supplies neither `from` nor `to`, so it forbids "
+                    f"EVERY edge in the repository (both globs default to `**`). Set at "
+                    f"least one of them."
+                )
+        out.append(r)
+    return out, status
+
+
+def _parse_simple_yaml_dict(text: str) -> dict:
+    """Minimal YAML parser for fitness rules (no PyYAML dependency).
+
+    Returns a ``{"rules": [...]}`` dict so the helper's root-type check
+    + ``rules`` extraction in :func:`_load_rules` works on a uniform
+    shape regardless of whether PyYAML parsed the file or this fallback
+    did.
+
+    W1058: rule-list parsing is now shared with ``cmd_budget`` via
+    :func:`roam.commands._yaml_loader.parse_rule_list`.
+    """
+    from roam.commands._yaml_loader import parse_rule_list
+
+    rules = parse_rule_list(text)
+    return {"rules": rules} if rules else {}
+
+
+# W1030-followup-D: closed-enum set of LoadStatus values that flip
+# ``partial_success=True`` even when no warning fired (e.g. empty stub on
+# disk doesn't warn, but ``schema_invalid`` does -- treat them uniformly
+# at the partial_success level). Mirrors cmd_alerts + cmd_budget +
+# cmd_health + cmd_check_rules vocabularies.
+_DEGRADED_LOAD_STATUSES: frozenset[str] = frozenset({"parse_error", "wrong_root_type", "read_error", "schema_invalid"})
+
+
+def _build_config_state_facts(config_state: str) -> list[str]:
+    """W1030-followup-D: build ``agent_contract.facts`` for the ``config_state``.
+
+    LAW 4 anchored on the concrete-noun terminal ``"rules"`` (the
+    fitness rules ``cmd_fitness`` evaluates). Mirrors cmd_check_rules
+    (anchors on ``"rules"``), cmd_alerts (anchors on ``"defaults"``),
+    and cmd_health (anchors on ``"gates"``) by using the command's own
+    subject-noun.
+
+    Returns an empty list when ``config_state == "ok"`` -- no need to
+    disclose the happy path.
+    """
+    if config_state == "missing":
+        return ["no .roam/fitness.yaml configured; using baseline rules"]
+    if config_state == "empty_file":
+        return ["empty .roam/fitness.yaml stub on disk; using baseline rules"]
+    if config_state == "empty_yaml":
+        return ["comment-only .roam/fitness.yaml on disk; using baseline rules"]
+    if config_state in _DEGRADED_LOAD_STATUSES:
+        return [f"fitness config rejected ({config_state}); using baseline rules"]
+    return []
+
+
+# -- Rule checkers ----------------------------------------------------
+
+
+def _check_dependency_rule(rule, conn) -> list[dict]:
+    """Check a dependency constraint rule.
+
+    Verifies that symbols in 'from' glob don't have edges to symbols
+    in 'to' glob (or vice versa if allow=true).
+    """
+    from_pattern = rule.get("from", "**")
+    to_pattern = rule.get("to", "**")
+    allow = rule.get("allow", False)
+
+    # Get all edges with file paths
+    rows = conn.execute(
+        """SELECT e.source_id, e.target_id, e.kind, e.line,
+                  sf.path as source_path, tf.path as target_path,
+                  ss.name as source_name, ts.name as target_name
+           FROM edges e
+           JOIN symbols ss ON e.source_id = ss.id
+           JOIN symbols ts ON e.target_id = ts.id
+           JOIN files sf ON ss.file_id = sf.id
+           JOIN files tf ON ts.file_id = tf.id"""
+    ).fetchall()
+
+    from roam.index.gitignore import matches_gitignore
+
+    violations = []
+    for r in rows:
+        src_match = matches_gitignore(r["source_path"], from_pattern)
+        tgt_match = matches_gitignore(r["target_path"], to_pattern)
+
+        if src_match and tgt_match and not allow:
+            violations.append(
+                {
+                    "rule": rule.get("name", "unnamed"),
+                    "type": "dependency",
+                    "message": f"{r['source_name']} -> {r['target_name']}",
+                    "source": f"{r['source_path']}:{r['line'] or '?'}",
+                    "target": r["target_path"],
+                    "edge_kind": r["kind"],
+                }
+            )
+
+    return violations
+
+
+def _threshold_metric_violations(rule, metric: str, value, max_val, min_val) -> list[dict]:
+    violations = []
+    if max_val is not None and value > max_val:
+        violations.append(_metric_violation(rule, metric, value, "max", max_val))
+    if min_val is not None and value < min_val:
+        violations.append(_metric_violation(rule, metric, value, "min", min_val))
+    return violations
+
+
+def _metric_violation(rule, metric: str, value, bound: str, threshold) -> dict:
+    return {
+        "rule": rule.get("name", "unnamed"),
+        "type": "metric",
+        "message": f"{metric}={value} ({bound}={threshold})",
+        "metric": metric,
+        "value": value,
+        "threshold": threshold,
+    }
+
+
+def _symbol_graph_cycles(conn):
+    from roam.graph.builder import build_symbol_graph
+    from roam.graph.cycles import find_cycles
+
+    graph = build_symbol_graph(conn)
+    return graph, find_cycles(graph)
+
+
+def _actionable_cycles(conn, cycles):
+    """Return only architectural cycles, mirroring health's filter.
+
+    Local-only and test-involved SCCs are excluded so fitness gates do not
+    fail on intra-file refs (e.g. Vue ``<script setup>``) or duplicate-named
+    test helpers — neither is a real cycle.
+    """
+    from roam.graph.cycles import format_cycles, mark_actionable_cycles
+
+    formatted = format_cycles(cycles, conn) if cycles else []
+    mark_actionable_cycles(formatted)
+    actionable_ids = {tuple(scc) for scc, fc in zip(cycles, formatted) if fc.get("actionable")}
+    return [scc for scc in cycles if tuple(scc) in actionable_ids]
+
+
+def _check_cycles_metric(rule, conn) -> list[dict]:
+    try:
+        _, cycles = _symbol_graph_cycles(conn)
+    except (ImportError, sqlite3.DatabaseError):
+        return []
+    cycles = _actionable_cycles(conn, cycles)
+    return _threshold_metric_violations(rule, "cycles", len(cycles), rule.get("max"), rule.get("min"))
+
+
+def _check_health_score_metric(rule, conn) -> list[dict]:
+    try:
+        graph, cycles = _symbol_graph_cycles(conn)
+    except sqlite3.DatabaseError:
+        return []
+    total_syms = len(graph)
+    if total_syms == 0:
+        return []
+    cycles = _actionable_cycles(conn, cycles)
+    cycle_syms = sum(len(cycle) for cycle in cycles)
+    cycle_pct = cycle_syms / total_syms * 100
+    score = max(0, 100 - int(cycle_pct * 2))
+    return _threshold_metric_violations(rule, "health_score", score, rule.get("max"), rule.get("min"))
+
+
+def _check_cognitive_complexity_metric(rule, conn) -> list[dict]:
+    threshold = rule.get("max") if rule.get("max") is not None else 999
+    limit_clause = "" if rule.get("_all_violations") else "LIMIT 50"
+    try:
+        rows = conn.execute(
+            f"""SELECT sm.cognitive_complexity, s.name, s.kind,
+                      s.line_start, f.path
+               FROM symbol_metrics sm
+               JOIN symbols s ON sm.symbol_id = s.id
+               JOIN files f ON s.file_id = f.id
+               WHERE sm.cognitive_complexity > ?
+               ORDER BY sm.cognitive_complexity DESC
+               {limit_clause}""",
+            (threshold,),
+        ).fetchall()
+    except sqlite3.DatabaseError:
+        return []
+
+    return [
+        {
+            "rule": rule.get("name", "unnamed"),
+            "type": "metric",
+            "message": f"{row['name']} complexity={row['cognitive_complexity']:.0f} (max={threshold})",
+            "source": loc(row["path"], row["line_start"]),
+            "metric": "cognitive_complexity",
+            "value": row["cognitive_complexity"],
+            "threshold": threshold,
+        }
+        for row in rows
+    ]
+
+
+def _check_count_metric_rule(rule, conn) -> list[dict]:
+    violations: list[dict] = []
+    _check_count_metric(rule.get("metric", ""), rule, conn, violations)
+    return violations
+
+
+def _check_metric_rule(rule, conn) -> list[dict]:
+    """Check a metric threshold rule."""
+    metric = rule.get("metric", "")
+    if metric == "cycles":
+        return _check_cycles_metric(rule, conn)
+    if metric == "health_score":
+        return _check_health_score_metric(rule, conn)
+    if metric == "cognitive_complexity":
+        return _check_cognitive_complexity_metric(rule, conn)
+    if metric in ("god_components", "bottlenecks", "dead_exports", "layer_violations"):
+        return _check_count_metric_rule(rule, conn)
+    return []
+
+
+def _check_count_metric(metric, rule, conn, violations):
+    """Check count-based metrics."""
+    max_val = rule.get("max")
+    min_val = rule.get("min")
+
+    if metric == "dead_exports":
+        count = conn.execute(
+            """SELECT COUNT(*) FROM symbols s
+               LEFT JOIN graph_metrics gm ON s.id = gm.symbol_id
+               WHERE s.is_exported = 1
+               AND (gm.in_degree IS NULL OR gm.in_degree = 0)"""
+        ).fetchone()[0]
+    elif metric == "god_components":
+        rows = conn.execute("SELECT COUNT(*) FROM graph_metrics WHERE in_degree + out_degree > 20").fetchone()
+        count = rows[0] if rows else 0
+    elif metric == "bottlenecks":
+        count = conn.execute("SELECT COUNT(*) FROM graph_metrics WHERE betweenness > 0.1").fetchone()[0]
+    else:
+        return
+
+    if max_val is not None and count > max_val:
+        violations.append(
+            {
+                "rule": rule.get("name", "unnamed"),
+                "type": "metric",
+                "message": f"{metric}={count} (max={max_val})",
+                "metric": metric,
+                "value": count,
+                "threshold": max_val,
+            }
+        )
+    if min_val is not None and count < min_val:
+        violations.append(
+            {
+                "rule": rule.get("name", "unnamed"),
+                "type": "metric",
+                "message": f"{metric}={count} (min={min_val})",
+                "metric": metric,
+                "value": count,
+                "threshold": min_val,
+            }
+        )
+
+
+def _check_naming_rule(rule, conn) -> list[dict]:
+    """Check a naming convention rule."""
+    kind = rule.get("kind", "function")
+    pattern = rule.get("pattern", "")
+    exclude = rule.get("exclude", "")
+
+    if not pattern:
+        return []
+
+    regex = re.compile(pattern)
+    exclude_re = re.compile(exclude) if exclude else None
+
+    rows = conn.execute(
+        """SELECT s.name, s.kind, s.line_start, f.path
+           FROM symbols s
+           JOIN files f ON s.file_id = f.id
+           WHERE s.kind = ?""",
+        (kind,),
+    ).fetchall()
+
+    violations = []
+    for r in rows:
+        name = r["name"]
+        if exclude_re and exclude_re.match(name):
+            continue
+        if not regex.match(name):
+            violations.append(
+                {
+                    "rule": rule.get("name", "unnamed"),
+                    "type": "naming",
+                    "message": f"{name} does not match {pattern}",
+                    "source": loc(r["path"], r["line_start"]),
+                }
+            )
+
+    return violations
+
+
+def _check_trend_rule(rule, conn) -> list[dict]:
+    """Check a trend-based regression guard.
+
+    Compares the latest snapshot metric value against recent history
+    to detect gradual degradation that absolute thresholds miss.
+
+    Supported fields:
+      metric:        snapshot column name (health_score, tangle_ratio, etc.)
+      window:        number of recent snapshots to consider (default 3)
+      max_decrease:  max allowed drop from the window average (for metrics where higher=better)
+      max_increase:  max allowed rise from the window average (for metrics where lower=better)
+      direction:     optional override: "higher_is_better" or "lower_is_better"
+    """
+    metric = rule.get("metric", "")
+    window = rule.get("window", 3)
+    max_decrease = rule.get("max_decrease")
+    max_increase = rule.get("max_increase")
+
+    # Validate the metric is a real snapshot column
+    _SNAPSHOT_METRICS = {
+        "health_score",
+        "tangle_ratio",
+        "avg_complexity",
+        "brain_methods",
+        "cycles",
+        "god_components",
+        "bottlenecks",
+        "dead_exports",
+        "layer_violations",
+        "files",
+        "symbols",
+        "edges",
+    }
+    if metric not in _SNAPSHOT_METRICS:
+        return [
+            {
+                "rule": rule.get("name", "unnamed"),
+                "type": "trend",
+                "message": f"Unknown snapshot metric '{metric}'. Valid: {', '.join(sorted(_SNAPSHOT_METRICS))}",
+            }
+        ]
+
+    # Fetch recent snapshots (need at least 2 to compute a trend)
+    #
+    # W1460 — a trend is only a trend within ONE metrics definition. Rows
+    # written by a superseded definition measure a different thing, and
+    # averaging them into ``prev_avg`` manufactures a step change that reads
+    # as gradual degradation. Read the stamp alongside the metric and keep
+    # only the rows that share the NEWEST row's version; the rest are history
+    # in different units.
+    #
+    # The column is probed, not assumed: read-only opens skip migrations, so
+    # the first post-upgrade `roam fitness` still sees the pre-W1460 table.
+    from roam.commands.metrics_history import (
+        LEGACY_METRICS_VERSION,
+        snapshots_have_metrics_version,
+    )
+
+    has_version = snapshots_have_metrics_version(conn)
+    version_col = "metrics_version" if has_version else "NULL"
+    rows = conn.execute(
+        f"SELECT {metric}, {version_col} FROM snapshots ORDER BY timestamp DESC LIMIT ?",
+        (window + 1,),
+    ).fetchall()
+
+    if rows:
+
+        def _ver(row):
+            return row[1] if row[1] is not None else LEGACY_METRICS_VERSION
+
+        newest_version = _ver(rows[0])
+        rows = [r for r in rows if _ver(r) == newest_version]
+
+    if len(rows) < 2:
+        return []  # Not enough history to judge
+
+    latest = rows[0][0]
+    if latest is None:
+        return []
+
+    # Compute average of previous snapshots (excluding latest)
+    previous_vals = [r[0] for r in rows[1:] if r[0] is not None]
+    if not previous_vals:
+        return []
+
+    prev_avg = sum(previous_vals) / len(previous_vals)
+    delta = latest - prev_avg
+    violations = []
+
+    if max_decrease is not None and delta < -max_decrease:
+        violations.append(
+            {
+                "rule": rule.get("name", "unnamed"),
+                "type": "trend",
+                "message": (
+                    f"{metric} dropped by {abs(delta):.1f} "
+                    f"(from avg {prev_avg:.1f} to {latest:.1f}, "
+                    f"max allowed decrease: {max_decrease})"
+                ),
+                "metric": metric,
+                "latest": latest,
+                "previous_avg": round(prev_avg, 2),
+                "delta": round(delta, 2),
+                "threshold": max_decrease,
+            }
+        )
+
+    if max_increase is not None and delta > max_increase:
+        violations.append(
+            {
+                "rule": rule.get("name", "unnamed"),
+                "type": "trend",
+                "message": (
+                    f"{metric} increased by {delta:.1f} "
+                    f"(from avg {prev_avg:.1f} to {latest:.1f}, "
+                    f"max allowed increase: {max_increase})"
+                ),
+                "metric": metric,
+                "latest": latest,
+                "previous_avg": round(prev_avg, 2),
+                "delta": round(delta, 2),
+                "threshold": max_increase,
+            }
+        )
+
+    return violations
+
+
+_CHECKERS = {
+    "dependency": _check_dependency_rule,
+    "metric": _check_metric_rule,
+    "naming": _check_naming_rule,
+    "trend": _check_trend_rule,
+}
+
+
+# -- W1450: one source of truth for "is this rule type dispatchable?" --
+#
+# ``_CHECKERS`` IS the closed set of rule types. The loader
+# (:func:`_load_rules_with_status`) and the dispatcher
+# (:func:`_run_fitness_rules`) both decide "known type?" by calling
+# :func:`_resolve_checker` -- so what the loader accepts is, by
+# construction, what the dispatcher can run. Registering a new checker
+# in ``_CHECKERS`` is the ONLY step needed to teach both halves about
+# it; there is deliberately no second hardcoded list of type names to
+# forget to update. ``cmd_preflight`` imports ``_CHECKERS`` and shares
+# the same dict object, so a monkeypatched / future entry is visible to
+# the loader too.
+
+
+def _resolve_checker(rule: dict):
+    """Return the checker callable for *rule*, or ``None`` when its ``type`` is unknown."""
+    rtype = rule.get("type", "")
+    if not isinstance(rtype, str):
+        return None
+    return _CHECKERS.get(rtype)
+
+
+def _known_rule_types() -> tuple[str, ...]:
+    """Sorted closed set of dispatchable rule types, read off ``_CHECKERS``."""
+    return tuple(sorted(_CHECKERS))
+
+
+def _unknown_rule_type(rule: dict) -> str | None:
+    """Return the offending ``type`` when *rule* is not dispatchable, else ``None``.
+
+    ``""`` is returned for a rule with no ``type`` key at all -- also an
+    unenforceable rule, and equally silent before W1450.
+    """
+    if _resolve_checker(rule) is not None:
+        return None
+    rtype = rule.get("type", "")
+    return rtype if isinstance(rtype, str) else repr(rtype)
+
+
+def _unknown_type_detail(rtype: str) -> str:
+    """Actionable one-liner explaining why a rule cannot be enforced.
+
+    Includes the closed set of known types and, for a near-miss (the
+    common case -- a typo such as ``dependancy``), a did-you-mean.
+    """
+    known = ", ".join(_known_rule_types())
+    if not rtype:
+        return f"rule has no `type`; expected one of: {known}. Rule NOT enforced (reported ERROR, never PASS)."
+    close = difflib.get_close_matches(rtype, _known_rule_types(), n=1, cutoff=0.6)
+    hint = f" Did you mean {close[0]!r}?" if close else ""
+    return (
+        f"unknown rule type {rtype!r}; expected one of: {known}.{hint} Rule NOT enforced (reported ERROR, never PASS)."
+    )
+
+
+# -- W1514: keys the dispatched checker actually READS -----------------
+#
+# A fitness rule whose keys no checker reads is not a rule -- it is a
+# comment that occupies a slot in ``rules_checked`` and reports PASS. The
+# shipped `roam init` template spent its whole life in that state: it
+# wrote ``threshold: 30`` (nothing reads ``threshold``; the checker reads
+# ``max``, defaulting to 999) and ``source:``/``forbidden_target:``
+# (nothing reads either; the checker reads ``from``/``to``, both
+# defaulting to ``**``), so a 377-complexity function PASSED and every
+# edge in the repository FAILED.
+#
+# These sets are read off the checkers themselves -- see
+# ``_check_dependency_rule`` (from/to/allow), ``_check_metric_rule`` +
+# ``_threshold_metric_violations`` (metric/max/min), ``_check_naming_rule``
+# (kind/pattern/exclude) and ``_check_trend_rule``
+# (metric/window/max_decrease/max_increase). Adding a ``rule.get("x")``
+# to a checker without adding ``"x"`` here makes the loader warn about a
+# key that now works, which is the loud failure direction.
+_UNIVERSAL_RULE_KEYS: frozenset[str] = frozenset({"name", "type", "reason", "link", "severity"})
+
+_RULE_KEYS_BY_TYPE: dict[str, frozenset[str]] = {
+    "dependency": frozenset({"from", "to", "allow"}),
+    "metric": frozenset({"metric", "max", "min"}),
+    "naming": frozenset({"kind", "pattern", "exclude"}),
+    "trend": frozenset({"metric", "window", "max_decrease", "max_increase"}),
+}
+
+
+def _unread_rule_keys(rule: dict) -> list[str]:
+    """Return the rule's keys that the dispatched checker never reads.
+
+    Empty for an unknown ``type`` -- :func:`_unknown_rule_type` already
+    reports that rule as unenforceable and a second warning naming every
+    key would bury the actionable one. Underscore-prefixed keys are
+    roam's own internal plumbing (``_all_violations``) and are skipped.
+    """
+    rtype = rule.get("type", "")
+    if not isinstance(rtype, str):
+        return []
+    known = _RULE_KEYS_BY_TYPE.get(rtype)
+    if known is None:
+        return []
+    accepted = known | _UNIVERSAL_RULE_KEYS
+    return sorted(str(key) for key in rule if isinstance(key, str) and not key.startswith("_") and key not in accepted)
+
+
+def _unread_keys_detail(rtype: str, unread: list[str]) -> str:
+    """Actionable one-liner naming the dead keys and the live vocabulary."""
+    reads = ", ".join(sorted(_RULE_KEYS_BY_TYPE.get(rtype, frozenset()) | _UNIVERSAL_RULE_KEYS))
+    subject = "keys" if len(unread) > 1 else "key"
+    verb = "are" if len(unread) > 1 else "is"
+    names = ", ".join(repr(k) for k in unread)
+    return (
+        f"{subject} {names} on this `{rtype}` rule {verb} read by NOTHING; "
+        f"a `{rtype}` rule is evaluated from: {reads}. "
+        f"The rule still runs, using the DEFAULTS for whatever you meant to set."
+    )
+
+
+def _vacuous_dependency_rule(rule: dict) -> bool:
+    """True when a ``dependency`` rule constrains neither end of the edge.
+
+    ``from`` and ``to`` both default to ``**``, so a rule supplying
+    neither forbids every edge in the repository. Nobody writes that on
+    purpose -- it is what a rule using some OTHER spelling of the two
+    globs degrades into. One-sided rules ("nothing anywhere may reach
+    this") are legitimate and are NOT reported.
+    """
+    if rule.get("type") != "dependency" or rule.get("allow", False):
+        return False
+    return "from" not in rule and "to" not in rule
+
+
+def _default_baseline_path(root: Path) -> Path:
+    return root / ".roam" / "fitness-baseline.json"
+
+
+def _violation_key(violation: dict) -> str:
+    metric = str(violation.get("metric", ""))
+    if metric == "cycles":
+        return "|".join(
+            str(part)
+            for part in (
+                violation.get("rule", ""),
+                violation.get("type", ""),
+                metric,
+            )
+        )
+    if metric == "cognitive_complexity":
+        message = str(violation.get("message", ""))
+        symbol_name = message.split(" complexity=", 1)[0]
+        source_path = str(violation.get("source", "")).split(":", 1)[0]
+        return "|".join(
+            str(part)
+            for part in (
+                violation.get("rule", ""),
+                violation.get("type", ""),
+                metric,
+                source_path,
+                symbol_name,
+            )
+        )
+    parts = [
+        violation.get("rule", ""),
+        violation.get("type", ""),
+        violation.get("metric", ""),
+        violation.get("source", ""),
+        violation.get("message", ""),
+    ]
+    return "|".join(str(part) for part in parts)
+
+
+def _baseline_payload(rule_results: list[dict], violations: list[dict]) -> dict:
+    keys = sorted({_violation_key(violation) for violation in violations})
+    return {
+        "schema": "roam-fitness-baseline-v1",
+        "summary": {
+            "rules": len(rule_results),
+            "violations": len(violations),
+        },
+        "violation_keys": keys,
+        "violations": violations,
+    }
+
+
+def _load_baseline(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise click.ClickException(f"Cannot read fitness baseline: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid fitness baseline JSON: {path}") from exc
+    if not isinstance(data, dict):
+        raise click.ClickException(f"Invalid fitness baseline shape: {path}")
+    return data
+
+
+def _baseline_keys(data: dict) -> set[str]:
+    keys = data.get("violation_keys")
+    if isinstance(keys, list):
+        return {str(key) for key in keys}
+    violations = data.get("violations", [])
+    if isinstance(violations, list):
+        return {_violation_key(violation) for violation in violations if isinstance(violation, dict)}
+    return set()
+
+
+def _baseline_delta(violations: list[dict], baseline: dict) -> dict:
+    old_keys = _baseline_keys(baseline)
+    current_keys = {_violation_key(violation) for violation in violations}
+    new_violations = [violation for violation in violations if _violation_key(violation) not in old_keys]
+    return {
+        "baseline_violations": len(old_keys),
+        "current_violations": len(current_keys),
+        "new_violations": len(new_violations),
+        "resolved_violations": len(old_keys - current_keys),
+        "new_violation_items": new_violations,
+    }
+
+
+def _write_baseline(path: Path, rule_results: list[dict], violations: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_baseline_payload(rule_results, violations), indent=2), encoding="utf-8")
+
+
+def _rules_for_baseline_mode(rules: list[dict]) -> list[dict]:
+    out = []
+    for rule in rules:
+        copy = dict(rule)
+        if copy.get("type") == "metric" and copy.get("metric") == "cognitive_complexity":
+            copy["_all_violations"] = True
+        out.append(copy)
+    return out
+
+
+def _emit_no_rules(
+    json_mode: bool,
+    *,
+    warnings_out: list[str] | None = None,
+    config_state: str = "missing",
+) -> None:
+    if json_mode:
+        verdict = "no rules configured"
+        summary_payload: dict = {
+            "rules_checked": 0,
+            "passed": 0,
+            "failed": 0,
+            "total_violations": 0,
+            "verdict": verdict,
+        }
+        # W1030-followup-D: closed-enum LoadStatus disclosure on the
+        # envelope. Mirrors cmd_alerts + cmd_budget + cmd_health +
+        # cmd_check_rules vocabulary so the five W1030-followup-cohort
+        # emitters use a uniform field name (``summary.config_state``)
+        # and value space (LOAD_STATUSES). Lets agents disambiguate "no
+        # .roam/fitness.yaml configured yet" (missing -> use baseline
+        # rules silently) from ".roam/fitness.yaml exists but is empty"
+        # (empty_file / empty_yaml -> use baseline rules + flag the
+        # empty stub) from ".roam/fitness.yaml is broken" (parse_error /
+        # wrong_root_type / read_error / schema_invalid -- already
+        # accompanied by a warning in warnings_out).
+        summary_payload["config_state"] = config_state
+        _degraded = config_state in _DEGRADED_LOAD_STATUSES
+        if warnings_out:
+            summary_payload["warnings_out"] = list(warnings_out)
+            summary_payload["partial_success"] = True
+        elif _degraded:
+            # W1030-followup-D: a degraded config_state flips
+            # partial_success regardless of warning emission, mirroring
+            # cmd_alerts + cmd_budget + cmd_health + cmd_check_rules.
+            # The user's fitness config did not materialize -- agents
+            # must see the discard, not just the "no rules configured"
+            # verdict.
+            summary_payload["partial_success"] = True
+        _state_facts = _build_config_state_facts(config_state)
+        envelope_kwargs: dict = dict(
+            summary=summary_payload,
+            rules=[],
+            violations=[],
+        )
+        if _state_facts:
+            envelope_kwargs["agent_contract"] = {
+                "facts": [verdict, *_state_facts],
+                "next_commands": ["roam fitness --init"],
+            }
+        click.echo(to_json(json_envelope("fitness", **envelope_kwargs)))
+        return
+    click.echo("No fitness rules found. Create .roam/fitness.yaml or run:\n  roam fitness --init")
+    if warnings_out:
+        click.echo()
+        for w in warnings_out:
+            click.echo(f"WARNING: {w}")
+
+
+def _filter_rules(rules: list[dict], rule_filter: str | None) -> list[dict]:
+    if not rule_filter:
+        return rules
+    return [rule for rule in rules if rule_filter.lower() in rule.get("name", "").lower()]
+
+
+def _run_fitness_rules(conn, rules: list[dict]) -> tuple[list[dict], list[dict]]:
+    all_violations = []
+    rule_results = []
+    for rule in rules:
+        checker = _resolve_checker(rule)
+        if checker is None:
+            # W1450 -- an unrecognised ``type`` is NOT a silent skip.
+            # The user wrote a rule; nothing can enforce it. Record it
+            # as ERROR so it occupies a slot in ``rules_checked`` (the
+            # denominator) and can never be summarised as a pass.
+            rule_results.append(_unevaluable_rule_entry(rule))
+            continue
+        violations = checker(rule, conn)
+        result_entry = _rule_result_entry(rule, violations)
+        rule_results.append(result_entry)
+        all_violations.extend(violations)
+    return rule_results, all_violations
+
+
+def _rule_result_entry(rule: dict, violations: list[dict]) -> dict:
+    result = {
+        "name": rule.get("name", "unnamed"),
+        "type": rule.get("type", ""),
+        "status": "PASS" if not violations else "FAIL",
+        "violations": len(violations),
+    }
+    if reason := rule.get("reason", ""):
+        result["reason"] = reason
+    if link := rule.get("link", ""):
+        result["link"] = link
+    return result
+
+
+def _unevaluable_rule_entry(rule: dict) -> dict:
+    """W1450: rule-result row for a rule whose ``type`` no checker handles.
+
+    ``status`` is the third member of the rule-status vocabulary
+    (``PASS`` / ``FAIL`` / ``ERROR``, UPPER per W847): the rule was
+    neither satisfied nor violated -- it was never evaluated. It carries
+    ``violations: 0`` because zero locations were inspected, and the
+    ``error`` field says why. ERROR rows are deliberately kept OUT of
+    ``all_violations``: a config typo is not a per-location architectural
+    finding, and routing it through the violation list would let
+    ``--write-baseline`` bless the typo into permanent silence.
+    """
+    rtype = _unknown_rule_type(rule) or ""
+    result = {
+        "name": rule.get("name", "unnamed"),
+        "type": rtype,
+        "status": "ERROR",
+        "violations": 0,
+        "error": _unknown_type_detail(rtype),
+    }
+    if reason := rule.get("reason", ""):
+        result["reason"] = reason
+    if link := rule.get("link", ""):
+        result["link"] = link
+    return result
+
+
+def _rule_counts(rule_results: list[dict]) -> tuple[int, int, int]:
+    """Return ``(passed, failed, errored)`` -- the three rule-status buckets.
+
+    W1450: ``errored`` is the count of rules that could not be evaluated.
+    ``passed + failed + errored == len(rule_results)`` is an invariant --
+    every rule the user wrote lands in exactly one bucket.
+    """
+    passed = sum(1 for result in rule_results if result["status"] == "PASS")
+    failed = sum(1 for result in rule_results if result["status"] == "FAIL")
+    errored = sum(1 for result in rule_results if result["status"] == "ERROR")
+    return passed, failed, errored
+
+
+def _unevaluable_rule_types(rule_results: list[dict]) -> list[str]:
+    """Sorted distinct ``type`` values of the ERROR rows (``""`` -> ``"<missing>"``)."""
+    return sorted({(result.get("type") or "<missing>") for result in rule_results if result["status"] == "ERROR"})
+
+
+def _fitness_verdict(passed: int, failed: int, errored: int, violation_count: int, unknown_types: list[str]) -> str:
+    """Single source of the bottom line for BOTH output modes.
+
+    Text mode and JSON mode used to re-derive this string from two
+    copies of the same three-branch ``if`` -- a standing drift hazard,
+    and the surface W1450 has to change in lockstep.
+    """
+    total = passed + failed + errored
+    if errored:
+        types = ", ".join(repr(t) for t in unknown_types)
+        head = f"{errored} of {total} fitness rule(s) NOT evaluated (unknown rule type: {types})"
+        if failed:
+            return f"{head}; {failed} fail ({violation_count} violation(s)); {passed} pass"
+        return f"{head}; {passed} pass"
+    if failed == 0:
+        return f"all {passed} fitness rule(s) pass"
+    if passed == 0:
+        return f"all {failed} fitness rule(s) fail ({violation_count} violation(s))"
+    return f"{failed} of {passed + failed} fitness rule(s) fail ({violation_count} violation(s))"
+
+
+def _baseline_compare(all_violations: list[dict], baseline_path: Path | None) -> tuple[dict | None, list[dict]]:
+    if baseline_path is None:
+        return None, []
+    baseline_data = _load_baseline(baseline_path)
+    baseline_info = _baseline_delta(all_violations, baseline_data)
+    baseline_info["path"] = str(baseline_path)
+    return baseline_info, baseline_info["new_violation_items"]
+
+
+def _maybe_write_baseline(
+    root: Path, write_baseline: bool, rule_results: list[dict], all_violations: list[dict]
+) -> str | None:
+    if not write_baseline:
+        return None
+    written_path = _default_baseline_path(root)
+    _write_baseline(written_path, rule_results, all_violations)
+    return str(written_path)
+
+
+def _fitness_summary(
+    rule_results, passed: int, failed: int, errored: int, all_violations, baseline_info, written_baseline_path
+) -> dict:
+    # Mirror the text-mode verdict so JSON consumers don't have to
+    # re-derive the bottom line — and so :func:`verdict_with_high_count`
+    # has something to append the high-count suffix to. Both modes now
+    # call the same :func:`_fitness_verdict`.
+    unknown_types = _unevaluable_rule_types(rule_results)
+    verdict = _fitness_verdict(passed, failed, errored, len(all_violations), unknown_types)
+    summary = {
+        "verdict": verdict,
+        "rules_checked": len(rule_results),
+        "passed": passed,
+        "failed": failed,
+        "total_violations": len(all_violations),
+    }
+    # W1450: ``rules_checked`` counts every rule the user wrote, so an
+    # unenforceable rule can no longer vanish from the denominator. The
+    # two extra fields say how many of those rules nothing enforced --
+    # emitted only when non-zero so a clean run's envelope is unchanged.
+    if errored:
+        summary["rules_unevaluated"] = errored
+        summary["unknown_rule_types"] = unknown_types
+    if baseline_info:
+        summary["baseline"] = {k: v for k, v in baseline_info.items() if k != "new_violation_items"}
+    if written_baseline_path:
+        summary["baseline_written"] = written_baseline_path
+    return summary
+
+
+def _json_violations(violations: list[dict]) -> list[dict]:
+    return [{key: value for key, value in violation.items()} for violation in violations[:100]]
+
+
+def _emit_fitness_json(
+    summary,
+    rule_results,
+    all_violations,
+    new_violations,
+    *,
+    config_state: str = "ok",
+) -> None:
+    # R22: wrap each violation in {value, confidence, reason}.
+    # Consumers that previously read violations[i]["rule"] must now
+    # read violations[i]["value"]["rule"] plus
+    # violations[i]["confidence"] / violations[i]["reason"].
+    violation_values = _json_violations(all_violations)
+    new_violation_values = _json_violations(new_violations)
+    violation_triples = wrap_findings(violation_values, classifier=_fitness_classify)
+    new_violation_triples = wrap_findings(new_violation_values, classifier=_fitness_classify)
+    distribution = confidence_distribution(violation_triples)
+    enriched_summary = dict(summary)
+    enriched_summary["findings_confidence_distribution"] = distribution
+    if "verdict" in enriched_summary:
+        enriched_summary["verdict"] = verdict_with_high_count(enriched_summary["verdict"], distribution)
+    # W1298 Pattern-3a: any cognitive_complexity-keyed violation reads
+    # from symbol_metrics.cognitive_complexity — disclose the scorer so a
+    # consumer cannot misread it as McCabe cyclomatic complexity.
+    if any(v.get("metric") == "cognitive_complexity" for v in all_violations):
+        enriched_summary["complexity_definition"] = COGNITIVE_COMPLEXITY_DEFINITION
+    # W1030-followup-D: surface the on-disk state via
+    # agent_contract.facts so consumers reading only the contract still
+    # see the silent-state disclosure. LAW 4 anchored on the
+    # concrete-noun terminal "rules". LAW 6: every fact stands alone.
+    _state_facts = _build_config_state_facts(config_state)
+    envelope_kwargs: dict = dict(
+        summary=enriched_summary,
+        rules=rule_results,
+        violations=violation_triples,
+        new_violations=new_violation_triples,
+    )
+    if _state_facts:
+        envelope_kwargs["agent_contract"] = {
+            "facts": [enriched_summary.get("verdict", "fitness check"), *_state_facts],
+            "next_commands": ["roam fitness --init"],
+        }
+    # Pattern-1 machine-gate: only flag a fitness run that actually failed a
+    # rule. A clean all-pass run (exit 0) must NOT carry isError/status — gate
+    # strictly on the failed-rule count so consumers branch correctly.
+    # W1450: a rule nothing could evaluate is equally a non-clean run — it
+    # exits 1, so the envelope must carry the machine-gate too, or an agent
+    # reading only the envelope would branch "clean" on a broken config.
+    if enriched_summary.get("failed", 0) > 0 or enriched_summary.get("rules_unevaluated", 0) > 0:
+        envelope_kwargs["status"] = "partial_failure"
+        envelope_kwargs["isError"] = True
+        envelope_kwargs["error_code"] = "PARTIAL_FAILURE"
+        envelope_kwargs["error"] = enriched_summary.get("verdict", "fitness rules failed")
+    click.echo(to_json(json_envelope("fitness", **envelope_kwargs)))
+
+
+def _emit_rule_line(rule_result: dict, explain: bool) -> None:
+    # W1450: rule-status vocabulary is PASS / FAIL / ERROR (W847, UPPER).
+    # An ERROR row must render as ERROR — rendering it as FAIL would imply
+    # the rule ran and was violated, which is a different claim.
+    status = rule_result["status"]
+    icon = status if status in ("PASS", "FAIL", "ERROR") else "FAIL"
+    detail = f" ({rule_result['violations']} violations)" if rule_result["violations"] else ""
+    if status == "ERROR" and (error := rule_result.get("error", "")):
+        detail = f" -- {error}"
+    reason = rule_result.get("reason", "")
+    link = rule_result.get("link", "")
+    line = f"  [{icon}] {rule_result['name']}{detail}"
+    if rule_result["status"] == "FAIL" and reason:
+        line += f" -- Reason: {reason}"
+    if rule_result["status"] == "FAIL" and link:
+        line += f" (see: {link})"
+    click.echo(line)
+    if explain and (reason or link):
+        if reason:
+            click.echo(f"    Reason: {reason}")
+        if link:
+            click.echo(f"    Link:   {link}")
+
+
+def _emit_violations_text(violations: list[dict], heading: str = "Violations") -> None:
+    if not violations:
+        return
+    click.echo(f"\n{heading} ({len(violations)}):\n")
+    for violation in violations[:30]:
+        src = violation.get("source", "")
+        click.echo(f"  {violation['rule']}: {violation['message']}")
+        if src:
+            click.echo(f"    at {src}")
+    if len(violations) > 30:
+        click.echo(f"\n  ... and {len(violations) - 30} more")
+
+
+def _emit_baseline_delta_text(baseline_info: dict | None, new_violations: list[dict]) -> None:
+    if not baseline_info:
+        return
+    click.echo(
+        "\nBaseline delta: "
+        f"{baseline_info['new_violations']} new, "
+        f"{baseline_info['resolved_violations']} resolved "
+        f"(baseline {baseline_info['baseline_violations']}, "
+        f"current {baseline_info['current_violations']})"
+    )
+    _emit_violations_text(new_violations, heading="New violations")
+
+
+def _emit_fitness_text(
+    rule_results,
+    all_violations,
+    baseline_info,
+    new_violations,
+    written_baseline_path,
+    passed,
+    failed,
+    errored,
+    explain,
+    *,
+    warnings_out: list[str] | None = None,
+) -> None:
+    # v12.12.6 — verdict-first output. Without this line a user
+    # scanning the top of the output saw "Fitness check: 3 rules"
+    # and had to count the [FAIL] / [PASS] markers themselves to
+    # know the bottom line. Mirrors the convention every other
+    # command in the surface follows.
+    verdict = _fitness_verdict(passed, failed, errored, len(all_violations), _unevaluable_rule_types(rule_results))
+    click.echo(f"VERDICT: {verdict}")
+    click.echo()
+    click.echo(f"Fitness check: {len(rule_results)} rules\n")
+    for rule_result in rule_results:
+        _emit_rule_line(rule_result, explain)
+    _emit_violations_text(all_violations)
+    _emit_baseline_delta_text(baseline_info, new_violations)
+    if written_baseline_path:
+        click.echo(f"\nBaseline written: {written_baseline_path}")
+    tally = f"\n{passed} passed, {failed} failed"
+    if errored:
+        tally += f", {errored} NOT evaluated"
+    click.echo(tally)
+    if warnings_out:
+        click.echo()
+        for w in warnings_out:
+            click.echo(f"WARNING: {w}")
+
+
+def _finish_fitness(write_baseline: bool, baseline_info: dict | None, failed: int, errored: int = 0) -> None:
+    # W1450: a rule nothing could evaluate fails the run CLOSED, ahead of
+    # every baseline branch. Rationale: an unknown ``type`` is a config
+    # error, not accepted architectural debt — ``--write-baseline`` must
+    # not be able to bless a typo into permanent silence, and a
+    # ``--baseline`` comparison cannot be trusted when part of the config
+    # never ran. The gate the user believes is on is off; exit non-zero
+    # so CI says so.
+    if errored > 0:
+        raise SystemExit(1)
+    if write_baseline:
+        return
+    if baseline_info is not None:
+        if baseline_info["new_violations"] > 0:
+            raise SystemExit(1)
+        return
+    if failed > 0:
+        raise SystemExit(1)
+
+
+# -- CLI command ------------------------------------------------------
+
+
+@roam_capability(
+    name="fitness",
+    category="health",
+    summary="Run architectural fitness functions from .roam/fitness.yaml",
+    maturity="stable",
+    mcp_expose=True,
+    mcp_preset=("core",),
+    side_effect=True,
+    task_required=False,
+    destructive=False,
+    stale_sensitive=True,
+    ai_safe=True,
+    requires_index=True,
+)
+@click.command("fitness")
+@click.option("--init", "do_init", is_flag=True, help="Create a starter fitness.yaml")
+@click.option("--rule", "rule_filter", default=None, help="Run only rules matching this name")
+@click.option("--explain", is_flag=True, help="Show full reason for each rule")
+@click.option(
+    "--baseline",
+    "baseline_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Compare against a saved baseline; exit non-zero only for new violations.",
+)
+@click.option(
+    "--write-baseline",
+    is_flag=True,
+    help="Write current violations to .roam/fitness-baseline.json and exit zero.",
+)
+@click.pass_context
+def fitness(ctx, do_init, rule_filter, explain, baseline_path, write_baseline):
+    """Run architectural fitness functions from .roam/fitness.yaml.
+
+    Checks dependency constraints, metric thresholds, and naming rules.
+    Returns exit code 1 if any rule is violated (for CI integration).
+    Use --init to create a starter configuration.
+
+    Unlike ``preflight`` (which includes fitness rules as one of 6 signal
+    dimensions in a compound check), this command provides the full fitness
+    interface: per-rule output, ``--init`` scaffold, ``--rule`` filter,
+    ``--explain`` annotations, baseline/delta mode, and trend regression guards.
+    """
+    json_mode = ctx.obj.get("json") if ctx.obj else False
+    root = find_project_root()
+
+    if do_init:
+        _init_config(root)
+        return
+
+    ensure_index()
+    _fitness_warnings: list[str] = []
+    # W1030-followup-D: use the with-status variant so the on-disk state
+    # ("missing" / "empty_file" / "ok" / ...) reaches the envelope as a
+    # closed-enum field — agents reading the fitness envelope can
+    # disambiguate "no fitness.yaml configured yet" from "fitness.yaml is
+    # broken / empty stub" without re-statting the file.
+    rules, config_state = _load_rules_with_status(root, warnings_out=_fitness_warnings)
+
+    if not rules:
+        _emit_no_rules(json_mode, warnings_out=_fitness_warnings, config_state=config_state)
+        return
+
+    rules = _filter_rules(rules, rule_filter)
+    if not rules:
+        click.echo(f"No rules matching '{rule_filter}'.")
+        return
+    if baseline_path is not None or write_baseline:
+        rules = _rules_for_baseline_mode(rules)
+
+    with open_db(readonly=True) as conn:
+        rule_results, all_violations = _run_fitness_rules(conn, rules)
+
+    passed, failed, errored = _rule_counts(rule_results)
+    baseline_info, new_violations = _baseline_compare(all_violations, baseline_path)
+    written_baseline_path = _maybe_write_baseline(root, write_baseline, rule_results, all_violations)
+    summary = _fitness_summary(
+        rule_results, passed, failed, errored, all_violations, baseline_info, written_baseline_path
+    )
+    # W1030-followup-D: closed-enum LoadStatus disclosure on the envelope.
+    # Mirrors the cmd_alerts + cmd_budget + cmd_health + cmd_check_rules
+    # vocabulary so the five W1030-followup-cohort emitters use a uniform
+    # field name (``summary.config_state``) and value space (LOAD_STATUSES).
+    summary["config_state"] = config_state
+    _config_degraded = config_state in _DEGRADED_LOAD_STATUSES
+    if _fitness_warnings:
+        # W1051: surface loader warnings (malformed rules entries that
+        # were skipped) so the agent doesn't see a green verdict that
+        # silently dropped half its rules.
+        summary["warnings_out"] = list(_fitness_warnings)
+        summary["partial_success"] = True
+    elif errored:
+        # W1450: the loader warning is the usual carrier for this state,
+        # but ``--rule`` filtering (or a caller that suppressed warnings)
+        # can leave an ERROR row with no warning behind it. The
+        # disclosure must not depend on which path got here.
+        summary["partial_success"] = True
+    elif _config_degraded:
+        # W1030-followup-D: a degraded config_state flips partial_success
+        # too -- even when no warning fired, agents must see that the
+        # user's intent did not materialize.
+        summary["partial_success"] = True
+
+    if json_mode:
+        _emit_fitness_json(
+            summary,
+            rule_results,
+            all_violations,
+            new_violations,
+            config_state=config_state,
+        )
+    else:
+        _emit_fitness_text(
+            rule_results,
+            all_violations,
+            baseline_info,
+            new_violations,
+            written_baseline_path,
+            passed,
+            failed,
+            errored,
+            explain,
+            warnings_out=_fitness_warnings,
+        )
+
+    _finish_fitness(write_baseline, baseline_info, failed, errored)
+
+
+def _init_config(root: Path):
+    """Create a starter .roam/fitness.yaml."""
+    config_dir = root / ".roam"
+    config_dir.mkdir(exist_ok=True)
+    config_path = config_dir / "fitness.yaml"
+
+    if config_path.exists():
+        click.echo(f"Config already exists: {config_path}")
+        return
+
+    config_path.write_text(
+        """# Architectural fitness functions for roam
+# Run with: roam fitness
+# Use in CI: roam fitness && echo "Architecture OK"
+# Each rule may include optional 'reason' and 'link' fields for documentation.
+
+rules:
+  # Dependency constraints
+  # `from` / `to` / `allow` are the keys the dependency checker reads.
+  # Both globs default to `**`, so a rule that omits them forbids every
+  # edge in the repository -- always name at least one end.
+  - name: "No test imports in production"
+    type: dependency
+    from: "src/**"
+    to: "tests/**"
+    allow: false
+    reason: "Production code must not depend on test infrastructure"
+    link: ""
+
+  # - name: "No direct DB access from handlers"
+  #   type: dependency
+  #   from: "src/handlers/**"
+  #   to: "src/db/**"
+  #   allow: false
+  #   reason: "Handlers should use service layer for DB access"
+  #   link: "https://wiki.example.com/arch/layering"
+
+  # Metric thresholds
+  - name: "No cycles"
+    type: metric
+    metric: cycles
+    max: 0
+    reason: "Dependency cycles make the codebase harder to reason about"
+
+  - name: "Health score above 60"
+    type: metric
+    metric: health_score
+    min: 60
+
+  - name: "Max function complexity 25"
+    type: metric
+    metric: cognitive_complexity
+    max: 25
+    reason: "Functions above this threshold should be split"
+
+  # Naming conventions
+  # - name: "Functions use snake_case"
+  #   type: naming
+  #   kind: function
+  #   pattern: "^[a-z_][a-z0-9_]*$"
+  #   exclude: "test_.*"
+
+  # Trend-based regression guards (requires snapshots)
+  # These catch gradual degradation that absolute thresholds miss.
+  # Run `roam trends --save` periodically to build history.
+  - name: "Health must not regress"
+    type: trend
+    metric: health_score
+    max_decrease: 5
+    window: 3
+    reason: "Health score dropped significantly vs recent snapshots"
+
+  - name: "Complexity must not creep"
+    type: trend
+    metric: avg_complexity
+    max_increase: 2.0
+    window: 3
+    reason: "Average complexity is trending upward"
+
+  # - name: "No new brain methods"
+  #   type: trend
+  #   metric: brain_methods
+  #   max_increase: 0
+  #   window: 1
+  #   reason: "New brain methods should be refactored, not added"
+
+  # - name: "Tangle ratio stable"
+  #   type: trend
+  #   metric: tangle_ratio
+  #   max_increase: 0.05
+  #   window: 3
+  #   reason: "Dependency tangle is increasing"
+""",
+        encoding="utf-8",
+    )
+    click.echo(f"Created {config_path}")
+    click.echo("Edit the rules and run: roam fitness")

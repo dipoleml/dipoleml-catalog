@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.enderfga.claw-orchestrator",
+  "type": "mcp",
+  "name": "Claw Orchestrator",
+  "slug": "claw-orchestrator",
+  "vendor": "enderfga",
+  "description": "Run DipoleML, Codex, Antigravity, Grok Build and OpenCode behind one runtime, and a run only counts as done when checks it didn't write pass. Cross-engine fan-out, councils, session handoff, spend caps, MCP server, ACP agent.",
+  "version": "7.16.0",
+  "homepage": "https://github.com/Enderfga/claw-orchestrator",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "acp",
+    "agent-client-protocol",
+    "agent-orchestration",
+    "agentic-workflow",
+    "ai-code-verification",
+    "antigravity",
+    "codex",
+    "coding-agent"
+  ],
+  "tags": [
+    "acp",
+    "agent-client-protocol",
+    "agent-orchestration",
+    "agentic-workflow",
+    "ai-agent",
+    "ai-code-verification",
+    "antigravity",
+    "claude-code",
+    "codex",
+    "coding-agent",
+    "developer-tools",
+    "grok",
+    "mcp",
+    "model-context-protocol",
+    "multi-agent",
+    "multi-engine",
+    "openclaw",
+    "opencode",
+    "persistent-sessions",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "enderfga",
+    "brandName": "enderfga",
+    "source": "https://github.com/Enderfga.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:10:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Enderfga/claw-orchestrator",
+    "url": "https://github.com/Enderfga/claw-orchestrator",
+    "commit": "2b16548d5b34ecdafd8fba0055dac518a44835bb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 601,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claw Orchestrator | Run Claude Code, Codex, Antigravity, Grok Build and OpenCode behind one runtime, and a run only counts as done when checks it didn't write pass. Cross-engine fan-out, councils, session handoff, spend caps, MCP server, ACP agent.",
+        "after": "Claw Orchestrator | Run DipoleML, Codex, Antigravity, Grok Build and OpenCode behind one runtime, and a run only counts as done when checks it didn't write pass. Cross-engine fan-out, councils, session handoff, spend caps, MCP server, ACP agent.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@enderfga/claw-orchestrator"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@enderfga/claw-orchestrator"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@enderfga/claw-orchestrator"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "@enderfga/claw-orchestrator"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

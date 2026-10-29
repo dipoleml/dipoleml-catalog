@@ -1,0 +1,124 @@
+import os from 'node:os';
+import path from 'node:path';
+
+const ENV_DEFAULT_PATTERN = /^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-|:|-)?([^}]*)\}$/;
+const ENV_INTERPOLATION_PATTERN = /\\?\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}/g;
+const UNSUPPORTED_BRACED_ENV_PATTERN = /\$\{env:[^}]*\}/;
+const ENV_DIRECT_PREFIX = '$env:';
+
+// expandHome replaces a leading '~' with the current user's home directory.
+export function expandHome(input: string, home = os.homedir()): string {
+  if (!input.startsWith('~')) {
+    return input;
+  }
+  if (input === '~') {
+    return home;
+  }
+  if (input.startsWith('~/') || input.startsWith('~\\')) {
+    return path.join(home, input.slice(2));
+  }
+  return input;
+}
+
+// resolveEnvValue interprets ${VAR:-default} syntax and other primitive values for env overrides.
+export function resolveEnvValue(raw: unknown, env: NodeJS.ProcessEnv = process.env): string {
+  if (typeof raw !== 'string') {
+    return String(raw);
+  }
+  rejectUnsupportedBracedEnvPlaceholder(raw);
+
+  const match = ENV_DEFAULT_PATTERN.exec(raw);
+  if (match) {
+    const envName = match[1];
+    const defaultValue = match[2] ?? '';
+    if (!envName) {
+      return raw;
+    }
+    const existing = env[envName];
+    if (existing && existing !== '') {
+      return existing;
+    }
+    return defaultValue;
+  }
+
+  return resolveEnvPlaceholders(raw, env);
+}
+
+// resolveEnvPlaceholders replaces ${VAR} or $env:VAR references using the supplied environment.
+export function resolveEnvPlaceholders(value: string, env: NodeJS.ProcessEnv = process.env): string {
+  rejectUnsupportedBracedEnvPlaceholder(value);
+
+  if (value.startsWith(ENV_DIRECT_PREFIX)) {
+    const envName = value.slice(ENV_DIRECT_PREFIX.length);
+    const envValue = env[envName];
+    if (envValue === undefined) {
+      throw new Error(`Environment variable '${envName}' is required for MCP header substitution.`);
+    }
+    return envValue;
+  }
+
+  const missing = new Set<string>();
+  const replaced = value.replace(ENV_INTERPOLATION_PATTERN, (placeholder, envName: string, fallback?: string) => {
+    const envValue = env[envName];
+    if (envValue !== undefined && envValue !== '') {
+      return envValue;
+    }
+    if (fallback !== undefined) {
+      return fallback;
+    }
+    if (envValue === undefined) {
+      missing.add(envName);
+      return placeholder;
+    }
+    return envValue;
+  });
+
+  if (missing.size > 0) {
+    const names = [...missing].toSorted().join(', ');
+    throw new Error(`Environment variable(s) ${names} must be set for MCP header substitution.`);
+  }
+
+  return replaced;
+}
+
+function rejectUnsupportedBracedEnvPlaceholder(value: string): void {
+  const unsupported = UNSUPPORTED_BRACED_ENV_PATTERN.exec(value)?.[0];
+  if (!unsupported) {
+    return;
+  }
+  throw new Error(
+    `Unsupported environment placeholder '${unsupported}'. Use '\${VAR}', '\${VAR:-fallback}', or whole-value '$env:VAR'.`
+  );
+}
+
+// withEnvOverrides temporarily populates process.env keys while executing the provided callback.
+export async function withEnvOverrides<T>(
+  envOverrides: Record<string, string> | undefined,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  if (!envOverrides || Object.keys(envOverrides).length === 0) {
+    return await fn();
+  }
+
+  const applied: string[] = [];
+  try {
+    for (const [key, rawValue] of Object.entries(envOverrides)) {
+      rejectUnsupportedBracedEnvPlaceholder(rawValue);
+      if (process.env[key]) {
+        continue;
+      }
+      const resolved = resolveEnvValue(rawValue);
+      if (resolved === '') {
+        continue;
+      }
+      process.env[key] = resolved;
+      applied.push(key);
+    }
+
+    return await fn();
+  } finally {
+    for (const key of applied) {
+      delete process.env[key];
+    }
+  }
+}

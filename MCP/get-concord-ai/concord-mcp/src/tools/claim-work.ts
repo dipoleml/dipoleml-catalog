@@ -1,0 +1,136 @@
+import type { Repositories, TaskRecord } from '../db/index.js';
+import { assessClaimBreadth } from '../domain/decomposition.js';
+import type { ClaimWorkInput } from '../domain/operations.js';
+import { CLAIMED_STATUSES, detectOverlaps, type OverlapWarning } from '../domain/overlap.js';
+
+export interface ClaimWorkResult {
+  task: TaskRecord;
+  alreadyClaimed: boolean;
+  overlaps: OverlapWarning[];
+  /**
+   * How many other active tasks the overlap check compared against. Overlap
+   * detection is point-in-time: an empty `overlaps` only means nothing conflicts
+   * *right now*. A later overlapping claim will not appear here — it surfaces on
+   * read (e.g. `concord status`), which recomputes overlaps live.
+   */
+  checkedAgainst: number;
+  /**
+   * Advisory reasons the claim looks too broad (empty when appropriately
+   * scoped). A non-empty list is a suggestion to split the work into smaller,
+   * independently-handoffable tasks — never a rejection.
+   */
+  breadthReasons: string[];
+  /**
+   * On a re-claim, the scope entries this call added to the existing claim
+   * (e.g. `module: api-client`, `file: lib/todo-api.ts`). Empty on a first
+   * claim or when nothing new was declared.
+   */
+  scopeAdded: string[];
+}
+
+/** Union of two label lists, de-duplicated, existing entries first. */
+function mergeUnique(existing: readonly string[], incoming: readonly string[]): string[] {
+  return [...new Set([...existing, ...incoming])];
+}
+
+/** Entries in `incoming` not already present in `existing`. */
+function addedEntries(existing: readonly string[], incoming: readonly string[]): string[] {
+  const have = new Set(existing);
+  return [...new Set(incoming.filter((value) => !have.has(value)))];
+}
+
+/**
+ * Record that an agent is working on a task and flag overlaps with other active
+ * tasks. Re-claiming an existing task is idempotent for its identity (title,
+ * owner, agent) but *extends* its declared scope: the new files/modules/domains/
+ * risk tags are merged in and persisted, overlaps are recomputed against the
+ * merged scope, and the additions are reported back.
+ */
+export function handleClaimWork(repos: Repositories, input: ClaimWorkInput): ClaimWorkResult {
+  const inputFiles = input.expected_files ?? [];
+  const inputModules = input.modules ?? [];
+  const inputDomains = input.domains ?? [];
+  const inputRiskTags = input.risk_tags ?? [];
+
+  const existing = repos.tasks.get(input.task_id);
+
+  if (input.agent_id !== undefined && repos.agents.get(input.agent_id) === undefined) {
+    throw new Error(`Agent ${input.agent_id} is not registered. Call start_work first.`);
+  }
+  if (
+    existing?.agentId !== null &&
+    existing?.agentId !== undefined &&
+    input.agent_id !== existing.agentId
+  ) {
+    throw new Error(
+      `Task ${input.task_id} is owned by ${existing.agentId}; use transfer_work to offer or reassign it.`,
+    );
+  }
+
+  // Parent is set at first claim and preserved thereafter (identity is idempotent).
+  const parentTaskId = existing ? existing.parentTaskId : (input.parent_task_id ?? null);
+
+  // Effective scope: the merged surface for an existing claim, else the input.
+  const scope = {
+    expectedFiles: existing ? mergeUnique(existing.expectedFiles, inputFiles) : inputFiles,
+    modules: existing ? mergeUnique(existing.modules, inputModules) : inputModules,
+    domains: existing ? mergeUnique(existing.domains, inputDomains) : inputDomains,
+    riskTags: existing ? mergeUnique(existing.riskTags, inputRiskTags) : inputRiskTags,
+  };
+
+  const activeOthers = repos.tasks
+    .list()
+    .filter((task) => task.taskId !== input.task_id && CLAIMED_STATUSES.has(task.status));
+
+  const overlaps = detectOverlaps({ taskId: input.task_id, parentTaskId, ...scope }, activeOthers);
+
+  const scopeAdded = existing
+    ? [
+        ...addedEntries(existing.expectedFiles, inputFiles).map((value) => `file: ${value}`),
+        ...addedEntries(existing.modules, inputModules).map((value) => `module: ${value}`),
+        ...addedEntries(existing.domains, inputDomains).map((value) => `domain: ${value}`),
+        ...addedEntries(existing.riskTags, inputRiskTags).map((value) => `risk tag: ${value}`),
+      ]
+    : [];
+
+  let task: TaskRecord;
+  if (existing === undefined) {
+    task = repos.tasks.create({
+      taskId: input.task_id,
+      title: input.title,
+      owner: input.owner ?? null,
+      agent: input.agent ?? null,
+      branch: input.branch ?? null,
+      worktree: input.worktree ?? null,
+      ...scope,
+      notes: input.notes ?? null,
+      parentTaskId,
+      agentId: input.agent_id ?? null,
+    });
+  } else if (scopeAdded.length > 0) {
+    task = repos.tasks.updateScope(input.task_id, scope) ?? existing;
+  } else {
+    task = repos.tasks.touchActivity(input.task_id) ?? existing;
+  }
+
+  repos.events.record({
+    taskId: input.task_id,
+    tool: 'claim_work',
+    status: 'success',
+    detail: overlaps.length > 0 ? `${String(overlaps.length)} overlap(s)` : null,
+  });
+
+  // Working refreshes presence: a registered agent stays live just by claiming.
+  if (input.agent_id !== undefined) {
+    repos.agents.touch(input.agent_id);
+  }
+
+  return {
+    task,
+    alreadyClaimed: existing !== undefined,
+    overlaps,
+    checkedAgainst: activeOthers.length,
+    breadthReasons: assessClaimBreadth(scope),
+    scopeAdded,
+  };
+}

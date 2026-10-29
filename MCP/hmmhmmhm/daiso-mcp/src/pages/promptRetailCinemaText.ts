@@ -1,0 +1,295 @@
+/**
+ * 프롬프트 리테일/영화 API 섹션
+ */
+
+export function buildPromptRetailCinemaText(baseUrl: string): string {
+  return `### 디트릭스 독립·예술영화관
+
+- 극장 카탈로그: ${baseUrl}/browse/dtryx/cinemas/region/서울
+- 상영작: ${baseUrl}/browse/dtryx/movies/keyword/모모/includePlayDates/true
+- 회차와 잔여 좌석: ${baseUrl}/browse/dtryx/seats/region/서울
+
+상영작 조회는 cinemaCode 또는 keyword가 필요합니다. 날짜 기본값은 한국 날짜 기준 오늘이며 YYYYMMDD 또는 YYYY-MM-DD를 받습니다. 지역·극장명·브랜드 필터는 함께 적용합니다. 카탈로그는 확인된 22곳이며 전체 제휴 극장이 아닙니다. 일부 실패는 failedCinemas로 표시하고 전체 조회 실패는 오류입니다.
+
+### 6-0. 키 없는 통합 상품 가격 후보 비교
+
+**설명**: 새 외부 API 키 없이 기존 다이소, GS25, 세븐일레븐, 이마트24 상품 검색을 묶어 가격 후보를 비교합니다. 실제 매장 재고와 행사가까지 확정하는 기능이 아니라 "어디가 싸 보이는지"를 빠르게 고르는 1차 검색입니다.
+
+**URL**:
+- ${baseUrl}/browse/compare/products/{검색어}
+
+**선택 파라미터**:
+- services: daiso,gs25,seveneleven,emart24 중 쉼표 구분 목록
+- limit: 서비스별 최대 결과 수 (기본값: 5)
+
+**예시**:
+- ${baseUrl}/browse/compare/products/콜라/limit/3
+- ${baseUrl}/browse/compare/products/컵라면/services/seveneleven%2Cemart24
+
+---
+
+### 6-1. 주변 음식점/카페 검색
+
+**설명**: 네이버 지역 검색으로 특정 지역의 음식점, 카페, 디저트 가게 등 주변 장소를 조회합니다. 좌표 반경 검색이 아니라 \`강남역 카페\` 같은 키워드 기반 검색입니다.
+
+**URL**:
+- ${baseUrl}/browse/places/search/{지역}/category/{카테고리}
+- ${baseUrl}/browse/places/search/{지역}/{검색어}
+
+**선택 파라미터**:
+- location: 지역/역/주소 키워드 (예: 강남역, 성수동)
+- category: restaurant, cafe, food, dessert, all
+- keyword: 직접 검색어 (예: 라멘, 브런치, 조용한 카페)
+- limit: 최대 결과 수 (기본값: 5, 네이버 지역 검색 최대 5)
+- sort: random 또는 comment
+
+**예시**:
+- ${baseUrl}/browse/places/search/강남역/category/cafe/limit/5
+- ${baseUrl}/browse/places/search/성수동/브런치/limit/5
+
+---
+
+### 6-3. GS25 매장/상품/재고 조회
+
+**설명**: GS25 매장 탐색, 상품 키워드 검색, 재고 조회를 제공합니다.
+
+**URL**:
+- ${baseUrl}/browse/gs25/stores/{키워드}
+- ${baseUrl}/browse/gs25/products/{검색어}
+- ${baseUrl}/browse/gs25/inventory/{검색어}
+- ${baseUrl}/browse/query/gs25/inventory/itemCode/{상품코드}
+
+**선택 파라미터(공통)**:
+- lat: 위도 (선택)
+- lng: 경도 (선택)
+- limit / storeLimit: 최대 결과 수
+- serviceCode: 서비스 코드 (기본값: 01)
+
+**예시**:
+- ${baseUrl}/browse/gs25/stores/강남/limit/10
+- ${baseUrl}/browse/gs25/products/오감자/limit/20
+- ${baseUrl}/browse/gs25/inventory/오감자/강남/storeLimit/10
+- ${baseUrl}/browse/query/gs25/inventory/itemCode/8801056038861/storeKeyword/안산%20중앙역/storeLimit/10
+
+---
+
+### 6-4. 세븐일레븐 상품/매장/재고/인기검색어/카탈로그 조회
+
+**설명**: 세븐일레븐 상품 검색, 매장 검색, 재고 수량 조회, 인기 검색어, 카탈로그 스냅샷을 제공합니다.
+
+**URL**:
+- ${baseUrl}/browse/seveneleven/products/{검색어}
+- ${baseUrl}/browse/seveneleven/stores/{매장키워드}
+- ${baseUrl}/browse/seveneleven/inventory/{검색어}
+- ${baseUrl}/browse/seveneleven/popwords/{라벨}
+- ${baseUrl}/browse/seveneleven/catalog/includeIssues/{true|false}/includeExhibition/{true|false}/limit/{개수}
+
+**선택 파라미터**:
+- page: 페이지 번호 (기본값: 1)
+- size: 페이지당 결과 수 (기본값: 20)
+- sort: 정렬 기준 (기본값: recommend)
+- storeKeyword: 매장명/지역 키워드
+- storeLimit: 최대 매장 수 (기본값: 20)
+- timeoutMs: 요청 제한 시간 (기본값: 20000)
+- label: 인기 검색어 라벨 (기본값: home)
+
+**예시**:
+- ${baseUrl}/browse/seveneleven/products/삼각김밥/size/20
+- ${baseUrl}/browse/seveneleven/stores/안산%20중앙역/limit/10
+- ${baseUrl}/browse/seveneleven/inventory/핫식스/안산%20중앙역/storeLimit/10
+- ${baseUrl}/browse/seveneleven/popwords/home
+- ${baseUrl}/browse/seveneleven/catalog/includeIssues/true/includeExhibition/true/limit/10
+
+---
+
+### 7. 메가박스 주변 지점 찾기
+
+**설명**: 사용자 좌표 또는 위치 키워드 기준으로 메가박스 지점을 거리순으로 조회합니다.
+
+**URL**: ${baseUrl}/browse/query/megabox/theaters/lat/{위도}/lng/{경도}
+
+**선택 파라미터**:
+- keyword: 위치 키워드 (예: 안산 중앙역, 강남역)
+- lat: 위도 (기본값: 37.5665)
+- lng: 경도 (기본값: 126.978)
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- areaCode: 지역 코드 (기본값: 11, 서울)
+- limit: 최대 결과 수 (기본값: 10)
+
+**예시**:
+- ${baseUrl}/browse/megabox/theaters/안산%20중앙역/limit/5
+- ${baseUrl}/browse/query/megabox/theaters/lat/37.4982/lng/127.0264
+- ${baseUrl}/browse/query/megabox/theaters/areaCode/11/limit/5
+
+---
+
+### 8. 메가박스 영화/회차 목록
+
+**설명**: 날짜/지점 조건으로 메가박스 영화와 상영 회차를 조회합니다. theaterId가 없고 위치 키워드/좌표가 있으면 가장 가까운 지점을 먼저 선택합니다.
+
+**URL**: ${baseUrl}/browse/megabox/movies/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- theaterId: 지점 ID (예: 1372)
+- movieId: 영화 ID (예: 25104500)
+- keyword: 위치 키워드 (예: 안산 중앙역, 강남역)
+- lat: 위도
+- lng: 경도
+- areaCode: 지역 코드 (기본값: 11)
+
+**예시**:
+- ${baseUrl}/browse/megabox/movies/playDate/20260315/keyword/안산%20중앙역
+- ${baseUrl}/browse/megabox/movies/playDate/20260304/theaterId/1372
+- ${baseUrl}/browse/megabox/movies/playDate/20260304/movieId/25104500
+
+---
+
+### 9. 메가박스 잔여 좌석 조회
+
+**설명**: 영화/지점/날짜 기준으로 회차별 잔여 좌석 수를 조회합니다. theaterId가 없고 위치 키워드/좌표가 있으면 가장 가까운 지점을 먼저 선택합니다.
+
+**URL**: ${baseUrl}/browse/megabox/seats/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- theaterId: 지점 ID
+- movieId: 영화 ID
+- keyword: 위치 키워드 (예: 안산 중앙역, 강남역)
+- lat: 위도
+- lng: 경도
+- areaCode: 지역 코드 (기본값: 11)
+- limit: 최대 결과 수 (기본값: 50)
+
+**예시**:
+- ${baseUrl}/browse/megabox/seats/playDate/20260315/keyword/안산%20중앙역
+- ${baseUrl}/browse/megabox/seats/playDate/20260304/theaterId/1372
+- ${baseUrl}/browse/megabox/seats/playDate/20260304/movieId/25104500/limit/20
+
+---
+
+### 10. CGV 극장 검색
+
+**설명**: 지역 코드 또는 위치 키워드 기준으로 CGV 극장 목록을 조회합니다.
+
+**URL**: ${baseUrl}/browse/query/cgv/theaters/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- regionCode: 지역 코드 (예: 01)
+- keyword: 위치 키워드 (예: 안산 중앙역, 강남역)
+- lat: 위도
+- lng: 경도
+- limit: 최대 결과 수 (기본값: 30)
+
+**예시**:
+- ${baseUrl}/browse/query/cgv/theaters/playDate/20260304/regionCode/01
+- ${baseUrl}/browse/cgv/theaters/안산%20중앙역/playDate/20260315
+- ${baseUrl}/browse/query/cgv/theaters/playDate/20260304/limit/10
+
+---
+
+### 11. CGV 영화 검색
+
+**설명**: 날짜/극장 조건으로 CGV 영화 목록을 조회합니다. theaterCode가 없으면 keyword 또는 lat,lng 기준으로 가장 가까운 극장을 먼저 선택합니다.
+
+**URL**: ${baseUrl}/browse/cgv/movies/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- theaterCode: 극장 코드 (예: 0056)
+- keyword: 위치 키워드 (예: 안산 중앙역, 강남역)
+- lat: 위도
+- lng: 경도
+
+**예시**:
+- ${baseUrl}/browse/cgv/movies/playDate/20260304/theaterCode/0056
+- ${baseUrl}/browse/cgv/movies/playDate/20260315/keyword/안산%20중앙역
+
+---
+
+### 12. CGV 시간표 조회
+
+**설명**: 날짜/극장/영화 조건으로 CGV 상영 시간표를 조회합니다. theaterCode가 없으면 keyword 또는 lat,lng 기준으로 가장 가까운 극장을 먼저 선택합니다. 잔여 좌석은 각 회차의 \`remainingSeats\` 필드로 함께 내려옵니다.
+
+**URL**: ${baseUrl}/browse/cgv/timetable/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- theaterCode: 극장 코드 (예: 0056)
+- movieCode: 영화 코드
+- keyword: 위치 키워드 (예: 안산 중앙역, 강남역)
+- lat: 위도
+- lng: 경도
+- limit: 최대 결과 수 (기본값: 50)
+
+**예시**:
+- ${baseUrl}/browse/cgv/timetable/playDate/20260304/theaterCode/0056
+- ${baseUrl}/browse/cgv/timetable/playDate/20260315/keyword/안산%20중앙역
+- ${baseUrl}/browse/cgv/timetable/playDate/20260304/movieCode/200001
+
+---
+
+### 13. 롯데시네마 주변 지점 찾기
+
+**설명**: 위치 키워드 또는 사용자 좌표 기준으로 롯데시네마 지점을 거리순으로 조회합니다.
+
+**URL**: ${baseUrl}/browse/lottecinema/theaters/{위치키워드}
+
+**선택 파라미터**:
+- keyword: 위치 키워드 (예: 안산 중앙역, 잠실역)
+- lat: 위도 (keyword가 없을 때 기본값: 37.5665)
+- lng: 경도 (keyword가 없을 때 기본값: 126.978)
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- limit: 최대 결과 수 (기본값: 10)
+
+**예시**:
+- ${baseUrl}/browse/lottecinema/theaters/안산%20중앙역
+- ${baseUrl}/browse/query/lottecinema/theaters/lat/37.5133/lng/127.1042
+
+---
+
+### 14. 롯데시네마 영화/회차 목록
+
+**설명**: 날짜/지점/영화 조건으로 롯데시네마 영화와 상영 회차를 조회합니다. theaterId가 없으면 위치 키워드 기준 최근접 지점을 선택할 수 있습니다.
+
+**URL**: ${baseUrl}/browse/lottecinema/movies/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- theaterId: 지점 ID (예: 1016)
+- movieId: 대표 영화 코드 (예: 23816)
+- keyword: 위치 키워드 (예: 안산 중앙역)
+- lat: 위도 (theaterId가 없을 때 사용)
+- lng: 경도 (theaterId가 없을 때 사용)
+
+**예시**:
+- ${baseUrl}/browse/lottecinema/movies/playDate/20260315/keyword/안산%20중앙역
+- ${baseUrl}/browse/lottecinema/movies/playDate/20260310/theaterId/1016
+- ${baseUrl}/browse/lottecinema/movies/playDate/20260310/theaterId/1016/movieId/23816
+
+---
+
+### 15. 롯데시네마 잔여 좌석 조회
+
+**설명**: 영화/지점/날짜 기준으로 회차별 잔여 좌석 수를 조회합니다. theaterId가 없으면 위치 키워드 기준 최근접 지점을 선택할 수 있습니다.
+
+**URL**: ${baseUrl}/browse/lottecinema/seats/playDate/{YYYYMMDD}
+
+**선택 파라미터**:
+- playDate: 조회 날짜 (YYYYMMDD, 기본값: 오늘)
+- theaterId: 지점 ID
+- movieId: 대표 영화 코드
+- keyword: 위치 키워드 (예: 안산 중앙역)
+- lat: 위도 (theaterId가 없을 때 사용)
+- lng: 경도 (theaterId가 없을 때 사용)
+- limit: 최대 결과 수 (기본값: 50)
+
+**예시**:
+- ${baseUrl}/browse/lottecinema/seats/playDate/20260315/keyword/안산%20중앙역
+- ${baseUrl}/browse/lottecinema/seats/playDate/20260310/theaterId/1016/movieId/23816
+
+---
+
+`;
+}

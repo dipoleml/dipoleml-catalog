@@ -1,0 +1,16 @@
+{
+  "name": "mcp-grafana",
+  "displayName": "MCP Grafana",
+  "version": "0.7.6",
+  "description": "A Model Context Protocol (MCP) server for Grafana providing access to dashboards, datasources, and querying capabilities",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Grafana"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/grafana/mcp-grafana",
+  "repository": "https://github.com/grafana/mcp-grafana",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

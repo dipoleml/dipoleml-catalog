@@ -1,0 +1,444 @@
+// Copyright 2026 Muvon Un Limited
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use anyhow::Result;
+use std::sync::Arc;
+
+// Arrow imports
+use arrow_array::{Array, RecordBatch};
+use arrow_schema::Schema;
+
+// LanceDB imports
+use futures::TryStreamExt;
+use lancedb::{
+	index::{scalar::FtsIndexBuilder, Index, IndexType},
+	query::{ExecutableQuery, QueryBase, Select},
+	Connection,
+};
+
+use crate::store::sql::{escape_single_quotes, in_list_predicate};
+
+pub(crate) const DELETE_PATHS_CHUNK: usize = 500;
+
+/// Generic table operations for LanceDB
+pub struct TableOperations<'a> {
+	pub db: &'a Connection,
+}
+
+impl<'a> TableOperations<'a> {
+	pub fn new(db: &'a Connection) -> Self {
+		Self { db }
+	}
+
+	/// Check if a table exists
+	pub async fn table_exists(&self, table_name: &str) -> Result<bool> {
+		let table_names = self.db.table_names().execute().await?;
+		Ok(table_names.iter().any(|t| t.as_str() == table_name))
+	}
+
+	/// Check if multiple tables exist
+	pub async fn tables_exist(&self, table_names: &[&str]) -> Result<bool> {
+		let existing_tables = self.db.table_names().execute().await?;
+		for &table_name in table_names {
+			if !existing_tables.iter().any(|t| t.as_str() == table_name) {
+				return Ok(false);
+			}
+		}
+		Ok(true)
+	}
+
+	/// Clear (drop) a single table
+	pub async fn clear_table(&self, table_name: &str) -> Result<()> {
+		let table_names = self.db.table_names().execute().await?;
+
+		if table_names.iter().any(|t| t.as_str() == table_name) {
+			if let Err(e) = self.db.drop_table(table_name, &[]).await {
+				// Log error to structured logging instead of stderr
+				tracing::warn!("Failed to drop {} table: {}", table_name, e);
+			} else {
+				// Log success to structured logging instead of stdout
+				tracing::debug!("Dropped table: {}", table_name);
+			}
+		} else {
+			// Log info to structured logging instead of stdout
+			tracing::debug!("Table {} does not exist, skipping.", table_name);
+		}
+
+		Ok(())
+	}
+
+	/// Clear multiple tables
+	pub async fn clear_tables(&self, table_names: &[&str]) -> Result<()> {
+		for &table_name in table_names {
+			self.clear_table(table_name).await?;
+		}
+		Ok(())
+	}
+
+	/// Clear all tables (drop tables completely to reset schema)
+	pub async fn clear_all_tables(&self) -> Result<()> {
+		// Get table names
+		let table_names = self.db.table_names().execute().await?;
+
+		// Drop each table completely (this removes both data and schema)
+		for table_name in table_names {
+			if let Err(e) = self.db.drop_table(&table_name, &[]).await {
+				// Log error to structured logging instead of stderr
+				tracing::warn!("Failed to drop table {}: {}", table_name, e);
+			} else {
+				// Log success to structured logging instead of stdout
+				tracing::debug!("Dropped table: {}", table_name);
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Flush all tables to ensure data is persisted.
+	///
+	/// LanceDB writes are durable once `.add().execute()` returns — the previous
+	/// implementation issued `count_rows(None)` + `schema()` on every table on the
+	/// assumption that this forced persistence, but those are read-only ops that
+	/// only triggered full table scans. This is now a no-op kept for API stability.
+	pub async fn flush_all_tables(&self) -> Result<()> {
+		Ok(())
+	}
+
+	/// Check if content exists in a table by hash
+	pub async fn content_exists(&self, hash: &str, collection: &str) -> Result<bool> {
+		let table = self.db.open_table(collection).execute().await?;
+
+		// Use a more efficient query to check existence
+		let mut results = table
+			.query()
+			.only_if(format!("hash = '{}'", escape_single_quotes(hash)))
+			.limit(1) // We only need to know if one exists
+			.select(Select::Columns(vec!["hash".to_string()])) // Only select hash column
+			.execute()
+			.await?;
+
+		// Check if we got any results
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				return Ok(true);
+			}
+		}
+
+		Ok(false)
+	}
+
+	/// Remove blocks by path from a table.
+	/// Returns Ok(()) on success. Avoids pre/post `count_rows` (each is a full scan).
+	pub async fn remove_blocks_by_path(&self, file_path: &str, table_name: &str) -> Result<()> {
+		self.remove_blocks_by_paths(std::slice::from_ref(&file_path.to_string()), table_name)
+			.await
+	}
+
+	/// Remove blocks for multiple paths from a table in bounded delete predicates.
+	pub async fn remove_blocks_by_paths(&self, paths: &[String], table_name: &str) -> Result<()> {
+		if paths.is_empty() {
+			return Ok(());
+		}
+
+		if !self.table_exists(table_name).await? {
+			return Ok(());
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+
+		for chunk in paths.chunks(DELETE_PATHS_CHUNK) {
+			table
+				.delete(&in_list_predicate("path", chunk))
+				.await
+				.map_err(|e| anyhow::anyhow!("Failed to delete from {}: {}", table_name, e))?;
+		}
+
+		Ok(())
+	}
+
+	/// Remove blocks by hashes from a table
+	pub async fn remove_blocks_by_hashes(&self, hashes: &[String], table_name: &str) -> Result<()> {
+		if hashes.is_empty() {
+			return Ok(());
+		}
+
+		if !self.table_exists(table_name).await? {
+			return Ok(());
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+
+		// Create a filter for all hashes
+		let hash_filters: Vec<String> = hashes
+			.iter()
+			.map(|h| format!("hash = '{}'", escape_single_quotes(h)))
+			.collect();
+		let filter = hash_filters.join(" OR ");
+
+		// Delete rows matching any of the hashes
+		table
+			.delete(&filter)
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to delete from {}: {}", table_name, e))?;
+
+		Ok(())
+	}
+
+	/// Get file metadata (hashes) for a specific file path from a table
+	pub async fn get_file_blocks_metadata(&self, file_path: &str, table_name: &str) -> Result<Vec<String>> {
+		let mut hashes = Vec::new();
+
+		if !self.table_exists(table_name).await? {
+			return Ok(hashes);
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+
+		// Query for blocks matching the file path, only selecting hash column
+		let mut results = table
+			.query()
+			.only_if(format!("path = '{}'", escape_single_quotes(file_path)))
+			.select(Select::Columns(vec!["hash".to_string()]))
+			.execute()
+			.await?;
+
+		// Process all result batches
+		while let Some(batch) = results.try_next().await? {
+			if batch.num_rows() > 0 {
+				if let Some(column) = batch.column_by_name("hash") {
+					if let Some(hash_array) = column.as_any().downcast_ref::<arrow::array::StringArray>() {
+						for i in 0..hash_array.len() {
+							hashes.push(hash_array.value(i).to_string());
+						}
+					}
+				}
+			}
+		}
+
+		Ok(hashes)
+	}
+
+	/// Get all indexed file paths from multiple tables
+	pub async fn get_all_indexed_file_paths(&self, table_names: &[&str]) -> Result<std::collections::HashSet<String>> {
+		let mut all_paths = std::collections::HashSet::new();
+
+		let existing_tables = self.db.table_names().execute().await?;
+
+		for &table_name in table_names {
+			if existing_tables.iter().any(|t| t.as_str() == table_name) {
+				let table = self.db.open_table(table_name).execute().await?;
+
+				// Query for all paths in this table
+				let mut results = table
+					.query()
+					.select(Select::Columns(vec!["path".to_string()]))
+					.execute()
+					.await?;
+
+				// Process all result batches
+				while let Some(batch) = results.try_next().await? {
+					if batch.num_rows() > 0 {
+						if let Some(column) = batch.column_by_name("path") {
+							if let Some(path_array) = column.as_any().downcast_ref::<arrow::array::StringArray>() {
+								for i in 0..path_array.len() {
+									all_paths.insert(path_array.value(i).to_string());
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		Ok(all_paths)
+	}
+
+	/// Create a table with the given schema
+	pub async fn create_table_with_schema(&self, table_name: &str, schema: Arc<Schema>) -> Result<()> {
+		let _table = self.db.create_empty_table(table_name, schema).execute().await?;
+		Ok(())
+	}
+
+	/// Store a record batch in a table (create table if it doesn't exist)
+	pub async fn store_batch(&self, table_name: &str, batch: RecordBatch) -> Result<()> {
+		if self.table_exists(table_name).await? {
+			// Table exists, append data
+			let table = self.db.open_table(table_name).execute().await?;
+			table.add(batch).execute().await?;
+		} else {
+			// Table doesn't exist, create it with the batch
+			self.db.create_table(table_name, batch).execute().await?;
+		}
+
+		Ok(())
+	}
+
+	/// Check if index already exists with good parameters and handle dynamic dataset changes
+	pub async fn create_vector_index_optimized(
+		&self,
+		table_name: &str,
+		column_name: &str,
+		vector_dimension: usize,
+		use_quantization: bool,
+	) -> Result<()> {
+		if !self.table_exists(table_name).await? {
+			return Err(anyhow::anyhow!("Table {} does not exist", table_name));
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+		let row_count = table.count_rows(None).await?;
+
+		// Use intelligent optimizer to determine if we should create an index
+		let index_params = super::vector_optimizer::VectorOptimizer::calculate_index_params(
+			row_count,
+			vector_dimension,
+			use_quantization,
+		);
+
+		if !index_params.should_create_index {
+			tracing::debug!(
+				"Skipping index creation for table '{}' with {} rows - brute force search will be faster",
+				table_name,
+				row_count
+			);
+			return Ok(());
+		}
+
+		// Check if index already exists
+		let existing_indices = table.list_indices().await?;
+		let has_embedding_index = existing_indices.iter().any(|idx| idx.columns == vec![column_name]);
+
+		if has_embedding_index {
+			// For dynamic datasets, we should periodically check if index parameters are still optimal
+			// This is a simplified check - in production, we could store index metadata to compare
+			tracing::debug!(
+				"Vector index already exists for table '{}' with {} rows. Consider recreating if dataset grew significantly.",
+				table_name, row_count
+			);
+			return Ok(());
+		}
+
+		// Create optimized vector index based on quantization setting
+		let index_type_name = match index_params.index_type {
+			super::vector_optimizer::IndexType::IvfHnswSq => "IVF_HNSW_SQ",
+			super::vector_optimizer::IndexType::IvfRq => "IVF_RQ",
+		};
+
+		tracing::info!(
+			"Creating {} vector index for table '{}': {} rows, {} partitions",
+			index_type_name,
+			table_name,
+			row_count,
+			index_params.num_partitions
+		);
+
+		let start_time = std::time::Instant::now();
+
+		// Create the appropriate index type
+		match index_params.index_type {
+			super::vector_optimizer::IndexType::IvfHnswSq => {
+				table
+					.create_index(
+						&[column_name],
+						lancedb::index::Index::IvfHnswSq(
+							lancedb::index::vector::IvfHnswSqIndexBuilder::default()
+								.distance_type(index_params.distance_type)
+								.num_partitions(index_params.num_partitions)
+								.num_edges(index_params.num_edges)
+								.ef_construction(index_params.ef_construction),
+						),
+					)
+					.execute()
+					.await?;
+			}
+			super::vector_optimizer::IndexType::IvfRq => {
+				table
+					.create_index(
+						&[column_name],
+						lancedb::index::Index::IvfRq(
+							lancedb::index::vector::IvfRqIndexBuilder::default()
+								.distance_type(index_params.distance_type)
+								.num_partitions(index_params.num_partitions),
+						),
+					)
+					.execute()
+					.await?;
+			}
+		}
+
+		let duration = start_time.elapsed();
+		tracing::info!(
+			"Successfully created {} index for table '{}' in {:.2}s",
+			index_type_name,
+			table_name,
+			duration.as_secs_f64()
+		);
+		Ok(())
+	}
+
+	/// Create an FTS (full-text search / BM25) index on the `content` column.
+	/// Safe to call repeatedly — skips creation if an inverted index already exists.
+	/// The index enables native LanceDB hybrid search (vector + BM25 via RRF).
+	pub async fn create_fts_index(&self, table_name: &str) -> Result<()> {
+		if !self.table_exists(table_name).await? {
+			return Ok(());
+		}
+
+		let table = self.db.open_table(table_name).execute().await?;
+
+		// Skip if FTS index already exists
+		let indices = table.list_indices().await?;
+		if indices.iter().any(|idx| idx.index_type == IndexType::FTS) {
+			tracing::debug!("FTS index already exists for table '{}'", table_name);
+			return Ok(());
+		}
+
+		let row_count = table.count_rows(None).await?;
+		if row_count == 0 {
+			tracing::debug!("Table '{}' is empty, skipping FTS index creation", table_name);
+			return Ok(());
+		}
+
+		tracing::info!("Creating FTS index for table '{}' ({} rows)", table_name, row_count);
+		let start = std::time::Instant::now();
+
+		// Code-tuned FTS. The default tokenizer is built for prose and is hostile
+		// to code: English stemming mangles identifiers (`getUsers`->`getus`),
+		// stop-word removal drops real code tokens (`for`/`if`/`in`/`match`/`is`),
+		// and the 40-char cap silently drops long identifiers/paths (e.g.
+		// `search_codebase_with_details_multi_query_text`). Keep lowercasing for
+		// case-insensitive lookup; disable the rest so BM25 matches code verbatim.
+		// ponytail: lancedb 0.26 has no camelCase tokenizer — splitting camelCase
+		// would need a separate FTS column + full re-index. Do that only if
+		// locbench shows camelCase recall is still lacking.
+		const MAX_CODE_TOKEN_LEN: usize = 128;
+		let fts = FtsIndexBuilder::default()
+			.stem(false)
+			.remove_stop_words(false)
+			.max_token_length(Some(MAX_CODE_TOKEN_LEN));
+
+		table
+			.create_index(&["content"], Index::FTS(fts))
+			.execute()
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to create FTS index on '{}': {}", table_name, e))?;
+
+		tracing::info!(
+			"FTS index created for '{}' in {:.2}s",
+			table_name,
+			start.elapsed().as_secs_f64()
+		);
+		Ok(())
+	}
+}

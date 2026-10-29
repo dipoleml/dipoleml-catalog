@@ -1,0 +1,58 @@
+import { z } from "zod";
+import { MongoDBToolBase } from "../../mongodbTool.js";
+import type { ToolResult } from "@mongodb-js/mcp-core";
+import type { OperationType } from "@mongodb-js/mcp-types";
+import { ConnectionSummarySchema, summarizeConnection } from "../../common/connectionSummary.js";
+import { connectCapableTools } from "../../connectionErrorHandler.js";
+
+const ListConnectionsOutputSchema = {
+    connections: z.array(ConnectionSummarySchema),
+};
+
+const ListConnectionsArgsShape = {};
+
+export class ListConnectionsTool extends MongoDBToolBase {
+    static toolName = "list-connections";
+    public override description = this.server.config.connectionString
+        ? 'List the active MongoDB connections and their connectionIds. Use this to discover the "preconfigured" connection or to find a connectionId established earlier.'
+        : "List the active MongoDB connections and their connectionIds. Use this to find a connectionId established earlier.";
+
+    public override argsShape(): typeof ListConnectionsArgsShape {
+        return ListConnectionsArgsShape;
+    }
+
+    static operationType: OperationType = "metadata";
+
+    public override outputSchema(): typeof ListConnectionsOutputSchema {
+        return ListConnectionsOutputSchema;
+    }
+
+    protected override async execute(): Promise<ToolResult<ReturnType<typeof this.outputSchema>>> {
+        const entries = await this.server.connectionRegistry.find();
+        const connections = entries.map((entry) => summarizeConnection(entry));
+
+        const text =
+            connections.length === 0
+                ? this.noConnectionsText()
+                : `Active connections:\n${connections
+                      .map(
+                          (connection) =>
+                              `- "${connection.name}" (connectionId: "${connection.connectionId}", ${connection.state ?? "unknown"}): ${connection.description}`
+                      )
+                      .join("\n")}`;
+
+        return {
+            content: [{ type: "text", text }],
+            structuredContent: { connections },
+        };
+    }
+
+    private noConnectionsText(): string {
+        const connectToolNames = connectCapableTools(this.server.tools)
+            .map((tool) => `"${tool.name}"`)
+            .join(", ");
+        return connectToolNames
+            ? `There are no active connections. Use one of the following tools to establish one: ${connectToolNames}.`
+            : "There are no active connections and no tools to establish one are enabled. Update the MCP server configuration to include a connection string.";
+    }
+}

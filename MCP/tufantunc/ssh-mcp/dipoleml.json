@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.tufantunc.ssh-mcp",
+  "type": "mcp",
+  "name": "Ssh MCP",
+  "slug": "ssh-mcp",
+  "vendor": "tufantunc",
+  "description": "MCP server exposing SSH control for Linux servers via Model Context Protocol.",
+  "version": "2.22.0",
+  "homepage": "https://github.com/tufantunc/ssh-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tufantunc",
+    "brandName": "tufantunc",
+    "source": "https://github.com/tufantunc.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "tufantunc/ssh-mcp",
+    "url": "https://github.com/tufantunc/ssh-mcp",
+    "commit": "f84d92a9c013d63cd75c29853cdb2addb585cd4d",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 840,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:57Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "ssh-mcp"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node ^18.19.0 || >=20.6.0"
+    ],
+    "packages": [
+      "ssh-mcp"
+    ],
+    "env": [
+      "SSH_MCP_KEY"
+    ],
+    "credentials": [
+      "SSH_MCP_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

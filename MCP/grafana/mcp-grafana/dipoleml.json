@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.grafana.mcp-grafana",
+  "type": "mcp",
+  "name": "MCP Grafana",
+  "slug": "mcp-grafana",
+  "vendor": "grafana",
+  "description": "MCP server for Grafana",
+  "version": "0.7.6",
+  "homepage": "https://github.com/grafana/mcp-grafana",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "grafana",
+    "brandName": "grafana",
+    "source": "https://cdn.simpleicons.org/grafana",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:11:01Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "grafana/mcp-grafana",
+    "url": "https://github.com/grafana/mcp-grafana",
+    "commit": "0f5eebe984a091ab2e4fb86413f7009a1651295b",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 3624,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:24:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "GRAFANA_URL",
+      "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+      "GRAFANA_FORWARD_HEADERS",
+      "GRAFANA_ALLOW_URL_OVERRIDE",
+      "GRAFANA_ALLOWED_URLS",
+      "MCP_GRAFANA_SERVER_TOKEN",
+      "GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE",
+      "GRAFANA_API_KEY",
+      "GRAFANA_EXTRA_HEADERS"
+    ],
+    "credentials": [
+      "GRAFANA_SERVICE_ACCOUNT_TOKEN",
+      "MCP_GRAFANA_SERVER_TOKEN",
+      "GRAFANA_SERVICE_ACCOUNT_TOKEN_FILE",
+      "GRAFANA_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

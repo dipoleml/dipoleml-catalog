@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.nickclyde.duckduckgo-mcp-server",
+  "type": "mcp",
+  "name": "Duckduckgo MCP Server",
+  "slug": "duckduckgo-mcp-server",
+  "vendor": "nickclyde",
+  "description": "A Model Context Protocol (MCP) server that provides web search capabilities through DuckDuckGo, with additional features for content fetching and parsing.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/nickclyde/duckduckgo-mcp-server",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nickclyde",
+    "brandName": "nickclyde",
+    "source": "https://github.com/nickclyde.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:24Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nickclyde/duckduckgo-mcp-server",
+    "url": "https://github.com/nickclyde/duckduckgo-mcp-server",
+    "commit": "8182af3f2295017ca90527a924f48147fbf18d5b",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1555,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "duckduckgo-mcp-server"
+    ],
+    "env": [
+      "DDG_FETCH_HOST_RPM",
+      "DDG_REF_URL_THRESHOLD",
+      "DDG_ALLOWED_HOSTS",
+      "DDG_ALLOW_PRIVATE_URLS"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

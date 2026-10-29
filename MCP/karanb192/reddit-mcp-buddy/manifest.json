@@ -1,0 +1,126 @@
+{
+  "manifest_version": "0.2",
+  "name": "reddit-mcp-buddy",
+  "display_name": "Reddit MCP Buddy",
+  "version": "1.2.0",
+  "description": "Browse subreddit RSS feeds in Claude Desktop. Search, post details, and user analysis require approved Reddit API access.",
+  "long_description": "Reddit MCP Buddy connects Claude Desktop to Reddit. Anonymous subreddit browsing uses RSS, which Reddit can block or throttle. Search, post details, and user analysis require approved Reddit API access and credentials. See the README Authentication section for Reddit's approval process.\n\n**Features:**\n• Browse subreddit posts\n• Search Reddit content with approved API access\n• Analyze user profiles with approved API access\n• Get post details and comments with approved API access\n• Explain Reddit terminology offline\n• Cache responses to reduce repeated requests\n\nThe server uses local caps of 10, 60, or 100 requests per minute depending on authentication mode. These are not Reddit quotas or guaranteed throughput; Reddit applies its own limits. Adding a username and password does not grant extra Reddit quota.\n\nRuns on Windows, macOS, and Linux.",
+  "author": {
+    "name": "Karan Bansal",
+    "email": "karanb192@gmail.com",
+    "url": "https://github.com/karanb192"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/karanb192/reddit-mcp-buddy"
+  },
+  "icon": "assets/reddit-mcp-buddy-icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "REDDIT_CLIENT_ID": "${user_config.reddit_client_id}",
+        "REDDIT_CLIENT_SECRET": "${user_config.reddit_client_secret}",
+        "REDDIT_USERNAME": "${user_config.reddit_username}",
+        "REDDIT_PASSWORD": "${user_config.reddit_password}",
+        "REDDIT_REFRESH_TOKEN": "${user_config.reddit_refresh_token}",
+        "REDDIT_BUDDY_WRITE": "${user_config.enable_write_tools}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "browse_subreddit",
+      "description": "Browse posts from any subreddit with sorting options"
+    },
+    {
+      "name": "search_reddit",
+      "description": "Search Reddit for posts, comments, and discussions"
+    },
+    {
+      "name": "get_post_details",
+      "description": "Get full post details including all comments"
+    },
+    {
+      "name": "user_analysis",
+      "description": "Analyze Reddit user profiles, karma, and activity"
+    },
+    {
+      "name": "reddit_explain",
+      "description": "Explain Reddit terminology, culture, and inside jokes"
+    },
+    {
+      "name": "create_post",
+      "description": "Submit a text or link post to a subreddit (requires opting in via Enable posting tools)"
+    },
+    {
+      "name": "add_comment",
+      "description": "Comment on a post or reply to a comment (requires opting in via Enable posting tools)"
+    },
+    {
+      "name": "subreddit_rules",
+      "description": "Fetch a subreddit's rules, posting requirements, and flair choices before posting"
+    }
+  ],
+  "keywords": [
+    "reddit",
+    "social-media",
+    "api",
+    "search",
+    "analysis",
+    "community",
+    "research",
+    "browsing",
+    "no-auth"
+  ],
+  "license": "MIT",
+  "user_config": {
+    "reddit_client_id": {
+      "type": "string",
+      "title": "Reddit Client ID",
+      "description": "Your approved Reddit app client ID (with secret: local cap of 60 req/min; Reddit applies its own limits)",
+      "required": false,
+      "sensitive": false
+    },
+    "reddit_client_secret": {
+      "type": "string",
+      "title": "Reddit Client Secret",
+      "description": "Your approved Reddit app client secret (required with client ID)",
+      "required": false,
+      "sensitive": true
+    },
+    "reddit_username": {
+      "type": "string",
+      "title": "Reddit Username",
+      "description": "Your Reddit username (required with password for script-app authentication)",
+      "required": false,
+      "sensitive": false
+    },
+    "reddit_password": {
+      "type": "string",
+      "title": "Reddit Password",
+      "description": "Your Reddit password for script-app authentication. Leave empty when using an OAuth refresh token.",
+      "required": false,
+      "sensitive": true
+    },
+    "reddit_refresh_token": {
+      "type": "string",
+      "title": "Reddit OAuth Refresh Token",
+      "description": "Refresh token from your approved app's OAuth consent flow. Leave the password field empty. Reddit applies its own limits.",
+      "required": false,
+      "sensitive": true
+    },
+    "enable_write_tools": {
+      "type": "boolean",
+      "title": "Enable posting tools",
+      "description": "Adds create_post, add_comment, and subreddit_rules over stdio. Requires client credentials plus a refresh token or username/password, with identity/read/submit/flair scopes. Off by default. Uses a confirmation prompt when supported; otherwise approval depends on the client before repeating an identical previewed payload.",
+      "required": false,
+      "default": false
+    }
+  }
+}

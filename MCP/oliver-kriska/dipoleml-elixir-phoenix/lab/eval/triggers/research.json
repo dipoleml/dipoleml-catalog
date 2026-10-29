@@ -1,0 +1,19 @@
+{
+  "skill": "research",
+  "should_trigger": [
+    "What's the latest approach to real-time notifications in Phoenix?",
+    "Evaluate Ash Framework vs Ecto for our next project",
+    "How do other companies handle LiveView uploads to cloud storage?",
+    "Should we use Oban or a simpler job queue?",
+    "Research distributed caching options for Elixir apps"
+  ],
+  "should_not_trigger": [
+    "Show me LiveView examples for handling forms",
+    "My tests are timing out, help me debug",
+    "What's the best way to structure my contexts?",
+    "Fetch the Ash Framework documentation",
+    "How do I configure Oban queues?",
+    "Add OAuth2 authentication to my app",
+    "Help me pick the right /phx: command"
+  ]
+}

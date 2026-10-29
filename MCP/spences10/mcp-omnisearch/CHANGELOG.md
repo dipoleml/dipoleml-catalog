@@ -1,0 +1,290 @@
+# mcp-omnisearch
+
+## 0.2.1
+
+### Patch Changes
+
+- 58ac7f8: Accept null metadata fields in Exa search, answer,
+  contents, and similar responses.
+
+## 0.2.0
+
+### Minor Changes
+
+- 6fd7a25: Move Kagi search to API v1, requiring v1 keys; remove
+  v0-only enrichment, FastGPT, summarizer providers.
+
+## 0.1.0
+
+### Minor Changes
+
+- 978bb0e: Add Tavily Research to AI search with asynchronous polling,
+  reports, timeout handling, documentation, and tests.
+- 2f77746: Add focused Tavily extraction with query, chunk limits,
+  output formats, validation, documentation, and test coverage.
+- 169cdb2: Preserve Tavily request, usage, timing, automatic
+  parameter, favicon, and raw content metadata across supported tools.
+- 03a2cd0: Add Tavily crawl and map modes to web extraction with
+  routing, configuration, documentation, and tests.
+- 33a1b9e: Add portable search controls for depth, topic, recency,
+  safety, and raw content with Tavily support.
+
+### Patch Changes
+
+- a0a24bb: Make Tavily Research asynchronous and handle nullable crawl
+  pages, preventing MCP timeouts and parsing failures.
+
+## 0.0.29
+
+### Patch Changes
+
+- 1b801ea: Support the stateless MCP 2026-07-28 protocol, including
+  server discovery and modern request metadata.
+- cb5bff7: Document MCPick installation, project-scoped client
+  configuration, secret-safe provider keys, and dry-run previews for
+  easier setup.
+
+## 0.0.28
+
+### Patch Changes
+
+- 0bdfedd: Fix Tavily search response parsing by ignoring unused
+  response_time metadata and adding regression coverage tests.
+- 7cece81: Relax provider response parsing for current Exa, Kagi, and
+  Firecrawl API shapes.
+
+## 0.0.27
+
+### Patch Changes
+
+- 329a446: Fix Brave and Kagi search adapters to tolerate missing
+  fields and non-result provider rows.
+
+## 0.0.26
+
+### Patch Changes
+
+- 21e97fc: Add runtime response validation for search providers so
+  malformed API payloads fail with ProviderError.
+- 4ea9d22: Validate processing and Firecrawl provider responses at
+  runtime before extracting content from external payloads.
+- a362de4: Warn remote deployments about local file offload and
+  clarify inline mode for large results.
+- 3490c8d: Centralize provider definitions and derive web_extract
+  routing metadata from shared declarative provider-mode
+  configuration.
+- 819109c: Split README into focused operational docs covering
+  providers, operators, large results, deployment, and
+  troubleshooting.
+- aa7c1a3: Add MCP contract tests for tool registration, schemas,
+  responses, resources, large results, and compact extraction.
+- 67a01d5: Validate AI and GitHub provider responses at runtime before
+  mapping external payloads into results.
+- d75f2b4: Normalize provider errors, retry semantics, Firecrawl
+  polling, GitHub handling, and structured MCP error responses.
+- 372e335: Add advisory architecture check that warns when production
+  source files exceed the large-file threshold.
+
+## 0.0.25
+
+### Patch Changes
+
+- 9bb4832: Make retries transient-aware with configurable jitter while
+  preserving provider error details and HTTP status metadata.
+- 7ad7a65: Make provider status resources metadata-driven,
+  secret-safe, and truthful across search, AI, and processing
+  providers.
+- 386efb5: Reduce unsafe TypeScript in provider response parsing,
+  metadata, HTTP helpers, and GitHub error handling.
+- 49c7044: Deduplicate provider registration and MCP tool response
+  handling with shared registry and response helpers.
+- 8678ebd: Make large-result offload configurable so clients can
+  receive oversized responses inline and handle them themselves.
+- 80469ef: Rename non-kebab-case source files and directories to
+  kebab-case, updating imports and validating checks/tests.
+- c7dfc44: Add per-request large-result controls and optional raw
+  content omission for extraction responses.
+- 386efb5: Document provider operator behavior, large-result
+  tradeoffs, remote transport caveats, and common failure modes.
+- 60623c0: Add shared tool input schemas for query, limit, domain, and
+  extraction URL validation.
+
+## 0.0.24
+
+### Patch Changes
+
+- bb2f1c5: Add Tavily search operator support: map
+  site/date/exact/location operators to native API parameters.
+- 6db2d23: Add comprehensive Vitest coverage for shared utilities and
+  document tooling with Vite+ and Vitest badges.
+
+## 0.0.23
+
+### Patch Changes
+
+- a49aae8: Migrate build toolchain from tsc/prettier to vite-plus; add
+  CI workflow, CLAUDE.md, and VSCode settings
+
+## 0.0.22
+
+### Patch Changes
+
+- 8383048: fix: update Exa, Firecrawl v2, and Tavily APIs to match
+  current specs
+- 91f2889: fix: update tsconfig for TypeScript 6 and fix Octokit type
+  compatibility
+
+## 0.0.21
+
+### Patch Changes
+
+- a9b7c3c: Add Linkup.so as ai_search provider with sourced answer
+  support
+- 9de2d09: feat: consolidate to 4 tools, remove Perplexity/Jina, split
+  utils, add tool annotations
+
+## 0.0.20
+
+### Patch Changes
+
+- 57d7b65: fix: use picklist instead of union literals for proper JSON
+  Schema enum output
+
+## 0.0.19
+
+### Patch Changes
+
+- 81573f7: Large results saved to tmp with section index for LLM file
+  navigation
+
+## 0.0.18
+
+### Patch Changes
+
+- 09e7fd7: Deduplicate Firecrawl providers with shared utility
+  functions
+- 2efd54e: Deduplicate query construction logic between Brave and Kagi
+  providers
+- 9145b10: Fix site: operator by removing parentheses in Brave and
+  Kagi query construction
+- be9a14d: Refactor: consolidate error handling and utilities
+- 4746562: Refactor: standardize error handling
+
+## 0.0.17
+
+### Patch Changes
+
+- 845649b: Enhanced Web Search with Provider-Specific Operators
+
+## 0.0.16
+
+### Patch Changes
+
+- 732a8fd: Consolidate 20 MCP tools into 8
+
+## 0.0.15
+
+### Patch Changes
+
+- correct mcp name
+
+## 0.0.14
+
+### Patch Changes
+
+- d32dcf1: mcp registry setup
+
+## 0.0.13
+
+### Patch Changes
+
+- 0c1d3da: swap mcp/sdk with tmcp
+
+## 0.0.12
+
+### Patch Changes
+
+- 047898a: Refactor Kagi enrichment and Firecrawl providers to
+  http_json with timeouts
+- 3b529b0: Refactor three providers to http_json; unify auth and error
+  handling, config and run prettier
+- 8d7fd35: fix exa features
+- efa419e: Refactor Perplexity, Kagi FastGPT, Jina providers to
+  http_json
+
+## 0.0.11
+
+### Patch Changes
+
+- df090fc: add exa.ai features
+- 8b18293: remove exa research feature
+
+## 0.0.10
+
+### Patch Changes
+
+- 9bab891: doesn't break if no GitHub key added
+
+## 0.0.9
+
+### Patch Changes
+
+- 8002c78: feat: add GitHub search provider integration
+  - Updated package.json and pnpm-lock.yaml to include Octokit for
+    GitHub API interactions.
+  - Enhanced SearchResult interface to include optional metadata
+    field.
+  - Added GITHUB_API_KEY to environment configuration.
+  - Implemented GitHubSearchProvider class for searching code,
+    repositories, and users on GitHub.
+  - Registered GitHub-specific search tools in the tool registry with
+    custom handling for search requests.
+
+## 0.0.8
+
+### Patch Changes
+
+- 50ac221: added firecrawl shelf host env variable
+
+## 0.0.7
+
+### Patch Changes
+
+- 95e671f: update documentation
+
+## 0.0.6
+
+### Patch Changes
+
+- feat: add Docker support with MCPO integration for cloud deployment
+
+## 0.0.5
+
+### Patch Changes
+
+- 295f28b: Add search operator support and update provider
+  descriptions
+
+## 0.0.4
+
+### Patch Changes
+
+- add firecrawl feature
+
+## 0.0.3
+
+### Patch Changes
+
+- 0d937fa: Add Tavily Extract Provider for web content extraction
+
+## 0.0.2
+
+### Patch Changes
+
+- ability to use individual API keys
+
+## 0.0.1
+
+### Patch Changes
+
+- initial release

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.wzyn20051216.solidworks-automation-skill",
+  "type": "mcp",
+  "name": "Solidworks Automation Skill",
+  "slug": "solidworks-automation-skill",
+  "vendor": "wzyn20051216",
+  "description": "Reliable AI Skill + MCP toolkit for agent-driven desktop CAD automation.",
+  "version": "2.0.0",
+  "homepage": "https://github.com/wzyn20051216/solidworks-automation-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "agent-tools",
+    "autocad",
+    "cad",
+    "cad-automation",
+    "codex",
+    "desktop-automation",
+    "dwg",
+    "dxf"
+  ],
+  "tags": [
+    "agent-tools",
+    "ai-agent",
+    "autocad",
+    "cad",
+    "cad-automation",
+    "claude",
+    "codex",
+    "desktop-automation",
+    "dwg",
+    "dxf",
+    "engineering-automation",
+    "mcp",
+    "mechanical-design",
+    "model-context-protocol",
+    "python",
+    "solidworks",
+    "tool-calling"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "wzyn20051216",
+    "brandName": "wzyn20051216",
+    "source": "https://github.com/wzyn20051216.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "wzyn20051216/solidworks-automation-skill",
+    "url": "https://github.com/wzyn20051216/solidworks-automation-skill",
+    "commit": "6e20f6c065ba1c398c1f2a46d11b53355bc0189e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1569,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "solidworks-automation-skill"
+      ],
+      "manifest": "package.json"
+    },
+    {
+      "kind": "mcp-stdio",
+      "command": "node",
+      "args": [
+        "./install.js"
+      ],
+      "manifest": "package.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20",
+      "python3",
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "solidworks-automation-skill",
+      "solidworks-automation"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

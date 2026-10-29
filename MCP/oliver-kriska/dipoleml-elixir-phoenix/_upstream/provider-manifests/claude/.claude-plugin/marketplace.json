@@ -1,0 +1,64 @@
+{
+  "name": "oliver-kriska",
+  "owner": {
+    "name": "Oliver Kriska",
+    "email": "oliver@kriska.dev"
+  },
+  "metadata": {
+    "description": "Claude Code plugins by Oliver Kriska",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "elixir-phoenix",
+      "description": "Elixir/Phoenix/LiveView development with specialist agents, Iron Laws, and Tidewave MCP integration",
+      "author": {
+        "name": "Oliver Kriska"
+      },
+      "source": "./plugins/elixir-phoenix",
+      "category": "development",
+      "tags": ["elixir", "phoenix", "liveview", "oban", "ecto"]
+    },
+    {
+      "name": "ecto",
+      "description": "Compatibility namespace for the Elixir/Phoenix plugin's /ecto:* commands",
+      "author": {
+        "name": "Oliver Kriska"
+      },
+      "source": "./plugins/ecto",
+      "category": "development",
+      "tags": ["elixir", "ecto", "compatibility"]
+    },
+    {
+      "name": "lv",
+      "description": "Compatibility namespace for the Elixir/Phoenix plugin's /lv:* commands",
+      "author": {
+        "name": "Oliver Kriska"
+      },
+      "source": "./plugins/lv",
+      "category": "development",
+      "tags": ["elixir", "phoenix", "liveview", "compatibility"]
+    },
+    {
+      "name": "catchup",
+      "description": "Async-team return-from-absence briefing — /catchup fans out to GitHub, git, Linear, and calendar, then emits one prioritized Context Brief instead of a firehose. Framework-agnostic.",
+      "author": {
+        "name": "Oliver Kriska"
+      },
+      "source": "./plugins/catchup",
+      "category": "productivity",
+      "tags": ["productivity", "briefing", "async-team", "github", "linear"]
+    },
+    {
+      "name": "rewrite",
+      "description": "Elixir Rewrite Architect — rewrite an app from any language or framework (Rails, Django, PHP, Node, Go, JVM, .NET, Rust, Python scripts, CLIs, workers) into Elixir the Elixir way. Analyzes features and why each mechanism exists, decides the compatibility bar, designs a Phoenix/Ecto/Oban/OTP architecture, then hands vertical slices to /phx:plan and verifies parity.",
+      "author": {
+        "name": "Oliver Kriska"
+      },
+      "source": "./plugins/rewrite",
+      "category": "development",
+      "tags": ["elixir", "phoenix", "rewrite", "migration", "architecture"],
+      "dependencies": ["elixir-phoenix"]
+    }
+  ]
+}

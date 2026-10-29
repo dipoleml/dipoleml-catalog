@@ -1,0 +1,127 @@
+{
+  "name": "ue-mcp",
+  "version": "1.4.11-beta.13",
+  "description": "Unreal Engine MCP server - 30 tools, 2114+ actions for AI-driven editor control",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./task": {
+      "types": "./dist/task.d.ts",
+      "default": "./dist/task.js"
+    },
+    "./guard": {
+      "types": "./dist/guard-task.d.ts",
+      "default": "./dist/guard-task.js"
+    },
+    "./daemon": {
+      "types": "./dist/daemon-api.d.ts",
+      "default": "./dist/daemon-api.js"
+    },
+    "./schemas/context-measurement.schema.json": "./schemas/context-measurement.schema.json",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ue-mcp": "dist/index.js",
+    "ue-mcp-init": "dist/init.js",
+    "ue-mcp-update": "dist/update.js",
+    "ue-mcp-deploy": "dist/deploy-cli.js"
+  },
+  "files": [
+    "dist",
+    "plugin",
+    "skills",
+    "schemas",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "unreal-engine",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "game-development",
+    "editor",
+    "blueprint",
+    "ue5"
+  ],
+  "author": "David Lyon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/db-lyon/ue-mcp.git"
+  },
+  "homepage": "https://ue-mcp.com/docs/",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "up": "node scripts/run.js",
+    "build": "node scripts/build.js",
+    "binaries:build": "node scripts/binaries.mjs build",
+    "binaries:upload": "node scripts/binaries.mjs upload",
+    "up:build": "node scripts/build-and-run.js",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
+    "test": "npm run test:unit && npm run test:multi-editor && npm run test:integration",
+    "test:unit": "vitest run tests/unit",
+    "test:multi-editor": "vitest run tests/multi-editor",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:live": "node scripts/live-tests.mjs",
+    "golden:record": "node scripts/record-golden.mjs",
+    "release": "node scripts/release-run.mjs",
+    "release:notes": "node scripts/compose-release-notes.mjs",
+    "audit:docs": "node scripts/audit-docs.mjs && node scripts/audit-params.mjs",
+    "audit:handlers": "node scripts/audit-handlers.mjs",
+    "lint:prose": "node scripts/lint-prose.mjs",
+    "check:config": "node scripts/check-tracked-config.mjs",
+    "check:flows": "node scripts/check-flows.mjs",
+    "coverage:behavioural": "tsx scripts/behavioural-coverage.ts",
+    "coverage:integration": "tsx scripts/integration-coverage.ts",
+    "check:release": "node scripts/check-release-gates.mjs all",
+    "audit:unity": "node scripts/audit-unity-collisions.mjs",
+    "audit:param-reads": "node scripts/audit-direct-param-reads.mjs",
+    "audit": "npm run audit:docs && npm run audit:handlers && npm run lint:prose && npm run check:config && npm run check:flows && npm run audit:unity && npm run audit:param-reads",
+    "test:watch": "vitest",
+    "test:suites": "vitest run tests/smoke",
+    "test:smoke": "node scripts/smoke-test.js",
+    "test:automation": "node scripts/automation-tests.mjs",
+    "context-tax": "node scripts/context-tax.mjs",
+    "generate": "tsx scripts/generate-default-config.ts",
+    "generate:metadata": "tsx scripts/generate-tool-metadata.ts",
+    "prepublishOnly": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && npx tsc && tsx scripts/generate-default-config.ts && tsx scripts/generate-tool-metadata.ts",
+    "gen:epic-docs": "npx tsc && node scripts/gen-epic-docs.mjs",
+    "prepare": "husky",
+    "epic:record": "node scripts/record-epic-catalog.mjs",
+    "epic:generate": "node --import tsx scripts/generate-epic-actions.mjs && node scripts/wire-epic-actions.mjs",
+    "epic:seed": "node scripts/seed-epic-effects.mjs",
+    "epic:unreviewed": "node scripts/epic-unreviewed.mjs",
+    "specs:record": "node scripts/record-handler-specs.mjs",
+    "specs:generate": "node --import tsx scripts/generate-handler-specs.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
+    "@db-lyon/flowkit": "^0.18.2",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "isomorphic-git": "1.44.2",
+    "js-yaml": "^4.1.0",
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "ajv": "^8.20.0",
+    "husky": "^9.1.7",
+    "node-pty": "^1.1.0",
+    "npm": "11.21.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

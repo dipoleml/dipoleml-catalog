@@ -1,0 +1,1307 @@
+import { z } from 'zod';
+
+import { TIP_MESSAGE_LIMIT } from '../const.js';
+import { ACTOR_TENANCY } from '../types.js';
+
+/**
+ * Shared JSON schema definitions for structured output across tools.
+ * These schemas define the format of structured data returned by various tools.
+ *
+ * The `type: '...' as const` assertions throughout narrow the string to a literal,
+ * which the MCP SDK's schema types require (a plain `string` won't type-check).
+ *
+ * Some MCP clients refuse a `type` array or a keyword-less `{}` subschema, so nullable
+ * and free-form values are spelled with `anyOf` branches of a single `type` each.
+ */
+
+/** A string or `null`. Spread it next to a `description`. */
+export const stringOrNullSchema = { anyOf: [{ type: 'string' }, { type: 'null' }] };
+
+/** Any JSON value. Spread it next to a `description`, or pass it to a Zod `.meta()`. */
+export const anyJsonValueSchema = {
+    anyOf: [
+        { type: 'object' },
+        { type: 'array' },
+        { type: 'string' },
+        { type: 'number' },
+        { type: 'boolean' },
+        { type: 'null' },
+    ],
+};
+
+/** Zod schema for any JSON object; emits `additionalProperties: true` instead of Zod's `{}`. */
+export const anyJsonObjectSchema = z.looseObject({}).meta({ additionalProperties: true });
+
+/**
+ * Schema for developer information
+ */
+const developerSchema = {
+    type: 'object' as const,
+    properties: {
+        username: { type: 'string', description: 'Developer username' },
+        isOfficialApify: { type: 'boolean', description: 'Whether the actor is developed by Apify' },
+        url: { type: 'string', description: 'Developer profile URL' },
+    },
+    required: ['username', 'isOfficialApify', 'url'],
+};
+
+/**
+ * Schema for tiered pricing within an event
+ */
+const eventTieredPricingSchema = {
+    type: 'array' as const,
+    items: {
+        type: 'object' as const,
+        properties: {
+            tier: { type: 'string' },
+            priceUsd: { type: 'number' },
+        },
+    },
+};
+
+/**
+ * Schema for pricing events (PAY_PER_EVENT model)
+ */
+const pricingEventsSchema = {
+    type: 'array' as const,
+    items: {
+        type: 'object' as const,
+        properties: {
+            title: { type: 'string', description: 'Event title' },
+            description: { type: 'string', description: 'Event description' },
+            priceUsd: { type: 'number', description: 'Price in USD' },
+            tieredPricing: eventTieredPricingSchema,
+        },
+    },
+    description: 'Event-based pricing information',
+};
+
+/**
+ * Schema for tiered pricing (general)
+ */
+const tieredPricingSchema = {
+    type: 'array' as const,
+    items: {
+        type: 'object' as const,
+        properties: {
+            tier: { type: 'string', description: 'Tier name' },
+            pricePerUnit: { type: 'number', description: 'Price per unit for this tier' },
+        },
+    },
+    description: 'Tiered pricing information',
+};
+
+/**
+ * Schema for pricing information
+ */
+export const pricingSchema = {
+    type: 'object' as const,
+    properties: {
+        model: {
+            type: 'string',
+            description: 'Pricing model (FREE, PRICE_PER_DATASET_ITEM, FLAT_PRICE_PER_MONTH, PAY_PER_EVENT)',
+        },
+        userTier: {
+            type: 'string',
+            enum: ['FREE', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'],
+            description:
+                "The user's plan tier used to resolve pricing (always the user's tier, even if a different tier was used as fallback)",
+        },
+        pricePerUnit: { type: 'number', description: 'Price per unit (for non-free models)' },
+        unitName: { type: 'string', description: 'Unit name for pricing' },
+        trialMinutes: { type: 'number', description: 'Trial period in minutes' },
+        tieredPricing: tieredPricingSchema,
+        events: pricingEventsSchema,
+        pricingNote: {
+            type: 'string',
+            description:
+                'Note naming the resolved tier; only emitted in simplified mode ' +
+                'when the actor has multiple tiers and they resolve consistently',
+        },
+        eventDescriptionsOmitted: {
+            type: 'boolean',
+            description: 'Whether event descriptions were omitted because the actor has many pricing events',
+        },
+        eventDescriptionsNote: {
+            type: 'string',
+            description:
+                'Note explaining that event descriptions were omitted and full details are available via fetch-actor-details',
+        },
+    },
+    // `userTier` is optional: `search-actors` returns it once at the response top level
+    // (it is a session constant), so per-Actor pricing omits it. `fetch-actor-details`
+    // returns a single Actor and keeps `userTier` in the pricing block.
+    required: ['model'],
+};
+
+/**
+ * Schema for Actor statistics
+ */
+export const statsSchema = {
+    type: 'object' as const,
+    properties: {
+        totalUsers: { type: 'number', description: 'Total users' },
+        monthlyUsers: { type: 'number', description: 'Monthly active users' },
+    },
+};
+
+/**
+ * Schema for Actor information (card)
+ * Used in both search results and detailed Actor info
+ */
+export const actorInfoSchema = {
+    type: 'object' as const,
+    properties: {
+        title: { type: 'string', description: 'Actor title' },
+        url: { type: 'string', description: 'Actor URL' },
+        id: { type: 'string', description: 'Actor ID' },
+        fullName: { type: 'string', description: 'Full Actor name (username/name)' },
+        pictureUrl: { type: 'string', description: 'Actor picture URL' },
+        developer: developerSchema,
+        description: { type: 'string', description: 'Actor description' },
+        categories: {
+            type: 'array' as const,
+            items: { type: 'string' },
+            description: 'Actor categories',
+        },
+        pricing: pricingSchema,
+        stats: statsSchema,
+        rating: {
+            type: 'object' as const,
+            properties: {
+                average: { type: 'number', description: 'Average rating' },
+                count: { type: 'number', description: 'Number of ratings' },
+            },
+        },
+        modifiedAt: { type: 'string', description: 'Last modification date' },
+        isDeprecated: { type: 'boolean', description: 'Whether the Actor is deprecated' },
+        // Mirrors `ActorStoreInputSchema` in src/types.ts; only `type` is preserved per
+        // field by apify-core's `trimInputSchema`, so the per-field shape stays minimal.
+        inputFields: {
+            type: 'object' as const,
+            description:
+                'Compact JSON-Schema-shaped descriptor of the Actor input; only `type` is preserved per field.',
+            properties: {
+                type: { type: 'string', description: 'Always `"object"`.' },
+                properties: {
+                    type: 'object' as const,
+                    description: 'Map of input field name to its type descriptor.',
+                    additionalProperties: {
+                        type: 'object' as const,
+                        properties: {
+                            type: {
+                                anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+                                description: 'JSON Schema field type — string or array of strings.',
+                            },
+                        },
+                        required: ['type'],
+                    },
+                },
+                required: {
+                    type: 'array' as const,
+                    items: { type: 'string' },
+                    description: 'Names of required input fields.',
+                },
+            },
+            required: ['type', 'properties'],
+        },
+        inputFieldsTruncated: {
+            type: 'boolean',
+            description:
+                'Present and `true` when `inputFields` was truncated; fetch the full schema via `fetch-actor-details`.',
+        },
+        inputFieldsTotalCount: {
+            type: 'number',
+            description:
+                'Total number of input fields before truncation; present only when `inputFields` was truncated.',
+        },
+    },
+    required: ['url', 'id', 'fullName', 'developer', 'description', 'categories', 'isDeprecated'],
+};
+
+/**
+ * Schema for Actor details output (fetch-actor-details tool)
+ * All fields are optional since the tool supports selective output via the 'output' parameter
+ *
+ * NOTE on `readme`: This field contains the abridged README summary when the Actor has one,
+ * falling back to the full README otherwise. The field is named `readme` (not `readmeSummary`)
+ * to stay consistent with the widget UI contract. Most Actors should have a summary defined,
+ * so the full README fallback is only expected in niche cases.
+ */
+export const actorDetailsOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorInfo: actorInfoSchema,
+        readme: {
+            type: 'string',
+            description: 'Actor README summary when available, otherwise the full README documentation.',
+        },
+        inputSchema: { type: 'object' as const, description: 'Actor input schema.' },
+        outputSchema: { type: 'object' as const, description: 'Output schema inferred from successful runs.' },
+        serverInterface: {
+            type: 'string',
+            description:
+                "The Actor's server interface. `output.serverInterface: true` returns the full API schema with " +
+                'guidance when it fits, or operation navigation otherwise. A "METHOD /path" string returns an ' +
+                'operation excerpt; "#/..." returns a raw local schema node.',
+        },
+    },
+};
+
+/** Schema for fetch-actor-mcp-tool-list output: the remote tool definitions as `tools/list` returned them. */
+export const actorMcpToolListOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        tools: {
+            type: 'array',
+            items: { type: 'object' },
+            description: "The tools on the Actor's MCP server, with their schemas, annotations and metadata.",
+        },
+    },
+    required: ['tools'],
+};
+
+/**
+ * Schema for fetch-actor-details-widget output.
+ * Widget-only; renders as an interactive UI element in apps mode.
+ * `actorInfo` is the widget-shaped actor (from `formatActorForWidget`), kept as a loose
+ * object because it doesn't align with `actorInfoSchema` (adds `currentPricingInfo` etc.).
+ */
+export const actorDetailsWidgetOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorDetails: {
+            type: 'object' as const,
+            properties: {
+                actorInfo: {
+                    type: 'object' as const,
+                    description: 'Widget-formatted Actor info (tier-aware pricing, widget display fields).',
+                },
+                actorCard: { type: 'string', description: 'Rendered Actor card markdown for widget display.' },
+                readme: { type: 'string', description: 'Formatted Actor README for widget display.' },
+            },
+            required: ['actorInfo', 'actorCard', 'readme'],
+            additionalProperties: false,
+        },
+    },
+    required: ['actorDetails'],
+    additionalProperties: false,
+};
+
+/**
+ * Schema for search results output (store-search tool)
+ */
+export const actorSearchOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actors: {
+            type: 'array' as const,
+            items: actorInfoSchema,
+            description: 'List of Actor cards matching the search query',
+        },
+        query: { type: 'string', description: 'The search query used' },
+        count: { type: 'number', description: 'Number of Actors returned' },
+        userTier: {
+            type: 'string',
+            enum: ['FREE', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'],
+            description: "The user's plan tier used to resolve the per-Actor pricing shown in the results",
+        },
+        instructions: {
+            type: 'string',
+            description: 'Additional instructions for the LLM to follow when processing the search results.',
+        },
+    },
+    required: ['actors', 'query', 'count'],
+};
+
+/**
+ * Schema for widget search results (search-actors-widget tool).
+ * `actors` mirrors the non-widget `actorSearchOutputSchema` shape (StructuredActorCard),
+ * `widgetActors` is the widget-formatted list (from `formatActorForWidget`), kept loose
+ * for the same reason `actorDetailsWidgetOutputSchema.actorInfo` is loose.
+ */
+export const actorSearchWidgetOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actors: {
+            type: 'array' as const,
+            items: actorInfoSchema,
+            description: 'List of Actor cards matching the search query',
+        },
+        query: { type: 'string', description: 'The search query used' },
+        count: { type: 'number', description: 'Number of Actors returned' },
+        userTier: {
+            type: 'string',
+            enum: ['FREE', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'],
+            description: "The user's plan tier used to resolve the per-Actor pricing shown in the results",
+        },
+        widgetActors: {
+            type: 'array' as const,
+            items: {
+                type: 'object' as const,
+                description: 'Widget-formatted Actor (tier-aware pricing, widget display fields).',
+            },
+            description: 'Widget-formatted Actor list for UI rendering',
+        },
+    },
+    required: ['actors', 'query', 'count', 'widgetActors'],
+};
+
+export const searchApifyDocsToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        results: {
+            type: 'array' as const,
+            items: {
+                type: 'object' as const,
+                properties: {
+                    url: {
+                        type: 'string',
+                        description: 'URL of the documentation page, may include anchor (e.g., #section-name).',
+                    },
+                    content: {
+                        type: 'string',
+                        description: 'A limited piece of content that matches the search query.',
+                    },
+                },
+                required: ['url'],
+            },
+        },
+        instructions: {
+            type: 'string',
+            description: 'Additional instructions for the LLM to follow when processing the search results.',
+        },
+    },
+    required: ['results'],
+};
+
+export const fetchApifyDocsToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        url: { type: 'string', description: 'The documentation URL that was fetched' },
+        content: { type: 'string', description: 'The full markdown content of the documentation page' },
+    },
+    required: ['url', 'content'],
+};
+
+/**
+ * Schema for the fixed acknowledgement returned by report-problem.
+ */
+export const reportProblemToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        reported: { type: 'boolean', description: 'Always true; the problem report was submitted' },
+    },
+    required: ['reported'],
+};
+
+/** Schema shared by every Actor task tool. */
+export const actorTaskOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        taskId: { type: 'string', description: 'ID of the task' },
+        actorId: { type: 'string', description: 'ID of the Actor the task belongs to' },
+        name: { type: 'string', description: 'Name of the task' },
+        title: { ...stringOrNullSchema, description: 'Human-readable title of the task' },
+        description: { ...stringOrNullSchema, description: 'Short description of the task' },
+        publishedAt: {
+            ...stringOrNullSchema,
+            description: 'When the task was published (ISO 8601); null when the task is not published',
+        },
+        publicConfig: {
+            anyOf: [
+                {
+                    type: 'object',
+                    properties: {
+                        seoTitle: stringOrNullSchema,
+                        seoDescription: stringOrNullSchema,
+                        inputSchemaFields: {
+                            anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }],
+                        },
+                        datasetName: stringOrNullSchema,
+                        datasetView: stringOrNullSchema,
+                    },
+                },
+                { type: 'null' },
+            ],
+            description: 'Public display configuration of the task landing page',
+        },
+        input: {
+            anyOf: [{ type: 'object' }, { type: 'array' }, { type: 'null' }],
+            description:
+                'The stored task input, as the API returns it; fields the Actor declares as secret are ' +
+                'encrypted placeholders, never plaintext. Its keys are what `publicConfig.inputSchemaFields` can use.',
+        },
+    },
+    required: ['taskId', 'actorId', 'name', 'title', 'description', 'publishedAt', 'publicConfig', 'input'],
+};
+
+/** One schedule action, in the same flat shape the schedule tools accept as input. */
+const scheduleActionOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'ID of the Actor this action runs (Actor actions only)' },
+        taskId: { type: 'string', description: 'ID of the task this action runs (task actions only)' },
+        input: {
+            ...anyJsonValueSchema,
+            description:
+                'The Actor input, or the overrides applied on top of the stored task input; secret fields are ' +
+                'encrypted placeholders. A non-JSON Actor input body is returned as a string.',
+        },
+        build: { type: 'string', description: 'Actor build tag or number (Actor actions only)' },
+        timeoutSecs: { type: 'number', description: 'Run timeout in seconds (Actor actions only)' },
+        memoryMbytes: { type: 'number', description: 'Run memory limit in megabytes (Actor actions only)' },
+        restartOnError: { type: 'boolean', description: 'Restart the run when it fails (Actor actions only)' },
+    },
+};
+
+/** Schema shared by the schedule create, get and update tools. */
+export const scheduleOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        scheduleId: { type: 'string', description: 'ID of the schedule' },
+        name: { type: 'string', description: 'Name of the schedule' },
+        title: { ...stringOrNullSchema, description: 'Human-readable title of the schedule' },
+        description: { ...stringOrNullSchema, description: 'Description of the schedule' },
+        cronExpression: { type: 'string', description: 'When the schedule fires, as a cron expression' },
+        timezone: { type: 'string', description: 'Time zone the cron expression is evaluated in' },
+        isEnabled: { type: 'boolean', description: 'Whether the schedule fires' },
+        isExclusive: {
+            type: 'boolean',
+            description: 'Whether an action is skipped while its previous scheduled run is still running',
+        },
+        nextRunAt: {
+            ...stringOrNullSchema,
+            description: 'Next firing time (ISO 8601); null while the schedule is disabled',
+        },
+        lastRunAt: {
+            ...stringOrNullSchema,
+            description: 'Last firing time (ISO 8601); null when the schedule has not fired yet',
+        },
+        createdAt: { ...stringOrNullSchema, description: 'When the schedule was created (ISO 8601)' },
+        modifiedAt: { ...stringOrNullSchema, description: 'When the schedule was last changed (ISO 8601)' },
+        actions: {
+            type: 'array',
+            items: scheduleActionOutputSchema,
+            description: 'What the schedule runs, in the same shape the schedule tools accept as input',
+        },
+    },
+    required: [
+        'scheduleId',
+        'name',
+        'title',
+        'description',
+        'cronExpression',
+        'timezone',
+        'isEnabled',
+        'isExclusive',
+        'nextRunAt',
+        'lastRunAt',
+        'createdAt',
+        'modifiedAt',
+        'actions',
+    ],
+};
+
+/** Schema for delete-schedule. */
+export const scheduleDeleteOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        scheduleId: { type: 'string', description: 'ID of the deleted schedule' },
+        name: { type: 'string', description: 'Name of the deleted schedule' },
+        deleted: { type: 'boolean', description: 'Always true; the schedule no longer exists' },
+    },
+    required: ['scheduleId', 'name', 'deleted'],
+};
+
+/**
+ * Schema for get-actor-run-log. The log API returns plain text, so the schema wraps it in a single field.
+ */
+export const getActorRunLogToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        log: { type: 'string', description: 'The last N lines of the run log, as plain text' },
+    },
+    required: ['log'],
+};
+
+/**
+ * Schema for get-actor-build-log. The log API returns plain text, so the schema wraps it in a single field.
+ */
+export const getActorBuildLogToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        log: { type: 'string', description: 'The last N lines of the build log, as plain text' },
+    },
+    required: ['log'],
+};
+
+/** Schema for one build: the allowlisted build subset (`toBuildItem`), as get-actor-build-list returns it. */
+const actorBuildItemSchema = {
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Build ID' },
+        actorId: { type: 'string', description: 'ID of the Actor the build belongs to' },
+        buildNumber: { type: 'string', description: 'Build number, e.g. 0.1.12' },
+        status: { type: 'string', description: 'Build status, e.g. RUNNING, SUCCEEDED, FAILED' },
+        startedAt: { ...stringOrNullSchema, description: 'ISO timestamp' },
+        finishedAt: { ...stringOrNullSchema, description: 'ISO timestamp; null while the build is running' },
+    },
+    required: ['id', 'actorId', 'buildNumber', 'status', 'startedAt', 'finishedAt'],
+};
+
+/** Schema for get-actor-build: one build with its Console link (`toBuildResult`). */
+export const getActorBuildToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        build: {
+            ...actorBuildItemSchema,
+            properties: {
+                ...actorBuildItemSchema.properties,
+                apifyConsoleUrl: {
+                    type: 'string',
+                    description: 'Personalized Apify Console link to the build; present only for Console sessions',
+                },
+            },
+        },
+    },
+    required: ['build'],
+};
+
+/**
+ * Schema for build-actor: the same allowlisted build subset (`toBuildResult`) as get-actor-build.
+ */
+export const buildActorToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        build: getActorBuildToolOutputSchema.properties.build,
+    },
+    required: ['build'],
+};
+
+/** Schema for delete-actor. */
+export const deleteActorToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'ID of the deleted Actor' },
+        fullName: { type: 'string', description: 'Full name of the deleted Actor, username/name' },
+        deleted: { type: 'boolean', description: 'Always true; the Actor no longer exists' },
+        abortedRunCount: {
+            type: 'integer',
+            description:
+                'Unfinished runs found just before the deletion. The platform aborts them; a run that starts in between is aborted and not included.',
+        },
+    },
+    required: ['actorId', 'fullName', 'deleted', 'abortedRunCount'],
+};
+
+/** Schema for get-actor-version: the version's file manifest, its revision, and the content returned. */
+export const getActorVersionToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'Actor ID' },
+        fullName: { type: 'string', description: 'Actor full name, username/name' },
+        versionNumber: { type: 'string', description: 'Version number, e.g. 0.1' },
+        buildTag: {
+            type: 'string',
+            description: 'Tag that new builds of this version get, e.g. latest; absent when the version has none',
+        },
+        revision: { type: 'string', description: 'Identifies the whole file set; changes when any file changes' },
+        files: {
+            type: 'array',
+            description: 'Regular files sorted by path, folders excluded',
+            items: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path relative to the Actor root' },
+                    sizeBytes: { type: 'number', description: 'Size of the decoded bytes' },
+                    hash: { type: 'string', description: 'First 16 hex characters of the SHA-256 of the bytes' },
+                },
+                required: ['path', 'sizeBytes', 'hash'],
+            },
+        },
+        contents: {
+            type: 'array',
+            description: 'Content of the returned files, raw with no line numbers',
+            items: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string' },
+                    content: { type: 'string' },
+                    encoding: { type: 'string', enum: ['utf8', 'base64'] },
+                    startLine: {
+                        type: 'integer',
+                        description: 'First returned line, counting from 1; set for a line range',
+                    },
+                    endLine: { type: 'integer', description: 'Last returned line; set for a line range' },
+                    totalLines: { type: 'integer', description: 'Lines in the whole file; set for a line range' },
+                },
+                required: ['path', 'content', 'encoding'],
+            },
+        },
+        omittedPaths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Requested files left out to stay within the content limit',
+        },
+        notFoundPaths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Requested paths the version has no file at',
+        },
+    },
+    required: ['actorId', 'fullName', 'versionNumber', 'revision', 'files', 'contents'],
+};
+
+/** The build a source write started with autoBuild: the same allowlisted subset (`toBuildResult`) as get-actor-build. */
+const sourceWriteBuildProperties = {
+    build: getActorBuildToolOutputSchema.properties.build,
+    buildError: {
+        type: 'string',
+        description: 'Why the build did not start; set when autoBuild was true and the write succeeded without a build',
+    },
+    warnings: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Things to know about the written version, such as empty files the build skips',
+    },
+};
+
+/** Schema for create-actor: the new Actor, its one version, and the files as the platform stored them. */
+export const createActorToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'ID of the new Actor' },
+        fullName: { type: 'string', description: 'Actor full name, username/name' },
+        versionNumber: { type: 'string', description: 'Version number, e.g. 0.0' },
+        revision: {
+            type: 'string',
+            description: 'Identifies the stored file set; the same value a later read of the version returns',
+        },
+        files: {
+            type: 'array',
+            description: 'The files as stored, sorted by path',
+            items: getActorVersionToolOutputSchema.properties.files.items,
+        },
+        ...sourceWriteBuildProperties,
+    },
+    required: ['actorId', 'fullName', 'versionNumber', 'revision', 'files'],
+};
+
+/** Schema for create-actor-version: the new version and its files. */
+export const createActorVersionToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'Actor ID' },
+        fullName: { type: 'string', description: 'Actor full name, username/name' },
+        versionNumber: { type: 'string', description: 'Number of the new version, e.g. 0.2' },
+        revision: createActorToolOutputSchema.properties.revision,
+        files: createActorToolOutputSchema.properties.files,
+        ...sourceWriteBuildProperties,
+    },
+    required: ['actorId', 'fullName', 'versionNumber', 'revision', 'files'],
+};
+
+/** Schema for delete-actor-version: the version that was deleted. */
+export const deleteActorVersionToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'Actor ID' },
+        fullName: { type: 'string', description: 'Actor full name, username/name' },
+        versionNumber: { type: 'string', description: 'Number of the deleted version' },
+        deleted: { type: 'boolean', description: 'Always true' },
+        tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+                'Tags that point to a build of the deleted version, empty when none; runs with such a tag still use that build',
+        },
+    },
+    required: ['actorId', 'fullName', 'versionNumber', 'deleted', 'tags'],
+};
+
+/** Schema for update-actor-version: the new revision and what changed. */
+export const updateActorVersionToolOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        revision: {
+            type: 'string',
+            description: 'Revision after the update, the value expectedRevision takes in a later update',
+        },
+        changed: { type: 'boolean', description: 'False when the operations changed nothing, so nothing was written' },
+        changes: {
+            type: 'array',
+            description: 'One entry per file the operations created, updated, or deleted, sorted by path',
+            items: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: 'Path relative to the Actor root' },
+                    action: { type: 'string', enum: ['created', 'updated', 'deleted'] },
+                    hash: { type: 'string', description: 'Hash of the file after the update; absent for deleted' },
+                },
+                required: ['path', 'action'],
+            },
+        },
+        ...sourceWriteBuildProperties,
+    },
+    required: ['revision', 'changed', 'changes'],
+};
+
+// Per-storage entry shapes. Factories (not shared constants) because `structuredClone` preserves
+// object identity: if `default` and `additionalProperties` referenced the same object, cloning
+// `actorRunOutputSchema` would keep them as the same object, and injecting `itemsSchema` into
+// `default` via `buildEnrichedDirectActorOutputSchema` would silently leak it into aliases too.
+const buildDatasetEntrySchema = () => ({
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Dataset ID' },
+        apifyConsoleUrl: {
+            type: 'string',
+            description: 'Personalized Apify Console link to the dataset; present only for Console sessions',
+        },
+        name: { type: 'string' },
+        title: { type: 'string' },
+        itemCount: { type: 'number' },
+        inflatedBytes: {
+            type: 'number',
+            description:
+                'Approximate uncompressed byte size of the dataset. Use with itemCount to pick limit/fields before fetching.',
+        },
+        fields: {
+            type: 'array' as const,
+            items: { type: 'string' },
+            description: 'Dataset field paths in dot notation (e.g. ["metadata.url"])',
+        },
+    },
+    required: ['id'],
+});
+
+const buildKeyValueStoreEntrySchema = () => ({
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Key-value store ID' },
+        apifyConsoleUrl: {
+            type: 'string',
+            description: 'Personalized Apify Console link to the store; present only for Console sessions',
+        },
+        name: { type: 'string' },
+        title: { type: 'string' },
+        keyCount: { type: 'number', description: 'Total number of keys (omitted when truncated)' },
+        keys: {
+            type: 'array' as const,
+            items: { type: 'string' },
+            description: 'Up to 50 key names',
+        },
+    },
+    required: ['id'],
+});
+
+/** Schema for get-actor-run tool output. */
+export const actorRunOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        runId: { type: 'string', description: 'Actor run ID' },
+        apifyConsoleUrl: {
+            type: 'string',
+            description: 'Personalized Apify Console link to the run; present only for Console sessions',
+        },
+        actorId: { type: 'string', description: 'Stable Apify Actor ID from the run record' },
+        actorName: { type: 'string', description: '"username/actor-name"' },
+        status: {
+            type: 'string',
+            description:
+                'Run status: READY | RUNNING | TIMING-OUT | TIMED-OUT | ABORTING | ABORTED | SUCCEEDED | FAILED',
+        },
+        statusMessage: { type: 'string', description: 'Pass-through from Apify run.statusMessage' },
+        exitCode: {
+            type: 'number',
+            description: 'Actor process exit code; populated for terminal states (especially FAILED)',
+        },
+        startedAt: { type: 'string', description: 'ISO timestamp when the run started' },
+        finishedAt: { type: 'string', description: 'ISO timestamp when the run finished (terminal states only)' },
+        stats: {
+            type: 'object' as const,
+            description: 'Run statistics',
+            properties: {
+                runTimeSecs: { type: 'number' },
+                computeUnits: { type: 'number' },
+                memMaxBytes: { type: 'number' },
+            },
+        },
+        storages: {
+            type: 'object' as const,
+            // Alias-map shape mirrors ActorRunStorageIds from the Apify client.
+            // `datasets.default` / `keyValueStores.default` are the primary entries;
+            // named Actor storages (e.g. datasets.results) occupy additional alias keys.
+            description: 'Dataset and key-value store metadata, keyed by alias. "default" is always the primary entry.',
+            properties: {
+                datasets: {
+                    type: 'object' as const,
+                    description: 'Map of dataset alias → metadata. Key "default" is always the run\'s primary dataset.',
+                    properties: {
+                        default: buildDatasetEntrySchema(),
+                    },
+                    // `buildStorageEntries` (actor_run_response.ts) omits this whole map unless `default` is present.
+                    required: ['default'],
+                    additionalProperties: buildDatasetEntrySchema(),
+                },
+                keyValueStores: {
+                    type: 'object' as const,
+                    description:
+                        'Map of key-value store alias → metadata. Key "default" is always the run\'s primary store.',
+                    properties: {
+                        default: buildKeyValueStoreEntrySchema(),
+                    },
+                    // `buildStorageEntries` (actor_run_response.ts) omits this whole map unless `default` is present.
+                    required: ['default'],
+                    additionalProperties: buildKeyValueStoreEntrySchema(),
+                },
+            },
+        },
+        tip: {
+            type: 'object' as const,
+            description: 'Advisory guidance RAG Web Browser wrote to its key-value store under the reserved "TIP" key',
+            properties: {
+                message: {
+                    type: 'string',
+                    description: `Truncated to ${TIP_MESSAGE_LIMIT} characters, with a trailing ellipsis if the Actor's message was longer`,
+                },
+                level: {
+                    type: 'string',
+                    enum: ['info', 'warning'],
+                    description: 'Omitted when the Actor wrote an unrecognized level',
+                },
+                recommendedActorId: {
+                    type: 'string',
+                    description: 'Apify Actor ID the tip recommends, when it names one',
+                },
+                caveat: {
+                    type: 'string',
+                    description: 'Present when this session cannot run the Actor the tip recommends',
+                },
+            },
+            required: ['message'],
+        },
+        summary: { type: 'string', description: 'Past-tense summary of the run state' },
+        nextStep: { type: 'string', description: 'One primary follow-up action with identifiers interpolated' },
+    },
+    required: ['runId', 'actorId', 'status', 'storages', 'summary', 'nextStep'],
+};
+
+/**
+ * Returns a per-tool clone of {@link actorRunOutputSchema} with `storages.datasets.default.itemsSchema`
+ * declared as a JSON Schema describing each dataset row, inferred from historical successful runs.
+ *
+ * Used for direct actor tools (e.g. `apify--rag-web-browser`) where the target Actor is known
+ * at `tools/list` time, so the LLM can plan field projection before calling the tool. The same
+ * shape is injected into `structuredContent.storages.datasets.default.itemsSchema` by the direct
+ * actor executors so the declared schema matches the runtime response.
+ *
+ * `call-actor` and `get-actor-run` cannot use this because their target Actor is dynamic.
+ *
+ * @param itemProperties - JSON Schema properties for dataset item fields
+ *   (e.g. `{ url: { type: 'string' }, price: { type: 'number' } }`).
+ */
+export function buildEnrichedDirectActorOutputSchema(itemProperties: Record<string, unknown>) {
+    const itemsSchema = {
+        type: 'object' as const,
+        description:
+            'JSON Schema for rows in the dataset at `storages.datasets.default.id` — describes row ' +
+            'shape only; the rows themselves are NOT returned inline in this response. Inferred from this ' +
+            "Actor's historical successful runs. To fetch actual rows, call `get-dataset-items` with the " +
+            'dataset id and a `fields` projection drawn from this schema.',
+        properties: itemProperties,
+    };
+    const clone = structuredClone(actorRunOutputSchema);
+    const datasetDefaultProps = clone.properties.storages.properties.datasets.properties.default.properties as Record<
+        string,
+        unknown
+    >;
+    datasetDefaultProps.itemsSchema = itemsSchema;
+    return clone;
+}
+
+/** Past-tense state summary; emitted by every storage tool. */
+export const summaryProperty = {
+    type: 'string' as const,
+    description: 'Summary of the result',
+};
+/** One primary follow-up action; emitted by every non-terminal storage tool. */
+export const nextStepProperty = {
+    type: 'string' as const,
+    description: 'One follow-up action with tool name',
+};
+
+/**
+ * Builds the Apify `PaginatedList` envelope schema (offset-based pagination) shared by the
+ * run and storage list tools. `itemsSchema` describes one array element; mirrors `PaginatedList`
+ * from apify-client (api.apify.com `*-get` collection endpoints).
+ */
+function paginatedListOutputSchema(itemsSchema: object, itemsDescription: string) {
+    return {
+        type: 'object' as const,
+        properties: {
+            total: { type: 'number', description: 'Total number of items across all pages.' },
+            count: { type: 'number', description: 'Number of items returned in this page.' },
+            offset: { type: 'number', description: 'Number of items skipped from the start.' },
+            limit: { type: 'number', description: 'Maximum number of items requested.' },
+            desc: { type: 'boolean', description: 'Whether items are sorted in descending order.' },
+            items: { type: 'array' as const, items: itemsSchema, description: itemsDescription },
+        },
+        required: ['total', 'offset', 'limit', 'count', 'items'],
+    };
+}
+
+/** Schema for one run in get-actor-run-list (apify-client `ActorRunListItem`). */
+const actorRunListItemSchema = {
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Run ID.' },
+        actId: { type: 'string', description: 'ID of the Actor that produced the run.' },
+        actorTaskId: { type: 'string', description: 'ID of the Actor task, when the run was started from one.' },
+        status: {
+            type: 'string',
+            description:
+                'Run status: READY | RUNNING | SUCCEEDED | FAILED | TIMING-OUT | TIMED-OUT | ABORTING | ABORTED.',
+        },
+        startedAt: { ...stringOrNullSchema, description: 'ISO timestamp when the run started.' },
+        finishedAt: {
+            ...stringOrNullSchema,
+            description: 'ISO timestamp when the run finished; null while still running.',
+        },
+        buildId: { type: 'string', description: 'ID of the Actor build used for the run.' },
+        buildNumber: { type: 'string', description: 'Build number used for the run.' },
+        defaultDatasetId: { type: 'string', description: "ID of the run's default dataset." },
+        defaultKeyValueStoreId: { type: 'string', description: "ID of the run's default key-value store." },
+        defaultRequestQueueId: { type: 'string', description: "ID of the run's default request queue." },
+        usageTotalUsd: { type: 'number', description: 'Total run cost in USD.' },
+    },
+    required: ['id', 'actId', 'status', 'defaultDatasetId', 'defaultKeyValueStoreId'],
+};
+
+/** Schema for get-actor-run-list output (paginated list of runs). */
+export const actorRunListOutputSchema = paginatedListOutputSchema(actorRunListItemSchema, 'Actor runs.');
+
+/** Schema for one Actor in get-actor-list: the allowlisted subset of the `GET /v2/acts` item. */
+const actorListItemSchema = {
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Actor ID.' },
+        name: { type: 'string', description: 'Actor name, unique within the owner account.' },
+        fullName: { type: 'string', description: 'Full Actor name, username/name; the username is the owner.' },
+        title: { ...stringOrNullSchema, description: 'Display title; null when the Actor has none.' },
+        createdAt: { ...stringOrNullSchema, description: 'ISO timestamp when the Actor was created.' },
+        modifiedAt: { ...stringOrNullSchema, description: 'ISO timestamp when the Actor was last modified.' },
+        lastRunStartedAt: {
+            ...stringOrNullSchema,
+            description: 'ISO timestamp when the last run of the Actor started; null when it has never run.',
+        },
+    },
+    required: ['id', 'name', 'fullName', 'title', 'createdAt', 'modifiedAt', 'lastRunStartedAt'],
+};
+
+const actorListPageSchema = paginatedListOutputSchema(actorListItemSchema, 'Actors.');
+
+/** Schema for get-actor-list output: a page of the account's Actors, with summary and nextStep like get-dataset-list. */
+export const actorListOutputSchema = {
+    ...actorListPageSchema,
+    properties: { ...actorListPageSchema.properties, summary: summaryProperty, nextStep: nextStepProperty },
+    required: [...actorListPageSchema.required, 'summary', 'nextStep'],
+};
+
+/** Schema for get-actor-build-list output (paginated list of builds). */
+export const getActorBuildListToolOutputSchema = paginatedListOutputSchema(
+    actorBuildItemSchema,
+    'Builds, newest first by default.',
+);
+
+/**
+ * Schema for dataset items retrieval tools (get-dataset-items).
+ * Contains dataset items with pagination and count information.
+ */
+export const datasetItemsOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        datasetId: { type: 'string', description: 'Dataset ID' },
+        apifyConsoleUrl: {
+            type: 'string',
+            description: 'Personalized Apify Console link to the dataset; present only for Console sessions',
+        },
+        items: { type: 'array' as const, items: { type: 'object' as const }, description: 'Dataset items' },
+        itemCount: { type: 'number', description: 'Number of items returned' },
+        totalItemCount: { type: 'number', description: 'Total items in dataset' },
+        offset: { type: 'number', description: 'Offset used for pagination' },
+        limit: { type: 'number', description: 'Limit used for pagination' },
+        summary: summaryProperty,
+        nextStep: nextStepProperty,
+    },
+    // offset/limit/totalItemCount and summary/nextStep are always emitted by the tool.
+    required: ['datasetId', 'items', 'itemCount', 'totalItemCount', 'offset', 'limit', 'summary', 'nextStep'],
+};
+
+/**
+ * Schema for dataset metadata (get-dataset). Documents the fields the LLM acts on; the raw API
+ * response carries more keys (stats, access settings), allowed as additional properties.
+ * The raw `schema` key is stripped by the tool — get-dataset-schema owns schema output (#882).
+ */
+export const datasetMetadataOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Dataset ID' },
+        name: { ...stringOrNullSchema, description: 'Dataset name (null for unnamed datasets)' },
+        itemCount: { type: 'number', description: 'Number of items in the dataset' },
+        fields: {
+            type: 'array' as const,
+            items: { type: 'string' },
+            description: 'Field paths in dot notation (e.g. ["metadata.url"])',
+        },
+        summary: summaryProperty,
+        nextStep: nextStepProperty,
+    },
+    required: ['id', 'summary', 'nextStep'],
+};
+
+/**
+ * Schema for dataset schema inference (get-dataset-schema).
+ */
+export const datasetSchemaOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        datasetId: { type: 'string', description: 'Dataset ID' },
+        schema: { type: 'object' as const, description: 'Inferred JSON schema describing dataset item structure' },
+        summary: summaryProperty,
+        nextStep: nextStepProperty,
+    },
+    required: ['datasetId', 'schema', 'summary', 'nextStep'],
+};
+
+/**
+ * Schema for storage collection listings (get-dataset-list, get-key-value-store-list).
+ * Mirrors the Apify paginated-list response shape plus the narrative fields. `items` is an opaque
+ * object since item shape varies by storage type; per-item fields pass through from the API.
+ */
+export const storageListOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        total: { type: 'number', description: 'Total number of items available for the user' },
+        count: { type: 'number', description: 'Number of items returned in this page' },
+        offset: { type: 'number', description: 'Offset used for pagination' },
+        limit: { type: 'number', description: 'Limit used for pagination' },
+        items: {
+            type: 'array' as const,
+            items: { type: 'object' as const },
+            description: 'Storage metadata objects',
+        },
+        summary: summaryProperty,
+        nextStep: nextStepProperty,
+    },
+    required: ['items', 'total', 'count', 'offset', 'limit', 'summary', 'nextStep'],
+};
+
+/**
+ * Schema for key-value store metadata (get-key-value-store). The raw API response carries more
+ * keys (stats, access settings), allowed as additional properties.
+ */
+export const keyValueStoreOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        id: { type: 'string', description: 'Key-value store ID' },
+        name: { ...stringOrNullSchema, description: 'Store name (null for unnamed stores)' },
+        summary: summaryProperty,
+        nextStep: nextStepProperty,
+    },
+    required: ['id', 'summary', 'nextStep'],
+};
+
+/**
+ * Schema for key listing (get-key-value-store-keys).
+ */
+export const keyValueStoreKeysOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        keyValueStoreId: { type: 'string', description: 'Key-value store ID' },
+        items: {
+            type: 'array' as const,
+            items: {
+                type: 'object' as const,
+                properties: {
+                    key: { type: 'string', description: 'Record key' },
+                    size: { type: 'number', description: 'Value size in bytes' },
+                },
+                required: ['key', 'size'],
+            },
+            description: 'Keys with value sizes',
+        },
+        count: { type: 'number', description: 'Number of keys returned' },
+        isTruncated: { type: 'boolean', description: 'Whether more keys are available' },
+        nextExclusiveStartKey: {
+            ...stringOrNullSchema,
+            description: 'Pass as exclusiveStartKey to fetch the next page of keys; null when not truncated',
+        },
+        summary: summaryProperty,
+        nextStep: nextStepProperty,
+    },
+    required: ['keyValueStoreId', 'items', 'count', 'isTruncated', 'nextExclusiveStartKey', 'summary', 'nextStep'],
+};
+
+/**
+ * Schema for a single record (get-key-value-store-record). Terminal: no nextStep.
+ */
+export const keyValueStoreRecordOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        keyValueStoreId: { type: 'string', description: 'Key-value store ID' },
+        key: { type: 'string', description: 'Record key' },
+        value: {
+            ...anyJsonValueSchema,
+            description: 'The stored value (JSON, text, or binary)',
+        },
+        contentType: { type: 'string', description: 'MIME type of the stored value' },
+        summary: summaryProperty,
+    },
+    required: ['keyValueStoreId', 'key', 'value', 'summary'],
+};
+
+/**
+ * Schema for the operations found by apify-api-search.
+ */
+export const apifyApiSearchOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        operations: {
+            type: 'array' as const,
+            items: {
+                type: 'object' as const,
+                properties: {
+                    method: { type: 'string', description: 'HTTP method' },
+                    path: { type: 'string', description: 'Path template; each {name} is a path parameter' },
+                    summary: { type: 'string', description: 'What the operation does' },
+                    docsUrl: { type: 'string', description: "The operation's page in the API reference" },
+                },
+                required: ['method', 'path', 'summary', 'docsUrl'],
+            },
+        },
+    },
+    required: ['operations'],
+};
+
+/** One operation in the apify-api-details response. */
+const apiOperationDetailsSchema = {
+    type: 'object' as const,
+    properties: {
+        method: { type: 'string', description: 'HTTP method' },
+        path: { type: 'string', description: 'Path template; each {name} is a path parameter' },
+        summary: { type: 'string', description: 'What the operation does' },
+        description: { type: 'string', description: 'Full description from the API reference' },
+        parameters: {
+            type: 'array' as const,
+            items: {
+                type: 'object' as const,
+                properties: {
+                    name: { type: 'string', description: 'Parameter name' },
+                    in: { type: 'string', enum: ['path', 'query'], description: 'Where the parameter goes' },
+                    isRequired: { type: 'boolean', description: 'Whether the parameter is required' },
+                    description: { type: 'string', description: 'What the parameter does' },
+                    schema: { type: 'object', description: 'JSON schema of the value' },
+                },
+                required: ['name', 'in', 'isRequired'],
+            },
+            description: 'Path and query parameters',
+        },
+        requestBody: {
+            type: 'object' as const,
+            properties: {
+                isRequired: { type: 'boolean', description: 'Whether the body is required' },
+                schema: { type: 'object', description: 'JSON schema of the body, sent as JSON' },
+            },
+            required: ['isRequired', 'schema'],
+            description: 'Only when the operation takes a body',
+        },
+    },
+    required: ['method', 'path', 'summary', 'description', 'parameters'],
+};
+
+/**
+ * Schema for the operations on one path (apify-api-details).
+ */
+export const apifyApiDetailsOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        operations: {
+            type: 'array' as const,
+            items: apiOperationDetailsSchema,
+            description: 'The operations on the path, or only the one with the given method',
+        },
+    },
+    required: ['operations'],
+};
+
+/**
+ * Schema for the response of an API call (apify-api-read, apify-api-write).
+ */
+export const apifyApiCallOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        method: { type: 'string', description: 'HTTP method' },
+        path: { type: 'string', description: 'Request path as it was sent' },
+        statusCode: { type: 'integer', description: 'HTTP status code' },
+        contentType: { type: 'string', description: 'Content-Type of the response' },
+        data: {
+            ...anyJsonValueSchema,
+            description:
+                'Response body: parsed JSON, text, or null for an empty or binary body, or for a write response ' +
+                'over the inline limit',
+        },
+    },
+    required: ['method', 'path', 'statusCode', 'data'],
+};
+
+/** Schema for send-server-actor-request output: one HTTP exchange with an Actor's server. */
+export const serverActorRequestOutputSchema = {
+    type: 'object' as const,
+    properties: {
+        actorId: { type: 'string', description: 'Actor ID' },
+        actorName: { type: 'string', description: 'Actor full name (username/name)' },
+        interface: { type: 'string', enum: ['server'], description: 'The Actor interface used: its Actor Server' },
+        tenancy: {
+            type: 'string',
+            enum: Object.values(ACTOR_TENANCY),
+            description:
+                'single-tenant: a run of the Actor in your account served the request; multi-tenant: a run of the ' +
+                "Actor's owner did, charged per event",
+        },
+        method: { type: 'string', description: 'HTTP method sent' },
+        path: { type: 'string', description: 'Path sent, with its query' },
+        status: { type: 'integer', description: 'HTTP status received' },
+        contentType: { type: 'string', description: 'Content-Type of the response; absent when it had none' },
+        body: {
+            type: 'string',
+            description: 'Response body as text; empty when the response had none; absent when omitted',
+        },
+        bytes: {
+            type: 'integer',
+            description: 'Response body size in bytes, after decompression; absent when over the limit',
+        },
+        bodyOmitted: {
+            type: 'boolean',
+            const: true,
+            description: 'The response arrived, but its body was not returned',
+        },
+        reason: { type: 'string', description: 'Why the response body was omitted' },
+        location: { type: 'string', description: 'Location header of a redirect, which is not followed' },
+        summary: { type: 'string', description: 'Readable summary of the HTTP response' },
+        errorMessage: {
+            type: 'string',
+            description: 'The error string of a JSON {"error": ...} error body; other error bodies are only in body',
+        },
+        nextStep: {
+            type: 'string',
+            description: 'Where to look to correct the request, or why the Actor Server refused it',
+        },
+    },
+    required: ['actorId', 'actorName', 'interface', 'tenancy', 'method', 'path', 'status', 'summary'],
+    oneOf: [
+        { type: 'object', required: ['body', 'bytes'] },
+        { type: 'object', required: ['bodyOmitted', 'reason'] },
+    ],
+};

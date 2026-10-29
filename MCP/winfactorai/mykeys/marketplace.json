@@ -1,0 +1,20 @@
+{
+  "name": "mkeys-local",
+  "version": 1,
+  "description": "Local marketplace for the MyKeys credential vault ZCode plugin.",
+  "plugins": [
+    {
+      "name": "mkeys",
+      "version": "0.2.0",
+      "description": "MyKeys — local-first credential vault: manage passwords/keys, verify logins, mint temporary tokens for AI, and track per-purpose usage.",
+      "source": ".",
+      "category": "security",
+      "icon": "./assets/icon.png",
+      "author": {
+        "name": "胜利因子",
+        "url": "https://www.aiputing.com/"
+      },
+      "homepage": "https://www.aiputing.com/"
+    }
+  ]
+}

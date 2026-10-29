@@ -1,0 +1,30 @@
+{
+  "name": "browsermcp",
+  "type": "module",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "smoke": "pnpm --filter @browsermcp/extension smoke",
+    "lint": "oxlint --max-warnings=0",
+    "format": "oxfmt --check",
+    "format:fix": "oxfmt"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.9.1"
+}

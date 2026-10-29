@@ -1,0 +1,391 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { IAtlasConfig } from "../../atlasTool.js";
+import { ListAlertsTool } from "./listAlerts.js";
+import type { AtlasTelemetry } from "@mongodb-js/mcp-atlas-telemetry";
+import type { Elicitation } from "@mongodb-js/mcp-core";
+import type { CompositeLogger } from "@mongodb-js/mcp-core";
+import type { ApiClient } from "@mongodb-js/mcp-atlas-api-client";
+import { UIRegistry } from "@mongodb-js/mcp-ui";
+import { MockMetrics, createMockElicitation } from "@mongodb-js/mcp-test-utils";
+
+import type { AtlasToolServer } from "../../atlasTool.js";
+
+describe("ListAlertsTool", () => {
+    let mockApiClient: Record<string, ReturnType<typeof vi.fn>>;
+    let tool: ListAlertsTool;
+
+    beforeEach(() => {
+        mockApiClient = {
+            listAlerts: vi.fn(),
+        };
+
+        const mockLogger = {
+            info: vi.fn(),
+            debug: vi.fn(),
+            warning: vi.fn(),
+            error: vi.fn(),
+        } as unknown as CompositeLogger;
+
+        const mockSession = {
+            logger: mockLogger,
+            apiClient: mockApiClient as unknown as ApiClient,
+            config: {
+                confirmationRequiredTools: [],
+                previewFeatures: [],
+                disabledTools: [],
+                apiClientId: "test-id",
+                apiClientSecret: "test-secret",
+                atlasTemporaryDatabaseUserLifetimeMs: 3600000,
+            } as unknown as IAtlasConfig,
+        } as unknown as AtlasToolServer;
+
+        const mockTelemetry = {
+            isTelemetryEnabled: () => true,
+            emitEvents: vi.fn(),
+        } as unknown as AtlasTelemetry;
+
+        const mockElicitation = createMockElicitation() as unknown as Elicitation;
+
+        const server: AtlasToolServer = {
+            ...mockSession,
+            telemetry: mockTelemetry,
+            elicitation: mockElicitation,
+            metrics: new MockMetrics(),
+            uiRegistry: new UIRegistry(),
+        };
+
+        tool = new ListAlertsTool({ server });
+    });
+
+    const baseArgs = { projectId: "proj1", status: "OPEN" as const, limit: 10, pageNum: 1, includeCount: false };
+    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+    const exec = (args: Record<string, unknown>) =>
+        tool["execute"](args as never, {
+            request: {
+                signal: new AbortController().signal,
+            },
+        });
+
+    it("should return alerts when they exist", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({
+            results: [
+                {
+                    id: "alert1",
+                    status: "OPEN",
+                    created: "2025-01-01T00:00:00Z",
+                    updated: "2025-01-02T00:00:00Z",
+                    eventTypeName: "HOST_DOWN",
+                    acknowledgementComment: null,
+                },
+                {
+                    id: "alert2",
+                    status: "OPEN",
+                    created: "2025-01-03T00:00:00Z",
+                    updated: "2025-01-04T00:00:00Z",
+                    eventTypeName: "REPLICATION_OPLOG_WINDOW_RUNNING_OUT",
+                    acknowledgementComment: "investigating",
+                },
+            ],
+        });
+
+        const result = await exec({ ...baseArgs });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain("Found 2 alerts");
+        expect(text).not.toContain("total:");
+        expect(text).toContain("proj1");
+    });
+
+    it("should return empty message when no alerts found", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({ results: [] });
+
+        const result = await exec({ ...baseArgs });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('No alerts with status "OPEN"');
+        expect(result.structuredContent).toMatchObject({
+            projectId: "proj1",
+            status: "OPEN",
+            alerts: [],
+        });
+    });
+
+    it("should pass status to API", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({ results: [] });
+
+        await exec({ ...baseArgs, status: "CLOSED" });
+
+        expect(mockApiClient.listAlerts).toHaveBeenCalledWith(
+            {
+                params: {
+                    path: { groupId: "proj1" },
+                    query: { status: "CLOSED", itemsPerPage: 10, pageNum: 1, includeCount: false },
+                },
+            },
+            expect.anything()
+        );
+    });
+
+    it("should pass limit and pageNum to API", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({ results: [] });
+
+        await exec({ ...baseArgs, limit: 25, pageNum: 3 });
+
+        expect(mockApiClient.listAlerts).toHaveBeenCalledWith(
+            {
+                params: {
+                    path: { groupId: "proj1" },
+                    query: { status: "OPEN", itemsPerPage: 25, pageNum: 3, includeCount: false },
+                },
+            },
+            expect.anything()
+        );
+    });
+
+    it("should pass includeCount to API when requested", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({ results: [], totalCount: 0 });
+
+        await exec({ ...baseArgs, includeCount: true });
+
+        expect(mockApiClient.listAlerts).toHaveBeenCalledWith(
+            {
+                params: {
+                    path: { groupId: "proj1" },
+                    query: { status: "OPEN", itemsPerPage: 10, pageNum: 1, includeCount: true },
+                },
+            },
+            expect.anything()
+        );
+    });
+
+    it("should include totalCount in response header", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({
+            results: [
+                {
+                    id: "alert1",
+                    status: "OPEN",
+                    created: "2025-01-01T00:00:00Z",
+                    updated: "2025-01-02T00:00:00Z",
+                    eventTypeName: "HOST_DOWN",
+                },
+            ],
+            totalCount: 42,
+        });
+
+        const result = await exec({ ...baseArgs, includeCount: true });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain("total: 42");
+    });
+
+    it("should omit totalCount text when API does not return it", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({
+            results: [
+                {
+                    id: "alert1",
+                    status: "OPEN",
+                    created: "2025-01-01T00:00:00Z",
+                    updated: "2025-01-02T00:00:00Z",
+                    eventTypeName: "HOST_DOWN",
+                },
+            ],
+        });
+
+        const result = await exec({ ...baseArgs });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('Found 1 alerts with status "OPEN" in project proj1');
+        expect(text).not.toContain("total:");
+        expect(text).not.toContain("false");
+    });
+
+    it("should suggest pagination when a full page of alerts is returned", async () => {
+        const alerts = Array.from({ length: 10 }, (_, i) => ({
+            id: `alert-${i}`,
+            status: "OPEN",
+            created: "2025-01-01T00:00:00Z",
+            updated: "2025-01-02T00:00:00Z",
+            eventTypeName: "HOST_DOWN",
+        }));
+        mockApiClient.listAlerts!.mockResolvedValue({ results: alerts });
+
+        const result = await exec({ ...baseArgs, limit: 10 });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain("Use pagination arguments if more results are expected.");
+    });
+
+    it("should not suggest pagination when fewer than the limit alerts are returned", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({
+            results: [
+                {
+                    id: "alert1",
+                    status: "OPEN",
+                    created: "2025-01-01T00:00:00Z",
+                    updated: "2025-01-02T00:00:00Z",
+                    eventTypeName: "HOST_DOWN",
+                },
+            ],
+        });
+
+        const result = await exec({ ...baseArgs, limit: 10 });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).not.toContain("pagination");
+    });
+
+    it("should format alert fields correctly", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({
+            results: [
+                {
+                    id: "alert-abc",
+                    status: "OPEN",
+                    created: "2025-06-15T10:30:00Z",
+                    updated: "2025-06-16T12:00:00Z",
+                    eventTypeName: "HOST_DOWN",
+                    acknowledgementComment: "looking into it",
+                },
+            ],
+            totalCount: 1,
+        });
+
+        const result = await exec({ ...baseArgs });
+
+        const text = result.content.map((c) => (c as { text: string }).text).join("\n");
+        expect(text).toContain("alert-abc");
+        expect(text).toContain("HOST_DOWN");
+        expect(text).toContain("looking into it");
+    });
+
+    it("should handle null results gracefully", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({ results: null });
+
+        const result = await exec({ ...baseArgs });
+
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain("No alerts with status");
+        expect(result.structuredContent).toMatchObject({
+            projectId: "proj1",
+            status: "OPEN",
+            alerts: [],
+        });
+    });
+
+    it("description clarifies it returns triggered alerts, not configurations, and defaults to OPEN", () => {
+        const description = tool.description.toLowerCase();
+        expect(description).toContain("triggered");
+        expect(description).toContain("configuration");
+        expect(tool.description).toContain("OPEN");
+    });
+
+    it("should handle missing acknowledgementComment", async () => {
+        mockApiClient.listAlerts!.mockResolvedValue({
+            results: [
+                {
+                    id: "alert1",
+                    status: "OPEN",
+                    created: "2025-01-01T00:00:00Z",
+                    updated: "2025-01-02T00:00:00Z",
+                    eventTypeName: "HOST_DOWN",
+                    acknowledgementComment: null,
+                },
+            ],
+            totalCount: 1,
+        });
+
+        const result = await exec({ ...baseArgs });
+
+        const text = result.content.map((c) => (c as { text: string }).text).join("\n");
+        expect(text).toContain("N/A");
+    });
+
+    describe("structuredContent", () => {
+        it("returns alerts on success", async () => {
+            mockApiClient.listAlerts!.mockResolvedValue({
+                results: [
+                    {
+                        id: "alert1",
+                        status: "OPEN",
+                        created: "2025-01-01T00:00:00Z",
+                        updated: "2025-01-02T00:00:00Z",
+                        eventTypeName: "HOST_DOWN",
+                        acknowledgementComment: null,
+                    },
+                ],
+                totalCount: 42,
+            });
+
+            const result = await exec({ ...baseArgs });
+
+            expect(result.structuredContent).toMatchObject({
+                projectId: "proj1",
+                status: "OPEN",
+                totalCount: 42,
+                alerts: [
+                    {
+                        id: "alert1",
+                        status: "OPEN",
+                        created: "2025-01-01T00:00:00.000Z",
+                        updated: "2025-01-02T00:00:00.000Z",
+                        eventTypeName: "HOST_DOWN",
+                        acknowledgementComment: "N/A",
+                    },
+                ],
+            });
+        });
+
+        it("returns empty alerts array when no results", async () => {
+            mockApiClient.listAlerts!.mockResolvedValue({ results: [], totalCount: 0 });
+
+            const result = await exec({ ...baseArgs });
+
+            expect(result.structuredContent).toMatchObject({
+                projectId: "proj1",
+                status: "OPEN",
+                alerts: [],
+                totalCount: 0,
+            });
+        });
+
+        it("omits totalCount when it is an explicit 0 with results present", async () => {
+            // Some environments return totalCount: 0 with includeCount=false even when
+            // results are present; the tool should not report a misleading 0.
+            mockApiClient.listAlerts!.mockResolvedValue({
+                results: [
+                    {
+                        id: "alert1",
+                        status: "OPEN",
+                        created: "2025-01-01T00:00:00Z",
+                        updated: "2025-01-02T00:00:00Z",
+                        eventTypeName: "HOST_DOWN",
+                        acknowledgementComment: null,
+                    },
+                ],
+                totalCount: 0,
+            });
+
+            const result = await exec({ ...baseArgs });
+
+            expect(result.structuredContent).toMatchObject({
+                projectId: "proj1",
+                status: "OPEN",
+                alerts: [
+                    {
+                        id: "alert1",
+                        status: "OPEN",
+                    },
+                ],
+            });
+            expect(result.structuredContent).not.toHaveProperty("totalCount");
+
+            const text = result.content.map((c) => (c as { text: string }).text).join("\n");
+            expect(text).not.toContain("(total:");
+        });
+
+        it("omits structuredContent on error paths", async () => {
+            mockApiClient.listAlerts!.mockRejectedValue(new Error("API failure"));
+
+            await expect(exec({ ...baseArgs })).rejects.toThrow("API failure");
+        });
+    });
+});

@@ -1,0 +1,1145 @@
+import * as crypto from "crypto";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import * as http from "http";
+import * as net from "net";
+import * as url from "url";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import open from "open";
+import pkceChallenge from "pkce-challenge";
+import { createLogger } from "./utils/logger.js";
+import { redactUrlSecretsInText } from "./utils/redact-url.js";
+import { GITLAB_PERMISSION_MODE, type GitLabPermissionMode } from "./config.js";
+import {
+  formatOAuthScopes,
+  grantedOAuthScopes,
+  oauthScopeMismatchError,
+  oauthTokenNeedsReauthorization,
+  runDeviceAuthorizationGrantAsync,
+} from "./oauth-device-flow.js";
+import type { FetchImpl, DeviceUserCodeInfo } from "./oauth-device-flow.js";
+
+export { oauthTokenNeedsReauthorization };
+
+const logger = createLogger("gitlab-mcp-oauth");
+
+const execFileAsync = promisify(execFile);
+
+function escapeHtml(str: string): string {
+  const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return String(str).replace(/[&<>"']/g, c => map[c] || c);
+}
+
+// Track pending auth requests across multiple MCP instances
+const pendingAuthRequests = new Map<
+  string,
+  {
+    resolve: (tokenData: TokenData) => void;
+    reject: (error: Error) => void;
+    timeout: NodeJS.Timeout;
+  }
+>();
+
+const OAUTH_REFRESH_TIMEOUT_MS = 10000;
+
+/**
+ * Decide whether a failed token-refresh response means the refresh token is
+ * genuinely dead (interactive re-login would fix it) versus a transient or
+ * configuration problem (where opening a browser is wrong).
+ *
+ * Returns true ONLY for a 400/401 whose JSON body has error "invalid_grant"
+ * or "invalid_token". Everything else — config errors (invalid_client,
+ * invalid_request), 5xx, 429, and non-JSON bodies — returns false.
+ */
+export function isAuthInvalidTokenResponse(status: number, bodyText: string): boolean {
+  if (status !== 400 && status !== 401) {
+    return false;
+  }
+  try {
+    const body = JSON.parse(bodyText) as { error?: string };
+    return body.error === "invalid_grant" || body.error === "invalid_token";
+  } catch {
+    return false;
+  }
+}
+
+interface TokenData {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  created_at: number;
+  token_type: string;
+  /** Scopes granted for this token. Absent on tokens written before scope tracking. */
+  scopes?: string[];
+}
+
+interface OAuthConfig {
+  clientId: string;
+  clientSecret?: string;
+  redirectUri: string;
+  gitlabUrl: string;
+  scopes: string[];
+  tokenStoragePath?: string;
+  tokenScript?: string;
+  /** Opens the authorization URL. Defaults to the system browser. */
+  openBrowser?: (url: string) => Promise<unknown>;
+}
+
+// Shared OAuth callback servers started by this process
+const sharedOAuthServers = new Set<http.Server>();
+
+/**
+ * Stop the shared OAuth callback servers started by this process.
+ */
+export async function closeSharedOAuthServersAsync(): Promise<void> {
+  const servers = [...sharedOAuthServers];
+  sharedOAuthServers.clear();
+  await Promise.all(
+    servers.map(
+      server =>
+        new Promise<void>(resolve => {
+          server.close(() => resolve());
+          server.closeAllConnections();
+        })
+    )
+  );
+}
+
+const SHARED_OAUTH_KEY_HEADER = "x-gitlab-mcp-oauth-key";
+
+/**
+ * Key file for the shared OAuth callback server on `port`. Sibling processes
+ * compute the same path, so they need the same OS user and home directory.
+ */
+function sharedOAuthKeyPath(port: number): string {
+  return path.join(os.homedir(), `.gitlab-mcp-oauth-${port}.key`);
+}
+
+/**
+ * Write the key to an owner-only file without following symlinks. The caller
+ * holds the port, so an existing regular file of ours is left from an earlier run.
+ */
+function writeSharedOAuthKey(keyPath: string, key: string): void {
+  const flags =
+    fs.constants.O_WRONLY |
+    fs.constants.O_CREAT |
+    fs.constants.O_EXCL |
+    (fs.constants.O_NOFOLLOW ?? 0);
+  let fd: number;
+  try {
+    fd = fs.openSync(keyPath, flags, 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+    const stat = fs.lstatSync(keyPath);
+    const uid = process.getuid?.();
+    if (!stat.isFile() || (uid !== undefined && stat.uid !== uid)) {
+      throw new Error(
+        `Refusing to replace ${keyPath}: not a regular file owned by the current user`
+      );
+    }
+    fs.unlinkSync(keyPath);
+    fd = fs.openSync(keyPath, flags, 0o600);
+  }
+  try {
+    fs.writeSync(fd, key);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function removeSharedOAuthKey(keyPath: string, key: string): void {
+  try {
+    if (fs.readFileSync(keyPath, "utf8").trim() === key) {
+      fs.unlinkSync(keyPath);
+    }
+  } catch {
+    // Best effort
+  }
+}
+
+async function readSharedOAuthKeyAsync(port: number): Promise<string> {
+  const keyPath = sharedOAuthKeyPath(port);
+  let problem = "ENOENT";
+  // The other process writes its key right after it binds the port.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    try {
+      const key = fs.readFileSync(keyPath, "utf8").trim();
+      if (/^[0-9a-f]{64}$/.test(key)) {
+        return key;
+      }
+      problem = "unexpected content";
+    } catch (error) {
+      problem = (error as NodeJS.ErrnoException).code ?? String(error);
+      if (problem !== "ENOENT") {
+        break;
+      }
+    }
+  }
+  throw new Error(
+    `cannot read OAuth server key ${keyPath} (${problem}); the process holding port ${port} ` +
+      "must run as the same OS user with the same home directory"
+  );
+}
+
+/**
+ * Host headers the shared OAuth callback server answers: loopback names with
+ * its port, plus the configured redirect URI host. The listener is bound to
+ * 127.0.0.1, so any other Host comes from a name that merely resolves there
+ * (DNS rebinding).
+ */
+function sharedOAuthAllowedHosts(port: number, redirectUri: string): Set<string> {
+  const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+  try {
+    hosts.add(new URL(redirectUri).host.toLowerCase());
+  } catch {
+    // Malformed redirectUri: loopback names only
+  }
+  return hosts;
+}
+
+function sharedOAuthKeyMatches(provided: string | string[] | undefined, expected: string): boolean {
+  if (typeof provided !== "string") {
+    return false;
+  }
+  const digest = (value: string) => crypto.createHash("sha256").update(value).digest();
+  return crypto.timingSafeEqual(digest(provided), digest(expected));
+}
+
+/**
+ * Check if a port is already in use
+ */
+async function isPortInUse(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const server = net.createServer();
+
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    });
+
+    server.once("listening", () => {
+      server.close();
+      resolve(false);
+    });
+
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+/**
+ * Request authentication from an existing OAuth server
+ */
+async function requestAuthFromExistingServer(port: number, requestId: string): Promise<TokenData> {
+  const key = await readSharedOAuthKeyAsync(port);
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: "127.0.0.1",
+      port: port,
+      path: `/auth-request?requestId=${requestId}`,
+      method: "GET",
+      headers: { [SHARED_OAUTH_KEY_HEADER]: key },
+    };
+
+    const req = http.request(options, res => {
+      let data = "";
+
+      res.on("data", chunk => {
+        data += chunk;
+      });
+
+      res.on("end", () => {
+        if (res.statusCode === 200) {
+          try {
+            const tokenData = JSON.parse(data) as TokenData;
+            resolve(tokenData);
+          } catch (error) {
+            reject(new Error(`Failed to parse token data: ${error}`));
+          }
+        } else if (res.statusCode === 403) {
+          reject(
+            new Error(
+              `OAuth server on port ${port} rejected the request key; it may run as a different OS user or an older version`
+            )
+          );
+        } else {
+          reject(new Error(`Auth request failed with status ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on("error", error => {
+      reject(new Error(`Failed to connect to existing OAuth server: ${error.message}`));
+    });
+
+    req.setTimeout(5 * 60 * 1000, () => {
+      req.destroy();
+      reject(new Error("Auth request timed out"));
+    });
+
+    req.end();
+  });
+}
+
+export class GitLabOAuth {
+  private config: OAuthConfig;
+  private tokenStoragePath: string;
+  private codeVerifier?: string;
+  private codeChallenge?: string;
+
+  constructor(config: OAuthConfig) {
+    this.config = config;
+    this.tokenStoragePath =
+      config.tokenStoragePath || path.join(os.homedir(), ".gitlab-mcp-token.json");
+  }
+
+  /**
+   * Get the authorization URL for OAuth flow
+   */
+  private async getAuthorizationUrl(state: string): Promise<string> {
+    const challenge = await pkceChallenge();
+    this.codeVerifier = challenge.code_verifier;
+    this.codeChallenge = challenge.code_challenge;
+
+    const params = new URLSearchParams();
+    params.append("client_id", this.config.clientId);
+    params.append("redirect_uri", this.config.redirectUri);
+    params.append("response_type", "code");
+    params.append("state", state);
+    params.append("scope", this.config.scopes.join(" "));
+    if (this.codeChallenge) {
+      params.append("code_challenge", this.codeChallenge);
+      params.append("code_challenge_method", "S256");
+    }
+
+    return `${this.config.gitlabUrl}/oauth/authorize?${params.toString()}`;
+  }
+
+  /**
+   * Exchange authorization code for access token
+   */
+  private async exchangeCodeForToken(code: string): Promise<TokenData> {
+    if (!this.codeVerifier) {
+      throw new Error("Code verifier not found. Authorization flow not started.");
+    }
+
+    const tokenUrl = `${this.config.gitlabUrl}/oauth/token`;
+    const params = new URLSearchParams({
+      client_id: this.config.clientId,
+      code: code,
+      grant_type: "authorization_code",
+      redirect_uri: this.config.redirectUri,
+      code_verifier: this.codeVerifier,
+    });
+
+    // Add client_secret for Confidential applications
+    if (this.config.clientSecret) {
+      params.append("client_secret", this.config.clientSecret);
+    }
+
+    const response = await fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
+    }
+
+    const body: unknown = await response.json();
+    const data = readOAuthTokenBody(body);
+    const tokenData: TokenData = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_in: data.expires_in,
+      created_at: Date.now(),
+      token_type: data.token_type,
+      scopes: data.scopes,
+    };
+    // Throw before the callback writes the file. A stored token with no scopes
+    // stays valid; only a grant that records a mismatch is rejected.
+    if (oauthTokenNeedsReauthorization(tokenData.scopes, this.config.scopes)) {
+      throw oauthScopeMismatchError(tokenData.scopes, this.config.scopes);
+    }
+    return tokenData;
+  }
+
+  /**
+   * Refresh the access token using the refresh token
+   */
+  private async refreshAccessToken(
+    refreshToken: string,
+    recordedScopes?: readonly string[]
+  ): Promise<TokenData> {
+    const tokenUrl = `${this.config.gitlabUrl}/oauth/token`;
+    const params = new URLSearchParams({
+      client_id: this.config.clientId,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+      redirect_uri: this.config.redirectUri,
+    });
+
+    // Add client_secret for Confidential applications
+    if (this.config.clientSecret) {
+      params.append("client_secret", this.config.clientSecret);
+    }
+
+    const response = await fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+      signal: AbortSignal.timeout(OAUTH_REFRESH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      const bodyText = await response.text();
+      const authInvalid = isAuthInvalidTokenResponse(response.status, bodyText);
+      throw Object.assign(new Error(`Token refresh failed: ${response.status} ${bodyText}`), {
+        authInvalid,
+      });
+    }
+
+    const body: unknown = await response.json();
+    const data = readOAuthTokenBody(body, recordedScopes);
+
+    return {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || refreshToken,
+      expires_in: data.expires_in,
+      created_at: Date.now(),
+      token_type: data.token_type,
+      scopes: data.scopes,
+    };
+  }
+
+  /**
+   * Save token data to storage
+   */
+  private saveToken(tokenData: TokenData): void {
+    try {
+      fs.writeFileSync(
+        this.tokenStoragePath,
+        JSON.stringify(tokenData, null, 2),
+        { mode: 0o600 } // Restrict access to owner only
+      );
+      logger.info(`Token saved to ${this.tokenStoragePath}`);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to save token");
+      throw error;
+    }
+  }
+
+  /**
+   * Load token data from storage
+   */
+  private loadToken(): TokenData | null {
+    try {
+      if (!fs.existsSync(this.tokenStoragePath)) {
+        return null;
+      }
+
+      const data = fs.readFileSync(this.tokenStoragePath, "utf8");
+      const parsed: unknown = JSON.parse(data);
+      return parseStoredToken(parsed);
+    } catch (error) {
+      logger.error({ err: error }, "Failed to load token");
+      return null;
+    }
+  }
+
+  /**
+   * Check if the token is expired
+   */
+  private isTokenExpired(tokenData: TokenData): boolean {
+    if (!tokenData.expires_in) {
+      return false; // If no expiry, assume it's still valid
+    }
+
+    const expiryTime = tokenData.created_at + tokenData.expires_in * 1000;
+    // Add 5 minute buffer to refresh before actual expiry
+    return Date.now() >= expiryTime - 5 * 60 * 1000;
+  }
+
+  /**
+   * Start OAuth flow and wait for callback
+   * Uses a shared server if port is already in use
+   */
+  private async startOAuthFlow(): Promise<TokenData> {
+    let callbackPort = 8888;
+    try {
+      callbackPort = parseInt(new URL(this.config.redirectUri).port || "8888", 10);
+    } catch {
+      // Fallback to default port on malformed redirectUri
+    }
+    const requestId = crypto.randomUUID();
+
+    // Check if port is already in use
+    const portInUse = await isPortInUse(callbackPort);
+
+    if (portInUse) {
+      // Port is in use, try to connect to existing server
+      logger.info(`Port ${callbackPort} is already in use. Connecting to existing OAuth server...`);
+      try {
+        return await requestAuthFromExistingServer(callbackPort, requestId);
+      } catch (error) {
+        logger.error({ err: error }, "Failed to connect to existing OAuth server");
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Port ${callbackPort} is in use but cannot connect to existing OAuth server: ${reason}. Please close other instances or use a different port.`
+        );
+      }
+    }
+
+    // Port is free, start the shared OAuth server
+    return this.startSharedOAuthServer(callbackPort, requestId);
+  }
+
+  /**
+   * Start a shared OAuth server that can handle multiple authentication requests
+   */
+  private async startSharedOAuthServer(
+    callbackPort: number,
+    initialRequestId: string
+  ): Promise<TokenData> {
+    const stateToRequestId = new Map<string, string>();
+    const requestIdToOAuthInstance = new Map<string, GitLabOAuth>();
+    const allowedHosts = sharedOAuthAllowedHosts(callbackPort, this.config.redirectUri);
+    const keyPath = sharedOAuthKeyPath(callbackPort);
+    const key = crypto.randomBytes(32).toString("hex");
+
+    return new Promise((resolve, reject) => {
+      // Create initial request
+      const state = crypto.randomUUID();
+      stateToRequestId.set(state, initialRequestId);
+      requestIdToOAuthInstance.set(initialRequestId, this);
+
+      const timeout = setTimeout(
+        () => {
+          pendingAuthRequests.get(initialRequestId)?.reject(new Error("OAuth flow timed out"));
+          pendingAuthRequests.delete(initialRequestId);
+        },
+        5 * 60 * 1000
+      );
+
+      pendingAuthRequests.set(initialRequestId, { resolve, reject, timeout });
+
+      const server = http.createServer(async (req, res) => {
+        try {
+          // Only answer requests addressed to this listener by an expected name
+          if (!allowedHosts.has((req.headers.host || "").toLowerCase())) {
+            res.writeHead(403, { "Content-Type": "text/plain" });
+            res.end("Forbidden");
+            return;
+          }
+
+          const parsedUrl = url.parse(req.url || "", true);
+
+          // Handle auth requests from other MCP instances
+          if (parsedUrl.pathname === "/auth-request") {
+            if (!sharedOAuthKeyMatches(req.headers[SHARED_OAUTH_KEY_HEADER], key)) {
+              res.writeHead(403, { "Content-Type": "text/plain" });
+              res.end("Forbidden");
+              return;
+            }
+
+            const newRequestId = parsedUrl.query.requestId as string;
+            if (!newRequestId) {
+              res.writeHead(400, { "Content-Type": "text/plain" });
+              res.end("Missing requestId parameter");
+              return;
+            }
+
+            logger.info(`Received auth request from another instance: ${newRequestId}`);
+
+            // Create a new OAuth flow for this request
+            const newState = crypto.randomUUID();
+            stateToRequestId.set(newState, newRequestId);
+
+            // Store a reference to use the same OAuth config
+            requestIdToOAuthInstance.set(newRequestId, this);
+
+            // Open browser for this new request
+            const authUrl = await this.getAuthorizationUrl(newState);
+            logger.info("Opening browser for new authentication request...");
+            logger.info(`If browser doesn't open, visit: ${redactUrlSecretsInText(authUrl)}`);
+            (this.config.openBrowser ?? open)(authUrl).catch(err => {
+              logger.error({ err }, "Failed to open browser");
+              logger.info(`Please manually open: ${redactUrlSecretsInText(authUrl)}`);
+            });
+
+            // Wait for the auth to complete
+            const authPromise = new Promise<TokenData>((authResolve, authReject) => {
+              const authTimeout = setTimeout(
+                () => {
+                  authReject(new Error("OAuth flow timed out"));
+                  pendingAuthRequests.delete(newRequestId);
+                },
+                5 * 60 * 1000
+              );
+
+              pendingAuthRequests.set(newRequestId, {
+                resolve: authResolve,
+                reject: authReject,
+                timeout: authTimeout,
+              });
+            });
+
+            try {
+              const tokenData = await authPromise;
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify(tokenData));
+            } catch (error) {
+              res.writeHead(500, { "Content-Type": "text/plain" });
+              res.end(`Authentication failed: ${error}`);
+            }
+
+            return;
+          }
+
+          // Handle OAuth callback
+          if (parsedUrl.pathname === "/callback") {
+            const { code, state: returnedState, error } = parsedUrl.query;
+
+            if (error) {
+              res.writeHead(400, { "Content-Type": "text/html" });
+              res.end(`
+                <html>
+                  <body>
+                    <h1>Authentication Failed</h1>
+                    <p>Error: ${escapeHtml(String(error))}</p>
+                    <p>You can close this window.</p>
+                  </body>
+                </html>
+              `);
+              // Find and reject the corresponding request
+              const reqId = stateToRequestId.get(returnedState as string);
+              if (reqId) {
+                const pending = pendingAuthRequests.get(reqId);
+                if (pending) {
+                  clearTimeout(pending.timeout);
+                  pending.reject(new Error(`OAuth error: ${error}`));
+                  pendingAuthRequests.delete(reqId);
+                }
+              }
+              return;
+            }
+
+            if (!returnedState || typeof returnedState !== "string") {
+              res.writeHead(400, { "Content-Type": "text/html" });
+              res.end(`
+                <html>
+                  <body>
+                    <h1>Authentication Failed</h1>
+                    <p>Invalid state parameter</p>
+                    <p>You can close this window.</p>
+                  </body>
+                </html>
+              `);
+              return;
+            }
+
+            const reqId = stateToRequestId.get(returnedState);
+            if (!reqId) {
+              res.writeHead(400, { "Content-Type": "text/html" });
+              res.end(`
+                <html>
+                  <body>
+                    <h1>Authentication Failed</h1>
+                    <p>Unknown state parameter</p>
+                    <p>You can close this window.</p>
+                  </body>
+                </html>
+              `);
+              return;
+            }
+
+            if (!code || typeof code !== "string") {
+              res.writeHead(400, { "Content-Type": "text/html" });
+              res.end(`
+                <html>
+                  <body>
+                    <h1>Authentication Failed</h1>
+                    <p>No authorization code received</p>
+                    <p>You can close this window.</p>
+                  </body>
+                </html>
+              `);
+              const pending = pendingAuthRequests.get(reqId);
+              if (pending) {
+                clearTimeout(pending.timeout);
+                pending.reject(new Error("No authorization code received"));
+                pendingAuthRequests.delete(reqId);
+              }
+              return;
+            }
+
+            try {
+              const oauthInstance = requestIdToOAuthInstance.get(reqId) || this;
+              const tokenData = await oauthInstance.exchangeCodeForToken(code);
+              oauthInstance.saveToken(tokenData);
+
+              res.writeHead(200, { "Content-Type": "text/html" });
+              res.end(`
+                <html>
+                  <body>
+                    <h1>Authentication Successful!</h1>
+                    <p>You can close this window and return to the terminal.</p>
+                  </body>
+                </html>
+              `);
+
+              const pending = pendingAuthRequests.get(reqId);
+              if (pending) {
+                clearTimeout(pending.timeout);
+                pending.resolve(tokenData);
+                pendingAuthRequests.delete(reqId);
+              }
+              stateToRequestId.delete(returnedState);
+              requestIdToOAuthInstance.delete(reqId);
+            } catch (error) {
+              res.writeHead(500, { "Content-Type": "text/html" });
+              res.end(`
+                <html>
+                  <body>
+                    <h1>Authentication Failed</h1>
+                    <p>Failed to exchange code for token</p>
+                    <p>You can close this window.</p>
+                  </body>
+                </html>
+              `);
+              const pending = pendingAuthRequests.get(reqId);
+              if (pending) {
+                clearTimeout(pending.timeout);
+                pending.reject(error as Error);
+                pendingAuthRequests.delete(reqId);
+              }
+            }
+          } else {
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            res.end("Not Found");
+          }
+        } catch (error) {
+          logger.error({ err: error }, "Error handling request");
+          res.writeHead(500, { "Content-Type": "text/plain" });
+          res.end("Internal Server Error");
+        }
+      });
+
+      server.listen(callbackPort, "127.0.0.1", async () => {
+        sharedOAuthServers.add(server);
+        try {
+          writeSharedOAuthKey(keyPath, key);
+          const removeKey = () => removeSharedOAuthKey(keyPath, key);
+          process.once("exit", removeKey);
+          server.once("close", () => {
+            process.removeListener("exit", removeKey);
+            removeKey();
+          });
+        } catch (error) {
+          logger.warn(
+            { err: error },
+            `Failed to write ${keyPath}; other MCP instances cannot use this OAuth callback server`
+          );
+        }
+        logger.info(`Shared OAuth callback server listening on port ${callbackPort}`);
+        const authUrl = await this.getAuthorizationUrl(state);
+        logger.info("Opening browser for authentication...");
+        logger.info(`If browser doesn't open, visit: ${redactUrlSecretsInText(authUrl)}`);
+        (this.config.openBrowser ?? open)(authUrl).catch(err => {
+          logger.error({ err }, "Failed to open browser");
+          logger.info(`Please manually open: ${redactUrlSecretsInText(authUrl)}`);
+        });
+      });
+
+      server.on("error", error => {
+        logger.error({ err: error }, "OAuth server error");
+        const pending = pendingAuthRequests.get(initialRequestId);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          pending.reject(error);
+          pendingAuthRequests.delete(initialRequestId);
+        }
+      });
+    });
+  }
+
+  /**
+   * Get an access token from an external command.
+   */
+  private async getScriptToken(): Promise<TokenData> {
+    if (!this.config.tokenScript) {
+      throw new Error("OAuth token script is not configured");
+    }
+
+    const shell = process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "/bin/sh";
+    const args = process.platform === "win32"
+      ? ["/d", "/s", "/c", this.config.tokenScript]
+      : ["-c", this.config.tokenScript];
+    const timeoutSeconds = Number.parseInt(process.env.GITLAB_OAUTH_TOKEN_SCRIPT_TIMEOUT_SECONDS || "30", 10);
+    const timeoutMs = (Number.isFinite(timeoutSeconds) && timeoutSeconds > 0 ? timeoutSeconds : 30) * 1000;
+    const { stdout } = await execFileAsync(shell, args, {
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    });
+    const output = stdout.trim();
+
+    if (!output) {
+      throw new Error("OAuth token script produced no output");
+    }
+
+    let accessToken = output;
+    try {
+      const parsed = JSON.parse(output) as unknown;
+      if (typeof parsed === "string") {
+        accessToken = parsed;
+      } else if (parsed && typeof parsed === "object") {
+        const value = (parsed as { access_token?: unknown; token?: unknown }).access_token ??
+          (parsed as { token?: unknown }).token;
+        if (typeof value !== "string") {
+          throw new Error("OAuth token script JSON must include a string access_token or token field");
+        }
+        accessToken = value;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("OAuth token script JSON")) {
+        throw error;
+      }
+      // Plain-token stdout is the common case.
+    }
+
+    if (!accessToken.trim()) {
+      throw new Error("OAuth token script returned an empty token");
+    }
+
+    return {
+      access_token: accessToken.trim(),
+      created_at: Date.now(),
+      token_type: "Bearer",
+    };
+  }
+
+  /**
+   * Get a valid access token, refreshing if necessary
+   */
+  async getAccessToken(force = false): Promise<string> {
+    if (this.config.tokenScript) {
+      return (await this.getScriptToken()).access_token;
+    }
+
+    let tokenData = this.loadToken();
+    const expectedScopes = this.config.scopes;
+
+    // Refresh cannot change GitLab scopes. A stored grant that records a different
+    // scope has to be authorized again, or a readonly switch keeps an `api` token.
+    // Files written before scope tracking omit `scopes` and stay usable.
+    if (!tokenData) {
+      logger.info("No stored token found. Starting OAuth flow...");
+      tokenData = await this.authorizeMatchingScopes();
+    } else if (oauthTokenNeedsReauthorization(tokenData.scopes, expectedScopes)) {
+      logger.warn(
+        `Stored OAuth token scopes (${formatOAuthScopes(tokenData.scopes)}) do not match ` +
+          `${formatOAuthScopes(expectedScopes)} for the current permission mode. Starting a new authorization flow...`
+      );
+      tokenData = await this.authorizeMatchingScopes();
+    } else if (force || this.isTokenExpired(tokenData)) {
+      logger.info(force && !this.isTokenExpired(tokenData) ? "Force-refreshing OAuth token..." : "Token expired. Refreshing...");
+      if (tokenData.refresh_token) {
+        try {
+          tokenData = await this.refreshAccessToken(tokenData.refresh_token, tokenData.scopes);
+        } catch (error) {
+          if (isAuthInvalidError(error)) {
+            logger.error({ err: error }, "Refresh token invalid, starting new OAuth flow...");
+            return (await this.authorizeMatchingScopes()).access_token;
+          }
+          logger.error({ err: error }, "Token refresh failed (transient/network), not opening browser.");
+          throw error;
+        }
+        // GitLab revokes the previous refresh token when this call succeeds.
+        // Persist the rotated grant before a browser retry so a failed or busy
+        // callback does not leave only the revoked token on disk. Callers still
+        // do not receive a mismatched access token: a recorded mismatch is
+        // rejected before refresh on the next start, and a later callback overwrites this file.
+        this.saveToken(tokenData);
+        if (oauthTokenNeedsReauthorization(tokenData.scopes, expectedScopes)) {
+          logger.warn(
+            `Refreshed OAuth token scopes (${formatOAuthScopes(tokenData.scopes)}) do not match ` +
+              `${formatOAuthScopes(expectedScopes)}. Starting a new authorization flow...`
+          );
+          tokenData = await this.authorizeMatchingScopes();
+        }
+      } else {
+        logger.info("No refresh token available. Starting new OAuth flow...");
+        tokenData = await this.authorizeMatchingScopes();
+      }
+    }
+
+    return tokenData.access_token;
+  }
+
+  /**
+   * Browser or device-callback login, rejected when GitLab grants a different scope.
+   */
+  private async authorizeMatchingScopes(): Promise<TokenData> {
+    const tokenData = await this.startOAuthFlow();
+    if (oauthTokenNeedsReauthorization(tokenData.scopes, this.config.scopes)) {
+      throw oauthScopeMismatchError(tokenData.scopes, this.config.scopes);
+    }
+    return tokenData;
+  }
+
+  /**
+   * Clear stored token
+   */
+  clearToken(): void {
+    try {
+      if (fs.existsSync(this.tokenStoragePath)) {
+        fs.unlinkSync(this.tokenStoragePath);
+        logger.info("Token cleared");
+      }
+    } catch (error) {
+      logger.error({ err: error }, "Failed to clear token");
+    }
+  }
+
+  /**
+   * Check if a valid token exists
+   */
+  hasValidToken(): boolean {
+    if (this.config.tokenScript) {
+      return true;
+    }
+
+    const tokenData = this.loadToken();
+    if (!tokenData) {
+      return false;
+    }
+    if (oauthTokenNeedsReauthorization(tokenData.scopes, this.config.scopes)) {
+      return false;
+    }
+    return !this.isTokenExpired(tokenData);
+  }
+
+  /**
+   * Device Authorization Grant (GitLab 17.9+; 17.2–17.8 need oauth2_device_grant_flow).
+   * Does not open a browser.
+   * Stores the token with the same file format as the localhost callback flow.
+   */
+  async runDeviceFlowAsync(options?: {
+    fetchImpl?: FetchImpl;
+    sleepAsync?: (ms: number) => Promise<void>;
+    onUserCode?: (info: DeviceUserCodeInfo) => void;
+    now?: () => number;
+  }): Promise<TokenData> {
+    const tokenData = await runDeviceAuthorizationGrantAsync({
+      gitlabUrl: this.config.gitlabUrl,
+      clientId: this.config.clientId,
+      clientSecret: this.config.clientSecret,
+      scopes: this.config.scopes,
+      fetchImpl: options?.fetchImpl,
+      sleepAsync: options?.sleepAsync,
+      onUserCode: options?.onUserCode,
+      now: options?.now,
+    });
+    this.saveToken(tokenData);
+    return tokenData;
+  }
+}
+
+/** Read-only permission mode only needs the `read_api` scope; every other mode needs `api`. */
+export function getOAuthScopes(permissionMode: GitLabPermissionMode): string[] {
+  return [permissionMode === "readonly" ? "read_api" : "api"];
+}
+
+function isAuthInvalidError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  return Reflect.get(error, "authInvalid") === true;
+}
+
+function readOAuthTokenBody(
+  value: unknown,
+  recordedScopes?: readonly string[]
+): {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type: string;
+  scopes?: string[];
+} {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Token endpoint returned an invalid response.");
+  }
+  const accessToken = Reflect.get(value, "access_token");
+  const refreshToken = Reflect.get(value, "refresh_token");
+  const expiresIn = Reflect.get(value, "expires_in");
+  const tokenType = Reflect.get(value, "token_type");
+  const scope = Reflect.get(value, "scope");
+  if (typeof accessToken !== "string" || accessToken.length === 0) {
+    throw new Error("Token endpoint returned an invalid response.");
+  }
+  return {
+    access_token: accessToken,
+    refresh_token: typeof refreshToken === "string" ? refreshToken : undefined,
+    expires_in: typeof expiresIn === "number" ? expiresIn : undefined,
+    token_type: typeof tokenType === "string" && tokenType.length > 0 ? tokenType : "Bearer",
+    scopes: grantedOAuthScopes(scope, recordedScopes),
+  };
+}
+
+function parseStoredToken(value: unknown): TokenData | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const accessToken = Reflect.get(value, "access_token");
+  const createdAt = Reflect.get(value, "created_at");
+  const tokenType = Reflect.get(value, "token_type");
+  const refreshToken = Reflect.get(value, "refresh_token");
+  const expiresIn = Reflect.get(value, "expires_in");
+  if (typeof accessToken !== "string" || accessToken.length === 0) {
+    return null;
+  }
+  if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) {
+    return null;
+  }
+  const token: TokenData = {
+    access_token: accessToken,
+    created_at: createdAt,
+    token_type: typeof tokenType === "string" && tokenType.length > 0 ? tokenType : "Bearer",
+  };
+  if (typeof refreshToken === "string") {
+    token.refresh_token = refreshToken;
+  }
+  if (typeof expiresIn === "number") {
+    token.expires_in = expiresIn;
+  }
+  const scopes = parseStoredScopes(Reflect.get(value, "scopes"));
+  if (scopes !== undefined) {
+    token.scopes = scopes;
+  }
+  return token;
+}
+
+function parseStoredScopes(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const scopes: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.trim() === "") {
+      return undefined;
+    }
+    scopes.push(item.trim());
+  }
+  return scopes.length > 0 ? scopes : undefined;
+}
+
+/**
+ * Construct a GitLabOAuth client from environment configuration.
+ * Does NOT perform any network access — no token is acquired here.
+ * Throws if neither GITLAB_OAUTH_CLIENT_ID nor GITLAB_OAUTH_TOKEN_SCRIPT is set.
+ */
+export function createGitLabOAuthClient(gitlabUrl: string = "https://gitlab.com"): GitLabOAuth {
+  const clientId = process.env.GITLAB_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GITLAB_OAUTH_CLIENT_SECRET;
+  const redirectUri = process.env.GITLAB_OAUTH_REDIRECT_URI || "http://127.0.0.1:8888/callback";
+  const tokenStoragePath = process.env.GITLAB_OAUTH_TOKEN_PATH;
+  const tokenScript = process.env.GITLAB_OAUTH_TOKEN_SCRIPT;
+
+  if (!clientId && !tokenScript) {
+    throw new Error(
+      "GITLAB_OAUTH_CLIENT_ID or GITLAB_OAUTH_TOKEN_SCRIPT environment variable is required for OAuth authentication"
+    );
+  }
+
+  return new GitLabOAuth({
+    clientId: clientId || "external-token-script",
+    clientSecret,
+    redirectUri,
+    gitlabUrl,
+    scopes: getOAuthScopes(GITLAB_PERMISSION_MODE),
+    tokenStoragePath,
+    tokenScript,
+  });
+}
+
+const inFlightTokenPromises = new WeakMap<GitLabOAuth, Promise<string>>();
+
+/**
+ * Ensure the caller holds a usable OAuth access token, delivering it via onToken.
+ * Returns cached token without network when still valid.
+ *
+ * NOTE: the fast path requires BOTH a held token and a valid stored token.
+ * Returning early on hasValidToken() alone would skip onToken after lazy
+ * startup (caller holds nothing yet) and leave requests unauthenticated.
+ * Concurrent callers coalesce on an in-flight promise to avoid racing
+ * duplicate refresh requests (which would fail on token rotation).
+ */
+export async function ensureOAuthToken(
+  client: GitLabOAuth | null | undefined,
+  currentToken: string | null | undefined,
+  onToken: (token: string) => void
+): Promise<void> {
+  if (!client) return;
+
+  // Fast path: token already resolved for this process and still valid.
+  if (currentToken && client.hasValidToken()) return;
+
+  let promise = inFlightTokenPromises.get(client);
+  if (!promise) {
+    const needsRefresh = !client.hasValidToken();
+    if (needsRefresh) {
+      logger.info("OAuth token expired or missing, refreshing...");
+    }
+    promise = (async () => {
+      const token = await client.getAccessToken();
+      if (needsRefresh) {
+        logger.info("OAuth token refreshed successfully");
+      }
+      return token;
+    })().finally(() => {
+      inFlightTokenPromises.delete(client);
+    });
+    inFlightTokenPromises.set(client, promise);
+  }
+
+  const token = await promise;
+  onToken(token);
+}
+
+/**
+ * Create and initialize a GitLabOAuth client.
+ * Performs initial authentication (triggers browser flow if needed).
+ * Returns the client instance and the initial access token.
+ */
+export async function initializeOAuthClient(gitlabUrl: string = "https://gitlab.com"): Promise<{ client: GitLabOAuth; accessToken: string }> {
+  const oauth = createGitLabOAuthClient(gitlabUrl);
+
+  // Single call: triggers browser flow if needed, or reads cached token
+  const accessToken = await oauth.getAccessToken();
+
+  return { client: oauth, accessToken };
+}
+
+/**
+ * Initialize OAuth authentication for GitLab MCP server
+ */
+export async function initializeOAuth(gitlabUrl: string = "https://gitlab.com"): Promise<string> {
+  const { accessToken } = await initializeOAuthClient(gitlabUrl);
+  return accessToken;
+}

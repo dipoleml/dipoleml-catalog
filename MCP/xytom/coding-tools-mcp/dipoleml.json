@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.xytom.coding-tools-mcp",
+  "type": "mcp",
+  "name": "Coding Tools MCP",
+  "slug": "coding-tools-mcp",
+  "vendor": "xytom",
+  "description": "Give any AI agent the ability to code",
+  "version": "0.0.0",
+  "homepage": "https://github.com/xyTom/coding-tools-mcp",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "dsh-plugin"
+  ],
+  "tags": [
+    "dsh-plugin",
+    "mcp",
+    "mcp-server"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "xytom",
+    "brandName": "xytom",
+    "source": "https://github.com/xyTom.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "xyTom/coding-tools-mcp",
+    "url": "https://github.com/xyTom/coding-tools-mcp",
+    "commit": "47dbccf2c3d6fa27eacf8970c8cd44d3dbcd3377",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1216,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:26:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "none",
+    "changes": []
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "see README.md",
+      "manifest": "README.md"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "coding-tools-mcp"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

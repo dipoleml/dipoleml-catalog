@@ -1,0 +1,759 @@
+import { analyzeConnectionError, type ConnectionIssue } from '../error-classifier.js';
+import { wrapCallResult } from '../result-utils.js';
+import type { ServerDefinition } from '../config.js';
+import type { Runtime } from '../runtime.js';
+import { type CallArgsParseResult, type GenericLongFlagArgument, parseCallArguments } from './call-arguments.js';
+import {
+  buildUnknownCallFlagMessage,
+  buildUnvalidatedCallFlagMessage,
+  CALL_HELP_ARGUMENT_LINES,
+  CALL_HELP_EXAMPLE_LINES,
+  CALL_HELP_RUNTIME_FLAG_LINES,
+} from './call-help.js';
+import { renderAdhocServerHelpLines } from './adhoc-help.js';
+import { CliUsageError } from './errors.js';
+import {
+  persistPreparedEphemeralServer,
+  prepareEphemeralServerTarget,
+  type PrepareEphemeralServerTargetResult,
+} from './ephemeral-target.js';
+import { looksLikeHttpUrl, normalizeHttpUrlCandidate } from './http-utils.js';
+import type { IdentifierResolution } from './identifier-helpers.js';
+import {
+  chooseClosestIdentifier,
+  normalizeIdentifier,
+  renderIdentifierResolutionMessages,
+} from './identifier-helpers.js';
+import { saveCallImagesIfRequested } from './image-output.js';
+import { buildConnectionIssueEnvelope } from './json-output.js';
+import type { OutputFormat } from './output-utils.js';
+import { printCallOutput, tailLogIfRequested } from './output-utils.js';
+import { dumpActiveHandles } from './runtime-debug.js';
+import { dimText, redText, yellowText } from './terminal.js';
+import { resolveServerCallTimeout, withTimeout } from './timeouts.js';
+import { loadToolMetadata } from './tool-cache.js';
+
+interface ResolvedCallTarget {
+  server: string;
+  tool: string;
+}
+
+interface PreparedCallRequest extends ResolvedCallTarget {
+  parsed: CallArgsParseResult;
+  hydratedArgs: Record<string, unknown>;
+  timeoutMs: number;
+  disableOAuth?: boolean;
+  ephemeralTarget?: PrepareEphemeralServerTargetResult;
+}
+
+export async function handleCall(runtime: Runtime, args: string[]): Promise<void> {
+  let prepared: PreparedCallRequest | undefined;
+  try {
+    prepared = await prepareCallRequest(runtime, args);
+    if (!prepared) {
+      return;
+    }
+
+    const invocation = await invokePreparedCall(runtime, prepared);
+    if (!invocation) {
+      return;
+    }
+
+    renderCallResult(invocation.result, prepared.parsed);
+  } finally {
+    await persistPreparedEphemeralServer(runtime, prepared?.ephemeralTarget);
+  }
+}
+
+async function prepareCallRequest(runtime: Runtime, args: string[]): Promise<PreparedCallRequest | undefined> {
+  const parsed = parseCallArguments(args);
+  const ephemeralTarget = await normalizeParsedCallArguments(runtime, parsed);
+  const { server, tool } = await resolveServerAndTool(runtime, parsed);
+
+  if (await maybeDescribeServer(runtime, server, tool, parsed.output, parsed.disableOAuth)) {
+    return undefined;
+  }
+
+  let definition: ServerDefinition | undefined;
+  try {
+    definition = runtime.getDefinition(server);
+  } catch {
+    // Invocation owns unknown-server diagnostics; timeout selection is best effort.
+  }
+  const timeoutMs = resolveServerCallTimeout(parsed.timeoutMs, definition, server);
+  const hydratedArgs = await hydratePositionalArguments(
+    runtime,
+    server,
+    tool,
+    parsed.args,
+    parsed.positionalArgs,
+    parsed.disableOAuth
+  );
+  const schemaAwareArgs = await enforceSchemaAwareArgumentTypes(
+    runtime,
+    server,
+    tool,
+    hydratedArgs,
+    parsed.schemaStringCoercionCandidates,
+    parsed.schemaArrayCoercionCandidates,
+    parsed.genericLongFlagArguments,
+    timeoutMs,
+    parsed.disableOAuth
+  );
+  return {
+    parsed,
+    server,
+    tool,
+    hydratedArgs: schemaAwareArgs,
+    timeoutMs,
+    disableOAuth: parsed.disableOAuth,
+    ephemeralTarget,
+  };
+}
+
+async function normalizeParsedCallArguments(
+  runtime: Runtime,
+  parsed: CallArgsParseResult
+): Promise<PrepareEphemeralServerTargetResult> {
+  let ephemeralSpec = parsed.ephemeral ? { ...parsed.ephemeral } : undefined;
+  const nameHints: string[] = [];
+  const absorbUrlCandidate = (value: string | undefined): string | undefined => {
+    if (!value) {
+      return value;
+    }
+    const normalized = normalizeHttpUrlCandidate(value);
+    if (!normalized) {
+      return value;
+    }
+    if (!ephemeralSpec) {
+      ephemeralSpec = { httpUrl: normalized };
+    } else if (!ephemeralSpec.httpUrl) {
+      ephemeralSpec = { ...ephemeralSpec, httpUrl: normalized };
+    }
+    return undefined;
+  };
+
+  parsed.server = absorbUrlCandidate(parsed.server);
+  parsed.selector = absorbUrlCandidate(parsed.selector);
+
+  if (ephemeralSpec && parsed.server && !looksLikeHttpUrl(parsed.server)) {
+    nameHints.push(parsed.server);
+    parsed.server = undefined;
+  }
+
+  if (ephemeralSpec?.httpUrl && parsed.selector && !looksLikeHttpUrl(parsed.selector)) {
+    const selector = splitServerToolSelector(parsed.selector);
+    if (selector) {
+      if (!ephemeralSpec.name) {
+        nameHints.push(selector.server);
+      }
+      parsed.tool ??= selector.tool;
+      parsed.selector = undefined;
+    } else if (parsed.tool) {
+      if (!ephemeralSpec.name) {
+        nameHints.push(parsed.selector);
+      }
+      parsed.selector = undefined;
+    }
+  }
+
+  const prepared = await prepareEphemeralServerTarget({
+    runtime,
+    target: parsed.server,
+    ephemeral: ephemeralSpec,
+    nameHints,
+    reuseFromSpec: true,
+  });
+
+  parsed.server = prepared.target;
+  if (!parsed.selector) {
+    parsed.selector = prepared.target;
+  }
+  return prepared;
+}
+
+async function resolveServerAndTool(runtime: Runtime, parsed: CallArgsParseResult): Promise<ResolvedCallTarget> {
+  const target = resolveCallTarget(parsed, { allowMissingTool: true });
+  const server = target.server;
+  let tool = target.tool;
+  if (!server) {
+    throw new Error('Missing server name. Provide it via <server>.<tool> or --server.');
+  }
+  if (!tool) {
+    tool = await inferSingleToolName(runtime, server, parsed.disableOAuth);
+    if (!tool) {
+      throw new Error('Missing tool name. Provide it via <server>.<tool> or --tool.');
+    }
+  }
+  return { server, tool };
+}
+
+async function invokePreparedCall(
+  runtime: Runtime,
+  prepared: PreparedCallRequest
+): Promise<{ result: unknown; resolvedTool: string } | undefined> {
+  let invocation: { result: unknown; resolvedTool: string };
+  try {
+    invocation = await invokeWithAutoCorrection(
+      runtime,
+      prepared.server,
+      prepared.tool,
+      prepared.hydratedArgs,
+      prepared.timeoutMs,
+      prepared.parsed.output,
+      prepared.disableOAuth
+    );
+  } catch (error) {
+    const issue = maybeReportConnectionIssue(prepared.server, prepared.tool, error);
+    if (prepared.parsed.output === 'json' || prepared.parsed.output === 'raw') {
+      const payload = buildConnectionIssueEnvelope({ server: prepared.server, tool: prepared.tool, error, issue });
+      console.log(JSON.stringify(payload, null, 2));
+      process.exitCode = 1;
+      return undefined;
+    }
+    throw error;
+  }
+  return invocation;
+}
+
+function renderCallResult(result: unknown, parsed: CallArgsParseResult): void {
+  const { callResult: wrapped } = wrapCallResult(result);
+  if (isErrorCallResult(result)) {
+    process.exitCode = 1;
+  }
+  printCallOutput(wrapped, result, parsed.output);
+  saveCallImagesIfRequested(wrapped, parsed.saveImagesDir);
+  tailLogIfRequested(result, parsed.tailLog);
+  dumpActiveHandles('after call (formatted result)');
+}
+
+function isErrorCallResult(result: unknown): boolean {
+  return !!result && typeof result === 'object' && (result as { isError?: unknown }).isError === true;
+}
+
+export function printCallHelp(): void {
+  const lines = [
+    'Usage: mcporter call <server.tool | url> [arguments] [flags]',
+    '',
+    'Selectors:',
+    '  server.tool            Use a configured server and tool (e.g., linear.list_issues).',
+    '  https://host/mcp.tool  Call a tool by full HTTP URL (auto-registers ad-hoc).',
+    '  --server <name>        Override the server name.',
+    '  --tool <name>          Override the tool name.',
+    '',
+    'Arguments:',
+    ...CALL_HELP_ARGUMENT_LINES,
+    '',
+    'Runtime flags:',
+    ...CALL_HELP_RUNTIME_FLAG_LINES,
+    '',
+    'Ad-hoc servers:',
+    ...renderAdhocServerHelpLines(),
+    '',
+    'Examples:',
+    ...CALL_HELP_EXAMPLE_LINES,
+  ];
+  console.error(lines.join('\n'));
+}
+
+async function maybeDescribeServer(
+  runtime: Runtime,
+  server: string,
+  tool: string,
+  outputFormat: OutputFormat,
+  disableOAuth: boolean | undefined
+): Promise<boolean> {
+  if (tool === 'list_tools') {
+    console.log(dimText(`[mcporter] ${server}.list_tools is a shortcut for 'mcporter list ${server}'.`));
+    const listArgs = [server];
+    if (disableOAuth) {
+      listArgs.push('--no-oauth');
+    }
+    if (outputFormat === 'json') {
+      listArgs.push('--json');
+    }
+    const { handleList } = await import('./list-command.js');
+    await handleList(runtime, listArgs);
+    return true;
+  }
+  if (tool !== 'help') {
+    return false;
+  }
+  const tools = await runtime
+    .listTools(server, { includeSchema: false, autoAuthorize: false, disableOAuth })
+    .catch(() => undefined);
+  if (!tools) {
+    return false;
+  }
+  const hasHelpTool = tools.some((entry) => entry.name === 'help');
+  if (hasHelpTool) {
+    return false;
+  }
+  console.log(dimText(`[mcporter] ${server} does not expose a 'help' tool; showing mcporter list output instead.`));
+  const listArgs = [server];
+  if (disableOAuth) {
+    listArgs.push('--no-oauth');
+  }
+  if (outputFormat === 'json') {
+    listArgs.push('--json');
+  }
+  const { handleList } = await import('./list-command.js');
+  await handleList(runtime, listArgs);
+  return true;
+}
+
+interface ResolveCallTargetOptions {
+  allowMissingTool?: boolean;
+}
+
+function resolveCallTarget(
+  parsed: CallArgsParseResult,
+  options: ResolveCallTargetOptions = {}
+): { server?: string; tool?: string } {
+  const selector = parsed.selector;
+  let server = parsed.server;
+  let tool = parsed.tool;
+
+  if (selector && !server && selector.includes('.')) {
+    // Tool names may contain dots, so only the first one separates the server. Keep the
+    // remainder intact the way the ad-hoc HTTP path and the call-expression parser do.
+    const split = splitServerToolSelector(selector);
+    server = split?.server ?? selector.slice(0, selector.indexOf('.'));
+    // An explicit --tool / tool= overrides the selector's tool, as on the ad-hoc HTTP path.
+    tool = parsed.toolFromPositional ? split?.tool : (tool ?? split?.tool);
+  } else if (selector && !server) {
+    server = selector;
+  } else if (selector && !tool && selector !== server) {
+    tool = selector;
+  }
+
+  if (!server) {
+    throw new Error('Missing server name. Provide it via <server>.<tool> or --server.');
+  }
+  if (!tool && !options.allowMissingTool) {
+    throw new Error('Missing tool name. Provide it via <server>.<tool> or --tool.');
+  }
+
+  return { server, tool };
+}
+
+function splitServerToolSelector(selector: string): { server: string; tool: string } | undefined {
+  const dotIndex = selector.indexOf('.');
+  if (dotIndex <= 0 || dotIndex === selector.length - 1) {
+    return undefined;
+  }
+  return {
+    server: selector.slice(0, dotIndex),
+    tool: selector.slice(dotIndex + 1),
+  };
+}
+
+async function enforceSchemaAwareArgumentTypes(
+  runtime: Runtime,
+  server: string,
+  tool: string,
+  args: Record<string, unknown>,
+  stringCandidates: Record<string, string> | undefined,
+  arrayCandidates: Record<string, string> | undefined,
+  genericLongFlagArguments: GenericLongFlagArgument[] | undefined,
+  timeoutMs: number,
+  disableOAuth: boolean | undefined
+): Promise<Record<string, unknown>> {
+  const requiresFlagValidation = (genericLongFlagArguments?.length ?? 0) > 0;
+  if (
+    !requiresFlagValidation &&
+    (!stringCandidates || Object.keys(stringCandidates).length === 0) &&
+    (!arrayCandidates || Object.keys(arrayCandidates).length === 0)
+  ) {
+    return args;
+  }
+
+  let tools: Awaited<ReturnType<typeof loadToolMetadata>> | undefined;
+  try {
+    tools = await withTimeout(loadToolMetadata(runtime, server, { includeSchema: true, disableOAuth }), timeoutMs);
+  } catch {
+    if (requiresFlagValidation) {
+      throw new CliUsageError(
+        buildUnvalidatedCallFlagMessage(genericLongFlagArguments?.[0]?.token ?? '--', server, tool)
+      );
+    }
+  }
+  if (!tools) {
+    return args;
+  }
+  const toolInfo = tools.find((entry) => entry.tool.name === tool);
+  const schema = toolInfo?.tool.inputSchema;
+  const schemaProperties = readSchemaProperties(schema);
+  const declaredOptions = new Set(toolInfo?.options.map((option) => option.property) ?? []);
+  for (const key of Object.keys(schemaProperties ?? {})) {
+    declaredOptions.add(key);
+  }
+  if (requiresFlagValidation && (!toolInfo || (!schemaProperties && declaredOptions.size === 0))) {
+    throw new CliUsageError(
+      buildUnvalidatedCallFlagMessage(genericLongFlagArguments?.[0]?.token ?? '--', server, tool)
+    );
+  }
+  for (const flag of genericLongFlagArguments ?? []) {
+    if (!declaredOptions.has(flag.key)) {
+      throw new CliUsageError(buildUnknownCallFlagMessage(flag.token));
+    }
+  }
+  if (!schemaProperties) {
+    return args;
+  }
+
+  let corrected: Record<string, unknown> | undefined;
+  for (const [key, rawValue] of Object.entries(stringCandidates ?? {})) {
+    if (typeof args[key] !== 'number') {
+      continue;
+    }
+    if (!schemaAllowsString(schemaProperties[key])) {
+      continue;
+    }
+    corrected ??= { ...args };
+    corrected[key] = rawValue;
+  }
+  for (const [key, rawValue] of Object.entries(arrayCandidates ?? {})) {
+    if (typeof args[key] !== 'string') {
+      continue;
+    }
+    const descriptor = schemaProperties[key];
+    if (!schemaAllowsArray(descriptor) || schemaAllowsString(descriptor)) {
+      continue;
+    }
+    corrected ??= { ...args };
+    corrected[key] = [rawValue];
+  }
+  return corrected ?? args;
+}
+
+function readSchemaProperties(schema: unknown): Record<string, unknown> | undefined {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return undefined;
+  }
+  const properties = (schema as Record<string, unknown>).properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    return undefined;
+  }
+  return properties as Record<string, unknown>;
+}
+
+function schemaAllowsString(descriptor: unknown): boolean {
+  if (!descriptor || typeof descriptor !== 'object') {
+    return false;
+  }
+  const record = descriptor as Record<string, unknown>;
+  const type = record.type;
+  if (type === 'string') {
+    return true;
+  }
+  if (Array.isArray(type) && type.includes('string')) {
+    return true;
+  }
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    const variants = record[key];
+    if (Array.isArray(variants) && variants.some(schemaAllowsString)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function schemaAllowsArray(descriptor: unknown): boolean {
+  if (!descriptor || typeof descriptor !== 'object') {
+    return false;
+  }
+  const record = descriptor as Record<string, unknown>;
+  const type = record.type;
+  if (type === 'array') {
+    return true;
+  }
+  if (Array.isArray(type) && type.includes('array')) {
+    return true;
+  }
+  for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+    const variants = record[key];
+    if (Array.isArray(variants) && variants.some(schemaAllowsArray)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function hydratePositionalArguments(
+  runtime: Runtime,
+  server: string,
+  tool: string,
+  namedArgs: Record<string, unknown>,
+  positionalArgs: unknown[] | undefined,
+  disableOAuth: boolean | undefined
+): Promise<Record<string, unknown>> {
+  if (!positionalArgs || positionalArgs.length === 0) {
+    return namedArgs;
+  }
+  // We need the schema order to know which field each positional argument maps to; pull the
+  // tool list with schemas instead of guessing locally so optional/required order stays correct.
+  const tools = await loadToolMetadata(runtime, server, { includeSchema: true, disableOAuth }).catch(() => undefined);
+  if (!tools) {
+    throw new Error('Unable to load tool metadata; name positional arguments explicitly.');
+  }
+  const toolInfo = tools.find((entry) => entry.tool.name === tool);
+  if (!toolInfo) {
+    throw new Error(
+      `Unknown tool '${tool}' on server '${server}'. Double-check the name or run mcporter list ${server}.`
+    );
+  }
+  if (!toolInfo.tool.inputSchema) {
+    throw new Error(`Tool '${tool}' does not expose an input schema; name positional arguments explicitly.`);
+  }
+  const options = toolInfo.options;
+  if (options.length === 0) {
+    throw new Error(`Tool '${tool}' has no declared parameters; remove positional arguments.`);
+  }
+  // Respect whichever parameters the user already supplied by name so positional values only
+  // populate the fields that are still unset.
+  const remaining = options.filter((option) => !Object.hasOwn(namedArgs, option.property));
+  if (positionalArgs.length > remaining.length) {
+    throw new Error(
+      `Too many positional arguments (${positionalArgs.length}) supplied; only ${remaining.length} parameter${remaining.length === 1 ? '' : 's'} remain on ${tool}.`
+    );
+  }
+  return Object.fromEntries([
+    ...Object.entries(namedArgs),
+    ...remaining.slice(0, positionalArgs.length).map((option, index) => [option.property, positionalArgs[index]]),
+  ]);
+}
+
+type ToolResolution = IdentifierResolution;
+
+async function inferSingleToolName(
+  runtime: Runtime,
+  server: string,
+  disableOAuth: boolean | undefined
+): Promise<string | undefined> {
+  const tools = await loadToolMetadata(runtime, server, { includeSchema: false, disableOAuth });
+  if (tools.length !== 1) {
+    return undefined;
+  }
+  const name = tools[0]?.tool.name;
+  if (!name) {
+    return undefined;
+  }
+  console.log(dimText(`[auto] ${server} exposes a single tool (${name}); using it.`));
+  return name;
+}
+
+async function invokeWithAutoCorrection(
+  runtime: Runtime,
+  server: string,
+  tool: string,
+  args: Record<string, unknown>,
+  timeoutMs: number,
+  outputFormat: OutputFormat,
+  disableOAuth: boolean | undefined
+): Promise<{ result: unknown; resolvedTool: string }> {
+  // Attempt the original request first; if it fails with a "tool not found" we opportunistically retry once with a better match.
+  return attemptCall(runtime, server, tool, args, timeoutMs, outputFormat, true, disableOAuth);
+}
+
+async function attemptCall(
+  runtime: Runtime,
+  server: string,
+  tool: string,
+  args: Record<string, unknown>,
+  timeoutMs: number,
+  outputFormat: OutputFormat,
+  allowCorrection: boolean,
+  disableOAuth: boolean | undefined
+): Promise<{ result: unknown; resolvedTool: string }> {
+  try {
+    const result = await withTimeout(runtime.callTool(server, tool, { args, timeoutMs, disableOAuth }), timeoutMs);
+    if (allowCorrection && isErrorCallResult(result)) {
+      const resolution = await maybeResolveToolName(runtime, server, tool, result, disableOAuth);
+      if (resolution) {
+        const retry = await maybeRetryResolvedTool(
+          runtime,
+          server,
+          tool,
+          args,
+          timeoutMs,
+          outputFormat,
+          resolution,
+          disableOAuth
+        );
+        if (retry) {
+          return retry;
+        }
+      }
+    }
+    return { result, resolvedTool: tool };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Timeout') {
+      const timeoutDisplay = `${timeoutMs}ms`;
+      await runtime.close(server).catch(() => {});
+      throw new Error(
+        `Call to ${server}.${tool} timed out after ${timeoutDisplay}. Override MCPORTER_CALL_TIMEOUT or pass --timeout to adjust.`,
+        { cause: error }
+      );
+    }
+
+    if (!allowCorrection) {
+      throw error;
+    }
+
+    const resolution = await maybeResolveToolName(runtime, server, tool, error, disableOAuth);
+    if (!resolution) {
+      throw error;
+    }
+
+    const retry = await maybeRetryResolvedTool(
+      runtime,
+      server,
+      tool,
+      args,
+      timeoutMs,
+      outputFormat,
+      resolution,
+      disableOAuth
+    );
+    if (!retry) {
+      throw error;
+    }
+    return retry;
+  }
+}
+
+async function maybeRetryResolvedTool(
+  runtime: Runtime,
+  server: string,
+  tool: string,
+  args: Record<string, unknown>,
+  timeoutMs: number,
+  outputFormat: OutputFormat,
+  resolution: ToolResolution,
+  disableOAuth: boolean | undefined
+): Promise<{ result: unknown; resolvedTool: string } | undefined> {
+  const messages = renderIdentifierResolutionMessages({
+    entity: 'tool',
+    attempted: tool,
+    resolution,
+    scope: server,
+  });
+  if (resolution.kind === 'suggest') {
+    if (messages.suggest) {
+      console.error(dimText(messages.suggest));
+    }
+    return undefined;
+  }
+  if (messages.auto) {
+    const emitAutoMessage = outputFormat === 'json' || outputFormat === 'raw' ? console.error : console.log;
+    emitAutoMessage(dimText(messages.auto));
+  }
+  return attemptCall(runtime, server, resolution.value, args, timeoutMs, outputFormat, false, disableOAuth);
+}
+
+async function maybeResolveToolName(
+  runtime: Runtime,
+  server: string,
+  attemptedTool: string,
+  error: unknown,
+  disableOAuth: boolean | undefined
+): Promise<ToolResolution | undefined> {
+  const missingName = extractMissingToolFromError(error);
+  if (!missingName) {
+    return undefined;
+  }
+
+  // Only attempt a suggestion if the server explicitly rejected the tool we tried.
+  if (normalizeIdentifier(missingName) !== normalizeIdentifier(attemptedTool)) {
+    return undefined;
+  }
+
+  const tools = await loadToolMetadata(runtime, server, { includeSchema: false, disableOAuth }).catch(() => undefined);
+  if (!tools) {
+    return undefined;
+  }
+
+  const resolution = chooseClosestIdentifier(
+    attemptedTool,
+    tools.map((entry) => entry.tool.name)
+  );
+  if (!resolution) {
+    return undefined;
+  }
+  return resolution;
+}
+
+function extractMissingToolFromError(error: unknown): string | undefined {
+  const message = extractErrorMessageText(error);
+  if (!message) {
+    return undefined;
+  }
+  const match =
+    message.match(/Tool\s+([A-Za-z0-9._-]+)\s+not found/i) ?? message.match(/Unknown tool:?\s+([A-Za-z0-9._-]+)/i);
+  return match?.[1];
+}
+
+function extractErrorMessageText(value: unknown): string | undefined {
+  if (value instanceof Error) {
+    return value.message;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const content = (value as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+  return content
+    .map((entry) =>
+      entry && typeof entry === 'object' && typeof (entry as { text?: unknown }).text === 'string'
+        ? (entry as { text: string }).text
+        : ''
+    )
+    .filter(Boolean)
+    .join('\n');
+}
+
+function maybeReportConnectionIssue(server: string, tool: string, error: unknown): ConnectionIssue | undefined {
+  const issue = analyzeConnectionError(error);
+  const detail = summarizeIssueMessage(issue.rawMessage);
+  if (issue.kind === 'auth') {
+    const authCommand = `mcporter auth ${server}`;
+    const hint = `[mcporter] Authorization required for ${server}. Run '${authCommand}'.${detail ? ` (${detail})` : ''}`;
+    console.error(yellowText(hint));
+    return issue;
+  }
+  if (issue.kind === 'offline') {
+    const hint = `[mcporter] ${server} appears offline${detail ? ` (${detail})` : ''}.`;
+    console.error(redText(hint));
+    return issue;
+  }
+  if (issue.kind === 'http') {
+    const status = issue.statusCode ? `HTTP ${issue.statusCode}` : 'an HTTP error';
+    const hint = `[mcporter] ${server}.${tool} responded with ${status}${detail ? ` (${detail})` : ''}.`;
+    console.error(dimText(hint));
+    return issue;
+  }
+  if (issue.kind === 'stdio-exit') {
+    const exit = typeof issue.stdioExitCode === 'number' ? `code ${issue.stdioExitCode}` : 'an unknown status';
+    const signal = issue.stdioSignal ? ` (signal ${issue.stdioSignal})` : '';
+    const hint = `[mcporter] STDIO server for ${server} exited with ${exit}${signal}.`;
+    console.error(redText(hint));
+  }
+  return issue;
+}
+
+function summarizeIssueMessage(message: string): string {
+  if (!message) {
+    return '';
+  }
+  const trimmed = message.trim();
+  if (trimmed.length <= 120) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, 117)}…`;
+}
